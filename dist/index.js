@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { resolve, basename, join, relative } from "node:path";
+import { homedir } from "node:os";
+import { resolve, basename, dirname, join, relative } from "node:path";
 const defineExtension = ((extension) => extension);
 // ---------------------------------------------------------------------------
 // Error contract — mirror pm-cli SDK EXIT_CODE so the host treats thrown
@@ -47,10 +48,20 @@ function asArray(value) {
         return [];
     return value.split(",").map((entry) => entry.trim()).filter(Boolean);
 }
+// Expand a leading `~` to the user's home directory so agent- or user-provided
+// paths like `~/container/pm-csv` resolve correctly instead of failing ENOENT
+// relative to the current working directory.
+function resolvePath(p) {
+    if (p === "~")
+        return homedir();
+    if (p.startsWith("~/"))
+        return resolve(join(homedir(), p.slice(2)));
+    return resolve(p);
+}
 function resolveRepos(options) {
     const repos = asArray(options["repos"]);
     if (repos.length > 0)
-        return repos.map((r) => resolve(r));
+        return repos.map((r) => resolvePath(r));
     return [process.cwd()];
 }
 function resolveFormat(options) {
@@ -91,15 +102,57 @@ function readJsonFile(path) {
 function readPackageJson(repoPath) {
     return readJsonFile(join(repoPath, "package.json"));
 }
+// pm-changelog is most often a devDependency, but some setups declare build
+// tooling under `dependencies`. Check both so we don't false-fail policy/scan.
+function hasPmChangelogDep(pkg) {
+    return Boolean((pkg?.devDependencies && "pm-changelog" in pkg.devDependencies) ||
+        (pkg?.dependencies && "pm-changelog" in pkg.dependencies));
+}
+// Follow `extends` chains so a repo that inherits `strict: true` from a shared
+// base tsconfig (common in monorepos) is correctly detected as strict.
 function readTsConfigStrict(repoPath) {
-    const cfg = readJsonFile(join(repoPath, "tsconfig.json"));
-    return cfg?.compilerOptions?.strict === true;
+    let currentPath = join(repoPath, "tsconfig.json");
+    const visited = new Set();
+    for (;;) {
+        if (visited.has(currentPath))
+            break;
+        visited.add(currentPath);
+        const cfg = readJsonFile(currentPath);
+        if (!cfg)
+            break;
+        if (cfg.compilerOptions?.strict === true)
+            return true;
+        if (cfg.compilerOptions?.strict === false)
+            return false;
+        if (typeof cfg.extends !== "string")
+            break;
+        currentPath = resolve(dirname(currentPath), cfg.extends);
+    }
+    return false;
+}
+// Resolve the pm CLI invocation. We prefer spawning the `pm` executable by name
+// (the common case), but fall back to the current Node + script path when `pm`
+// is not on PATH (npx, local monorepo bin, relative invocation). A quick
+// `spawnSync` probe avoids falling back unnecessarily and keeps the happy path
+// zero-config.
+function pmSpawnTarget() {
+    const probe = spawnSync("pm", ["--version"], { encoding: "utf-8", shell: false });
+    if (!probe.error && probe.status === 0)
+        return { cmd: "pm", leadArgs: [] };
+    // process.argv[0] = node binary, process.argv[1] = pm CLI script path.
+    if (process.argv[0] && process.argv[1])
+        return { cmd: process.argv[0], leadArgs: [process.argv[1]] };
+    return { cmd: "pm", leadArgs: [] };
+}
+function runPm(args, opts = {}) {
+    const target = pmSpawnTarget();
+    return runSync(target.cmd, [...target.leadArgs, ...args], opts);
 }
 function readPmItems(repoPath) {
     const pmRoot = join(repoPath, ".agents", "pm");
     if (!existsSync(pmRoot))
         return null;
-    const r = runSync("pm", ["list", "--json", "--pm-path", pmRoot]);
+    const r = runPm(["list", "--json", "--pm-path", pmRoot]);
     if (r.status !== 0)
         return null;
     const parsed = parseJsonSafe(r.stdout);
@@ -119,6 +172,10 @@ function countOutdated(repoPath) {
     const r = runSync("npm", ["outdated", "--json"], { cwd: repoPath, timeoutMs: 60_000 });
     if (r.error)
         return null;
+    // `npm outdated --json` exits 0 with empty stdout when nothing is outdated.
+    // That is the "0 outdated" case, not an error — return 0 instead of null.
+    if (r.status === 0 && r.stdout.trim() === "")
+        return 0;
     const parsed = parseJsonSafe(r.stdout);
     if (!parsed || typeof parsed !== "object")
         return null;
@@ -168,7 +225,7 @@ function scanRepo(repoPath) {
     const has_changelog = existsSync(join(repoPath, "CHANGELOG.md"));
     const has_release_workflow = existsSync(join(repoPath, ".github", "workflows", "release.yml"));
     const has_ci = existsSync(join(repoPath, ".github", "workflows", "ci.yml"));
-    const has_pm_changelog = Boolean(pkg?.devDependencies && "pm-changelog" in pkg.devDependencies);
+    const has_pm_changelog = hasPmChangelogDep(pkg);
     const items = readPmItems(repoPath);
     const pm_workspace = items !== null;
     const pm_open_items = items ? items.filter((i) => (i.status ?? "").toLowerCase() === "open").length : null;
@@ -234,6 +291,11 @@ const DEFAULT_POLICY = {
         { id: "pm-changelog-wired", severity: "error" },
     ],
 };
+// Named defaults referenced when a policy check omits `params`. Kept as named
+// constants (rather than indexing DEFAULT_POLICY.checks by position) so that
+// reordering or inserting checks can never silently grab the wrong entry.
+const DEFAULT_REQUIRED_SCRIPTS = ["typecheck", "test", "build", "release:check", "changelog", "changelog:check"];
+const DEFAULT_REQUIRED_WORKFLOWS = ["ci.yml", "release.yml"];
 const NAME_PATTERN = /^pm-[a-z][a-z0-9-]*$/;
 const FORBIDDEN_PREFIXES = ["pm-ext-", "pm-preset-"];
 const RUNNER_PATTERN = /(github-hosted|macos-|windows-|ubuntu-)/;
@@ -315,7 +377,7 @@ function checkPmDuplicateTitles(items) {
     };
 }
 function checkPmChangelogWired(pkg) {
-    const hasDep = Boolean(pkg?.devDependencies && "pm-changelog" in pkg.devDependencies);
+    const hasDep = hasPmChangelogDep(pkg);
     const hasScript = Boolean(pkg?.scripts && typeof pkg.scripts["changelog"] === "string");
     const pass = hasDep && hasScript;
     return {
@@ -326,22 +388,36 @@ function checkPmChangelogWired(pkg) {
     };
 }
 function runPolicyCheck(def, ctx) {
+    let res;
     switch (def.id) {
         case "naming":
-            return checkNaming(ctx.pkg?.name ?? null);
+            res = checkNaming(ctx.pkg?.name ?? null);
+            break;
         case "required-scripts":
-            return checkRequiredScripts(ctx.pkg, def.params?.scripts ?? DEFAULT_POLICY.checks[1].params.scripts);
+            res = checkRequiredScripts(ctx.pkg, def.params?.scripts ?? DEFAULT_REQUIRED_SCRIPTS);
+            break;
         case "required-workflows":
-            return checkRequiredWorkflows(ctx.repoPath, def.params?.workflows ?? ["ci.yml", "release.yml"]);
+            res = checkRequiredWorkflows(ctx.repoPath, def.params?.workflows ?? DEFAULT_REQUIRED_WORKFLOWS);
+            break;
         case "private-no-runners":
-            return checkPrivateNoRunners(ctx.repoPath);
+            res = checkPrivateNoRunners(ctx.repoPath);
+            break;
         case "pm-duplicate-titles":
-            return checkPmDuplicateTitles(ctx.items);
+            res = checkPmDuplicateTitles(ctx.items);
+            break;
         case "pm-changelog-wired":
-            return checkPmChangelogWired(ctx.pkg);
+            res = checkPmChangelogWired(ctx.pkg);
+            break;
         default:
-            return { id: def.id, severity: def.severity, pass: false, message: `unknown check id "${def.id}"` };
+            res = { id: def.id, severity: def.severity, pass: false, message: `unknown check id "${def.id}"` };
     }
+    // Preserve any custom severity override declared in the policy bundle so
+    // per-check output is consistent with the policy definition (a check the
+    // user downgraded to "warning" should not be reported as "error").
+    if (def.severity && res.severity !== def.severity) {
+        return { ...res, severity: def.severity };
+    }
+    return res;
 }
 function matchesFilter(repoPath, name, filter) {
     if (!filter)
@@ -382,8 +458,12 @@ function runReleaseCheck(repoPath, name, args, progress) {
     const start = Date.now();
     const r = runSync("npm", args, { cwd: repoPath, timeoutMs: 5 * 60_000 });
     const duration_ms = Date.now() - start;
-    const pass = r.status === 0;
-    const error = pass ? undefined : (r.stderr.trim() || r.stdout.trim() || `npm ${args.join(" ")} exited ${r.status}`).slice(-2000);
+    // Treat a spawn/timeout error (r.error, e.g. ETIMEDOUT/ENOENT) as a failure
+    // and surface its message so agents get a clear reason, not just an exit code.
+    const pass = r.status === 0 && !r.error;
+    const error = pass
+        ? undefined
+        : (r.error?.message || r.stderr.trim() || r.stdout.trim() || `npm ${args.join(" ")} exited ${r.status}`).slice(-2000);
     return { name, pass, duration_ms, error };
 }
 function verifyReleaseRepo(repoPath, progress) {
@@ -397,6 +477,19 @@ function verifyReleaseRepo(repoPath, progress) {
         checks = FALLBACK_STEPS
             .filter((s) => typeof scripts[s] === "string")
             .map((s) => runReleaseCheck(repoPath, s, ["run", s], progress));
+    }
+    // A repo with no runnable release scripts would otherwise be a false green.
+    // Surface it as a single failed check so verify-release never reports a
+    // release-ready state for a repo that has no gate defined.
+    if (checks.length === 0) {
+        checks = [
+            {
+                name: "release:check",
+                pass: false,
+                duration_ms: 0,
+                error: "no release gate found: define a `release:check` script (or at least one of typecheck/build/test/audit:prod/pack:dry-run/changelog:check)",
+            },
+        ];
     }
     const passed = checks.filter((c) => c.pass).length;
     const failed = checks.filter((c) => !c.pass).length;
@@ -502,9 +595,15 @@ function renderPolicyMarkdown(result) {
 function renderReportMarkdown(result) {
     return [renderScanMarkdown(result.scan), "", renderPolicyMarkdown(result.policy)].join("\n");
 }
+// Serialize the structured result as JSON. Branching JSON separately from the
+// markdown formatter ensures `--format json` / `--json` and `--output <file>`
+// write real serialized JSON, not markdown.
+function jsonOf(structured) {
+    return `${JSON.stringify(structured, null, 2)}\n`;
+}
 function emitResult(structured, format, outputPath, formatter) {
     if (outputPath) {
-        const body = format === "toon" ? `${JSON.stringify(structured, null, 2)}\n` : formatter();
+        const body = format === "markdown" ? formatter() : jsonOf(structured);
         writeFileSync(outputPath, body, "utf-8");
         console.error(`pm-ops: wrote ${format} output to ${outputPath}`);
         return { written_to: outputPath, format };
@@ -512,7 +611,7 @@ function emitResult(structured, format, outputPath, formatter) {
     if (format === "toon")
         return structured;
     if (format === "json")
-        return renderedCommandResult(`${JSON.stringify(structured, null, 2)}\n`);
+        return renderedCommandResult(jsonOf(structured));
     return renderedCommandResult(formatter());
 }
 // ---------------------------------------------------------------------------
@@ -588,7 +687,7 @@ export default defineExtension({
                 let bundle = DEFAULT_POLICY;
                 const policyFile = readString(options, "policy");
                 if (policyFile) {
-                    const loaded = readJsonFile(resolve(policyFile));
+                    const loaded = readJsonFile(resolvePath(policyFile));
                     if (!loaded || !Array.isArray(loaded.checks)) {
                         throw new CommandError(`--policy file "${policyFile}" is not a valid policy bundle (expected { checks: [...] })`, EXIT_CODE.USAGE);
                     }
@@ -597,11 +696,21 @@ export default defineExtension({
                 console.error(`pm-ops policy: ${repos.length} repo(s), ${bundle.checks.length} check(s)`);
                 const result = runPolicy(repos, bundle, (m) => console.error(`  ${m}`));
                 console.error(`policy: ${result.summary.passed} passed, ${result.summary.failed} failed`);
-                const out = emitResult(result, format, outputPath, () => renderPolicyMarkdown(result));
-                if (strict && result.summary.failed > 0) {
+                const failed = result.summary.failed > 0;
+                // In strict mode with failures, write the formatted result to stdout
+                // BEFORE throwing so users/agents still see which checks failed (mirrors
+                // ops verify-release). When --output is set the file already captures
+                // the detail; only mirror to stdout when no output file is configured.
+                if (strict && failed && !outputPath) {
+                    if (format === "markdown") {
+                        process.stdout.write(`${renderPolicyMarkdown(result)}\n`);
+                    }
+                    else {
+                        process.stdout.write(jsonOf(result));
+                    }
                     throw new CommandError(`policy: ${result.summary.failed} check(s) failed (strict mode)`, EXIT_CODE.GENERIC_FAILURE);
                 }
-                return out;
+                return emitResult(result, format, outputPath, () => renderPolicyMarkdown(result));
             },
         });
         api.registerCommand({

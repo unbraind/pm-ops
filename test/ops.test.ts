@@ -2,17 +2,22 @@ import assert from "node:assert/strict";
 import test, { before, after } from "node:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 
 import extension from "../dist/index.js";
 
-// Real fleet paths used for local real-data testing. These are absent on CI,
-// so the real-data tests skip gracefully when the repos are not present.
-const PM_CSV = "/home/steve/container/pm-csv";
-const PM_TS_STARTER = "/home/steve/container/pm-ts-starter";
-const REAL_REPOS = [PM_CSV, PM_TS_STARTER];
-const REAL_REPOS_AVAILABLE = REAL_REPOS.every((p) => existsSync(join(p, "package.json")));
+// Optional real-fleet paths for local real-data testing. Configurable via the
+// PM_OPS_TEST_REPOS env var (comma-separated). The fixture tests above cover
+// CI; these real-data tests only run when the repos are present. No absolute
+// host paths are hardcoded so the suite is fully portable.
+const ENV_REPOS = (process.env.PM_OPS_TEST_REPOS ?? "")
+  .split(",")
+  .map((p) => p.trim())
+  .filter(Boolean);
+const REAL_REPOS = ENV_REPOS.length > 0 ? ENV_REPOS : [];
+const REAL_REPOS_AVAILABLE = REAL_REPOS.length > 0 && REAL_REPOS.every((p) => existsSync(join(p, "package.json")));
+const PM_TS_STARTER = REAL_REPOS.find((p) => basename(p) === "pm-ts-starter") ?? REAL_REPOS[0] ?? "";
 
 interface CapturedCommand {
   name: string;
@@ -223,30 +228,28 @@ test("ops report --output writes to a file and returns a summary", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Real-data tests against the live pm fleet. These run only when the real
-// repos are present (local dev on Steve's machine); they skip on CI where the
-// absolute host paths do not exist. The fixture tests above cover CI.
+// Real-data tests against a live pm fleet. These run only when the
+// PM_OPS_TEST_REPOS env var points at real repos that are present (e.g. local
+// dev); they skip on CI where those repos do not exist. The fixture tests
+// above cover CI. Set e.g. PM_OPS_TEST_REPOS=/path/to/pm-csv,/path/to/pm-ts-starter
 // ---------------------------------------------------------------------------
 
-test("real-data: scan on pm-csv + pm-ts-starter reports both ready", { skip: !REAL_REPOS_AVAILABLE }, async () => {
+test("real-data: scan on the configured fleet reports all ready", { skip: !REAL_REPOS_AVAILABLE }, async () => {
   const { commands } = activateAndCapture();
   const result = (await runCommand(commands, "ops scan", { repos: REAL_REPOS })) as any;
-  assert.strictEqual(result.repos.length, 2);
-  const csv = result.repos.find((r: any) => r.name === "pm-csv");
-  assert.ok(csv);
-  assert.strictEqual(csv.strict_ts, true);
-  assert.strictEqual(csv.has_release_workflow, true);
-  assert.strictEqual(csv.has_pm_changelog, true);
-  assert.strictEqual(csv.ready, true, "pm-csv should be ready");
-  const starter = result.repos.find((r: any) => r.name === "pm-ts-starter");
-  assert.ok(starter);
-  assert.strictEqual(starter.ready, true, "pm-ts-starter should be ready");
+  assert.strictEqual(result.repos.length, REAL_REPOS.length);
+  for (const repo of result.repos) {
+    assert.strictEqual(repo.strict_ts, true, `${repo.name} should have strict TS`);
+    assert.strictEqual(repo.has_release_workflow, true, `${repo.name} should have a release workflow`);
+    assert.strictEqual(repo.has_pm_changelog, true, `${repo.name} should have pm-changelog wired`);
+    assert.strictEqual(repo.ready, true, `${repo.name} should be ready`);
+  }
 });
 
-test("real-data: verify-release on pm-ts-starter passes", { skip: !REAL_REPOS_AVAILABLE }, async () => {
+test("real-data: verify-release on the configured starter repo passes", { skip: !REAL_REPOS_AVAILABLE || !PM_TS_STARTER }, async () => {
   const { commands } = activateAndCapture();
   const result = (await runCommand(commands, "ops verify-release", { repos: [PM_TS_STARTER] })) as any;
   assert.strictEqual(result.repos.length, 1);
-  assert.strictEqual(result.repos[0].failed, 0, "pm-ts-starter release:check should pass");
+  assert.strictEqual(result.repos[0].failed, 0, `${PM_TS_STARTER} release:check should pass`);
   assert.strictEqual(result.summary.failed, 0);
 });
