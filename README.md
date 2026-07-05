@@ -28,7 +28,7 @@ pm install github.com/unbraind/pm-ops --global
 
 Scan a set of repos and produce a per-repo release-readiness snapshot.
 
-```
+```bash
 pm ops scan
 pm ops scan --repos ./pm-csv ./pm-github
 pm ops scan --repos ./pm-csv,./pm-github --json
@@ -72,7 +72,7 @@ Validate a policy bundle against repos. The default policy (no file needed) chec
 - **pm-duplicate-titles** — no two OPEN pm items share the same title
 - **pm-changelog-wired** — `pm-changelog` in devDeps AND a `changelog` script exists
 
-```
+```bash
 pm ops policy
 pm ops policy --repos ./pm-csv ./pm-github
 pm ops policy --policy ./fleet-policy.json --strict
@@ -110,7 +110,7 @@ pm ops policy --format markdown
 
 Run the release gate matrix per repo: executes `npm run release:check` (or the individual `typecheck` / `build` / `test` / `audit:prod` / `pack:dry-run` / `changelog:check` steps when `release:check` is missing) and reports pass/fail with per-step timing. **Does NOT publish.** Exits non-zero if any repo fails.
 
-```
+```bash
 pm ops verify-release
 pm ops verify-release --repos ./pm-csv ./pm-github
 pm ops verify-release --json
@@ -130,7 +130,7 @@ pm ops verify-release --json
 
 Emit a concise fleet report combining scan + policy results.
 
-```
+```bash
 pm ops report
 pm ops report --repos ./pm-csv ./pm-github --format markdown
 pm ops report --format markdown --output FLEET.md

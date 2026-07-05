@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import * as fs from "node:fs";
 import { homedir } from "node:os";
 import { resolve, basename, dirname, join, relative } from "node:path";
@@ -278,7 +278,7 @@ interface PmItem {
 let pmTargetCache: { cmd: string; leadArgs: string[] } | undefined;
 function pmSpawnTarget(): { cmd: string; leadArgs: string[] } {
   if (pmTargetCache) return pmTargetCache;
-  const probe = spawnSync("pm", ["--version"], { encoding: "utf-8", shell: false });
+  const probe = spawnSync("pm", ["--version"], { encoding: "utf-8", shell: false, timeout: 10_000 });
   let target: { cmd: string; leadArgs: string[] };
   if (!probe.error && probe.status === 0) {
     target = { cmd: "pm", leadArgs: [] };
@@ -297,10 +297,24 @@ function runPm(args: string[], opts: { cwd?: string; timeoutMs?: number } = {}):
   return runSync(target.cmd, [...target.leadArgs, ...args], opts);
 }
 
+// Per-process memo of readPmItems by repo path. scanRepos and runPolicy both
+// call this for the same repo, and ops report runs both, so without memoisation
+// a fleet of N repos spawns pm list 2N times. Cached for the lifetime of the
+// process (a single CLI invocation).
+const pmItemsCache = new Map<string, PmItem[] | null>();
+
 function readPmItems(repoPath: string): PmItem[] | null {
+  if (pmItemsCache.has(repoPath)) return pmItemsCache.get(repoPath)!;
+  const result = readPmItemsUncached(repoPath);
+  pmItemsCache.set(repoPath, result);
+  return result;
+}
+
+function readPmItemsUncached(repoPath: string): PmItem[] | null {
   const pmRoot = join(repoPath, ".agents", "pm");
   if (!existsSync(pmRoot)) return null;
-  const r = runPm(["list", "--json", "--pm-path", pmRoot]);
+  // Timeout so a single hung pm process can't block the whole fleet run.
+  const r = runPm(["list", "--json", "--pm-path", pmRoot], { timeoutMs: 30_000 });
   if (r.status !== 0) return null;
   const parsed = parseJsonSafe(r.stdout);
   if (!parsed) return null;
@@ -529,22 +543,23 @@ interface PolicyResult {
   summary: { total: number; passed: number; failed: number; by_severity: Record<Severity, number> };
 }
 
+// Named defaults referenced when a policy check omits `params`. Declared before
+// DEFAULT_POLICY so the bundle references the same single source of truth (no
+// duplicated literals that could silently diverge), and used directly by
+// runPolicyCheck so reordering/inserting checks can never grab the wrong entry.
+const DEFAULT_REQUIRED_SCRIPTS = ["typecheck", "test", "build", "release:check", "changelog", "changelog:check"];
+const DEFAULT_REQUIRED_WORKFLOWS = ["ci.yml", "release.yml"];
+
 const DEFAULT_POLICY: PolicyBundle = {
   checks: [
     { id: "naming", severity: "error" },
-    { id: "required-scripts", severity: "error", params: { scripts: ["typecheck", "test", "build", "release:check", "changelog", "changelog:check"] } },
-    { id: "required-workflows", severity: "error", params: { workflows: ["ci.yml", "release.yml"] } },
+    { id: "required-scripts", severity: "error", params: { scripts: DEFAULT_REQUIRED_SCRIPTS } },
+    { id: "required-workflows", severity: "error", params: { workflows: DEFAULT_REQUIRED_WORKFLOWS } },
     { id: "private-no-runners", severity: "error" },
     { id: "pm-duplicate-titles", severity: "warning" },
     { id: "pm-changelog-wired", severity: "error" },
   ],
 };
-
-// Named defaults referenced when a policy check omits `params`. Kept as named
-// constants (rather than indexing DEFAULT_POLICY.checks by position) so that
-// reordering or inserting checks can never silently grab the wrong entry.
-const DEFAULT_REQUIRED_SCRIPTS = ["typecheck", "test", "build", "release:check", "changelog", "changelog:check"];
-const DEFAULT_REQUIRED_WORKFLOWS = ["ci.yml", "release.yml"];
 
 const NAME_PATTERN = /^pm-[a-z][a-z0-9-]*$/;
 const FORBIDDEN_PREFIXES = ["pm-ext-", "pm-preset-"];
@@ -631,9 +646,11 @@ function checkPrivateNoRunners(repoPath: string): PolicyCheckResult {
             if (itemMatch) {
               items.push(itemMatch[1].trim());
             } else {
-              // Object key form (group: ..., labels: ...). Capture the value so
-              // labels defined inline (labels: ubuntu-latest) are tested too.
-              const kvMatch = body.match(/^(group|labels):\s*(.*)$/);
+              // Object key form. Only `labels:` values correspond to actual
+              // runner assignments; `group:` names are arbitrary identifiers for
+              // runner groups and must NOT be tested against RUNNER_PATTERN
+              // (a group named "ubuntu-pool" would otherwise false-positive).
+              const kvMatch = body.match(/^labels:\s*(.*)$/);
               if (kvMatch && kvMatch[2]) items.push(kvMatch[2].trim());
             }
           }
@@ -852,7 +869,9 @@ function renderVerifyReleaseMarkdown(result: VerifyReleaseResult): string {
         c.name,
         c.pass ? "yes" : "no",
         String(c.duration_ms),
-        (c.error ?? "").replace(/\|/g, "\\|").slice(0, 200),
+        // Escape pipes AND collapse newlines so a multi-line build/test error
+        // can't split this cell across rows and corrupt the markdown table.
+        (c.error ?? "").replace(/\|/g, "\\|").replace(/[\r\n]+/g, " ⏎ ").slice(0, 200),
       ]));
     }
   }
@@ -957,6 +976,14 @@ function jsonOf(structured: unknown): string {
 
 function emitResult(structured: unknown, format: OutputFormat, outputPath: string | undefined, formatter: () => string): unknown {
   if (outputPath) {
+    // Create parent directories so --output ./reports/fleet.md works on a fresh
+    // checkout instead of crashing with a raw ENOENT.
+    const parent = dirname(resolvePath(outputPath));
+    try {
+      mkdirSync(parent, { recursive: true });
+    } catch {
+      /* ignore — writeFileSync will surface a clean error if the dir is unusable */
+    }
     const body = format === "markdown" ? formatter() : jsonOf(structured);
     writeFileSync(outputPath, body, "utf-8");
     console.error(`pm-ops: wrote ${format} output to ${outputPath}`);

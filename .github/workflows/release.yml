@@ -191,8 +191,11 @@ jobs:
           fi
           if [[ "$current_branch" == "HEAD" ]]; then
             # Detached HEAD (typical for actions/checkout): only proceed if the
-            # checked-out commit resolves to origin/main.
-            if ! git merge-base --is-ancestor "$(git rev-parse HEAD)" "$(git rev-parse origin/main)" \
+            # checked-out commit is on main, i.e. origin/main is an ancestor of
+            # HEAD (or HEAD IS origin/main). Note: --is-ancestor A B means "A is
+            # an ancestor of B", so we test origin/main -> HEAD, not the reverse
+            # (after a release commit, HEAD is a child of origin/main).
+            if ! git merge-base --is-ancestor "$(git rev-parse origin/main)" "$(git rev-parse HEAD)" \
                && [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
               echo "::error::Detached HEAD is not on origin/main; refusing to push to main."
               exit 1

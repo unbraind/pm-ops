@@ -74,11 +74,11 @@ function buildFixture(root: string): string {
   writeFileSync(join(repo, "CHANGELOG.md"), "# Changelog\n\n## 2026.7.5\n\n- fixture\n");
   writeFileSync(join(repo, ".github", "workflows", "ci.yml"), "name: CI\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n");
   writeFileSync(join(repo, ".github", "workflows", "release.yml"), "name: Daily Release\non: [schedule]\njobs:\n  release:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n");
-  const pmInit = spawnSync("pm", ["init", "fixture", "--pm-path", join(repo, ".agents", "pm")], { encoding: "utf-8" });
+  const pmInit = spawnSync("pm", ["init", "fixture", "--pm-path", join(repo, ".agents", "pm")], { encoding: "utf-8", timeout: 30_000 });
   if (pmInit.status !== 0) {
     throw new Error(`pm init fixture failed: ${pmInit.stderr}`);
   }
-  const pmCreate = spawnSync("pm", ["create", "--title", "Fixture task", "--type", "Task", "--pm-path", join(repo, ".agents", "pm")], { encoding: "utf-8" });
+  const pmCreate = spawnSync("pm", ["create", "--title", "Fixture task", "--type", "Task", "--pm-path", join(repo, ".agents", "pm")], { encoding: "utf-8", timeout: 30_000 });
   if (pmCreate.status !== 0) {
     throw new Error(`pm create failed: ${pmCreate.stderr}`);
   }
