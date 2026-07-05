@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs";
 import { homedir } from "node:os";
 import { resolve, basename, dirname, join, relative } from "node:path";
 import { createRequire } from "node:module";
@@ -81,9 +82,27 @@ function resolvePath(p: string): string {
   return resolve(p);
 }
 
+// Expand glob patterns (e.g. `~/container/pm-*`) so they work when the CLI is
+// invoked without a shell (agents, npx). Uses Node's fs.globSync when available
+// (Node 22+); falls back to the literal path on older Node or no matches.
+function expandGlob(pattern: string): string[] {
+  const resolved = resolvePath(pattern);
+  if (!resolved.includes("*") && !resolved.includes("?")) return [resolved];
+  const globSyncFn = (fs as unknown as { globSync?: (p: string) => string[] }).globSync;
+  if (typeof globSyncFn === "function") {
+    try {
+      const matches = globSyncFn(resolved);
+      if (matches.length > 0) return matches.map((m) => resolve(m));
+    } catch {
+      /* fall through to literal */
+    }
+  }
+  return [resolved];
+}
+
 function resolveRepos(options: Record<string, unknown>): string[] {
   const repos = asArray(options["repos"]);
-  if (repos.length > 0) return repos.map((r) => resolvePath(r));
+  if (repos.length > 0) return repos.flatMap((r) => expandGlob(r));
   return [process.cwd()];
 }
 
@@ -108,7 +127,12 @@ interface SyncResult {
 }
 
 function runSync(cmd: string, args: string[], opts: { cwd?: string; timeoutMs?: number } = {}): SyncResult {
-  const r = spawnSync(cmd, args, {
+  // On Windows, npm/pm (and other globally-installed CLIs) are .cmd shims; spawning
+  // them with shell:false fails with ENOENT. Append .cmd for those well-known
+  // commands so the extension works cross-platform without forcing shell:true.
+  const isWin = process.platform === "win32";
+  const spawnCmd = isWin && (cmd === "npm" || cmd === "pm" || cmd === "npx") ? `${cmd}.cmd` : cmd;
+  const r = spawnSync(spawnCmd, args, {
     encoding: "utf-8",
     maxBuffer: 64 * 1024 * 1024,
     cwd: opts.cwd,
@@ -373,6 +397,31 @@ interface ScanResult {
 
 function scanRepo(repoPath: string): RepoScan {
   const errors: string[] = [];
+  // Guard against a non-existent directory so we don't spawn a flurry of
+  // failing subprocesses (npm/gh) against it; report a clean not-ready result.
+  if (!existsSync(repoPath)) {
+    errors.push("repository directory does not exist");
+    return {
+      path: repoPath,
+      name: null,
+      version: null,
+      strict_ts: false,
+      has_changelog: false,
+      has_release_workflow: false,
+      has_ci: false,
+      pm_workspace: false,
+      pm_open_items: null,
+      pm_inprogress_items: null,
+      has_pm_changelog: false,
+      outdated_count: null,
+      audit_critical: null,
+      audit_high: null,
+      open_prs: null,
+      open_issues: null,
+      ready: false,
+      errors,
+    };
+  }
   const pkg = readPackageJson(repoPath);
   const name = pkg?.name ?? null;
   const version = pkg?.version ?? null;
@@ -553,9 +602,31 @@ function checkPrivateNoRunners(repoPath: string): PolicyCheckResult {
         violations.push(`${file}: could not read file (${err instanceof Error ? err.message : String(err)})`);
         continue;
       }
-      for (const line of content.split("\n")) {
-        const m = line.match(/^\s*runs-on:\s*(.+?)\s*$/);
-        if (m && RUNNER_PATTERN.test(m[1])) violations.push(`${file}: ${m[0].trim()}`);
+      // Detect GitHub-hosted runners. Handle both the single-line form
+      // (`runs-on: ubuntu-latest`) and the multi-line YAML list form:
+      //   runs-on:
+      //     - ubuntu-latest
+      //     - self-hosted
+      const lines = content.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const m = line.match(/^(\s*)runs-on:\s*(.*)$/);
+        if (!m) continue;
+        const indentLen = m[1].length;
+        let value = m[2].trim();
+        // Inline JSON/array form on the same line is already captured in value.
+        // If the value is empty, gather the following indented list items.
+        if (!value) {
+          const items: string[] = [];
+          for (let j = i + 1; j < lines.length; j++) {
+            const nextLine = lines[j];
+            const itemMatch = nextLine.match(/^(\s+)-\s+(.*)$/);
+            if (!itemMatch || itemMatch[1].length <= indentLen) break;
+            items.push(itemMatch[2].trim());
+          }
+          value = items.join(" ");
+        }
+        if (RUNNER_PATTERN.test(value)) violations.push(`${file}: runs-on ${value}`);
       }
     }
   }
