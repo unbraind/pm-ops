@@ -219,6 +219,58 @@ test("ops scan detects strict:true inherited via a relative tsconfig extends cha
   assert.strictEqual(repo.strict_ts, true, "strict:true inherited via relative extends should be detected");
 });
 
+test("ops scan detects strict:true in a tsconfig that uses JSONC comments", async () => {
+  const { commands } = activateAndCapture();
+  const repoDir = join(tmpRoot, "pm-jsonc");
+  mkdirSync(repoDir, { recursive: true });
+  // tsconfig with // line comments, /* block comment */, and a trailing comma —
+  // all legal in tsconfig.json but invalid for strict JSON.parse.
+  writeFileSync(
+    join(repoDir, "tsconfig.json"),
+    [
+      "{",
+      "  // top-level comment",
+      "  \"compilerOptions\": {",
+      "    /* block comment */",
+      "    \"strict\": true,",
+      "    \"target\": \"ES2022\",",
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  writeFileSync(join(repoDir, "package.json"), JSON.stringify({ name: "pm-jsonc", version: "0.0.1" }, null, 2) + "\n");
+  const result = (await runCommand(commands, "ops scan", { repos: [repoDir] })) as any;
+  const r = result.repos[0];
+  assert.strictEqual(r.strict_ts, true, "strict:true in a JSONC tsconfig should be detected despite comments/trailing commas");
+});
+
+test("ops verify-release reports a missing repo directory as a path error", async () => {
+  const { commands } = activateAndCapture();
+  const missing = join(tmpRoot, "does-not-exist-repo");
+  // verify-release throws a CommandError on failure (writes the matrix to stdout
+  // first in real runs). A missing directory must cause a failure (non-zero),
+  // not a silent pass.
+  await assert.rejects(
+    runCommand(commands, "ops verify-release", { repos: [missing] }),
+    /repo\(s\) failed/,
+    "a missing repo directory should cause verify-release to fail",
+  );
+});
+
+test("ops verify-release reports no-release-gate when a repo has no scripts", async () => {
+  const { commands } = activateAndCapture();
+  const noScripts = join(tmpRoot, "pm-no-scripts");
+  mkdirSync(noScripts, { recursive: true });
+  writeFileSync(join(noScripts, "package.json"), JSON.stringify({ name: "pm-no-scripts", version: "0.0.1" }) + "\n");
+  // verify-release throws on failure; assert the rejection carries the failure.
+  await assert.rejects(
+    runCommand(commands, "ops verify-release", { repos: [noScripts] }),
+    /repo\(s\) failed/,
+    "a repo with no release scripts should cause verify-release to fail",
+  );
+});
+
 test("ops verify-release runs the release gate matrix on the fixture", async () => {
   const { commands } = activateAndCapture();
   const result = (await runCommand(commands, "ops verify-release", { repos: [fixtureRepo] })) as any;

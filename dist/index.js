@@ -100,6 +100,26 @@ function readJsonFile(path) {
         return undefined;
     }
 }
+// Strip JSONC (// line comments and /* */ block comments) and trailing commas
+// so tsconfig.json files — which TypeScript permits to contain comments — parse
+// cleanly. Naive but sufficient for tsconfig: it does not strip comments inside
+// string literals, but tsconfig values do not contain "//" or "/*" literals.
+function stripJsonc(text) {
+    return text
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/[^\n\r]*/g, "")
+        .replace(/,\s*([}\]])/g, "$1");
+}
+function readJsoncFile(path) {
+    if (!existsSync(path))
+        return undefined;
+    try {
+        return JSON.parse(stripJsonc(readFileSync(path, "utf-8")));
+    }
+    catch {
+        return undefined;
+    }
+}
 function readPackageJson(repoPath) {
     return readJsonFile(join(repoPath, "package.json"));
 }
@@ -154,7 +174,7 @@ function readTsConfigStrict(repoPath) {
         if (visited.has(currentPath))
             break;
         visited.add(currentPath);
-        const cfg = readJsonFile(currentPath);
+        const cfg = readJsoncFile(currentPath);
         if (!cfg)
             break;
         if (cfg.compilerOptions?.strict === true)
@@ -518,10 +538,22 @@ function verifyReleaseRepo(repoPath, progress) {
             .filter((s) => typeof scripts[s] === "string")
             .map((s) => runReleaseCheck(repoPath, s, ["run", s], progress));
     }
-    // A repo with no runnable release scripts would otherwise be a false green.
-    // Surface it as a single failed check so verify-release never reports a
-    // release-ready state for a repo that has no gate defined.
-    if (checks.length === 0) {
+    // A missing repo directory should be reported as a path error, not mislabeled
+    // as "no release gate found". Check existence first for accurate diagnostics.
+    if (!existsSync(repoPath)) {
+        checks = [
+            {
+                name: "release:check",
+                pass: false,
+                duration_ms: 0,
+                error: `repository directory does not exist: ${repoPath}`,
+            },
+        ];
+    }
+    else if (checks.length === 0) {
+        // A repo with no runnable release scripts would otherwise be a false green.
+        // Surface it as a single failed check so verify-release never reports a
+        // release-ready state for a repo that has no gate defined.
         checks = [
             {
                 name: "release:check",

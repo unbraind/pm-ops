@@ -6,7 +6,8 @@ status: in_progress
 priority: 1
 tags[2]: bots,review
 created_at: "2026-07-05T17:36:19.438Z"
-updated_at: "2026-07-05T17:36:24.306Z"
+updated_at: "2026-07-05T18:12:20.321Z"
 assignee: unknown
 author: unknown
-body: ""
+parent: ops-bfg9
+body: "Progress: pushed 4 commits (fcff078 HIGH batch, 07c4334 release.yml, 0c53737 MEDIUM/docs/schema, ecad4bc greptile P1s). All 32 bot comments replied to (29 fixed+upvoted, 3 refused with justification+downvoted). greptile found 2 additional P1s (strict+output bypass, package extends resolution) — both fixed with regression tests. CI re-running, bots re-reviewing."
