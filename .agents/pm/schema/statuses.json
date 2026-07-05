@@ -4,14 +4,16 @@
       "id": "draft",
       "roles": [
         "draft"
-      ]
+      ],
+      "order": 0
     },
     {
       "id": "open",
       "roles": [
         "active",
         "default_open"
-      ]
+      ],
+      "order": 1
     },
     {
       "id": "in_progress",
@@ -20,21 +22,24 @@
       ],
       "roles": [
         "active"
-      ]
+      ],
+      "order": 2
     },
     {
       "id": "blocked",
       "roles": [
         "blocked"
-      ]
+      ],
+      "order": 3
     },
     {
       "id": "closed",
       "roles": [
+        "default_close",
         "terminal",
-        "terminal_done",
-        "default_close"
-      ]
+        "terminal_done"
+      ],
+      "order": 4
     },
     {
       "id": "canceled",
@@ -42,10 +47,11 @@
         "cancelled"
       ],
       "roles": [
+        "default_cancel",
         "terminal",
-        "terminal_canceled",
-        "default_cancel"
-      ]
+        "terminal_canceled"
+      ],
+      "order": 5
     }
   ]
 }

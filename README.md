@@ -11,13 +11,13 @@ Multi-repo fleet operations for [pm-cli](https://github.com/unbraind/pm-cli).
 ## Installation
 
 ```bash
-pm install github.com/unbrained/pm-ops --project
+pm install github.com/unbraind/pm-ops --project
 ```
 
 Or install globally:
 
 ```bash
-pm install github.com/unbrained/pm-ops --global
+pm install github.com/unbraind/pm-ops --global
 ```
 
 ---
@@ -102,7 +102,7 @@ pm ops policy --format markdown
 | `--json` | boolean | false | Emit clean JSON to stdout |
 | `--format <toon\|json\|markdown>` | string | `toon` | Output format |
 | `--strict` | boolean | false | Exit non-zero on any failure |
-| `--output <file>` | string | — | Write the rendered output to a file |
+| `--output <file>` | string | — | Write the rendered output to a file instead of stdout |
 
 ---
 
@@ -176,4 +176,4 @@ pm ops report --json
 
 ## License
 
-MIT © unbrained
+MIT © unbraind

@@ -2,11 +2,12 @@ id: ops-kmjq
 title: Output rendering via renderer-override marker
 description: ""
 type: Decision
-status: open
+status: closed
 priority: 2
 tags: []
 created_at: "2026-07-05T15:11:14.616Z"
-updated_at: "2026-07-05T15:11:14.616Z"
+updated_at: "2026-07-05T17:45:31.807Z"
 author: unknown
 parent: ops-bfg9
+close_reason: "Decision adopted: renderer-override marker pattern is implemented in index.ts (renderedCommandResult/renderCommandResult + toon+json renderer override). PM_OPS_OFFLINE and verify-release stdout-then-throw are also in place."
 body: "Adopted the pm-brief pattern: return {pmOpsRendered:true,output} for json/markdown and register a toon+json renderer override that unwraps it; return the raw structured object for default toon so the host renders native TOON. PM_OPS_OFFLINE=1 skips npm outdated/audit and gh calls for deterministic CI. verify-release writes the matrix to stdout then throws CommandError on failure so agents get full diagnostics + non-zero exit."

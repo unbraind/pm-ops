@@ -92,6 +92,9 @@
       },
       {
         "id": "in_progress",
+        "aliases": [
+          "in-progress"
+        ],
         "roles": [
           "active"
         ],
