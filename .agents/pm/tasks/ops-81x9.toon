@@ -1,0 +1,13 @@
+id: ops-81x9
+title: Address bot review feedback on PR #1 (gemini+cubic+coderabbit)
+description: ""
+type: Task
+status: in_progress
+priority: 1
+tags[2]: bots,review
+created_at: "2026-07-05T17:36:19.438Z"
+updated_at: "2026-07-05T18:31:06.066Z"
+assignee: unknown
+author: unknown
+parent: ops-bfg9
+body: "Progress: pushed 4 commits (fcff078 HIGH batch, 07c4334 release.yml, 0c53737 MEDIUM/docs/schema, ecad4bc greptile P1s). All 32 bot comments replied to (29 fixed+upvoted, 3 refused with justification+downvoted). greptile found 2 additional P1s (strict+output bypass, package extends resolution) — both fixed with regression tests. CI re-running, bots re-reviewing.\n\nRound 2: gemini left 7 more comments on f5f65b2 (Windows .cmd, JSONC re-flag, glob expansion, scanRepo existsSync, multi-line runs-on, verifyRelease existsSync re-flag). Fixed 5 new + pointed 2 to existing fixes in commit 0d6154f. greptile round-2 found readFileSync crash (P1) + pmSpawnTarget memoize (P2) — fixed in f5f65b2. All checks green; 19 tests (17 pass, 2 skip). Awaiting final bot pass on 0d6154f."
