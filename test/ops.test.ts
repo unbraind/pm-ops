@@ -186,6 +186,39 @@ test("ops policy --strict exits non-zero on failures", async () => {
   );
 });
 
+test("ops policy --strict --output still throws (exit-code gating not bypassed)", async () => {
+  const { commands } = activateAndCapture();
+  const badDir = join(tmpRoot, "pm-strict-output");
+  mkdirSync(badDir, { recursive: true });
+  writeFileSync(join(badDir, "package.json"), JSON.stringify({ name: "pm-bad-no-scripts", version: "0.0.1" }) + "\n");
+  const outFile = join(tmpRoot, "strict-policy-report.json");
+  // --output must NOT bypass the strict-mode throw: CI relies on the exit code.
+  await assert.rejects(
+    runCommand(commands, "ops policy", { repos: [badDir], strict: true, output: outFile, format: "json" }),
+    /strict mode|check\(s\) failed/,
+    "strict mode must throw even when --output is set",
+  );
+  // The report file should still have been written so the failures are visible.
+  const { readFileSync } = await import("node:fs");
+  const body = readFileSync(outFile, "utf-8");
+  const parsed = JSON.parse(body);
+  assert.ok(Array.isArray(parsed.repos), "output file should contain the serialized JSON policy result");
+});
+
+test("ops scan detects strict:true inherited via a relative tsconfig extends chain", async () => {
+  const { commands } = activateAndCapture();
+  const baseDir = join(tmpRoot, "ts-base");
+  const repoDir = join(tmpRoot, "pm-extends");
+  mkdirSync(baseDir, { recursive: true });
+  mkdirSync(repoDir, { recursive: true });
+  writeFileSync(join(baseDir, "base.json"), JSON.stringify({ compilerOptions: { strict: true, target: "ES2022" } }, null, 2) + "\n");
+  writeFileSync(join(repoDir, "tsconfig.json"), JSON.stringify({ extends: "../ts-base/base.json", compilerOptions: { module: "NodeNext" } }, null, 2) + "\n");
+  writeFileSync(join(repoDir, "package.json"), JSON.stringify({ name: "pm-extends", version: "0.0.1" }, null, 2) + "\n");
+  const result = (await runCommand(commands, "ops scan", { repos: [repoDir] })) as any;
+  const repo = result.repos[0];
+  assert.strictEqual(repo.strict_ts, true, "strict:true inherited via relative extends should be detected");
+});
+
 test("ops verify-release runs the release gate matrix on the fixture", async () => {
   const { commands } = activateAndCapture();
   const result = (await runCommand(commands, "ops verify-release", { repos: [fixtureRepo] })) as any;

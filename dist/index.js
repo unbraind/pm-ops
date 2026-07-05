@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve, basename, dirname, join, relative } from "node:path";
+import { createRequire } from "node:module";
 const defineExtension = ((extension) => extension);
 // ---------------------------------------------------------------------------
 // Error contract — mirror pm-cli SDK EXIT_CODE so the host treats thrown
@@ -108,8 +109,44 @@ function hasPmChangelogDep(pkg) {
     return Boolean((pkg?.devDependencies && "pm-changelog" in pkg.devDependencies) ||
         (pkg?.dependencies && "pm-changelog" in pkg.dependencies));
 }
+// Resolve a tsconfig `extends` value to an absolute file path. The value may
+// be a relative path (./base.json, ../shared/tsconfig.json) or an npm package
+// specifier (@tsconfig/node20, @org/tsconfig/base.json). Relative values are
+// resolved against the current file's directory; package specifiers are
+// resolved via Node module resolution from the current file's directory.
+function resolveTsConfigExtends(fromPath, extendsValue) {
+    // Relative/absolute path: resolve directly.
+    if (extendsValue.startsWith("./") || extendsValue.startsWith("../") || extendsValue.startsWith("/")) {
+        return resolve(dirname(fromPath), extendsValue);
+    }
+    // Package specifier (e.g. "@tsconfig/node20" or "@tsconfig/node20/tsconfig.json"):
+    // use Node module resolution relative to the current config file. Some packages
+    // expose the config at the package root (exportless), some via "exports"; try
+    // the bare specifier first, then with /tsconfig.json appended.
+    try {
+        const req = createRequire(fromPath);
+        try {
+            return req.resolve(extendsValue);
+        }
+        catch {
+            if (!extendsValue.endsWith(".json")) {
+                try {
+                    return req.resolve(`${extendsValue}/tsconfig.json`);
+                }
+                catch {
+                    /* fall through */
+                }
+            }
+        }
+    }
+    catch {
+        /* createRequire needs a file URL; ignore on failure */
+    }
+    return undefined;
+}
 // Follow `extends` chains so a repo that inherits `strict: true` from a shared
-// base tsconfig (common in monorepos) is correctly detected as strict.
+// base tsconfig (common in monorepos, or via npm packages like @tsconfig/node20)
+// is correctly detected as strict.
 function readTsConfigStrict(repoPath) {
     let currentPath = join(repoPath, "tsconfig.json");
     const visited = new Set();
@@ -126,7 +163,10 @@ function readTsConfigStrict(repoPath) {
             return false;
         if (typeof cfg.extends !== "string")
             break;
-        currentPath = resolve(dirname(currentPath), cfg.extends);
+        const next = resolveTsConfigExtends(currentPath, cfg.extends);
+        if (!next)
+            break;
+        currentPath = next;
     }
     return false;
 }
@@ -697,12 +737,16 @@ export default defineExtension({
                 const result = runPolicy(repos, bundle, (m) => console.error(`  ${m}`));
                 console.error(`policy: ${result.summary.passed} passed, ${result.summary.failed} failed`);
                 const failed = result.summary.failed > 0;
-                // In strict mode with failures, write the formatted result to stdout
-                // BEFORE throwing so users/agents still see which checks failed (mirrors
-                // ops verify-release). When --output is set the file already captures
-                // the detail; only mirror to stdout when no output file is configured.
-                if (strict && failed && !outputPath) {
-                    if (format === "markdown") {
+                // In strict mode with failures, ensure the formatted result is produced
+                // (to the --output file if set, else to stdout) BEFORE throwing so
+                // users/agents still see which checks failed. The throw itself must
+                // happen regardless of --output so CI exit-code gating is never bypassed.
+                if (strict && failed) {
+                    if (outputPath) {
+                        // emitResult writes the file and returns a summary; discard return.
+                        emitResult(result, format, outputPath, () => renderPolicyMarkdown(result));
+                    }
+                    else if (format === "markdown") {
                         process.stdout.write(`${renderPolicyMarkdown(result)}\n`);
                     }
                     else {
