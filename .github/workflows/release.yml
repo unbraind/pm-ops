@@ -122,13 +122,10 @@ jobs:
           [[ -d src ]] && paths+=(src)
           git add "${paths[@]}"
           if git diff --cached --quiet; then
-            echo "Release files are already current; tagging existing commit."
+            echo "Release files are already current; will tag existing commit."
           else
             git commit -m "Release ${{ github.event.repository.name }} ${{ steps.decide.outputs.tag }}"
           fi
-          git tag "${{ steps.decide.outputs.tag }}"
-          git push origin HEAD:main
-          git push origin "${{ steps.decide.outputs.tag }}"
 
       - name: Publish npm package
         if: steps.decide.outputs.should_release == 'true'
@@ -176,6 +173,34 @@ jobs:
           fi
           echo "::error::Publish failed after retries and provenance fallback."
           exit 1
+
+      # Push tag + main AFTER a successful publish so a failed publish does not
+      # leave the repo tagged/skipped. A branch guard refuses to push a non-main
+      # HEAD to main (manual workflow_dispatch runs from a feature branch must
+      # not pollute main). On a scheduled/dispatch-from-main run the guard is a
+      # no-op.
+      - name: Push release tag and main
+        if: steps.decide.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_branch="$(git rev-parse --abbrev-ref HEAD)"
+          if [[ "$current_branch" != "main" && "$current_branch" != "HEAD" ]]; then
+            echo "::error::Refusing to push non-main ref ('$current_branch') to main. Run the release workflow from main."
+            exit 1
+          fi
+          if [[ "$current_branch" == "HEAD" ]]; then
+            # Detached HEAD (typical for actions/checkout): only proceed if the
+            # checked-out commit resolves to origin/main.
+            if ! git merge-base --is-ancestor "$(git rev-parse HEAD)" "$(git rev-parse origin/main)" \
+               && [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
+              echo "::error::Detached HEAD is not on origin/main; refusing to push to main."
+              exit 1
+            fi
+          fi
+          git tag "${{ steps.decide.outputs.tag }}"
+          git push origin HEAD:main
+          git push origin "${{ steps.decide.outputs.tag }}"
 
 
       - name: Verify bun install of published package
