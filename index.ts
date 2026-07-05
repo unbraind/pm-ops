@@ -5,8 +5,6 @@ import type { defineExtension as defineExtensionType } from "@unbrained/pm-cli/s
 
 const defineExtension: typeof defineExtensionType = ((extension: any) => extension) as any;
 
-export const version = "2026.7.5";
-
 // ---------------------------------------------------------------------------
 // Error contract — mirror pm-cli SDK EXIT_CODE so the host treats thrown
 // CommandError as a clean non-zero exit instead of re-invoking the handler.
@@ -704,7 +702,7 @@ function emitResult(structured: unknown, format: OutputFormat, outputPath: strin
 
 export default defineExtension({
   name: "pm-ops",
-  version,
+  version: "2026.7.5",
 
   activate(api: any) {
     if (typeof api.registerRenderer === "function") {

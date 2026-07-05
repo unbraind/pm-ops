@@ -2,7 +2,6 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve, basename, join, relative } from "node:path";
 const defineExtension = ((extension) => extension);
-export const version = "2026.7.5";
 // ---------------------------------------------------------------------------
 // Error contract — mirror pm-cli SDK EXIT_CODE so the host treats thrown
 // CommandError as a clean non-zero exit instead of re-invoking the handler.
@@ -521,7 +520,7 @@ function emitResult(structured, format, outputPath, formatter) {
 // ---------------------------------------------------------------------------
 export default defineExtension({
     name: "pm-ops",
-    version,
+    version: "2026.7.5",
     activate(api) {
         if (typeof api.registerRenderer === "function") {
             api.registerRenderer("toon", renderCommandResult);
