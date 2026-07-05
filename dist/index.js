@@ -194,15 +194,26 @@ function readTsConfigStrict(repoPath) {
 // (the common case), but fall back to the current Node + script path when `pm`
 // is not on PATH (npx, local monorepo bin, relative invocation). A quick
 // `spawnSync` probe avoids falling back unnecessarily and keeps the happy path
-// zero-config.
+// zero-config. Memoised: the probe result cannot change during a single process,
+// and runPm is called per-repo (2N times in report), so caching avoids 2N probes.
+let pmTargetCache;
 function pmSpawnTarget() {
+    if (pmTargetCache)
+        return pmTargetCache;
     const probe = spawnSync("pm", ["--version"], { encoding: "utf-8", shell: false });
-    if (!probe.error && probe.status === 0)
-        return { cmd: "pm", leadArgs: [] };
-    // process.argv[0] = node binary, process.argv[1] = pm CLI script path.
-    if (process.argv[0] && process.argv[1])
-        return { cmd: process.argv[0], leadArgs: [process.argv[1]] };
-    return { cmd: "pm", leadArgs: [] };
+    let target;
+    if (!probe.error && probe.status === 0) {
+        target = { cmd: "pm", leadArgs: [] };
+    }
+    else if (process.argv[0] && process.argv[1]) {
+        // process.argv[0] = node binary, process.argv[1] = pm CLI script path.
+        target = { cmd: process.argv[0], leadArgs: [process.argv[1]] };
+    }
+    else {
+        target = { cmd: "pm", leadArgs: [] };
+    }
+    pmTargetCache = target;
+    return target;
 }
 function runPm(args, opts = {}) {
     const target = pmSpawnTarget();
@@ -400,7 +411,17 @@ function checkPrivateNoRunners(repoPath) {
         for (const file of readdirSync(wfDir)) {
             if (!file.endsWith(".yml") && !file.endsWith(".yaml"))
                 continue;
-            const content = readFileSync(join(wfDir, file), "utf-8");
+            // Guard the read so a broken symlink, permission error, or a file removed
+            // between readdirSync/readFileSync records a per-file violation instead
+            // of crashing the entire policy run.
+            let content;
+            try {
+                content = readFileSync(join(wfDir, file), "utf-8");
+            }
+            catch (err) {
+                violations.push(`${file}: could not read file (${err instanceof Error ? err.message : String(err)})`);
+                continue;
+            }
             for (const line of content.split("\n")) {
                 const m = line.match(/^\s*runs-on:\s*(.+?)\s*$/);
                 if (m && RUNNER_PATTERN.test(m[1]))
