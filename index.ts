@@ -602,11 +602,16 @@ function checkPrivateNoRunners(repoPath: string): PolicyCheckResult {
         violations.push(`${file}: could not read file (${err instanceof Error ? err.message : String(err)})`);
         continue;
       }
-      // Detect GitHub-hosted runners. Handle both the single-line form
-      // (`runs-on: ubuntu-latest`) and the multi-line YAML list form:
-      //   runs-on:
+      // Detect GitHub-hosted runners across the YAML forms GitHub Actions supports:
+      //   runs-on: ubuntu-latest              (single line)
+      //   runs-on:                            (multi-line list)
       //     - ubuntu-latest
-      //     - self-hosted
+      //   runs-on:                            (multi-line object: group/labels)
+      //     group: ...
+      //     labels:
+      //       - ubuntu-latest
+      // Skip blank lines and #-comments when scanning the following block, and
+      // stop at the first line indented no deeper than the runs-on key.
       const lines = content.split("\n");
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -614,15 +619,23 @@ function checkPrivateNoRunners(repoPath: string): PolicyCheckResult {
         if (!m) continue;
         const indentLen = m[1].length;
         let value = m[2].trim();
-        // Inline JSON/array form on the same line is already captured in value.
-        // If the value is empty, gather the following indented list items.
         if (!value) {
           const items: string[] = [];
           for (let j = i + 1; j < lines.length; j++) {
             const nextLine = lines[j];
-            const itemMatch = nextLine.match(/^(\s+)-\s+(.*)$/);
-            if (!itemMatch || itemMatch[1].length <= indentLen) break;
-            items.push(itemMatch[2].trim());
+            if (nextLine.trim() === "" || nextLine.trim().startsWith("#")) continue;
+            const indentMatch = nextLine.match(/^(\s*)(.*)$/);
+            if (!indentMatch || indentMatch[1].length <= indentLen) break;
+            const body = indentMatch[2];
+            const itemMatch = body.match(/^-\s+(.*)$/);
+            if (itemMatch) {
+              items.push(itemMatch[1].trim());
+            } else {
+              // Object key form (group: ..., labels: ...). Capture the value so
+              // labels defined inline (labels: ubuntu-latest) are tested too.
+              const kvMatch = body.match(/^(group|labels):\s*(.*)$/);
+              if (kvMatch && kvMatch[2]) items.push(kvMatch[2].trim());
+            }
           }
           value = items.join(" ");
         }
