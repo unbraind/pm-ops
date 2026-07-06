@@ -11,13 +11,13 @@ Multi-repo fleet operations for [pm-cli](https://github.com/unbraind/pm-cli).
 ## Installation
 
 ```bash
-pm install github.com/unbraind/pm-ops --project
+pm install github.com/unbrained/pm-ops --project
 ```
 
 Or install globally:
 
 ```bash
-pm install github.com/unbraind/pm-ops --global
+pm install github.com/unbrained/pm-ops --global
 ```
 
 ---
@@ -28,7 +28,7 @@ pm install github.com/unbraind/pm-ops --global
 
 Scan a set of repos and produce a per-repo release-readiness snapshot.
 
-```bash
+```
 pm ops scan
 pm ops scan --repos ./pm-csv ./pm-github
 pm ops scan --repos ./pm-csv,./pm-github --json
@@ -72,7 +72,7 @@ Validate a policy bundle against repos. The default policy (no file needed) chec
 - **pm-duplicate-titles** — no two OPEN pm items share the same title
 - **pm-changelog-wired** — `pm-changelog` in devDeps AND a `changelog` script exists
 
-```bash
+```
 pm ops policy
 pm ops policy --repos ./pm-csv ./pm-github
 pm ops policy --policy ./fleet-policy.json --strict
@@ -102,7 +102,7 @@ pm ops policy --format markdown
 | `--json` | boolean | false | Emit clean JSON to stdout |
 | `--format <toon\|json\|markdown>` | string | `toon` | Output format |
 | `--strict` | boolean | false | Exit non-zero on any failure |
-| `--output <file>` | string | — | Write the rendered output to a file instead of stdout |
+| `--output <file>` | string | — | Write the rendered output to a file |
 
 ---
 
@@ -110,7 +110,7 @@ pm ops policy --format markdown
 
 Run the release gate matrix per repo: executes `npm run release:check` (or the individual `typecheck` / `build` / `test` / `audit:prod` / `pack:dry-run` / `changelog:check` steps when `release:check` is missing) and reports pass/fail with per-step timing. **Does NOT publish.** Exits non-zero if any repo fails.
 
-```bash
+```
 pm ops verify-release
 pm ops verify-release --repos ./pm-csv ./pm-github
 pm ops verify-release --json
@@ -123,17 +123,19 @@ pm ops verify-release --json
 | `--repos <paths>` | string[] | current dir | Repo paths to verify |
 | `--json` | boolean | false | Emit clean JSON to stdout |
 | `--format <toon\|json\|markdown>` | string | `toon` | Output format |
+| `--output <file>` | string | — | Write the rendered output to a file instead of stdout |
 
 ---
 
 ### `pm ops report`
 
-Emit a concise fleet report combining scan + policy results.
+Emit a concise fleet report combining scan + policy results (and optionally verify-release). The markdown format includes a timestamp header and sectioned tables.
 
-```bash
+```
 pm ops report
 pm ops report --repos ./pm-csv ./pm-github --format markdown
 pm ops report --format markdown --output FLEET.md
+pm ops report --format markdown --include-release --output FLEET.md
 pm ops report --json
 ```
 
@@ -145,6 +147,70 @@ pm ops report --json
 | `--json` | boolean | false | Emit clean JSON to stdout |
 | `--format <toon\|json\|markdown>` | string | `toon` | Output format |
 | `--output <file>` | string | — | Write the report to a file instead of stdout |
+| `--include-release` | boolean | false | Also run verify-release and include results |
+
+---
+
+### `pm ops status`
+
+Quick fleet status overview — faster than `scan` because it skips GitHub PR/issue probes. For each repo shows name, version, ready/not-ready, open pm items, outdated deps, and critical/high vulnerabilities, plus a concise list of issues.
+
+```
+pm ops status
+pm ops status --repos ./pm-csv ./pm-github
+pm ops status --format markdown
+```
+
+**Flags**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repos <paths>` | string[] | current dir | Repo paths |
+| `--json` | boolean | false | Emit clean JSON to stdout |
+| `--format <toon\|json\|markdown>` | string | `toon` | Output format |
+| `--output <file>` | string | — | Write the rendered output to a file |
+
+---
+
+### `pm ops outdated`
+
+Check outdated dependencies across repos. Runs `npm outdated --json` per repo and summarizes packages with newer versions available.
+
+```
+pm ops outdated
+pm ops outdated --repos ./pm-csv ./pm-github
+pm ops outdated --format markdown
+```
+
+**Flags**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repos <paths>` | string[] | current dir | Repo paths |
+| `--json` | boolean | false | Emit clean JSON to stdout |
+| `--format <toon\|json\|markdown>` | string | `toon` | Output format |
+| `--output <file>` | string | — | Write the rendered output to a file |
+
+---
+
+### `pm ops audit`
+
+Security vulnerability audit across repos. Runs `npm audit --omit=dev --json` per repo and summarizes critical/high/moderate/low counts.
+
+```
+pm ops audit
+pm ops audit --repos ./pm-csv ./pm-github
+pm ops audit --format markdown
+```
+
+**Flags**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repos <paths>` | string[] | current dir | Repo paths |
+| `--json` | boolean | false | Emit clean JSON to stdout |
+| `--format <toon\|json\|markdown>` | string | `toon` | Output format |
+| `--output <file>` | string | — | Write the rendered output to a file |
 
 ---
 
@@ -170,10 +236,13 @@ pm ops report --json
 `scan` → `{ repos: RepoScan[], summary: { total, ready, not_ready } }`
 `policy` → `{ repos: RepoPolicy[], summary: { total, passed, failed, by_severity } }`
 `verify-release` → `{ repos: RepoRelease[], summary: { total, passed, failed } }`
-`report` → `{ generated_at, scan: ScanResult, policy: PolicyResult }`
+`report` → `{ generated_at, scan: ScanResult, policy: PolicyResult, release?: VerifyReleaseResult }`
+`status` → `{ repos: RepoStatus[], summary: { total, ready, not_ready, total_issues } }`
+`outdated` → `{ repos: RepoOutdated[], summary: { total, repos_with_outdated, total_outdated } }`
+`audit` → `{ repos: RepoAudit[], summary: { total, clean, with_vulns, total_critical, total_high } }`
 
 ---
 
 ## License
 
-MIT © unbraind
+MIT © unbrained

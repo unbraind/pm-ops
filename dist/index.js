@@ -1,9 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import * as fs from "node:fs";
-import { homedir } from "node:os";
-import { resolve, basename, dirname, join, relative } from "node:path";
-import { createRequire } from "node:module";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { resolve, basename, join, relative } from "node:path";
 const defineExtension = ((extension) => extension);
 // ---------------------------------------------------------------------------
 // Error contract — mirror pm-cli SDK EXIT_CODE so the host treats thrown
@@ -50,40 +47,10 @@ function asArray(value) {
         return [];
     return value.split(",").map((entry) => entry.trim()).filter(Boolean);
 }
-// Expand a leading `~` to the user's home directory so agent- or user-provided
-// paths like `~/container/pm-csv` resolve correctly instead of failing ENOENT
-// relative to the current working directory.
-function resolvePath(p) {
-    if (p === "~")
-        return homedir();
-    if (p.startsWith("~/"))
-        return resolve(join(homedir(), p.slice(2)));
-    return resolve(p);
-}
-// Expand glob patterns (e.g. `~/container/pm-*`) so they work when the CLI is
-// invoked without a shell (agents, npx). Uses Node's fs.globSync when available
-// (Node 22+); falls back to the literal path on older Node or no matches.
-function expandGlob(pattern) {
-    const resolved = resolvePath(pattern);
-    if (!resolved.includes("*") && !resolved.includes("?"))
-        return [resolved];
-    const globSyncFn = fs.globSync;
-    if (typeof globSyncFn === "function") {
-        try {
-            const matches = globSyncFn(resolved);
-            if (matches.length > 0)
-                return matches.map((m) => resolve(m));
-        }
-        catch {
-            /* fall through to literal */
-        }
-    }
-    return [resolved];
-}
 function resolveRepos(options) {
     const repos = asArray(options["repos"]);
     if (repos.length > 0)
-        return repos.flatMap((r) => expandGlob(r));
+        return repos.map((r) => resolve(r));
     return [process.cwd()];
 }
 function resolveFormat(options) {
@@ -94,17 +61,42 @@ function resolveFormat(options) {
         return raw;
     return "toon";
 }
+/**
+ * Spawn a subprocess without a shell.
+ *
+ * When the command is `npm` or `npx` we set `npm_config_userconfig=/dev/null`
+ * in the child environment.  This prevents npm 11+ from reading the user-level
+ * `.npmrc` (which may contain `allow-scripts=…`) and forwarding that config to
+ * nested `npm` invocations as an env var.  When a script like `release:check`
+ * itself calls `npm audit`, the nested npm sees the inherited
+ * `npm_config_allow_scripts` env var, treats it as a CLI-level override, and
+ * rejects it with EALLOWSCRIPTS ("--allow-scripts is not allowed in
+ * project-scoped installs").  Pointing userconfig at /dev/null breaks the
+ * chain: the parent npm never loads the `allow-scripts` line, so it never
+ * injects the env var into child scripts.
+ *
+ * The auth token that typically lives in `~/.npmrc` is NOT needed for the
+ * operations pm-ops runs (typecheck, build, test, audit, pack:dry-run,
+ * changelog:check, outdated) — all of which operate on local or public-registry
+ * data.
+ */
 function runSync(cmd, args, opts = {}) {
-    // On Windows, npm/pm (and other globally-installed CLIs) are .cmd shims; spawning
-    // them with shell:false fails with ENOENT. Append .cmd for those well-known
-    // commands so the extension works cross-platform without forcing shell:true.
-    const isWin = process.platform === "win32";
-    const spawnCmd = isWin && (cmd === "npm" || cmd === "pm" || cmd === "npx") ? `${cmd}.cmd` : cmd;
-    const r = spawnSync(spawnCmd, args, {
+    const env = { ...process.env, ...opts.env };
+    if (cmd === "npm" || cmd === "npx") {
+        // Prevent npm from reading the user-level .npmrc (which may contain
+        // allow-scripts=…) so it never injects that config into child scripts.
+        env.npm_config_userconfig = "/dev/null";
+        // Also strip any inherited npm_config_allow_scripts env var that a parent
+        // `npm run` may have set — without this the child npm sees it as a
+        // CLI-level override and rejects it with EALLOWSCRIPTS.
+        delete env.npm_config_allow_scripts;
+    }
+    const r = spawnSync(cmd, args, {
         encoding: "utf-8",
         maxBuffer: 64 * 1024 * 1024,
         cwd: opts.cwd,
         timeout: opts.timeoutMs,
+        env,
     });
     return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error: r.error };
 }
@@ -126,143 +118,18 @@ function readJsonFile(path) {
         return undefined;
     }
 }
-// Strip JSONC (// line comments and /* */ block comments) and trailing commas
-// so tsconfig.json files — which TypeScript permits to contain comments — parse
-// cleanly. Naive but sufficient for tsconfig: it does not strip comments inside
-// string literals, but tsconfig values do not contain "//" or "/*" literals.
-function stripJsonc(text) {
-    return text
-        .replace(/\/\*[\s\S]*?\*\//g, "")
-        .replace(/\/\/[^\n\r]*/g, "")
-        .replace(/,\s*([}\]])/g, "$1");
-}
-function readJsoncFile(path) {
-    if (!existsSync(path))
-        return undefined;
-    try {
-        return JSON.parse(stripJsonc(readFileSync(path, "utf-8")));
-    }
-    catch {
-        return undefined;
-    }
-}
 function readPackageJson(repoPath) {
     return readJsonFile(join(repoPath, "package.json"));
 }
-// pm-changelog is most often a devDependency, but some setups declare build
-// tooling under `dependencies`. Check both so we don't false-fail policy/scan.
-function hasPmChangelogDep(pkg) {
-    return Boolean((pkg?.devDependencies && "pm-changelog" in pkg.devDependencies) ||
-        (pkg?.dependencies && "pm-changelog" in pkg.dependencies));
-}
-// Resolve a tsconfig `extends` value to an absolute file path. The value may
-// be a relative path (./base.json, ../shared/tsconfig.json) or an npm package
-// specifier (@tsconfig/node20, @org/tsconfig/base.json). Relative values are
-// resolved against the current file's directory; package specifiers are
-// resolved via Node module resolution from the current file's directory.
-function resolveTsConfigExtends(fromPath, extendsValue) {
-    // Relative/absolute path: resolve directly.
-    if (extendsValue.startsWith("./") || extendsValue.startsWith("../") || extendsValue.startsWith("/")) {
-        return resolve(dirname(fromPath), extendsValue);
-    }
-    // Package specifier (e.g. "@tsconfig/node20" or "@tsconfig/node20/tsconfig.json"):
-    // use Node module resolution relative to the current config file. Some packages
-    // expose the config at the package root (exportless), some via "exports"; try
-    // the bare specifier first, then with /tsconfig.json appended.
-    try {
-        const req = createRequire(fromPath);
-        try {
-            return req.resolve(extendsValue);
-        }
-        catch {
-            if (!extendsValue.endsWith(".json")) {
-                try {
-                    return req.resolve(`${extendsValue}/tsconfig.json`);
-                }
-                catch {
-                    /* fall through */
-                }
-            }
-        }
-    }
-    catch {
-        /* createRequire needs a file URL; ignore on failure */
-    }
-    return undefined;
-}
-// Follow `extends` chains so a repo that inherits `strict: true` from a shared
-// base tsconfig (common in monorepos, or via npm packages like @tsconfig/node20)
-// is correctly detected as strict.
 function readTsConfigStrict(repoPath) {
-    let currentPath = join(repoPath, "tsconfig.json");
-    const visited = new Set();
-    for (;;) {
-        if (visited.has(currentPath))
-            break;
-        visited.add(currentPath);
-        const cfg = readJsoncFile(currentPath);
-        if (!cfg)
-            break;
-        if (cfg.compilerOptions?.strict === true)
-            return true;
-        if (cfg.compilerOptions?.strict === false)
-            return false;
-        if (typeof cfg.extends !== "string")
-            break;
-        const next = resolveTsConfigExtends(currentPath, cfg.extends);
-        if (!next)
-            break;
-        currentPath = next;
-    }
-    return false;
+    const cfg = readJsonFile(join(repoPath, "tsconfig.json"));
+    return cfg?.compilerOptions?.strict === true;
 }
-// Resolve the pm CLI invocation. We prefer spawning the `pm` executable by name
-// (the common case), but fall back to the current Node + script path when `pm`
-// is not on PATH (npx, local monorepo bin, relative invocation). A quick
-// `spawnSync` probe avoids falling back unnecessarily and keeps the happy path
-// zero-config. Memoised: the probe result cannot change during a single process,
-// and runPm is called per-repo (2N times in report), so caching avoids 2N probes.
-let pmTargetCache;
-function pmSpawnTarget() {
-    if (pmTargetCache)
-        return pmTargetCache;
-    const probe = spawnSync("pm", ["--version"], { encoding: "utf-8", shell: false, timeout: 10_000 });
-    let target;
-    if (!probe.error && probe.status === 0) {
-        target = { cmd: "pm", leadArgs: [] };
-    }
-    else if (process.argv[0] && process.argv[1]) {
-        // process.argv[0] = node binary, process.argv[1] = pm CLI script path.
-        target = { cmd: process.argv[0], leadArgs: [process.argv[1]] };
-    }
-    else {
-        target = { cmd: "pm", leadArgs: [] };
-    }
-    pmTargetCache = target;
-    return target;
-}
-function runPm(args, opts = {}) {
-    const target = pmSpawnTarget();
-    return runSync(target.cmd, [...target.leadArgs, ...args], opts);
-}
-// Per-process memo of readPmItems by repo path. scanRepos and runPolicy both
-// call this for the same repo, and ops report runs both, so without memoisation
-// a fleet of N repos spawns pm list 2N times. Cached for the lifetime of the
-// process (a single CLI invocation).
-const pmItemsCache = new Map();
 function readPmItems(repoPath) {
-    if (pmItemsCache.has(repoPath))
-        return pmItemsCache.get(repoPath);
-    const result = readPmItemsUncached(repoPath);
-    pmItemsCache.set(repoPath, result);
-    return result;
-}
-function readPmItemsUncached(repoPath) {
     const pmRoot = join(repoPath, ".agents", "pm");
     if (!existsSync(pmRoot))
         return null;
-    // Timeout so a single hung pm process can't block the whole fleet run.
-    const r = runPm(["list", "--json", "--pm-path", pmRoot], { timeoutMs: 30_000 });
+    const r = runSync("pm", ["list", "--json", "--pm-path", pmRoot]);
     if (r.status !== 0)
         return null;
     const parsed = parseJsonSafe(r.stdout);
@@ -282,10 +149,6 @@ function countOutdated(repoPath) {
     const r = runSync("npm", ["outdated", "--json"], { cwd: repoPath, timeoutMs: 60_000 });
     if (r.error)
         return null;
-    // `npm outdated --json` exits 0 with empty stdout when nothing is outdated.
-    // That is the "0 outdated" case, not an error — return 0 instead of null.
-    if (r.status === 0 && r.stdout.trim() === "")
-        return 0;
     const parsed = parseJsonSafe(r.stdout);
     if (!parsed || typeof parsed !== "object")
         return null;
@@ -328,31 +191,6 @@ function ghOpenCount(repoPath, kind) {
 }
 function scanRepo(repoPath) {
     const errors = [];
-    // Guard against a non-existent directory so we don't spawn a flurry of
-    // failing subprocesses (npm/gh) against it; report a clean not-ready result.
-    if (!existsSync(repoPath)) {
-        errors.push("repository directory does not exist");
-        return {
-            path: repoPath,
-            name: null,
-            version: null,
-            strict_ts: false,
-            has_changelog: false,
-            has_release_workflow: false,
-            has_ci: false,
-            pm_workspace: false,
-            pm_open_items: null,
-            pm_inprogress_items: null,
-            has_pm_changelog: false,
-            outdated_count: null,
-            audit_critical: null,
-            audit_high: null,
-            open_prs: null,
-            open_issues: null,
-            ready: false,
-            errors,
-        };
-    }
     const pkg = readPackageJson(repoPath);
     const name = pkg?.name ?? null;
     const version = pkg?.version ?? null;
@@ -360,7 +198,7 @@ function scanRepo(repoPath) {
     const has_changelog = existsSync(join(repoPath, "CHANGELOG.md"));
     const has_release_workflow = existsSync(join(repoPath, ".github", "workflows", "release.yml"));
     const has_ci = existsSync(join(repoPath, ".github", "workflows", "ci.yml"));
-    const has_pm_changelog = hasPmChangelogDep(pkg);
+    const has_pm_changelog = Boolean(pkg?.devDependencies && "pm-changelog" in pkg.devDependencies);
     const items = readPmItems(repoPath);
     const pm_workspace = items !== null;
     const pm_open_items = items ? items.filter((i) => (i.status ?? "").toLowerCase() === "open").length : null;
@@ -416,17 +254,11 @@ function scanRepos(repos, progress) {
     const ready = results.filter((r) => r.ready).length;
     return { repos: results, summary: { total: results.length, ready, not_ready: results.length - ready } };
 }
-// Named defaults referenced when a policy check omits `params`. Declared before
-// DEFAULT_POLICY so the bundle references the same single source of truth (no
-// duplicated literals that could silently diverge), and used directly by
-// runPolicyCheck so reordering/inserting checks can never grab the wrong entry.
-const DEFAULT_REQUIRED_SCRIPTS = ["typecheck", "test", "build", "release:check", "changelog", "changelog:check"];
-const DEFAULT_REQUIRED_WORKFLOWS = ["ci.yml", "release.yml"];
 const DEFAULT_POLICY = {
     checks: [
         { id: "naming", severity: "error" },
-        { id: "required-scripts", severity: "error", params: { scripts: DEFAULT_REQUIRED_SCRIPTS } },
-        { id: "required-workflows", severity: "error", params: { workflows: DEFAULT_REQUIRED_WORKFLOWS } },
+        { id: "required-scripts", severity: "error", params: { scripts: ["typecheck", "test", "build", "release:check", "changelog", "changelog:check"] } },
+        { id: "required-workflows", severity: "error", params: { workflows: ["ci.yml", "release.yml"] } },
         { id: "private-no-runners", severity: "error" },
         { id: "pm-duplicate-titles", severity: "warning" },
         { id: "pm-changelog-wired", severity: "error" },
@@ -476,63 +308,11 @@ function checkPrivateNoRunners(repoPath) {
         for (const file of readdirSync(wfDir)) {
             if (!file.endsWith(".yml") && !file.endsWith(".yaml"))
                 continue;
-            // Guard the read so a broken symlink, permission error, or a file removed
-            // between readdirSync/readFileSync records a per-file violation instead
-            // of crashing the entire policy run.
-            let content;
-            try {
-                content = readFileSync(join(wfDir, file), "utf-8");
-            }
-            catch (err) {
-                violations.push(`${file}: could not read file (${err instanceof Error ? err.message : String(err)})`);
-                continue;
-            }
-            // Detect GitHub-hosted runners across the YAML forms GitHub Actions supports:
-            //   runs-on: ubuntu-latest              (single line)
-            //   runs-on:                            (multi-line list)
-            //     - ubuntu-latest
-            //   runs-on:                            (multi-line object: group/labels)
-            //     group: ...
-            //     labels:
-            //       - ubuntu-latest
-            // Skip blank lines and #-comments when scanning the following block, and
-            // stop at the first line indented no deeper than the runs-on key.
-            const lines = content.split("\n");
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                const m = line.match(/^(\s*)runs-on:\s*(.*)$/);
-                if (!m)
-                    continue;
-                const indentLen = m[1].length;
-                let value = m[2].trim();
-                if (!value) {
-                    const items = [];
-                    for (let j = i + 1; j < lines.length; j++) {
-                        const nextLine = lines[j];
-                        if (nextLine.trim() === "" || nextLine.trim().startsWith("#"))
-                            continue;
-                        const indentMatch = nextLine.match(/^(\s*)(.*)$/);
-                        if (!indentMatch || indentMatch[1].length <= indentLen)
-                            break;
-                        const body = indentMatch[2];
-                        const itemMatch = body.match(/^-\s+(.*)$/);
-                        if (itemMatch) {
-                            items.push(itemMatch[1].trim());
-                        }
-                        else {
-                            // Object key form. Only `labels:` values correspond to actual
-                            // runner assignments; `group:` names are arbitrary identifiers for
-                            // runner groups and must NOT be tested against RUNNER_PATTERN
-                            // (a group named "ubuntu-pool" would otherwise false-positive).
-                            const kvMatch = body.match(/^labels:\s*(.*)$/);
-                            if (kvMatch && kvMatch[2])
-                                items.push(kvMatch[2].trim());
-                        }
-                    }
-                    value = items.join(" ");
-                }
-                if (RUNNER_PATTERN.test(value))
-                    violations.push(`${file}: runs-on ${value}`);
+            const content = readFileSync(join(wfDir, file), "utf-8");
+            for (const line of content.split("\n")) {
+                const m = line.match(/^\s*runs-on:\s*(.+?)\s*$/);
+                if (m && RUNNER_PATTERN.test(m[1]))
+                    violations.push(`${file}: ${m[0].trim()}`);
             }
         }
     }
@@ -565,7 +345,7 @@ function checkPmDuplicateTitles(items) {
     };
 }
 function checkPmChangelogWired(pkg) {
-    const hasDep = hasPmChangelogDep(pkg);
+    const hasDep = Boolean(pkg?.devDependencies && "pm-changelog" in pkg.devDependencies);
     const hasScript = Boolean(pkg?.scripts && typeof pkg.scripts["changelog"] === "string");
     const pass = hasDep && hasScript;
     return {
@@ -576,36 +356,22 @@ function checkPmChangelogWired(pkg) {
     };
 }
 function runPolicyCheck(def, ctx) {
-    let res;
     switch (def.id) {
         case "naming":
-            res = checkNaming(ctx.pkg?.name ?? null);
-            break;
+            return checkNaming(ctx.pkg?.name ?? null);
         case "required-scripts":
-            res = checkRequiredScripts(ctx.pkg, def.params?.scripts ?? DEFAULT_REQUIRED_SCRIPTS);
-            break;
+            return checkRequiredScripts(ctx.pkg, def.params?.scripts ?? DEFAULT_POLICY.checks[1].params.scripts);
         case "required-workflows":
-            res = checkRequiredWorkflows(ctx.repoPath, def.params?.workflows ?? DEFAULT_REQUIRED_WORKFLOWS);
-            break;
+            return checkRequiredWorkflows(ctx.repoPath, def.params?.workflows ?? ["ci.yml", "release.yml"]);
         case "private-no-runners":
-            res = checkPrivateNoRunners(ctx.repoPath);
-            break;
+            return checkPrivateNoRunners(ctx.repoPath);
         case "pm-duplicate-titles":
-            res = checkPmDuplicateTitles(ctx.items);
-            break;
+            return checkPmDuplicateTitles(ctx.items);
         case "pm-changelog-wired":
-            res = checkPmChangelogWired(ctx.pkg);
-            break;
+            return checkPmChangelogWired(ctx.pkg);
         default:
-            res = { id: def.id, severity: def.severity, pass: false, message: `unknown check id "${def.id}"` };
+            return { id: def.id, severity: def.severity, pass: false, message: `unknown check id "${def.id}"` };
     }
-    // Preserve any custom severity override declared in the policy bundle so
-    // per-check output is consistent with the policy definition (a check the
-    // user downgraded to "warning" should not be reported as "error").
-    if (def.severity && res.severity !== def.severity) {
-        return { ...res, severity: def.severity };
-    }
-    return res;
 }
 function matchesFilter(repoPath, name, filter) {
     if (!filter)
@@ -641,17 +407,36 @@ function runPolicy(repos, bundle, progress) {
     return { repos: repoResults, summary: { total: repos.length, passed: totalPassed, failed: totalFailed, by_severity } };
 }
 const FALLBACK_STEPS = ["typecheck", "build", "test", "audit:prod", "pack:dry-run", "changelog:check"];
+/**
+ * Extract a concise, human-readable error reason from npm stdout/stderr.
+ * npm errors typically include `npm error code XXX` and a message line;
+ * we surface the code + message so the user sees *why* a check failed
+ * without having to scroll through full build output.
+ */
+function summarizeNpmError(stdout, stderr, args) {
+    const combined = `${stderr}\n${stdout}`.trim();
+    if (!combined)
+        return `npm ${args.join(" ")} exited non-zero (no output)`;
+    // Extract npm error code and message
+    const codeMatch = combined.match(/npm error code (\S+)/);
+    const msgMatch = combined.match(/npm error\n(.+)/);
+    if (codeMatch && msgMatch) {
+        return `[${codeMatch[1]}] ${msgMatch[1].trim()}`;
+    }
+    if (codeMatch) {
+        return `npm error code ${codeMatch[1]}`;
+    }
+    // Fall back to last non-trivial lines of stderr
+    const lines = combined.split("\n").filter((l) => l.trim() && !l.startsWith(">"));
+    return lines.slice(-3).join(" | ").slice(-2000);
+}
 function runReleaseCheck(repoPath, name, args, progress) {
     progress(`verify ${relative(process.cwd(), repoPath) || repoPath}: ${name}`);
     const start = Date.now();
     const r = runSync("npm", args, { cwd: repoPath, timeoutMs: 5 * 60_000 });
     const duration_ms = Date.now() - start;
-    // Treat a spawn/timeout error (r.error, e.g. ETIMEDOUT/ENOENT) as a failure
-    // and surface its message so agents get a clear reason, not just an exit code.
-    const pass = r.status === 0 && !r.error;
-    const error = pass
-        ? undefined
-        : (r.error?.message || r.stderr.trim() || r.stdout.trim() || `npm ${args.join(" ")} exited ${r.status}`).slice(-2000);
+    const pass = r.status === 0;
+    const error = pass ? undefined : summarizeNpmError(r.stdout, r.stderr, args);
     return { name, pass, duration_ms, error };
 }
 function verifyReleaseRepo(repoPath, progress) {
@@ -665,31 +450,6 @@ function verifyReleaseRepo(repoPath, progress) {
         checks = FALLBACK_STEPS
             .filter((s) => typeof scripts[s] === "string")
             .map((s) => runReleaseCheck(repoPath, s, ["run", s], progress));
-    }
-    // A missing repo directory should be reported as a path error, not mislabeled
-    // as "no release gate found". Check existence first for accurate diagnostics.
-    if (!existsSync(repoPath)) {
-        checks = [
-            {
-                name: "release:check",
-                pass: false,
-                duration_ms: 0,
-                error: `repository directory does not exist: ${repoPath}`,
-            },
-        ];
-    }
-    else if (checks.length === 0) {
-        // A repo with no runnable release scripts would otherwise be a false green.
-        // Surface it as a single failed check so verify-release never reports a
-        // release-ready state for a repo that has no gate defined.
-        checks = [
-            {
-                name: "release:check",
-                pass: false,
-                duration_ms: 0,
-                error: "no release gate found: define a `release:check` script (or at least one of typecheck/build/test/audit:prod/pack:dry-run/changelog:check)",
-            },
-        ];
     }
     const passed = checks.filter((c) => c.pass).length;
     const failed = checks.filter((c) => !c.pass).length;
@@ -718,17 +478,201 @@ function renderVerifyReleaseMarkdown(result) {
                 c.name,
                 c.pass ? "yes" : "no",
                 String(c.duration_ms),
-                // Escape pipes AND collapse newlines so a multi-line build/test error
-                // can't split this cell across rows and corrupt the markdown table.
-                (c.error ?? "").replace(/\|/g, "\\|").replace(/[\r\n]+/g, " ⏎ ").slice(0, 200),
+                (c.error ?? "").replace(/\|/g, "\\|").slice(0, 200),
             ]));
         }
     }
     lines.push("");
     return lines.join("\n");
 }
-function buildReport(repos, progress) {
-    return { generated_at: new Date().toISOString(), scan: scanRepos(repos, progress), policy: runPolicy(repos, DEFAULT_POLICY, progress) };
+function collectStatus(repoPath) {
+    const pkg = readPackageJson(repoPath);
+    const name = pkg?.name ?? null;
+    const version = pkg?.version ?? null;
+    const issues = [];
+    const strict_ts = readTsConfigStrict(repoPath);
+    if (!strict_ts)
+        issues.push("strict TS not enabled");
+    const has_changelog = existsSync(join(repoPath, "CHANGELOG.md"));
+    if (!has_changelog)
+        issues.push("no CHANGELOG.md");
+    const has_release_workflow = existsSync(join(repoPath, ".github", "workflows", "release.yml"));
+    if (!has_release_workflow)
+        issues.push("no release workflow");
+    const has_ci = existsSync(join(repoPath, ".github", "workflows", "ci.yml"));
+    if (!has_ci)
+        issues.push("no CI workflow");
+    const has_pm_changelog = Boolean(pkg?.devDependencies && "pm-changelog" in pkg.devDependencies);
+    if (!has_pm_changelog)
+        issues.push("pm-changelog not wired");
+    let outdated_count = null;
+    try {
+        outdated_count = countOutdated(repoPath);
+    }
+    catch { /* ignore */ }
+    let audit_critical = null;
+    let audit_high = null;
+    try {
+        const a = readAudit(repoPath);
+        audit_critical = a.critical;
+        audit_high = a.high;
+    }
+    catch { /* ignore */ }
+    if (audit_critical !== null && audit_critical > 0)
+        issues.push(`${audit_critical} critical vuln(s)`);
+    if (audit_high !== null && audit_high > 0)
+        issues.push(`${audit_high} high vuln(s)`);
+    const items = readPmItems(repoPath);
+    const pm_open_items = items ? items.filter((i) => (i.status ?? "").toLowerCase() === "open").length : null;
+    const ready = issues.length === 0;
+    return { path: repoPath, name, version, ready, issues, pm_open_items, audit_critical, audit_high, outdated_count };
+}
+function collectStatusAll(repos, progress) {
+    const results = repos.map((repo) => {
+        progress(`status ${repo}`);
+        return collectStatus(repo);
+    });
+    const ready = results.filter((r) => r.ready).length;
+    const totalIssues = results.reduce((sum, r) => sum + r.issues.length, 0);
+    return { repos: results, summary: { total: results.length, ready, not_ready: results.length - ready, total_issues: totalIssues } };
+}
+function renderStatusMarkdown(result) {
+    const lines = [];
+    lines.push("# pm-ops status");
+    lines.push("");
+    lines.push(`Fleet: **${result.summary.total}** repo(s) — **${result.summary.ready}** ready, **${result.summary.not_ready}** not ready, **${result.summary.total_issues}** issue(s).`);
+    lines.push("");
+    lines.push(renderMarkdownRow(["repo", "version", "ready", "open items", "outdated", "critical", "high", "issues"]));
+    lines.push(renderMarkdownRow(["---", "---", "---", "---", "---", "---", "---", "---"]));
+    for (const r of result.repos) {
+        lines.push(renderMarkdownRow([
+            r.name ?? basename(r.path),
+            r.version ?? "-",
+            r.ready ? "yes" : "no",
+            formatCount(r.pm_open_items),
+            formatCount(r.outdated_count),
+            formatCount(r.audit_critical),
+            formatCount(r.audit_high),
+            r.issues.length === 0 ? "-" : r.issues.join("; ").replace(/\|/g, "\\|").slice(0, 200),
+        ]));
+    }
+    lines.push("");
+    return lines.join("\n");
+}
+function collectOutdatedRepo(repoPath) {
+    const pkg = readPackageJson(repoPath);
+    const r = runSync("npm", ["outdated", "--json"], { cwd: repoPath, timeoutMs: 60_000 });
+    const entries = [];
+    if (r.status !== 0 && r.status !== 1) {
+        // npm outdated exits 0 if no outdated, 1 if some outdated
+        return { path: repoPath, name: pkg?.name ?? null, outdated: [], count: 0 };
+    }
+    const parsed = parseJsonSafe(r.stdout);
+    if (parsed && typeof parsed === "object") {
+        for (const [name, info] of Object.entries(parsed)) {
+            if (info && typeof info === "object") {
+                entries.push({
+                    name,
+                    current: String(info.current ?? "-"),
+                    wanted: String(info.wanted ?? "-"),
+                    latest: String(info.latest ?? "-"),
+                    type: String(info.type ?? "-"),
+                });
+            }
+        }
+    }
+    return { path: repoPath, name: pkg?.name ?? null, outdated: entries, count: entries.length };
+}
+function collectOutdatedAll(repos, progress) {
+    const results = repos.map((repo) => {
+        progress(`outdated ${repo}`);
+        return collectOutdatedRepo(repo);
+    });
+    const withOutdated = results.filter((r) => r.count > 0).length;
+    const totalOutdated = results.reduce((sum, r) => sum + r.count, 0);
+    return { repos: results, summary: { total: results.length, repos_with_outdated: withOutdated, total_outdated: totalOutdated } };
+}
+function renderOutdatedMarkdown(result) {
+    const lines = [];
+    lines.push("# pm-ops outdated");
+    lines.push("");
+    lines.push(`Checked **${result.summary.total}** repo(s): **${result.summary.repos_with_outdated}** have outdated deps, **${result.summary.total_outdated}** total outdated package(s).`);
+    lines.push("");
+    for (const repo of result.repos) {
+        if (repo.count === 0)
+            continue;
+        lines.push(`## ${repo.name ?? basename(repo.path)}`);
+        lines.push("");
+        lines.push(renderMarkdownRow(["package", "current", "wanted", "latest", "type"]));
+        lines.push(renderMarkdownRow(["---", "---", "---", "---", "---"]));
+        for (const e of repo.outdated) {
+            lines.push(renderMarkdownRow([e.name, e.current, e.wanted, e.latest, e.type]));
+        }
+        lines.push("");
+    }
+    if (result.summary.total_outdated === 0) {
+        lines.push("All dependencies are up to date.");
+        lines.push("");
+    }
+    return lines.join("\n");
+}
+function collectAuditRepo(repoPath) {
+    const pkg = readPackageJson(repoPath);
+    const r = runSync("npm", ["audit", "--omit=dev", "--json"], { cwd: repoPath, timeoutMs: 60_000 });
+    if (r.error) {
+        return { path: repoPath, name: pkg?.name ?? null, critical: null, high: null, moderate: null, low: null, total: null, ok: false };
+    }
+    const parsed = parseJsonSafe(r.stdout);
+    const v = parsed?.metadata?.vulnerabilities;
+    if (!v) {
+        return { path: repoPath, name: pkg?.name ?? null, critical: null, high: null, moderate: null, low: null, total: null, ok: false };
+    }
+    const critical = v.critical ?? 0;
+    const high = v.high ?? 0;
+    const moderate = v.moderate ?? 0;
+    const low = v.low ?? 0;
+    const total = v.total ?? 0;
+    return { path: repoPath, name: pkg?.name ?? null, critical, high, moderate, low, total, ok: total === 0 };
+}
+function collectAuditAll(repos, progress) {
+    const results = repos.map((repo) => {
+        progress(`audit ${repo}`);
+        return collectAuditRepo(repo);
+    });
+    const clean = results.filter((r) => r.ok).length;
+    const withVulns = results.filter((r) => r.total !== null && r.total > 0).length;
+    const totalCritical = results.reduce((s, r) => s + (r.critical ?? 0), 0);
+    const totalHigh = results.reduce((s, r) => s + (r.high ?? 0), 0);
+    return { repos: results, summary: { total: results.length, clean, with_vulns: withVulns, total_critical: totalCritical, total_high: totalHigh } };
+}
+function renderAuditMarkdown(result) {
+    const lines = [];
+    lines.push("# pm-ops audit");
+    lines.push("");
+    lines.push(`Audited **${result.summary.total}** repo(s): **${result.summary.clean}** clean, **${result.summary.with_vulns}** with vulnerabilities.`);
+    lines.push(`Total: **${result.summary.total_critical}** critical, **${result.summary.total_high}** high.`);
+    lines.push("");
+    lines.push(renderMarkdownRow(["repo", "critical", "high", "moderate", "low", "total", "status"]));
+    lines.push(renderMarkdownRow(["---", "---", "---", "---", "---", "---", "---"]));
+    for (const r of result.repos) {
+        lines.push(renderMarkdownRow([
+            r.name ?? basename(r.path),
+            formatCount(r.critical),
+            formatCount(r.high),
+            formatCount(r.moderate),
+            formatCount(r.low),
+            formatCount(r.total),
+            r.total === null ? "?" : r.ok ? "clean" : "vulns",
+        ]));
+    }
+    lines.push("");
+    return lines.join("\n");
+}
+function buildReport(repos, progress, includeRelease = false) {
+    const scan = scanRepos(repos, progress);
+    const policy = runPolicy(repos, DEFAULT_POLICY, progress);
+    const release = includeRelease ? verifyRelease(repos, progress) : undefined;
+    return { generated_at: new Date().toISOString(), scan, policy, release };
 }
 // ---------------------------------------------------------------------------
 // Formatters
@@ -795,26 +739,27 @@ function renderPolicyMarkdown(result) {
     return lines.join("\n");
 }
 function renderReportMarkdown(result) {
-    return [renderScanMarkdown(result.scan), "", renderPolicyMarkdown(result.policy)].join("\n");
-}
-// Serialize the structured result as JSON. Branching JSON separately from the
-// markdown formatter ensures `--format json` / `--json` and `--output <file>`
-// write real serialized JSON, not markdown.
-function jsonOf(structured) {
-    return `${JSON.stringify(structured, null, 2)}\n`;
+    const sections = [];
+    // Header with timestamp
+    sections.push(`# pm-ops Fleet Report`);
+    sections.push("");
+    sections.push(`_Generated: ${result.generated_at}_`);
+    sections.push("");
+    sections.push("");
+    // Scan section
+    sections.push(renderScanMarkdown(result.scan));
+    sections.push("");
+    // Policy section
+    sections.push(renderPolicyMarkdown(result.policy));
+    if (result.release) {
+        sections.push("");
+        sections.push(renderVerifyReleaseMarkdown(result.release));
+    }
+    return sections.join("\n");
 }
 function emitResult(structured, format, outputPath, formatter) {
     if (outputPath) {
-        // Create parent directories so --output ./reports/fleet.md works on a fresh
-        // checkout instead of crashing with a raw ENOENT.
-        const parent = dirname(resolvePath(outputPath));
-        try {
-            mkdirSync(parent, { recursive: true });
-        }
-        catch {
-            /* ignore — writeFileSync will surface a clean error if the dir is unusable */
-        }
-        const body = format === "markdown" ? formatter() : jsonOf(structured);
+        const body = format === "toon" ? `${JSON.stringify(structured, null, 2)}\n` : formatter();
         writeFileSync(outputPath, body, "utf-8");
         console.error(`pm-ops: wrote ${format} output to ${outputPath}`);
         return { written_to: outputPath, format };
@@ -822,7 +767,7 @@ function emitResult(structured, format, outputPath, formatter) {
     if (format === "toon")
         return structured;
     if (format === "json")
-        return renderedCommandResult(jsonOf(structured));
+        return renderedCommandResult(`${JSON.stringify(structured, null, 2)}\n`);
     return renderedCommandResult(formatter());
 }
 // ---------------------------------------------------------------------------
@@ -830,7 +775,7 @@ function emitResult(structured, format, outputPath, formatter) {
 // ---------------------------------------------------------------------------
 export default defineExtension({
     name: "pm-ops",
-    version: "2026.7.6",
+    version: "2026.7.5",
     activate(api) {
         if (typeof api.registerRenderer === "function") {
             api.registerRenderer("toon", renderCommandResult);
@@ -898,7 +843,7 @@ export default defineExtension({
                 let bundle = DEFAULT_POLICY;
                 const policyFile = readString(options, "policy");
                 if (policyFile) {
-                    const loaded = readJsonFile(resolvePath(policyFile));
+                    const loaded = readJsonFile(resolve(policyFile));
                     if (!loaded || !Array.isArray(loaded.checks)) {
                         throw new CommandError(`--policy file "${policyFile}" is not a valid policy bundle (expected { checks: [...] })`, EXIT_CODE.USAGE);
                     }
@@ -907,51 +852,58 @@ export default defineExtension({
                 console.error(`pm-ops policy: ${repos.length} repo(s), ${bundle.checks.length} check(s)`);
                 const result = runPolicy(repos, bundle, (m) => console.error(`  ${m}`));
                 console.error(`policy: ${result.summary.passed} passed, ${result.summary.failed} failed`);
-                const failed = result.summary.failed > 0;
-                // In strict mode with failures, ensure the formatted result is produced
-                // (to the --output file if set, else to stdout) BEFORE throwing so
-                // users/agents still see which checks failed. The throw itself must
-                // happen regardless of --output so CI exit-code gating is never bypassed.
-                if (strict && failed) {
-                    if (outputPath) {
-                        // emitResult writes the file and returns a summary; discard return.
-                        emitResult(result, format, outputPath, () => renderPolicyMarkdown(result));
-                    }
-                    else if (format === "markdown") {
-                        process.stdout.write(`${renderPolicyMarkdown(result)}\n`);
-                    }
-                    else {
-                        process.stdout.write(jsonOf(result));
-                    }
+                const out = emitResult(result, format, outputPath, () => renderPolicyMarkdown(result));
+                if (strict && result.summary.failed > 0) {
                     throw new CommandError(`policy: ${result.summary.failed} check(s) failed (strict mode)`, EXIT_CODE.GENERIC_FAILURE);
                 }
-                return emitResult(result, format, outputPath, () => renderPolicyMarkdown(result));
+                return out;
             },
         });
         api.registerCommand({
             name: "ops verify-release",
             description: "Run the release gate matrix per repo: executes `npm run release:check` (or the individual " +
                 "typecheck/build/test/audit:prod/pack:dry-run/changelog:check steps when release:check is missing) " +
-                "and reports pass/fail with per-step timing. Does NOT publish. Exits non-zero if any repo fails.",
+                "and reports pass/fail with per-step timing and concise error summaries. Does NOT publish. " +
+                "Exits non-zero if any repo fails. --output writes the report to a file.",
             intent: "run a release gate matrix across many pm repositories",
             examples: [
                 "pm ops verify-release",
                 "pm ops verify-release --repos ./pm-csv ./pm-github",
                 "pm ops verify-release --json",
+                "pm ops verify-release --format markdown --output RELEASE.md",
             ],
             flags: [
                 { long: "--repos", value_name: "paths", description: "Repo paths to verify (comma-separated or repeatable; default: current dir)", list: true },
                 { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
                 { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
+                { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
             ],
             async run(ctx) {
                 const options = ctx.options;
                 const repos = resolveRepos(options);
                 const format = resolveFormat(options);
+                const outputPath = readString(options, "output");
                 console.error(`pm-ops verify-release: ${repos.length} repo(s)`);
                 const result = verifyRelease(repos, (m) => console.error(`  ${m}`));
                 console.error(`verify-release: ${result.summary.passed}/${result.summary.total} repos passed`);
                 const failed = result.summary.failed > 0;
+                if (failed) {
+                    // Log a concise summary of which repos failed and why
+                    for (const repo of result.repos) {
+                        if (repo.failed > 0) {
+                            const failedChecks = repo.checks.filter((c) => !c.pass).map((c) => `${c.name}: ${(c.error ?? "unknown").slice(0, 120)}`);
+                            console.error(`  FAIL ${repo.name ?? basename(repo.path)}: ${failedChecks.join("; ")}`);
+                        }
+                    }
+                }
+                if (outputPath) {
+                    const body = format === "toon" ? `${JSON.stringify(result, null, 2)}\n` : renderVerifyReleaseMarkdown(result);
+                    writeFileSync(outputPath, body, "utf-8");
+                    console.error(`pm-ops: wrote ${format} output to ${outputPath}`);
+                    if (failed)
+                        throw new CommandError(`verify-release: ${result.summary.failed} repo(s) failed`, EXIT_CODE.GENERIC_FAILURE);
+                    return { written_to: outputPath, format };
+                }
                 if (format === "json") {
                     if (failed) {
                         process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -976,13 +928,16 @@ export default defineExtension({
         });
         api.registerCommand({
             name: "ops report",
-            description: "Emit a concise fleet report combining scan + policy results. --format markdown produces " +
-                "a PR/issue-ready summary table. --output writes the report to a file. Default stdout TOON.",
+            description: "Emit a concise fleet report combining scan + policy results (and optionally verify-release). " +
+                "--format markdown produces a PR/issue-ready summary table with timestamp header. " +
+                "--include-release also runs the release gate matrix and appends results. " +
+                "--output writes the report to a file. Default stdout TOON.",
             intent: "produce a concise fleet report across many pm repositories",
             examples: [
                 "pm ops report",
                 "pm ops report --repos ./pm-csv ./pm-github --format markdown",
                 "pm ops report --format markdown --output FLEET.md",
+                "pm ops report --format markdown --include-release --output FLEET.md",
                 "pm ops report --json",
             ],
             flags: [
@@ -990,16 +945,104 @@ export default defineExtension({
                 { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
                 { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
                 { long: "--output", value_name: "file", description: "Write the rendered report to a file instead of stdout" },
+                { long: "--include-release", description: "Also run verify-release and include results in the report" },
             ],
             async run(ctx) {
                 const options = ctx.options;
                 const repos = resolveRepos(options);
                 const format = resolveFormat(options);
                 const outputPath = readString(options, "output");
-                console.error(`pm-ops report: ${repos.length} repo(s)`);
-                const result = buildReport(repos, (m) => console.error(`  ${m}`));
-                console.error(`report: scan ${result.scan.summary.ready}/${result.scan.summary.total} ready; policy ${result.policy.summary.failed} failed`);
+                const includeRelease = readBool(options, "include-release");
+                console.error(`pm-ops report: ${repos.length} repo(s)${includeRelease ? " (+release)" : ""}`);
+                const result = buildReport(repos, (m) => console.error(`  ${m}`), includeRelease);
+                console.error(`report: scan ${result.scan.summary.ready}/${result.scan.summary.total} ready; policy ${result.policy.summary.failed} failed${result.release ? `; release ${result.release.summary.passed}/${result.release.summary.total} passed` : ""}`);
                 return emitResult(result, format, outputPath, () => renderReportMarkdown(result));
+            },
+        });
+        // --- New fleet operations commands ---
+        api.registerCommand({
+            name: "ops status",
+            description: "Quick fleet status overview: for each repo shows name, version, ready/not-ready, " +
+                "open pm items, outdated deps, and critical/high vulnerabilities. Faster than scan " +
+                "because it skips GitHub PR/issue probes and pm workspace detail. --format markdown " +
+                "emits a compact table.",
+            intent: "get a quick fleet health overview across many pm repositories",
+            examples: [
+                "pm ops status",
+                "pm ops status --repos ./pm-csv ./pm-github",
+                "pm ops status --format markdown",
+            ],
+            flags: [
+                { long: "--repos", value_name: "paths", description: "Repo paths (comma-separated or repeatable; default: current dir)", list: true },
+                { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
+                { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
+                { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
+            ],
+            async run(ctx) {
+                const options = ctx.options;
+                const repos = resolveRepos(options);
+                const format = resolveFormat(options);
+                const outputPath = readString(options, "output");
+                console.error(`pm-ops status: ${repos.length} repo(s)`);
+                const result = collectStatusAll(repos, (m) => console.error(`  ${m}`));
+                console.error(`status: ${result.summary.ready}/${result.summary.total} ready, ${result.summary.total_issues} issue(s)`);
+                return emitResult(result, format, outputPath, () => renderStatusMarkdown(result));
+            },
+        });
+        api.registerCommand({
+            name: "ops outdated",
+            description: "Check outdated dependencies across repos. Runs `npm outdated --json` per repo and " +
+                "summarizes packages that have newer versions available. --format markdown groups " +
+                "by repo with per-package current/wanted/latest columns.",
+            intent: "check dependency freshness across many pm repositories",
+            examples: [
+                "pm ops outdated",
+                "pm ops outdated --repos ./pm-csv ./pm-github",
+                "pm ops outdated --format markdown",
+            ],
+            flags: [
+                { long: "--repos", value_name: "paths", description: "Repo paths (comma-separated or repeatable; default: current dir)", list: true },
+                { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
+                { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
+                { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
+            ],
+            async run(ctx) {
+                const options = ctx.options;
+                const repos = resolveRepos(options);
+                const format = resolveFormat(options);
+                const outputPath = readString(options, "output");
+                console.error(`pm-ops outdated: ${repos.length} repo(s)`);
+                const result = collectOutdatedAll(repos, (m) => console.error(`  ${m}`));
+                console.error(`outdated: ${result.summary.repos_with_outdated}/${result.summary.total} repos with outdated, ${result.summary.total_outdated} total`);
+                return emitResult(result, format, outputPath, () => renderOutdatedMarkdown(result));
+            },
+        });
+        api.registerCommand({
+            name: "ops audit",
+            description: "Security vulnerability audit across repos. Runs `npm audit --omit=dev --json` per repo " +
+                "and summarizes critical/high/moderate/low counts. --format markdown emits a compact " +
+                "fleet-wide vulnerability table.",
+            intent: "audit security vulnerabilities across many pm repositories",
+            examples: [
+                "pm ops audit",
+                "pm ops audit --repos ./pm-csv ./pm-github",
+                "pm ops audit --format markdown",
+            ],
+            flags: [
+                { long: "--repos", value_name: "paths", description: "Repo paths (comma-separated or repeatable; default: current dir)", list: true },
+                { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
+                { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
+                { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
+            ],
+            async run(ctx) {
+                const options = ctx.options;
+                const repos = resolveRepos(options);
+                const format = resolveFormat(options);
+                const outputPath = readString(options, "output");
+                console.error(`pm-ops audit: ${repos.length} repo(s)`);
+                const result = collectAuditAll(repos, (m) => console.error(`  ${m}`));
+                console.error(`audit: ${result.summary.clean}/${result.summary.total} clean, ${result.summary.total_critical} critical, ${result.summary.total_high} high`);
+                return emitResult(result, format, outputPath, () => renderAuditMarkdown(result));
             },
         });
     },
