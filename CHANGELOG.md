@@ -1,9 +1,10 @@
 # Changelog
 
-## 2026.7.5 - 2026-07-05
+## 2026.7.5 - 2026-07-06
 
 ### Other
 
+- Refresh pm-ops to latest pm CLI and changelog toolchain ([ops-xfit](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-xfit.toon))
 - Output rendering via renderer-override marker ([ops-kmjq](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/decisions/ops-kmjq.toon))
 - Real-data test suite against pm fleet ([ops-hadw](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-hadw.toon))
 - CI + daily release workflow setup ([ops-8d93](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-8d93.toon))
