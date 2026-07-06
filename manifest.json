@@ -1,12 +1,19 @@
 {
   "name": "pm-ops",
   "version": "2026.7.5",
+  "manifest_version": 2,
   "description": "Multi-repo fleet operations for pm-cli",
   "author": "@unbraind",
   "entry": "./dist/index.js",
   "priority": 50,
+  "permissions": {
+    "fs_read": true,
+    "fs_write": true,
+    "subprocess": true
+  },
   "capabilities": [
     "commands",
+    "schema",
     "renderers"
   ],
   "pm": {
