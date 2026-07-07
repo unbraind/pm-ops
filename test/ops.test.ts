@@ -1,18 +1,21 @@
 import assert from "node:assert/strict";
 import test, { before, after } from "node:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 import extension from "../dist/index.js";
 
-// Real fleet paths used for local real-data testing. These are absent on CI,
-// so the real-data tests skip gracefully when the repos are not present.
-const PM_CSV = "/home/steve/container/pm-csv";
-const PM_TS_STARTER = "/home/steve/container/pm-ts-starter";
-const REAL_REPOS = [PM_CSV, PM_TS_STARTER];
-const REAL_REPOS_AVAILABLE = REAL_REPOS.every((p) => existsSync(join(p, "package.json")));
+const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf-8")) as { capabilities: string[] };
+
+// Real fleet paths used for local real-data testing. CI and other developers
+// can set PM_OPS_TEST_REPOS to opt into the same checks with their own paths.
+const REAL_REPOS = (process.env.PM_OPS_TEST_REPOS ?? "")
+  .split(/[,:]/)
+  .map((entry) => entry.trim())
+  .filter(Boolean);
+const REAL_REPOS_AVAILABLE = REAL_REPOS.length >= 2 && REAL_REPOS.every((p) => existsSync(join(p, "package.json")));
 
 interface CapturedCommand {
   name: string;
@@ -36,10 +39,10 @@ function activateAndCapture(): { commands: Map<string, CapturedCommand>; rendere
   return { commands, renderers };
 }
 
-async function runCommand(commands: Map<string, CapturedCommand>, name: string, options: Record<string, unknown> = {}): Promise<unknown> {
+async function runCommand(commands: Map<string, CapturedCommand>, name: string, options: Record<string, unknown> = {}, args: string[] = []): Promise<unknown> {
   const cmd = commands.get(name);
   assert.ok(cmd, `command ${name} should be registered`);
-  return Promise.resolve(cmd.run({ args: [], options, global: {}, pm_root: process.cwd() }));
+  return Promise.resolve(cmd.run({ args, options, global: {}, pm_root: process.cwd() }));
 }
 
 // Build a deterministic, self-contained pm repo fixture so the integration
@@ -65,15 +68,23 @@ function buildFixture(root: string): string {
     },
     devDependencies: { "pm-changelog": "^2026.6.13" },
   }, null, 2) + "\n");
-  writeFileSync(join(repo, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: true, target: "ES2022", module: "NodeNext" } }, null, 2) + "\n");
+  writeFileSync(join(repo, "tsconfig.base.json"), JSON.stringify({ compilerOptions: { strict: true, target: "ES2022", module: "NodeNext" } }, null, 2) + "\n");
+  writeFileSync(join(repo, "tsconfig.json"), `{
+  // JSONC is valid for tsconfig files and must not disable strict detection.
+  "extends": ["./tsconfig.base.json"],
+  "compilerOptions": {
+  },
+}
+`);
   writeFileSync(join(repo, "CHANGELOG.md"), "# Changelog\n\n## 2026.7.5\n\n- fixture\n");
   writeFileSync(join(repo, ".github", "workflows", "ci.yml"), "name: CI\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n");
   writeFileSync(join(repo, ".github", "workflows", "release.yml"), "name: Daily Release\non: [schedule]\njobs:\n  release:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n");
-  const pmInit = spawnSync("pm", ["init", "fixture", "--pm-path", join(repo, ".agents", "pm")], { encoding: "utf-8" });
+  const pmCmd = process.platform === "win32" ? "pm.cmd" : "pm";
+  const pmInit = spawnSync(pmCmd, ["init", "fixture", "--pm-path", join(repo, ".agents", "pm")], { encoding: "utf-8", timeout: 30_000 });
   if (pmInit.status !== 0) {
     throw new Error(`pm init fixture failed: ${pmInit.stderr}`);
   }
-  const pmCreate = spawnSync("pm", ["create", "--title", "Fixture task", "--type", "Task", "--pm-path", join(repo, ".agents", "pm")], { encoding: "utf-8" });
+  const pmCreate = spawnSync(pmCmd, ["create", "--title", "Fixture task", "--type", "Task", "--pm-path", join(repo, ".agents", "pm")], { encoding: "utf-8", timeout: 30_000 });
   if (pmCreate.status !== 0) {
     throw new Error(`pm create failed: ${pmCreate.stderr}`);
   }
@@ -101,6 +112,12 @@ test("extension has required shape", () => {
   assert.strictEqual(typeof (extension as any).activate, "function");
   assert.strictEqual((extension as any).name, "pm-ops");
   assert.match((extension as any).version, /^2026\./, "extension version should be a calendar version");
+});
+
+test("manifest declares capabilities required by registered command metadata", () => {
+  assert.ok(manifest.capabilities.includes("commands"), "commands capability is required");
+  assert.ok(manifest.capabilities.includes("renderers"), "renderers capability is required");
+  assert.ok(manifest.capabilities.includes("schema"), "schema capability is required for command flags metadata");
 });
 
 test("registers the ops commands and renderers", () => {
@@ -145,6 +162,70 @@ test("ops scan --format markdown emits a well-formed table", async () => {
   assert.match(result.output, /\| pm-fixture \|/);
 });
 
+test("ops scan reports a clear error for missing repo paths", async () => {
+  const { commands } = activateAndCapture();
+  const missingRepo = join(tmpRoot, "pm-missing");
+  const result = (await runCommand(commands, "ops scan", { repos: [missingRepo] })) as any;
+  assert.strictEqual(result.repos.length, 1);
+  assert.strictEqual(result.repos[0].ready, false);
+  assert.deepStrictEqual(result.repos[0].errors, ["repository directory does not exist"]);
+});
+
+test("ops scan respects later tsconfig array extends overrides", async () => {
+  const { commands } = activateAndCapture();
+  const repo = join(tmpRoot, "pm-tsconfig-override");
+  mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
+  writeFileSync(join(repo, "package.json"), JSON.stringify({
+    name: "pm-tsconfig-override",
+    version: "2026.7.6",
+    scripts: {
+      typecheck: "true",
+      test: "true",
+      build: "true",
+      "release:check": "true",
+      changelog: "true",
+      "changelog:check": "true",
+    },
+    devDependencies: { "pm-changelog": "^2026.7.6" },
+  }) + "\n");
+  writeFileSync(join(repo, "tsconfig.strict.json"), JSON.stringify({ compilerOptions: { strict: true } }) + "\n");
+  writeFileSync(join(repo, "tsconfig.loose.json"), JSON.stringify({ compilerOptions: { strict: false } }) + "\n");
+  writeFileSync(join(repo, "tsconfig.json"), JSON.stringify({ extends: ["./tsconfig.strict.json", "./tsconfig.loose.json"] }) + "\n");
+  writeFileSync(join(repo, "CHANGELOG.md"), "# Changelog\n");
+  writeFileSync(join(repo, ".github", "workflows", "ci.yml"), "name: CI\n");
+  writeFileSync(join(repo, ".github", "workflows", "release.yml"), "name: Release\n");
+
+  const result = (await runCommand(commands, "ops scan", { repos: [repo] })) as any;
+  assert.strictEqual(result.repos[0].strict_ts, false);
+  assert.strictEqual(result.repos[0].ready, false);
+});
+
+test("ops scan expands simple repo globs", async () => {
+  const { commands } = activateAndCapture();
+  const result = (await runCommand(commands, "ops scan", { repos: [join(tmpRoot, "pm-*")] })) as any;
+  assert.ok(result.repos.some((repo: any) => repo.name === "pm-fixture"));
+});
+
+test("ops scan expands bracket character-class globs", async () => {
+  const { commands } = activateAndCapture();
+  const repoA = join(tmpRoot, "pm-a");
+  const repoB = join(tmpRoot, "pm-b");
+  mkdirSync(repoA, { recursive: true });
+  mkdirSync(repoB, { recursive: true });
+  writeFileSync(join(repoA, "package.json"), JSON.stringify({ name: "pm-a", version: "2026.7.6" }) + "\n");
+  writeFileSync(join(repoB, "package.json"), JSON.stringify({ name: "pm-b", version: "2026.7.6" }) + "\n");
+  const result = (await runCommand(commands, "ops scan", { repos: [join(tmpRoot, "pm-[ab]")] })) as any;
+  assert.deepStrictEqual(result.repos.map((repo: any) => repo.name).sort(), ["pm-a", "pm-b"]);
+});
+
+test("ops scan handles malformed bracket globs without crashing", async () => {
+  const { commands } = activateAndCapture();
+  const result = (await runCommand(commands, "ops scan", { repos: [join(tmpRoot, "pm-[")] })) as any;
+  assert.strictEqual(result.repos.length, 1);
+  assert.strictEqual(result.repos[0].ready, false);
+  assert.deepStrictEqual(result.repos[0].errors, ["repository directory does not exist"]);
+});
+
 test("ops policy: naming passes for a valid pm-* repo and fails for pm-ext-foo", async () => {
   const { commands } = activateAndCapture();
   const fakeDir = join(tmpRoot, "pm-ext-foo");
@@ -167,6 +248,246 @@ test("ops policy: naming passes for a valid pm-* repo and fails for pm-ext-foo",
   assert.strictEqual(fakeNaming.pass, false, "pm-ext-foo naming should fail");
   assert.match(fakeNaming.message, /pm-ext-/);
   assert.ok(result.summary.by_severity.error >= 1, "should record at least one error-severity failure");
+});
+
+test("ops policy accepts pm-changelog in dependencies", async () => {
+  const { commands } = activateAndCapture();
+  const repo = join(tmpRoot, "pm-changelog-runtime");
+  mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
+  writeFileSync(join(repo, "package.json"), JSON.stringify({
+    name: "pm-changelog-runtime",
+    version: "2026.7.6",
+    scripts: {
+      typecheck: "true",
+      test: "true",
+      build: "true",
+      "release:check": "true",
+      changelog: "true",
+      "changelog:check": "true",
+    },
+    dependencies: { "pm-changelog": "^2026.7.6" },
+  }) + "\n");
+  writeFileSync(join(repo, ".github", "workflows", "ci.yml"), "name: CI\n");
+  writeFileSync(join(repo, ".github", "workflows", "release.yml"), "name: Release\n");
+  const result = (await runCommand(commands, "ops policy", { repos: [repo] })) as any;
+  const wired = result.repos[0].checks.find((check: any) => check.id === "pm-changelog-wired");
+  assert.strictEqual(wired.pass, true);
+
+  const scan = (await runCommand(commands, "ops scan", { repos: [repo] })) as any;
+  assert.strictEqual(scan.repos[0].has_pm_changelog, true);
+});
+
+test("ops policy private runner check only scans the runs-on value block", async () => {
+  const { commands } = activateAndCapture();
+  const repo = join(tmpRoot, "pm-private-self-hosted");
+  const bin = join(tmpRoot, "bin");
+  mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(repo, "package.json"), JSON.stringify({
+    name: "pm-private-self-hosted",
+    version: "2026.7.6",
+    scripts: {
+      typecheck: "true",
+      test: "true",
+      build: "true",
+      "release:check": "true",
+      changelog: "true",
+      "changelog:check": "true",
+    },
+    devDependencies: { "pm-changelog": "^2026.7.6" },
+  }) + "\n");
+  writeFileSync(join(repo, ".github", "workflows", "ci.yml"), `name: CI
+on: [push]
+jobs:
+  test:
+    runs-on:
+      group: ubuntu-self-hosted
+      labels:
+        - self-hosted
+        - ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    steps:
+      - run: echo hi
+`);
+  writeFileSync(join(repo, ".github", "workflows", "release.yml"), "name: Release\n");
+  writeFileSync(join(bin, "gh"), "#!/usr/bin/env sh\nprintf 'true\\n'\n");
+  chmodSync(join(bin, "gh"), 0o755);
+
+  const previousOffline = process.env.PM_OPS_OFFLINE;
+  const previousPath = process.env.PATH;
+  delete process.env.PM_OPS_OFFLINE;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  try {
+    const result = (await runCommand(commands, "ops policy", { repos: [repo] })) as any;
+    const check = result.repos[0].checks.find((entry: any) => entry.id === "private-no-runners");
+    assert.strictEqual(check.pass, true);
+  } finally {
+    process.env.PM_OPS_OFFLINE = previousOffline;
+    process.env.PATH = previousPath;
+  }
+});
+
+test("ops policy private runner check flags direct GitHub-hosted runners", async () => {
+  const { commands } = activateAndCapture();
+  const repo = join(tmpRoot, "pm-private-github-hosted");
+  const bin = join(tmpRoot, "bin-gh-hosted");
+  mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(repo, "package.json"), JSON.stringify({
+    name: "pm-private-github-hosted",
+    version: "2026.7.6",
+    scripts: {
+      typecheck: "true",
+      test: "true",
+      build: "true",
+      "release:check": "true",
+      changelog: "true",
+      "changelog:check": "true",
+    },
+    devDependencies: { "pm-changelog": "^2026.7.6" },
+  }) + "\n");
+  writeFileSync(join(repo, ".github", "workflows", "ci.yml"), `name: CI
+on: [push]
+jobs:
+  test:
+    runs-on:
+      - ubuntu-latest
+    steps:
+      - run: echo hi
+`);
+  writeFileSync(join(repo, ".github", "workflows", "release.yml"), "name: Release\n");
+  writeFileSync(join(bin, "gh"), "#!/usr/bin/env sh\nprintf 'true\\n'\n");
+  chmodSync(join(bin, "gh"), 0o755);
+
+  const previousOffline = process.env.PM_OPS_OFFLINE;
+  const previousPath = process.env.PATH;
+  delete process.env.PM_OPS_OFFLINE;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  try {
+    const result = (await runCommand(commands, "ops policy", { repos: [repo] })) as any;
+    const check = result.repos[0].checks.find((entry: any) => entry.id === "private-no-runners");
+    assert.strictEqual(check.pass, false);
+    assert.match(check.message, /GitHub-hosted/);
+  } finally {
+    process.env.PM_OPS_OFFLINE = previousOffline;
+    process.env.PATH = previousPath;
+  }
+});
+
+test("ops policy private runner check flags object labels using GitHub-hosted runners", async () => {
+  const { commands } = activateAndCapture();
+  const repo = join(tmpRoot, "pm-private-github-hosted-labels");
+  const bin = join(tmpRoot, "bin-gh-hosted-labels");
+  mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(repo, "package.json"), JSON.stringify({
+    name: "pm-private-github-hosted-labels",
+    version: "2026.7.6",
+    scripts: {
+      typecheck: "true",
+      test: "true",
+      build: "true",
+      "release:check": "true",
+      changelog: "true",
+      "changelog:check": "true",
+    },
+    devDependencies: { "pm-changelog": "^2026.7.6" },
+  }) + "\n");
+  writeFileSync(join(repo, ".github", "workflows", "ci.yml"), `name: CI
+on: [push]
+jobs:
+  test:
+    runs-on: { labels: [ubuntu-latest] }
+    steps:
+      - run: echo hi
+`);
+  writeFileSync(join(repo, ".github", "workflows", "release.yml"), "name: Release\n");
+  writeFileSync(join(bin, "gh"), "#!/usr/bin/env sh\nprintf 'true\\n'\n");
+  chmodSync(join(bin, "gh"), 0o755);
+
+  const previousOffline = process.env.PM_OPS_OFFLINE;
+  const previousPath = process.env.PATH;
+  delete process.env.PM_OPS_OFFLINE;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  try {
+    const result = (await runCommand(commands, "ops policy", { repos: [repo] })) as any;
+    const check = result.repos[0].checks.find((entry: any) => entry.id === "private-no-runners");
+    assert.strictEqual(check.pass, false);
+    assert.match(check.message, /GitHub-hosted/);
+  } finally {
+    process.env.PM_OPS_OFFLINE = previousOffline;
+    process.env.PATH = previousPath;
+  }
+});
+
+test("ops policy private runner check accepts flow labels with self-hosted", async () => {
+  const { commands } = activateAndCapture();
+  const repo = join(tmpRoot, "pm-private-flow-self-hosted");
+  const bin = join(tmpRoot, "bin-flow-self-hosted");
+  mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(repo, "package.json"), JSON.stringify({
+    name: "pm-private-flow-self-hosted",
+    version: "2026.7.6",
+    scripts: {
+      typecheck: "true",
+      test: "true",
+      build: "true",
+      "release:check": "true",
+      changelog: "true",
+      "changelog:check": "true",
+    },
+    devDependencies: { "pm-changelog": "^2026.7.6" },
+  }) + "\n");
+  writeFileSync(join(repo, ".github", "workflows", "ci.yml"), `name: CI
+on: [push]
+jobs:
+  test:
+    runs-on: { labels: [self-hosted, ubuntu-latest] }
+    steps:
+      - run: echo hi
+`);
+  writeFileSync(join(repo, ".github", "workflows", "release.yml"), "name: Release\n");
+  writeFileSync(join(bin, "gh"), "#!/usr/bin/env sh\nprintf 'true\\n'\n");
+  chmodSync(join(bin, "gh"), 0o755);
+
+  const previousOffline = process.env.PM_OPS_OFFLINE;
+  const previousPath = process.env.PATH;
+  delete process.env.PM_OPS_OFFLINE;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  try {
+    const result = (await runCommand(commands, "ops policy", { repos: [repo] })) as any;
+    const check = result.repos[0].checks.find((entry: any) => entry.id === "private-no-runners");
+    assert.strictEqual(check.pass, true);
+  } finally {
+    process.env.PM_OPS_OFFLINE = previousOffline;
+    process.env.PATH = previousPath;
+  }
+});
+
+test("ops policy accepts additional repo paths after --repos", async () => {
+  const { commands } = activateAndCapture();
+  const otherRepo = join(tmpRoot, "pm-other");
+  mkdirSync(join(otherRepo, ".github", "workflows"), { recursive: true });
+  writeFileSync(join(otherRepo, "package.json"), JSON.stringify({
+    name: "pm-other",
+    version: "2026.7.6",
+    type: "module",
+    scripts: {
+      typecheck: "true",
+      test: "true",
+      build: "true",
+      "release:check": "true",
+      changelog: "true",
+      "changelog:check": "true",
+    },
+    devDependencies: { "pm-changelog": "^2026.7.6" },
+  }) + "\n");
+  const result = (await runCommand(commands, "ops policy", { repos: [fixtureRepo] }, [otherRepo])) as any;
+  assert.strictEqual(result.summary.total, 2);
+  assert.deepStrictEqual(result.repos.map((r: any) => r.name), ["pm-fixture", "pm-other"]);
 });
 
 test("ops policy --strict exits non-zero on failures", async () => {
@@ -200,6 +521,26 @@ test("ops verify-release runs the release gate matrix on the fixture", async () 
   assert.strictEqual(result.summary.failed, 0);
 });
 
+test("ops verify-release fails when no release gate scripts exist", async () => {
+  const { commands } = activateAndCapture();
+  const repo = join(tmpRoot, "pm-no-release");
+  mkdirSync(repo, { recursive: true });
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "pm-no-release", version: "2026.7.6", scripts: {} }) + "\n");
+  await assert.rejects(
+    runCommand(commands, "ops verify-release", { repos: [repo] }),
+    /verify-release: 1 repo\(s\) failed/,
+  );
+});
+
+test("ops verify-release reports missing repo paths clearly", async () => {
+  const { commands } = activateAndCapture();
+  const missingRepo = join(tmpRoot, "pm-missing-release");
+  await assert.rejects(
+    runCommand(commands, "ops verify-release", { repos: [missingRepo] }),
+    /verify-release: 1 repo\(s\) failed/,
+  );
+});
+
 test("ops verify-release --output writes to a file", async () => {
   const { commands } = activateAndCapture();
   const outFile = join(tmpRoot, "verify-release.md");
@@ -210,6 +551,16 @@ test("ops verify-release --output writes to a file", async () => {
   const body = readFileSync(outFile, "utf-8");
   assert.match(body, /pm-ops verify-release/);
   assert.match(body, /\| pm-fixture \|/);
+});
+
+test("ops verify-release --format json --output writes JSON and creates parent directories", async () => {
+  const { commands } = activateAndCapture();
+  const outFile = join(tmpRoot, "reports", "verify-release.json");
+  const result = (await runCommand(commands, "ops verify-release", { repos: [fixtureRepo], format: "json", output: outFile })) as any;
+  assert.strictEqual(result.written_to, outFile);
+  const body = readFileSync(outFile, "utf-8");
+  assert.doesNotThrow(() => JSON.parse(body));
+  assert.match(body, /"summary"/);
 });
 
 test("ops report --format markdown combines scan + policy into a table", async () => {
@@ -246,6 +597,17 @@ test("ops report --output writes to a file and returns a summary", async () => {
   assert.match(body, /pm-ops policy/);
 });
 
+test("ops report --format json --output writes JSON and creates parent directories", async () => {
+  const { commands } = activateAndCapture();
+  const outFile = join(tmpRoot, "reports", "fleet-report.json");
+  const result = (await runCommand(commands, "ops report", { repos: [fixtureRepo], format: "json", output: outFile })) as any;
+  assert.strictEqual(result.written_to, outFile);
+  const body = readFileSync(outFile, "utf-8");
+  const parsed = JSON.parse(body);
+  assert.ok(parsed.scan, "json report should include scan section");
+  assert.ok(parsed.policy, "json report should include policy section");
+});
+
 test("ops status produces a quick fleet overview", async () => {
   const { commands } = activateAndCapture();
   const result = (await runCommand(commands, "ops status", { repos: [fixtureRepo] })) as any;
@@ -258,6 +620,17 @@ test("ops status produces a quick fleet overview", async () => {
   assert.strictEqual(result.summary.total, 1);
   assert.strictEqual(result.summary.ready, 1);
   assert.strictEqual(result.summary.not_ready, 0);
+});
+
+test("ops status reports a clear error for missing repo paths", async () => {
+  const { commands } = activateAndCapture();
+  const missingRepo = join(tmpRoot, "pm-missing-status");
+  const result = (await runCommand(commands, "ops status", { repos: [missingRepo] })) as any;
+  assert.strictEqual(result.repos.length, 1);
+  assert.strictEqual(result.repos[0].name, "pm-missing-status");
+  assert.strictEqual(result.repos[0].ready, false);
+  assert.deepStrictEqual(result.repos[0].issues, ["repository directory does not exist"]);
+  assert.strictEqual(result.summary.not_ready, 1);
 });
 
 test("ops status --format markdown emits a compact table", async () => {
@@ -277,6 +650,7 @@ test("ops audit produces a vulnerability summary", async () => {
   assert.strictEqual(result.repos.length, 1);
   assert.ok(typeof result.summary.total === "number");
   assert.ok(typeof result.summary.clean === "number");
+  assert.ok(typeof result.summary.unknown === "number");
 });
 
 test("ops audit --format markdown emits a vulnerability table", async () => {
@@ -284,6 +658,7 @@ test("ops audit --format markdown emits a vulnerability table", async () => {
   const result = (await runCommand(commands, "ops audit", { repos: [fixtureRepo], format: "markdown" })) as any;
   assert.ok(result?.pmOpsRendered === true);
   assert.match(result.output, /pm-ops audit/);
+  assert.match(result.output, /unknown/);
   assert.match(result.output, /\| repo \|/);
   assert.match(result.output, /\| pm-fixture \|/);
 });
@@ -303,6 +678,8 @@ test("ops outdated --format markdown emits a well-formed report", async () => {
   const result = (await runCommand(commands, "ops outdated", { repos: [fixtureRepo], format: "markdown" })) as any;
   assert.ok(result?.pmOpsRendered === true);
   assert.match(result.output, /pm-ops outdated/);
+  assert.match(result.output, /Unable to check outdated dependencies: offline mode enabled/);
+  assert.doesNotMatch(result.output, /All dependencies are up to date/);
 });
 
 // ---------------------------------------------------------------------------
@@ -311,24 +688,21 @@ test("ops outdated --format markdown emits a well-formed report", async () => {
 // absolute host paths do not exist. The fixture tests above cover CI.
 // ---------------------------------------------------------------------------
 
-test("real-data: scan on pm-csv + pm-ts-starter reports both ready", { skip: !REAL_REPOS_AVAILABLE }, async () => {
+test("real-data: scan on configured pm repos reports all ready", { skip: !REAL_REPOS_AVAILABLE }, async () => {
   const { commands } = activateAndCapture();
   const result = (await runCommand(commands, "ops scan", { repos: REAL_REPOS })) as any;
-  assert.strictEqual(result.repos.length, 2);
-  const csv = result.repos.find((r: any) => r.name === "pm-csv");
-  assert.ok(csv);
-  assert.strictEqual(csv.strict_ts, true);
-  assert.strictEqual(csv.has_release_workflow, true);
-  assert.strictEqual(csv.has_pm_changelog, true);
-  assert.strictEqual(csv.ready, true, "pm-csv should be ready");
-  const starter = result.repos.find((r: any) => r.name === "pm-ts-starter");
-  assert.ok(starter);
-  assert.strictEqual(starter.ready, true, "pm-ts-starter should be ready");
+  assert.strictEqual(result.repos.length, REAL_REPOS.length);
+  for (const repo of result.repos) {
+    assert.strictEqual(repo.strict_ts, true, `${repo.path} should have strict TS`);
+    assert.strictEqual(repo.has_release_workflow, true, `${repo.path} should have a release workflow`);
+    assert.strictEqual(repo.has_pm_changelog, true, `${repo.path} should have pm-changelog wired`);
+    assert.strictEqual(repo.ready, true, `${repo.path} should be ready`);
+  }
 });
 
-test("real-data: verify-release on pm-ts-starter passes", { skip: !REAL_REPOS_AVAILABLE }, async () => {
+test("real-data: verify-release on second configured pm repo passes", { skip: !REAL_REPOS_AVAILABLE }, async () => {
   const { commands } = activateAndCapture();
-  const result = (await runCommand(commands, "ops verify-release", { repos: [PM_TS_STARTER] })) as any;
+  const result = (await runCommand(commands, "ops verify-release", { repos: [REAL_REPOS[1]] })) as any;
   assert.strictEqual(result.repos.length, 1);
   assert.strictEqual(result.repos[0].failed, 0, "pm-ts-starter release:check should pass");
   assert.strictEqual(result.summary.failed, 0);

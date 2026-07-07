@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Fix pm-ops multi-repo path parsing and toolchain alignment ([ops-f4vp](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-f4vp.toon))
+
 ## 2026.7.6 - 2026-07-06
 
 ### Other

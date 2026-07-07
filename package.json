@@ -1,6 +1,6 @@
 {
   "name": "pm-ops",
-  "version": "2026.7.5",
+  "version": "2026.7.6",
   "description": "Multi-repo fleet operations for pm-cli",
   "repository": {
     "type": "git",
@@ -26,7 +26,7 @@
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck",
-    "audit:prod": "npm audit --omit=dev",
+    "audit:prod": "node --input-type=module -e \"import { spawnSync } from 'node:child_process'; import { devNull } from 'node:os'; const env = { ...process.env, npm_config_userconfig: devNull, NPM_CONFIG_USERCONFIG: devNull }; for (const key of Object.keys(env)) if (key.toLowerCase() === 'npm_config_allow_scripts') delete env[key]; const cmd = process.platform === 'win32' ? 'npm.cmd' : 'npm'; const r = spawnSync(cmd, ['audit', '--omit=dev'], { stdio: 'inherit', env }); process.exit(r.status ?? 1);\"",
     "pack:dry-run": "npm pack --dry-run",
     "changelog": "pm-changelog --pm-root .agents/pm --mode prepend --output CHANGELOG.md --release-version-from-package --since-previous-tag --until-release-tag --item-url-base https://github.com/unbraind/pm-ops/blob/main/.agents/pm",
     "changelog:full": "pm-changelog --pm-root .agents/pm --mode replace --output CHANGELOG.md --all-release-tags --release-version-from-package --item-url-base https://github.com/unbraind/pm-ops/blob/main/.agents/pm",
@@ -54,7 +54,7 @@
   ],
   "license": "MIT",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.18.0"
   },
   "author": "@unbrained",
   "pm": {

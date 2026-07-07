@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { resolve, basename, join, relative } from "node:path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { devNull, homedir } from "node:os";
+import { resolve, basename, dirname, join, relative } from "node:path";
 import type { defineExtension as defineExtensionType } from "@unbrained/pm-cli/sdk";
 
 const defineExtension: typeof defineExtensionType = ((extension: any) => extension) as any;
@@ -70,9 +72,78 @@ function asArray(value: unknown): string[] {
   return value.split(",").map((entry) => entry.trim()).filter(Boolean);
 }
 
-function resolveRepos(options: Record<string, unknown>): string[] {
-  const repos = asArray(options["repos"]);
-  if (repos.length > 0) return repos.map((r) => resolve(r));
+function expandHome(path: string): string {
+  if (path === "~") return homedir();
+  return path.startsWith("~/") || path.startsWith("~\\") ? join(homedir(), path.slice(2)) : path;
+}
+
+function hasGlob(path: string): boolean {
+  return /[*?\[]/.test(path);
+}
+
+function escapeRegexChar(char: string): string {
+  return /[.+^${}()|[\]\\]/.test(char) ? `\\${char}` : char;
+}
+
+function globSegmentToRegex(segment: string): RegExp {
+  let pattern = "";
+  for (let i = 0; i < segment.length; i += 1) {
+    const char = segment[i]!;
+    if (char === "*") {
+      pattern += "[^/]*";
+      continue;
+    }
+    if (char === "?") {
+      pattern += "[^/]";
+      continue;
+    }
+    if (char === "[") {
+      const end = segment.indexOf("]", i + 1);
+      const content = end > i + 1 ? segment.slice(i + 1, end) : "";
+      if (content && !content.includes("/")) {
+        pattern += `[${content.replace(/\\/g, "\\\\").replace(/\^/g, "\\^")}]`;
+        i = end;
+        continue;
+      }
+    }
+    pattern += escapeRegexChar(char);
+  }
+  return new RegExp(`^${pattern}$`);
+}
+
+function expandSimpleGlob(pattern: string): string[] {
+  const expanded = expandHome(pattern);
+  const absolute = /^[A-Za-z]:[\\/]/.test(expanded) ? expanded : resolve(expanded);
+  if (!hasGlob(absolute)) return [absolute];
+  const driveRoot = /^[A-Za-z]:[\\/]/.exec(absolute)?.[0];
+  const root = absolute.startsWith("/") ? "/" : driveRoot ? driveRoot.slice(0, 3) : process.cwd();
+  let segments = absolute.split(/[\\/]+/).filter(Boolean);
+  if (driveRoot && segments[0]?.toLowerCase() === driveRoot.slice(0, 2).toLowerCase()) {
+    segments = segments.slice(1);
+  }
+  let candidates = [root];
+  for (const segment of segments) {
+    const next: string[] = [];
+    const segmentHasGlob = hasGlob(segment);
+    const matcher = segmentHasGlob ? globSegmentToRegex(segment) : null;
+    for (const candidate of candidates) {
+      if (!existsSync(candidate)) continue;
+      if (!segmentHasGlob) {
+        next.push(join(candidate, segment));
+        continue;
+      }
+      for (const entry of readdirSync(candidate, { withFileTypes: true })) {
+        if (matcher?.test(entry.name)) next.push(join(candidate, entry.name));
+      }
+    }
+    candidates = next;
+  }
+  return candidates.length > 0 ? candidates : [absolute];
+}
+
+function resolveRepos(options: Record<string, unknown>, args: unknown[] = []): string[] {
+  const repos = [...asArray(options["repos"]), ...asArray(args)];
+  if (repos.length > 0) return repos.flatMap((r) => expandSimpleGlob(r));
   return [process.cwd()];
 }
 
@@ -96,6 +167,11 @@ interface SyncResult {
   error?: Error;
 }
 
+interface CommandInvocation {
+  cmd: string;
+  args: string[];
+}
+
 /**
  * Spawn a subprocess without a shell.
  *
@@ -117,16 +193,20 @@ interface SyncResult {
  */
 function runSync(cmd: string, args: string[], opts: { cwd?: string; timeoutMs?: number; env?: Record<string, string | undefined> } = {}): SyncResult {
   const env: Record<string, string | undefined> = { ...process.env, ...opts.env };
+  const command = process.platform === "win32" && ["npm", "npx", "pm"].includes(cmd) ? `${cmd}.cmd` : cmd;
   if (cmd === "npm" || cmd === "npx") {
     // Prevent npm from reading the user-level .npmrc (which may contain
     // allow-scripts=…) so it never injects that config into child scripts.
-    env.npm_config_userconfig = "/dev/null";
+    env.npm_config_userconfig = devNull;
+    env.NPM_CONFIG_USERCONFIG = devNull;
     // Also strip any inherited npm_config_allow_scripts env var that a parent
     // `npm run` may have set — without this the child npm sees it as a
     // CLI-level override and rejects it with EALLOWSCRIPTS.
-    delete env.npm_config_allow_scripts;
+    for (const key of Object.keys(env)) {
+      if (key.toLowerCase() === "npm_config_allow_scripts") delete env[key];
+    }
   }
-  const r = spawnSync(cmd, args, {
+  const r = spawnSync(command, args, {
     encoding: "utf-8",
     maxBuffer: 64 * 1024 * 1024,
     cwd: opts.cwd,
@@ -134,6 +214,21 @@ function runSync(cmd: string, args: string[], opts: { cwd?: string; timeoutMs?: 
     env,
   });
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error: r.error };
+}
+
+let pmInvocationCache: CommandInvocation | null = null;
+
+function resolvePmInvocation(): CommandInvocation {
+  if (pmInvocationCache) return pmInvocationCache;
+  const command = process.platform === "win32" ? "pm.cmd" : "pm";
+  const probe = spawnSync(command, ["--version"], { encoding: "utf-8", timeout: 5_000 });
+  if (!probe.error && probe.status === 0) {
+    pmInvocationCache = { cmd: "pm", args: [] };
+    return pmInvocationCache;
+  }
+  const script = process.argv[1];
+  pmInvocationCache = script ? { cmd: process.execPath, args: [script] } : { cmd: "pm", args: [] };
+  return pmInvocationCache;
 }
 
 function parseJsonSafe(text: string): unknown {
@@ -153,11 +248,63 @@ function readJsonFile<T = unknown>(path: string): T | undefined {
   }
 }
 
+function stripJsonc(input: string): string {
+  let output = "";
+  let inString = false;
+  let quote = "";
+  let escaped = false;
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input[i]!;
+    const next = input[i + 1];
+    if (inString) {
+      output += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      inString = true;
+      quote = char;
+      output += char;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      while (i < input.length && input[i] !== "\n") i += 1;
+      output += "\n";
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      i += 2;
+      while (i < input.length && !(input[i] === "*" && input[i + 1] === "/")) i += 1;
+      i += 1;
+      output += " ";
+      continue;
+    }
+    output += char;
+  }
+  return output.replace(/,\s*([}\]])/g, "$1");
+}
+
+function readJsoncFile<T = unknown>(path: string): T | undefined {
+  if (!existsSync(path)) return undefined;
+  try {
+    return JSON.parse(stripJsonc(readFileSync(path, "utf-8"))) as T;
+  } catch {
+    return undefined;
+  }
+}
+
 interface PkgJson {
   name?: string;
   version?: string;
   private?: boolean;
   scripts?: Record<string, string>;
+  dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
 }
 
@@ -165,13 +312,54 @@ function readPackageJson(repoPath: string): PkgJson | undefined {
   return readJsonFile<PkgJson>(join(repoPath, "package.json"));
 }
 
+function hasPmChangelogDep(pkg: PkgJson | undefined): boolean {
+  return Boolean((pkg?.devDependencies && "pm-changelog" in pkg.devDependencies) || (pkg?.dependencies && "pm-changelog" in pkg.dependencies));
+}
+
 interface TsConfigJson {
+  extends?: string | string[];
   compilerOptions?: { strict?: boolean };
 }
 
+function resolveExtendsPath(currentFile: string, value: string): string {
+  const withExtension = value.endsWith(".json") ? value : `${value}.json`;
+  if (value.startsWith(".") || value.startsWith("/") || value.startsWith("~")) {
+    return resolve(dirname(currentFile), expandHome(withExtension));
+  }
+  const requireFromConfig = createRequire(currentFile);
+  try {
+    return requireFromConfig.resolve(value);
+  } catch {
+    try {
+      return requireFromConfig.resolve(withExtension);
+    } catch {
+      return resolve(dirname(currentFile), "node_modules", withExtension);
+    }
+  }
+}
+
+function readTsConfigStrictSetting(path: string, seen = new Set<string>()): boolean | null {
+  const resolved = resolve(path);
+  if (seen.has(resolved)) return null;
+  seen.add(resolved);
+  const cfg = readJsoncFile<TsConfigJson>(resolved);
+  if (!cfg) return null;
+  if (cfg.compilerOptions?.strict === true) return true;
+  if (cfg.compilerOptions?.strict === false) return false;
+  if (Array.isArray(cfg.extends)) {
+    for (const entry of [...cfg.extends].reverse()) {
+      if (typeof entry !== "string") continue;
+      const inherited = readTsConfigStrictSetting(resolveExtendsPath(resolved, entry), seen);
+      if (inherited !== null) return inherited;
+    }
+    return null;
+  }
+  if (typeof cfg.extends === "string") return readTsConfigStrictSetting(resolveExtendsPath(resolved, cfg.extends), seen);
+  return null;
+}
+
 function readTsConfigStrict(repoPath: string): boolean {
-  const cfg = readJsonFile<TsConfigJson>(join(repoPath, "tsconfig.json"));
-  return cfg?.compilerOptions?.strict === true;
+  return readTsConfigStrictSetting(join(repoPath, "tsconfig.json")) === true;
 }
 
 // ---------------------------------------------------------------------------
@@ -184,16 +372,31 @@ interface PmItem {
   status?: string;
 }
 
+const pmItemsCache = new Map<string, PmItem[] | null>();
+
 function readPmItems(repoPath: string): PmItem[] | null {
+  if (pmItemsCache.has(repoPath)) return pmItemsCache.get(repoPath) ?? null;
   const pmRoot = join(repoPath, ".agents", "pm");
   if (!existsSync(pmRoot)) return null;
-  const r = runSync("pm", ["list", "--json", "--pm-path", pmRoot]);
-  if (r.status !== 0) return null;
+  const pm = resolvePmInvocation();
+  const r = runSync(pm.cmd, [...pm.args, "list", "--json", "--pm-path", pmRoot], { timeoutMs: 30_000 });
+  if (r.status !== 0) {
+    pmItemsCache.set(repoPath, null);
+    return null;
+  }
   const parsed = parseJsonSafe(r.stdout);
-  if (!parsed) return null;
+  if (!parsed) {
+    pmItemsCache.set(repoPath, null);
+    return null;
+  }
   const items = Array.isArray(parsed) ? parsed : (parsed as any).items ?? (parsed as any).results ?? [];
-  if (!Array.isArray(items)) return null;
-  return items.filter((it: unknown): it is PmItem => Boolean(it) && typeof it === "object" && typeof (it as PmItem).id === "string");
+  if (!Array.isArray(items)) {
+    pmItemsCache.set(repoPath, null);
+    return null;
+  }
+  const result = items.filter((it: unknown): it is PmItem => Boolean(it) && typeof it === "object" && typeof (it as PmItem).id === "string");
+  pmItemsCache.set(repoPath, result);
+  return result;
 }
 
 interface NpmOutdated {
@@ -209,7 +412,7 @@ function countOutdated(repoPath: string): number | null {
   const r = runSync("npm", ["outdated", "--json"], { cwd: repoPath, timeoutMs: 60_000 });
   if (r.error) return null;
   const parsed = parseJsonSafe(r.stdout) as NpmOutdated | undefined;
-  if (!parsed || typeof parsed !== "object") return null;
+  if (!parsed || typeof parsed !== "object") return r.status === 0 ? 0 : null;
   return Object.keys(parsed).length;
 }
 
@@ -281,6 +484,29 @@ interface ScanResult {
 
 function scanRepo(repoPath: string): RepoScan {
   const errors: string[] = [];
+  if (!existsSync(repoPath)) {
+    errors.push("repository directory does not exist");
+    return {
+      path: repoPath,
+      name: basename(repoPath),
+      version: null,
+      strict_ts: false,
+      has_changelog: false,
+      has_release_workflow: false,
+      has_ci: false,
+      pm_workspace: false,
+      pm_open_items: null,
+      pm_inprogress_items: null,
+      has_pm_changelog: false,
+      outdated_count: null,
+      audit_critical: null,
+      audit_high: null,
+      open_prs: null,
+      open_issues: null,
+      ready: false,
+      errors,
+    };
+  }
   const pkg = readPackageJson(repoPath);
   const name = pkg?.name ?? null;
   const version = pkg?.version ?? null;
@@ -288,7 +514,7 @@ function scanRepo(repoPath: string): RepoScan {
   const has_changelog = existsSync(join(repoPath, "CHANGELOG.md"));
   const has_release_workflow = existsSync(join(repoPath, ".github", "workflows", "release.yml"));
   const has_ci = existsSync(join(repoPath, ".github", "workflows", "ci.yml"));
-  const has_pm_changelog = Boolean(pkg?.devDependencies && "pm-changelog" in pkg.devDependencies);
+  const has_pm_changelog = hasPmChangelogDep(pkg);
 
   const items = readPmItems(repoPath);
   const pm_workspace = items !== null;
@@ -388,11 +614,14 @@ interface PolicyResult {
   summary: { total: number; passed: number; failed: number; by_severity: Record<Severity, number> };
 }
 
+const DEFAULT_REQUIRED_SCRIPTS = ["typecheck", "test", "build", "release:check", "changelog", "changelog:check"];
+const DEFAULT_REQUIRED_WORKFLOWS = ["ci.yml", "release.yml"];
+
 const DEFAULT_POLICY: PolicyBundle = {
   checks: [
     { id: "naming", severity: "error" },
-    { id: "required-scripts", severity: "error", params: { scripts: ["typecheck", "test", "build", "release:check", "changelog", "changelog:check"] } },
-    { id: "required-workflows", severity: "error", params: { workflows: ["ci.yml", "release.yml"] } },
+    { id: "required-scripts", severity: "error", params: { scripts: DEFAULT_REQUIRED_SCRIPTS } },
+    { id: "required-workflows", severity: "error", params: { workflows: DEFAULT_REQUIRED_WORKFLOWS } },
     { id: "private-no-runners", severity: "error" },
     { id: "pm-duplicate-titles", severity: "warning" },
     { id: "pm-changelog-wired", severity: "error" },
@@ -401,7 +630,61 @@ const DEFAULT_POLICY: PolicyBundle = {
 
 const NAME_PATTERN = /^pm-[a-z][a-z0-9-]*$/;
 const FORBIDDEN_PREFIXES = ["pm-ext-", "pm-preset-"];
-const RUNNER_PATTERN = /(github-hosted|macos-|windows-|ubuntu-)/;
+const GITHUB_HOSTED_RUNNER_PATTERN = /^(?:github-hosted|macos-[A-Za-z0-9._-]+|windows-[A-Za-z0-9._-]+|ubuntu-[A-Za-z0-9._-]+)$/;
+
+function leadingSpaces(value: string): number {
+  return value.match(/^\s*/)?.[0].length ?? 0;
+}
+
+function normalizeYamlScalar(value: string): string {
+  return value
+    .replace(/\s+#.*$/, "")
+    .replace(/,$/, "")
+    .trim()
+    .replace(/^['"]|['"]$/g, "");
+}
+
+function hasGithubHostedRunnerScalar(value: string): boolean {
+  const normalized = normalizeYamlScalar(value);
+  if (!normalized || normalized.includes("${{")) return false;
+  if (normalized.startsWith("{") && normalized.endsWith("}")) {
+    const labels = normalized.match(/\blabels\s*:\s*(\[[^\]]*\]|[^,}]+)/);
+    return labels ? hasGithubHostedRunnerScalar(labels[1]) : false;
+  }
+  if (normalized.startsWith("[") && normalized.endsWith("]")) {
+    return hasGithubHostedRunnerEntries(normalized.slice(1, -1).split(","));
+  }
+  return GITHUB_HOSTED_RUNNER_PATTERN.test(normalized);
+}
+
+function hasGithubHostedRunnerEntries(values: string[]): boolean {
+  const entries = values.map(normalizeYamlScalar).filter(Boolean);
+  if (entries.includes("self-hosted")) return false;
+  return entries.some((entry) => GITHUB_HOSTED_RUNNER_PATTERN.test(entry));
+}
+
+function hasGithubHostedRunsOnValue(inlineValue: string, blockLines: string[]): boolean {
+  if (hasGithubHostedRunnerScalar(inlineValue)) return true;
+  const directItems: string[] = [];
+  const labelItems: string[] = [];
+  let inLabels = false;
+  for (const line of blockLines) {
+    const trimmed = line.trim();
+    const item = trimmed.match(/^-\s+(.+)$/);
+    const labels = trimmed.match(/^labels:\s*(.*)$/);
+    if (labels) {
+      if (labels[1].trim() && hasGithubHostedRunnerScalar(labels[1])) return true;
+      inLabels = true;
+      continue;
+    }
+    if (item) {
+      (inLabels ? labelItems : directItems).push(item[1]);
+      continue;
+    }
+    inLabels = false;
+  }
+  return directItems.some(hasGithubHostedRunnerScalar) || hasGithubHostedRunnerEntries(labelItems);
+}
 
 function checkNaming(name: string | null): PolicyCheckResult {
   if (!name) return { id: "naming", severity: "error", pass: false, message: "package.json has no name" };
@@ -445,10 +728,30 @@ function checkPrivateNoRunners(repoPath: string): PolicyCheckResult {
   if (existsSync(wfDir)) {
     for (const file of readdirSync(wfDir)) {
       if (!file.endsWith(".yml") && !file.endsWith(".yaml")) continue;
-      const content = readFileSync(join(wfDir, file), "utf-8");
-      for (const line of content.split("\n")) {
-        const m = line.match(/^\s*runs-on:\s*(.+?)\s*$/);
-        if (m && RUNNER_PATTERN.test(m[1])) violations.push(`${file}: ${m[0].trim()}`);
+      let content: string;
+      try {
+        content = readFileSync(join(wfDir, file), "utf-8");
+      } catch (err) {
+        violations.push(`${file}: unable to read workflow (${err instanceof Error ? err.message : String(err)})`);
+        continue;
+      }
+      const lines = content.split("\n");
+      for (const [index, line] of lines.entries()) {
+        const m = line.match(/^\s*runs-on:\s*(.*?)\s*$/);
+        if (!m) continue;
+        if (hasGithubHostedRunsOnValue(m[1], [])) {
+          violations.push(`${file}: ${m[0].trim()}`);
+          continue;
+        }
+        const baseIndent = leadingSpaces(line);
+        const valueLines: string[] = [];
+        for (let nextIndex = index + 1; nextIndex < lines.length; nextIndex += 1) {
+          const nextLine = lines[nextIndex]!;
+          if (!nextLine.trim()) continue;
+          if (leadingSpaces(nextLine) <= baseIndent) break;
+          valueLines.push(nextLine.trim());
+        }
+        if (hasGithubHostedRunsOnValue("", valueLines)) violations.push(`${file}: runs-on uses a GitHub-hosted runner`);
       }
     }
   }
@@ -481,7 +784,7 @@ function checkPmDuplicateTitles(items: PmItem[] | null): PolicyCheckResult {
 }
 
 function checkPmChangelogWired(pkg: PkgJson | undefined): PolicyCheckResult {
-  const hasDep = Boolean(pkg?.devDependencies && "pm-changelog" in pkg.devDependencies);
+  const hasDep = hasPmChangelogDep(pkg);
   const hasScript = Boolean(pkg?.scripts && typeof pkg.scripts["changelog"] === "string");
   const pass = hasDep && hasScript;
   return {
@@ -493,22 +796,30 @@ function checkPmChangelogWired(pkg: PkgJson | undefined): PolicyCheckResult {
 }
 
 function runPolicyCheck(def: PolicyCheckDef, ctx: { repoPath: string; pkg: PkgJson | undefined; items: PmItem[] | null }): PolicyCheckResult {
+  let result: PolicyCheckResult;
   switch (def.id) {
     case "naming":
-      return checkNaming(ctx.pkg?.name ?? null);
+      result = checkNaming(ctx.pkg?.name ?? null);
+      break;
     case "required-scripts":
-      return checkRequiredScripts(ctx.pkg, (def.params?.scripts as string[]) ?? DEFAULT_POLICY.checks[1]!.params!.scripts as string[]);
+      result = checkRequiredScripts(ctx.pkg, (def.params?.scripts as string[]) ?? DEFAULT_REQUIRED_SCRIPTS);
+      break;
     case "required-workflows":
-      return checkRequiredWorkflows(ctx.repoPath, (def.params?.workflows as string[]) ?? ["ci.yml", "release.yml"]);
+      result = checkRequiredWorkflows(ctx.repoPath, (def.params?.workflows as string[]) ?? DEFAULT_REQUIRED_WORKFLOWS);
+      break;
     case "private-no-runners":
-      return checkPrivateNoRunners(ctx.repoPath);
+      result = checkPrivateNoRunners(ctx.repoPath);
+      break;
     case "pm-duplicate-titles":
-      return checkPmDuplicateTitles(ctx.items);
+      result = checkPmDuplicateTitles(ctx.items);
+      break;
     case "pm-changelog-wired":
-      return checkPmChangelogWired(ctx.pkg);
+      result = checkPmChangelogWired(ctx.pkg);
+      break;
     default:
-      return { id: def.id, severity: def.severity, pass: false, message: `unknown check id "${def.id}"` };
+      result = { id: def.id, severity: def.severity, pass: false, message: `unknown check id "${def.id}"` };
   }
+  return { ...result, severity: def.severity };
 }
 
 function matchesFilter(repoPath: string, name: string | null, filter: string | undefined): boolean {
@@ -579,7 +890,7 @@ function summarizeNpmError(stdout: string, stderr: string, args: string[]): stri
   if (!combined) return `npm ${args.join(" ")} exited non-zero (no output)`;
   // Extract npm error code and message
   const codeMatch = combined.match(/npm error code (\S+)/);
-  const msgMatch = combined.match(/npm error\n(.+)/);
+  const msgMatch = combined.match(/^npm error (?!code\b|A complete log\b)(.+)$/m);
   if (codeMatch && msgMatch) {
     return `[${codeMatch[1]}] ${msgMatch[1].trim()}`;
   }
@@ -597,11 +908,20 @@ function runReleaseCheck(repoPath: string, name: string, args: string[], progres
   const r = runSync("npm", args, { cwd: repoPath, timeoutMs: 5 * 60_000 });
   const duration_ms = Date.now() - start;
   const pass = r.status === 0;
-  const error = pass ? undefined : summarizeNpmError(r.stdout, r.stderr, args);
+  const error = pass ? undefined : r.error?.message ?? summarizeNpmError(r.stdout, r.stderr, args);
   return { name, pass, duration_ms, error };
 }
 
 function verifyReleaseRepo(repoPath: string, progress: (msg: string) => void): RepoRelease {
+  if (!existsSync(repoPath)) {
+    return {
+      path: repoPath,
+      name: basename(repoPath),
+      checks: [{ name: "release:check", pass: false, duration_ms: 0, error: `repository directory does not exist: ${repoPath}` }],
+      passed: 0,
+      failed: 1,
+    };
+  }
   const pkg = readPackageJson(repoPath);
   const scripts = pkg?.scripts ?? {};
   let checks: ReleaseCheck[];
@@ -611,6 +931,9 @@ function verifyReleaseRepo(repoPath: string, progress: (msg: string) => void): R
     checks = FALLBACK_STEPS
       .filter((s) => typeof scripts[s] === "string")
       .map((s) => runReleaseCheck(repoPath, s, ["run", s], progress));
+  }
+  if (checks.length === 0) {
+    checks = [{ name: "release:check", pass: false, duration_ms: 0, error: "no release gate script found" }];
   }
   const passed = checks.filter((c) => c.pass).length;
   const failed = checks.filter((c) => !c.pass).length;
@@ -641,7 +964,7 @@ function renderVerifyReleaseMarkdown(result: VerifyReleaseResult): string {
         c.name,
         c.pass ? "yes" : "no",
         String(c.duration_ms),
-        (c.error ?? "").replace(/\|/g, "\\|").slice(0, 200),
+        (c.error ?? "").replace(/\s+/g, " ").replace(/\|/g, "\\|").slice(0, 200),
       ]));
     }
   }
@@ -671,6 +994,19 @@ interface StatusResult {
 }
 
 function collectStatus(repoPath: string): RepoStatus {
+  if (!existsSync(repoPath)) {
+    return {
+      path: repoPath,
+      name: basename(repoPath),
+      version: null,
+      ready: false,
+      issues: ["repository directory does not exist"],
+      pm_open_items: null,
+      audit_critical: null,
+      audit_high: null,
+      outdated_count: null,
+    };
+  }
   const pkg = readPackageJson(repoPath);
   const name = pkg?.name ?? null;
   const version = pkg?.version ?? null;
@@ -688,7 +1024,7 @@ function collectStatus(repoPath: string): RepoStatus {
   const has_ci = existsSync(join(repoPath, ".github", "workflows", "ci.yml"));
   if (!has_ci) issues.push("no CI workflow");
 
-  const has_pm_changelog = Boolean(pkg?.devDependencies && "pm-changelog" in pkg.devDependencies);
+  const has_pm_changelog = hasPmChangelogDep(pkg);
   if (!has_pm_changelog) issues.push("pm-changelog not wired");
 
   let outdated_count: number | null = null;
@@ -763,7 +1099,8 @@ interface RepoOutdated {
   path: string;
   name: string | null;
   outdated: OutdatedEntry[];
-  count: number;
+  count: number | null;
+  error?: string;
 }
 
 interface OutdatedResult {
@@ -773,11 +1110,17 @@ interface OutdatedResult {
 
 function collectOutdatedRepo(repoPath: string): RepoOutdated {
   const pkg = readPackageJson(repoPath);
+  if (isOffline()) {
+    return { path: repoPath, name: pkg?.name ?? null, outdated: [], count: null, error: "offline mode enabled" };
+  }
   const r = runSync("npm", ["outdated", "--json"], { cwd: repoPath, timeoutMs: 60_000 });
+  if (r.error) {
+    return { path: repoPath, name: pkg?.name ?? null, outdated: [], count: null, error: r.error.message };
+  }
   const entries: OutdatedEntry[] = [];
   if (r.status !== 0 && r.status !== 1) {
     // npm outdated exits 0 if no outdated, 1 if some outdated
-    return { path: repoPath, name: pkg?.name ?? null, outdated: [], count: 0 };
+    return { path: repoPath, name: pkg?.name ?? null, outdated: [], count: null, error: summarizeNpmError(r.stdout, r.stderr, ["outdated", "--json"]) };
   }
   const parsed = parseJsonSafe(r.stdout) as Record<string, any> | undefined;
   if (parsed && typeof parsed === "object") {
@@ -801,8 +1144,8 @@ function collectOutdatedAll(repos: string[], progress: (msg: string) => void): O
     progress(`outdated ${repo}`);
     return collectOutdatedRepo(repo);
   });
-  const withOutdated = results.filter((r) => r.count > 0).length;
-  const totalOutdated = results.reduce((sum, r) => sum + r.count, 0);
+  const withOutdated = results.filter((r) => (r.count ?? 0) > 0).length;
+  const totalOutdated = results.reduce((sum, r) => sum + (r.count ?? 0), 0);
   return { repos: results, summary: { total: results.length, repos_with_outdated: withOutdated, total_outdated: totalOutdated } };
 }
 
@@ -813,6 +1156,13 @@ function renderOutdatedMarkdown(result: OutdatedResult): string {
   lines.push(`Checked **${result.summary.total}** repo(s): **${result.summary.repos_with_outdated}** have outdated deps, **${result.summary.total_outdated}** total outdated package(s).`);
   lines.push("");
   for (const repo of result.repos) {
+    if (repo.count === null) {
+      lines.push(`## ${repo.name ?? basename(repo.path)}`);
+      lines.push("");
+      lines.push(repo.error ? `Unable to check outdated dependencies: ${repo.error}` : "Unable to check outdated dependencies.");
+      lines.push("");
+      continue;
+    }
     if (repo.count === 0) continue;
     lines.push(`## ${repo.name ?? basename(repo.path)}`);
     lines.push("");
@@ -823,7 +1173,8 @@ function renderOutdatedMarkdown(result: OutdatedResult): string {
     }
     lines.push("");
   }
-  if (result.summary.total_outdated === 0) {
+  const unknownCount = result.repos.filter((r) => r.count === null).length;
+  if (result.summary.total_outdated === 0 && unknownCount === 0) {
     lines.push("All dependencies are up to date.");
     lines.push("");
   }
@@ -847,11 +1198,14 @@ interface RepoAudit {
 
 interface AuditResult {
   repos: RepoAudit[];
-  summary: { total: number; clean: number; with_vulns: number; total_critical: number; total_high: number };
+  summary: { total: number; clean: number; with_vulns: number; unknown: number; total_critical: number; total_high: number };
 }
 
 function collectAuditRepo(repoPath: string): RepoAudit {
   const pkg = readPackageJson(repoPath);
+  if (isOffline()) {
+    return { path: repoPath, name: pkg?.name ?? null, critical: null, high: null, moderate: null, low: null, total: null, ok: false };
+  }
   const r = runSync("npm", ["audit", "--omit=dev", "--json"], { cwd: repoPath, timeoutMs: 60_000 });
   if (r.error) {
     return { path: repoPath, name: pkg?.name ?? null, critical: null, high: null, moderate: null, low: null, total: null, ok: false };
@@ -876,16 +1230,17 @@ function collectAuditAll(repos: string[], progress: (msg: string) => void): Audi
   });
   const clean = results.filter((r) => r.ok).length;
   const withVulns = results.filter((r) => r.total !== null && r.total > 0).length;
+  const unknown = results.filter((r) => r.total === null).length;
   const totalCritical = results.reduce((s, r) => s + (r.critical ?? 0), 0);
   const totalHigh = results.reduce((s, r) => s + (r.high ?? 0), 0);
-  return { repos: results, summary: { total: results.length, clean, with_vulns: withVulns, total_critical: totalCritical, total_high: totalHigh } };
+  return { repos: results, summary: { total: results.length, clean, with_vulns: withVulns, unknown, total_critical: totalCritical, total_high: totalHigh } };
 }
 
 function renderAuditMarkdown(result: AuditResult): string {
   const lines: string[] = [];
   lines.push("# pm-ops audit");
   lines.push("");
-  lines.push(`Audited **${result.summary.total}** repo(s): **${result.summary.clean}** clean, **${result.summary.with_vulns}** with vulnerabilities.`);
+  lines.push(`Audited **${result.summary.total}** repo(s): **${result.summary.clean}** clean, **${result.summary.with_vulns}** with vulnerabilities, **${result.summary.unknown}** unknown.`);
   lines.push(`Total: **${result.summary.total_critical}** critical, **${result.summary.total_high}** high.`);
   lines.push("");
   lines.push(renderMarkdownRow(["repo", "critical", "high", "moderate", "low", "total", "status"]));
@@ -1015,7 +1370,8 @@ function renderReportMarkdown(result: ReportResult): string {
 
 function emitResult(structured: unknown, format: OutputFormat, outputPath: string | undefined, formatter: () => string): unknown {
   if (outputPath) {
-    const body = format === "toon" ? `${JSON.stringify(structured, null, 2)}\n` : formatter();
+    mkdirSync(dirname(resolve(outputPath)), { recursive: true });
+    const body = format === "markdown" ? formatter() : `${JSON.stringify(structured, null, 2)}\n`;
     writeFileSync(outputPath, body, "utf-8");
     console.error(`pm-ops: wrote ${format} output to ${outputPath}`);
     return { written_to: outputPath, format };
@@ -1031,7 +1387,7 @@ function emitResult(structured: unknown, format: OutputFormat, outputPath: strin
 
 export default defineExtension({
   name: "pm-ops",
-  version: "2026.7.5",
+  version: "2026.7.6",
 
   activate(api: any) {
     if (typeof api.registerRenderer === "function") {
@@ -1062,7 +1418,7 @@ export default defineExtension({
       ],
       async run(ctx: any) {
         const options = ctx.options as Record<string, unknown>;
-        const repos = resolveRepos(options);
+        const repos = resolveRepos(options, ctx.args);
         const format = resolveFormat(options);
         const outputPath = readString(options, "output");
         console.error(`pm-ops scan: ${repos.length} repo(s)`);
@@ -1097,7 +1453,7 @@ export default defineExtension({
       ],
       async run(ctx: any) {
         const options = ctx.options as Record<string, unknown>;
-        const repos = resolveRepos(options);
+        const repos = resolveRepos(options, ctx.args);
         const format = resolveFormat(options);
         const strict = readBool(options, "strict");
         const outputPath = readString(options, "output");
@@ -1113,11 +1469,18 @@ export default defineExtension({
         console.error(`pm-ops policy: ${repos.length} repo(s), ${bundle.checks.length} check(s)`);
         const result = runPolicy(repos, bundle, (m) => console.error(`  ${m}`));
         console.error(`policy: ${result.summary.passed} passed, ${result.summary.failed} failed`);
-        const out = emitResult(result, format, outputPath, () => renderPolicyMarkdown(result));
         if (strict && result.summary.failed > 0) {
+          if (outputPath) {
+            emitResult(result, format, outputPath, () => renderPolicyMarkdown(result));
+          } else if (format === "markdown") {
+            const md = renderPolicyMarkdown(result);
+            process.stdout.write(md.endsWith("\n") ? md : `${md}\n`);
+          } else {
+            process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+          }
           throw new CommandError(`policy: ${result.summary.failed} check(s) failed (strict mode)`, EXIT_CODE.GENERIC_FAILURE);
         }
-        return out;
+        return emitResult(result, format, outputPath, () => renderPolicyMarkdown(result));
       },
     });
 
@@ -1143,7 +1506,7 @@ export default defineExtension({
       ],
       async run(ctx: any) {
         const options = ctx.options as Record<string, unknown>;
-        const repos = resolveRepos(options);
+        const repos = resolveRepos(options, ctx.args);
         const format = resolveFormat(options);
         const outputPath = readString(options, "output");
         console.error(`pm-ops verify-release: ${repos.length} repo(s)`);
@@ -1160,7 +1523,8 @@ export default defineExtension({
           }
         }
         if (outputPath) {
-          const body = format === "toon" ? `${JSON.stringify(result, null, 2)}\n` : renderVerifyReleaseMarkdown(result);
+          mkdirSync(dirname(resolve(outputPath)), { recursive: true });
+          const body = format === "markdown" ? renderVerifyReleaseMarkdown(result) : `${JSON.stringify(result, null, 2)}\n`;
           writeFileSync(outputPath, body, "utf-8");
           console.error(`pm-ops: wrote ${format} output to ${outputPath}`);
           if (failed) throw new CommandError(`verify-release: ${result.summary.failed} repo(s) failed`, EXIT_CODE.GENERIC_FAILURE);
@@ -1213,7 +1577,7 @@ export default defineExtension({
       ],
       async run(ctx: any) {
         const options = ctx.options as Record<string, unknown>;
-        const repos = resolveRepos(options);
+        const repos = resolveRepos(options, ctx.args);
         const format = resolveFormat(options);
         const outputPath = readString(options, "output");
         const includeRelease = readBool(options, "include-release");
@@ -1247,7 +1611,7 @@ export default defineExtension({
       ],
       async run(ctx: any) {
         const options = ctx.options as Record<string, unknown>;
-        const repos = resolveRepos(options);
+        const repos = resolveRepos(options, ctx.args);
         const format = resolveFormat(options);
         const outputPath = readString(options, "output");
         console.error(`pm-ops status: ${repos.length} repo(s)`);
@@ -1277,7 +1641,7 @@ export default defineExtension({
       ],
       async run(ctx: any) {
         const options = ctx.options as Record<string, unknown>;
-        const repos = resolveRepos(options);
+        const repos = resolveRepos(options, ctx.args);
         const format = resolveFormat(options);
         const outputPath = readString(options, "output");
         console.error(`pm-ops outdated: ${repos.length} repo(s)`);
@@ -1307,7 +1671,7 @@ export default defineExtension({
       ],
       async run(ctx: any) {
         const options = ctx.options as Record<string, unknown>;
-        const repos = resolveRepos(options);
+        const repos = resolveRepos(options, ctx.args);
         const format = resolveFormat(options);
         const outputPath = readString(options, "output");
         console.error(`pm-ops audit: ${repos.length} repo(s)`);
