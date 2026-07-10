@@ -7,7 +7,8 @@
   "priority": 50,
   "capabilities": [
     "commands",
-    "renderers"
+    "renderers",
+    "schema"
   ],
   "pm": {
     "compatibility": "v2"

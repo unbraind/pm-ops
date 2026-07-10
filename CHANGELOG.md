@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Fix manifest: add schema capability so registerCommand flags load (extension failed to activate) ([ops-tg86](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-tg86.toon))
+- Fix pm-ops multi-repo path parsing and toolchain alignment ([ops-f4vp](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-f4vp.toon))
+
 ## 2026.7.6 - 2026-07-06
 
 ### Other
