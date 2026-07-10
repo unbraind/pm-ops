@@ -1,0 +1,28 @@
+id: ops-9zcn
+title: SDK 2026.7.10 alignment and production readiness pass
+description: "Align pm-ops to pm CLI 2026.7.10 SDK, fix health, regenerate CHANGELOG, verify release pipeline"
+type: Task
+status: in_progress
+priority: 1
+tags[4]: 2026.7.10,ecosystem,production-readiness,sdk-alignment
+created_at: "2026-07-10T19:04:57.558Z"
+updated_at: "2026-07-10T19:04:59.491Z"
+assignee: platform-web-specialist
+author: platform-web-specialist
+estimated_minutes: 60
+acceptance_criteria: "typecheck passes; build passes; 34/36 tests pass (2 skipped real-data); audit 0 vulns; pack:dry-run OK; changelog:check OK; SDK peerDep >=2026.7.10"
+comments[2]{created_at,author,text}:
+  "2026-07-10T19:04:57.795Z",platform-web-specialist,"Evidence: SDK aligned to 2026.7.10. typecheck OK, build OK, 34/36 tests pass, 0 vulnerabilities, pack:dry-run OK, changelog:check OK. Health directories fixed, history_drift repaired where needed."
+  "2026-07-10T19:04:59.275Z",platform-web-specialist,"Dependency change: @unbrained/pm-cli 2026.7.9->2026.7.10, pm-changelog ^2026.7.8->^2026.7.10"
+notes[1]{created_at,author,text}:
+  "2026-07-10T19:04:57.982Z",platform-web-specialist,"Decision: Align peerDep/devDep to 2026.7.10. Preserve existing branch edits. Do not bump package version (daily release workflow handles date-based versioning). Dependabot added for dependency/security reports."
+learnings[1]{created_at,author,text}:
+  "2026-07-10T19:04:58.169Z",platform-web-specialist,pm health missing extensions dir fixed by mkdir. history_drift repaired by pm history-repair --all.
+files[4]{path,scope,note}:
+  CHANGELOG.md,project,SDK alignment and production readiness
+  manifest.json,project,SDK alignment and production readiness
+  package-lock.json,project,SDK alignment and production readiness
+  package.json,project,SDK alignment and production readiness
+tests[1]{command,scope,timeout_seconds}:
+  npm test,project,60
+body: ""
