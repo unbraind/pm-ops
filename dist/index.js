@@ -115,7 +115,10 @@ function expandSimpleGlob(pattern) {
         }
         candidates = next;
     }
-    return candidates.length > 0 ? candidates : [absolute];
+    // Sort matches so glob-expanded repo lists (and any fleet report built from
+    // them) are deterministic across filesystems whose readdir order is not
+    // guaranteed — important for stable, diff-friendly agent output.
+    return candidates.length > 0 ? [...candidates].sort() : [absolute];
 }
 function resolveRepos(options, args = []) {
     const repos = [...asArray(options["repos"]), ...asArray(args)];

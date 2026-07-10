@@ -704,6 +704,6 @@ test("real-data: verify-release on second configured pm repo passes", { skip: !R
   const { commands } = activateAndCapture();
   const result = (await runCommand(commands, "ops verify-release", { repos: [REAL_REPOS[1]] })) as any;
   assert.strictEqual(result.repos.length, 1);
-  assert.strictEqual(result.repos[0].failed, 0, "pm-ts-starter release:check should pass");
+  assert.strictEqual(result.repos[0].failed, 0, `${REAL_REPOS[1]} release:check should pass`);
   assert.strictEqual(result.summary.failed, 0);
 });

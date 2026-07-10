@@ -1,0 +1,13 @@
+id: ops-tg86
+title: "Fix manifest: add schema capability so registerCommand flags load (extension failed to activate)"
+description: ""
+type: Task
+status: closed
+priority: 1
+tags[3]: bugfix,manifest,release-blocker
+created_at: "2026-07-06T09:28:23.615Z"
+updated_at: "2026-07-10T10:58:32.174Z"
+closed_at: "2026-07-10T10:58:32.166Z"
+author: unknown
+close_reason: "Superseded by ops-f4vp / PR #6 (feat/agent-enhancement-pass). #6 already adds the schema capability (verified: all 7 commands activate, failed_count 0), so #5's manifest-schema fix is redundant. #5's manifest_version:2/permissions extras are not needed (#6 handles subprocess/EALLOWSCRIPTS at code level). PR #5 closed as superseded by #6."
+body: "pm-ops failed to activate after install: registerCommand flags requires the 'schema' capability in the manifest. Added 'schema' to capabilities plus manifest_version + permissions (fs_read/fs_write/subprocess). Verified all 4 commands (scan/policy/verify-release/report) now activate and run correctly against real repos. This was blocking the first npm release."
