@@ -858,10 +858,11 @@ function collectStatus(repoPath) {
         audit_high = a.high;
     }
     catch { /* ignore */ }
+    // Only critical vulnerabilities gate readiness, matching scanRepo's
+    // criticalGate logic. High-severity findings are still reported via the
+    // audit_high field so they are visible without blocking fleet readiness.
     if (audit_critical !== null && audit_critical > 0)
         issues.push(`${audit_critical} critical vuln(s)`);
-    if (audit_high !== null && audit_high > 0)
-        issues.push(`${audit_high} high vuln(s)`);
     const items = readPmItems(repoPath);
     const pm_open_items = items ? items.filter((i) => (i.status ?? "").toLowerCase() === "open").length : null;
     const ready = issues.length === 0;
