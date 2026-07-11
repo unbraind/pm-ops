@@ -367,6 +367,8 @@ function readAudit(repoPath) {
         throw new Error(`npm audit failed: ${r.error.message}`);
     const parsed = parseJsonSafe(r.stdout);
     if (parsed?.error) {
+        if (typeof parsed.error === "string")
+            throw new Error(`npm audit failed: ${parsed.error}`);
         const code = parsed.error.code ?? "unknown";
         const summary = parsed.error.summary ?? "unknown error";
         throw new Error(`npm audit failed: [${code}] ${summary}`);
@@ -375,6 +377,13 @@ function readAudit(repoPath) {
     if (!v)
         throw new Error(summarizeNpmError(r.stdout, r.stderr, ["audit", "--omit=dev", "--json"]));
     return { critical: v.critical ?? 0, high: v.high ?? 0 };
+}
+const AUDIT_UNAVAILABLE_PREFIX = "audit unavailable:";
+function auditUnavailable(error) {
+    return `${AUDIT_UNAVAILABLE_PREFIX} ${error instanceof Error ? error.message : String(error)}`;
+}
+function passesAuditGate(critical, diagnostics) {
+    return isOffline() || (critical === 0 && !diagnostics.some((entry) => entry.startsWith(AUDIT_UNAVAILABLE_PREFIX)));
 }
 function ghRepoIsPrivate(repoPath) {
     if (isOffline())
@@ -451,12 +460,12 @@ function scanRepo(repoPath) {
         audit_high = a.high;
     }
     catch (err) {
-        errors.push(`audit unavailable: ${err instanceof Error ? err.message : String(err)}`);
+        errors.push(auditUnavailable(err));
     }
     const open_prs = ghOpenCount(repoPath, "pr");
     const open_issues = ghOpenCount(repoPath, "issue");
     const has_pkg = Boolean(pkg);
-    const auditGate = isOffline() || (audit_critical === 0 && !errors.some((error) => error.startsWith("audit unavailable:")));
+    const auditGate = passesAuditGate(audit_critical, errors);
     const ready = has_pkg && strict_ts && has_changelog && has_release_workflow && has_ci && has_pm_changelog && auditGate;
     return {
         path: repoPath,
@@ -863,7 +872,7 @@ function collectStatus(repoPath) {
         audit_high = a.high;
     }
     catch (err) {
-        issues.push(`audit unavailable: ${err instanceof Error ? err.message : String(err)}`);
+        issues.push(auditUnavailable(err));
     }
     // Critical vulnerabilities gate readiness (matching scanRepo's
     // audit gate). High-severity findings are still pushed to issues for
@@ -876,7 +885,7 @@ function collectStatus(repoPath) {
     const items = readPmItems(repoPath);
     const pm_open_items = items ? items.filter((i) => (i.status ?? "").toLowerCase() === "open").length : null;
     // ready gates only on critical vulns, not high — aligned with scanRepo.
-    const auditGate = isOffline() || (audit_critical === 0 && !issues.some((issue) => issue.startsWith("audit unavailable:")));
+    const auditGate = passesAuditGate(audit_critical, issues);
     const ready = issues.filter((i) => !i.includes("high vuln")).length === 0 && auditGate;
     return { path: repoPath, name, version, ready, issues, pm_open_items, audit_critical, audit_high, outdated_count };
 }

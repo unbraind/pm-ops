@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test, { before, after } from "node:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 import extension from "../dist/index.js";
@@ -21,6 +21,29 @@ interface CapturedCommand {
   name: string;
   run: (ctx: any) => Promise<unknown> | unknown;
   flags: any[];
+}
+
+function createAuditFailureBin(name: string, includeGh = false): string {
+  const bin = join(tmpRoot, name);
+  mkdirSync(bin, { recursive: true });
+  if (process.platform === "win32") {
+    writeFileSync(join(bin, "npm.cmd"), '@echo off\nif "%~1"=="outdated" (echo {} & exit /b 0)\nif "%~1"=="audit" (echo {"error":{"code":"EAI_AGAIN","summary":"registry unavailable"}} & exit /b 1)\nexit /b 1\n');
+    if (includeGh) writeFileSync(join(bin, "gh.cmd"), "@echo off\necho []\n");
+  } else {
+    writeFileSync(join(bin, "npm"), `#!/usr/bin/env sh
+case "$1" in
+  outdated) printf '{}\\n'; exit 0 ;;
+  audit) printf '{"error":{"code":"EAI_AGAIN","summary":"registry unavailable"}}\\n'; exit 1 ;;
+esac
+exit 1
+`);
+    chmodSync(join(bin, "npm"), 0o755);
+    if (includeGh) {
+      writeFileSync(join(bin, "gh"), "#!/usr/bin/env sh\nprintf '[]\\n'\n");
+      chmodSync(join(bin, "gh"), 0o755);
+    }
+  }
+  return bin;
 }
 
 function activateAndCapture(): { commands: Map<string, CapturedCommand>; renderers: Map<string, (ctx: any) => string | null> } {
@@ -173,23 +196,12 @@ test("ops scan reports a clear error for missing repo paths", async () => {
 
 test("ops scan does not report ready when an online security audit is unavailable", async () => {
   const { commands } = activateAndCapture();
-  const bin = join(tmpRoot, "bin-audit-unavailable");
-  mkdirSync(bin, { recursive: true });
-  writeFileSync(join(bin, "npm"), `#!/usr/bin/env sh
-case "$1" in
-  outdated) printf '{}\\n'; exit 0 ;;
-  audit) printf '{"error":{"code":"EAI_AGAIN","summary":"registry unavailable"}}\\n'; exit 1 ;;
-esac
-exit 1
-`);
-  writeFileSync(join(bin, "gh"), "#!/usr/bin/env sh\nprintf '[]\\n'\n");
-  chmodSync(join(bin, "npm"), 0o755);
-  chmodSync(join(bin, "gh"), 0o755);
+  const bin = createAuditFailureBin("bin-audit-unavailable", true);
 
   const previousOffline = process.env.PM_OPS_OFFLINE;
   const previousPath = process.env.PATH;
   delete process.env.PM_OPS_OFFLINE;
-  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
   try {
     const result = (await runCommand(commands, "ops scan", { repos: [fixtureRepo] })) as any;
     assert.strictEqual(result.repos[0].ready, false);
@@ -668,21 +680,12 @@ test("ops status reports a clear error for missing repo paths", async () => {
 
 test("ops status does not report ready when an online security audit is unavailable", async () => {
   const { commands } = activateAndCapture();
-  const bin = join(tmpRoot, "bin-status-audit-unavailable");
-  mkdirSync(bin, { recursive: true });
-  writeFileSync(join(bin, "npm"), `#!/usr/bin/env sh
-case "$1" in
-  outdated) printf '{}\\n'; exit 0 ;;
-  audit) printf '{"error":{"code":"EAI_AGAIN","summary":"registry unavailable"}}\\n'; exit 1 ;;
-esac
-exit 1
-`);
-  chmodSync(join(bin, "npm"), 0o755);
+  const bin = createAuditFailureBin("bin-status-audit-unavailable");
 
   const previousOffline = process.env.PM_OPS_OFFLINE;
   const previousPath = process.env.PATH;
   delete process.env.PM_OPS_OFFLINE;
-  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
   try {
     const result = (await runCommand(commands, "ops status", { repos: [fixtureRepo] })) as any;
     assert.strictEqual(result.repos[0].ready, false);
