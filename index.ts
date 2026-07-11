@@ -429,7 +429,10 @@ interface NpmAudit {
 function readAudit(repoPath: string): { critical: number | null; high: number | null } {
   if (isOffline()) return { critical: null, high: null };
   const r = runSync("npm", ["audit", "--omit=dev", "--json"], { cwd: repoPath, timeoutMs: 60_000 });
-  if (r.error) throw new Error(`npm audit failed: ${r.error.message}`);
+  if (r.error) {
+    const detail = summarizeNpmError(r.stdout, r.stderr, ["audit", "--omit=dev", "--json"]);
+    throw new Error(`npm audit failed: ${r.error.message}; ${detail}`);
+  }
   const parsed = parseJsonSafe(r.stdout) as NpmAudit | undefined;
   if (parsed?.error) {
     if (typeof parsed.error === "string") throw new Error(`npm audit failed: ${parsed.error}`);
@@ -448,11 +451,10 @@ function describeUnknownError(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
   if (error && typeof error === "object") {
-    try {
-      return JSON.stringify(error);
-    } catch {
-      return "unserializable error object";
-    }
+    const value = error as { code?: unknown; summary?: unknown; message?: unknown };
+    const code = typeof value.code === "string" ? `[${value.code}] ` : "";
+    const message = typeof value.summary === "string" ? value.summary : typeof value.message === "string" ? value.message : "unknown error object";
+    return `${code}${message}`;
   }
   return String(error);
 }
@@ -1341,8 +1343,8 @@ function renderScanMarkdown(result: ScanResult): string {
   lines.push("");
   lines.push(`Scanned **${result.summary.total}** repo(s): **${result.summary.ready}** ready, **${result.summary.not_ready}** not ready.`);
   lines.push("");
-  lines.push(renderMarkdownRow(["repo", "version", "strict", "changelog", "release", "ci", "pm-changelog", "open items", "outdated", "critical", "high", "prs", "issues", "ready"]));
-  lines.push(renderMarkdownRow(["---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---"]));
+  lines.push(renderMarkdownRow(["repo", "version", "strict", "changelog", "release", "ci", "pm-changelog", "open items", "outdated", "critical", "high", "prs", "issues", "ready", "diagnostics"]));
+  lines.push(renderMarkdownRow(["---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---"]));
   for (const r of result.repos) {
     const openItems = r.pm_open_items === null ? "?" : `${r.pm_open_items}/${r.pm_inprogress_items ?? 0}`;
     lines.push(renderMarkdownRow([
@@ -1360,6 +1362,7 @@ function renderScanMarkdown(result: ScanResult): string {
       formatCount(r.open_prs),
       formatCount(r.open_issues),
       r.ready ? "yes" : "no",
+      r.errors.length === 0 ? "-" : r.errors.join("; ").replace(/\|/g, "\\|").slice(0, 300),
     ]));
   }
   lines.push("");

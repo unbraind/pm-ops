@@ -23,17 +23,18 @@ interface CapturedCommand {
   flags: any[];
 }
 
-function createAuditFailureBin(name: string, includeGh = false): string {
+function createAuditFailureBin(name: string, includeGh = false, mode: "json" | "stderr" = "json"): string {
   const bin = join(tmpRoot, name);
   mkdirSync(bin, { recursive: true });
   if (process.platform === "win32") {
-    writeFileSync(join(bin, "npm.cmd"), '@echo off\nif "%~1"=="outdated" (echo {} & exit /b 0)\nif "%~1"=="audit" (echo {"error":{"code":"EAI_AGAIN","summary":"registry unavailable"}} & exit /b 1)\nexit /b 1\n');
+    const auditFailure = mode === "json" ? 'echo {"error":{"code":"EAI_AGAIN","summary":"registry unavailable"}}' : "echo non-JSON audit failure 1>&2";
+    writeFileSync(join(bin, "npm.cmd"), `@echo off\nif "%~1"=="outdated" (echo {} & exit /b 0)\nif "%~1"=="audit" (${auditFailure} & exit /b 1)\nexit /b 1\n`);
     if (includeGh) writeFileSync(join(bin, "gh.cmd"), "@echo off\necho []\n");
   } else {
     writeFileSync(join(bin, "npm"), `#!/usr/bin/env sh
 case "$1" in
   outdated) printf '{}\\n'; exit 0 ;;
-  audit) printf '{"error":{"code":"EAI_AGAIN","summary":"registry unavailable"}}\\n'; exit 1 ;;
+  audit) ${mode === "json" ? `printf '{"error":{"code":"EAI_AGAIN","summary":"registry unavailable"}}\\n'` : `printf 'non-JSON audit failure\\n' >&2`}; exit 1 ;;
 esac
 exit 1
 `);
@@ -197,6 +198,7 @@ test("ops scan reports a clear error for missing repo paths", async () => {
 test("ops scan does not report ready when an online security audit is unavailable", async () => {
   const { commands } = activateAndCapture();
   const bin = createAuditFailureBin("bin-audit-unavailable", true);
+  const stderrBin = createAuditFailureBin("bin-audit-unavailable-stderr", true, "stderr");
 
   const previousOffline = process.env.PM_OPS_OFFLINE;
   const previousPath = process.env.PATH;
@@ -206,10 +208,17 @@ test("ops scan does not report ready when an online security audit is unavailabl
     const result = (await runCommand(commands, "ops scan", { repos: [fixtureRepo] })) as any;
     assert.strictEqual(result.repos[0].ready, false);
     assert.match(result.repos[0].errors.join("\n"), /audit unavailable:.*registry unavailable/);
+    const markdown = (await runCommand(commands, "ops scan", { repos: [fixtureRepo], format: "markdown" })) as any;
+    assert.match(markdown.output, /audit unavailable:.*registry unavailable/);
     process.env.PM_OPS_OFFLINE = "1";
     const offline = (await runCommand(commands, "ops scan", { repos: [fixtureRepo] })) as any;
     assert.strictEqual(offline.repos[0].ready, true);
     assert.strictEqual(offline.repos[0].errors.length, 0);
+    delete process.env.PM_OPS_OFFLINE;
+    process.env.PATH = `${stderrBin}${delimiter}${previousPath ?? ""}`;
+    const stderrOnly = (await runCommand(commands, "ops scan", { repos: [fixtureRepo] })) as any;
+    assert.strictEqual(stderrOnly.repos[0].ready, false);
+    assert.match(stderrOnly.repos[0].errors.join("\n"), /audit unavailable:.*non-JSON audit failure/i);
   } finally {
     process.env.PM_OPS_OFFLINE = previousOffline;
     process.env.PATH = previousPath;
