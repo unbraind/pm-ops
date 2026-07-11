@@ -171,6 +171,35 @@ test("ops scan reports a clear error for missing repo paths", async () => {
   assert.deepStrictEqual(result.repos[0].errors, ["repository directory does not exist"]);
 });
 
+test("ops scan does not report ready when an online security audit is unavailable", async () => {
+  const { commands } = activateAndCapture();
+  const bin = join(tmpRoot, "bin-audit-unavailable");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "npm"), `#!/usr/bin/env sh
+case "$1" in
+  outdated) printf '{}\\n'; exit 0 ;;
+  audit) printf 'registry unavailable\\n' >&2; exit 1 ;;
+esac
+exit 1
+`);
+  writeFileSync(join(bin, "gh"), "#!/usr/bin/env sh\nprintf '[]\\n'\n");
+  chmodSync(join(bin, "npm"), 0o755);
+  chmodSync(join(bin, "gh"), 0o755);
+
+  const previousOffline = process.env.PM_OPS_OFFLINE;
+  const previousPath = process.env.PATH;
+  delete process.env.PM_OPS_OFFLINE;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  try {
+    const result = (await runCommand(commands, "ops scan", { repos: [fixtureRepo] })) as any;
+    assert.strictEqual(result.repos[0].ready, false);
+    assert.match(result.repos[0].errors.join("\n"), /audit:.*registry unavailable/);
+  } finally {
+    process.env.PM_OPS_OFFLINE = previousOffline;
+    process.env.PATH = previousPath;
+  }
+});
+
 test("ops scan respects later tsconfig array extends overrides", async () => {
   const { commands } = activateAndCapture();
   const repo = join(tmpRoot, "pm-tsconfig-override");
@@ -631,6 +660,33 @@ test("ops status reports a clear error for missing repo paths", async () => {
   assert.strictEqual(result.repos[0].ready, false);
   assert.deepStrictEqual(result.repos[0].issues, ["repository directory does not exist"]);
   assert.strictEqual(result.summary.not_ready, 1);
+});
+
+test("ops status does not report ready when an online security audit is unavailable", async () => {
+  const { commands } = activateAndCapture();
+  const bin = join(tmpRoot, "bin-status-audit-unavailable");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "npm"), `#!/usr/bin/env sh
+case "$1" in
+  outdated) printf '{}\\n'; exit 0 ;;
+  audit) printf 'registry unavailable\\n' >&2; exit 1 ;;
+esac
+exit 1
+`);
+  chmodSync(join(bin, "npm"), 0o755);
+
+  const previousOffline = process.env.PM_OPS_OFFLINE;
+  const previousPath = process.env.PATH;
+  delete process.env.PM_OPS_OFFLINE;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  try {
+    const result = (await runCommand(commands, "ops status", { repos: [fixtureRepo] })) as any;
+    assert.strictEqual(result.repos[0].ready, false);
+    assert.match(result.repos[0].issues.join("\n"), /audit unavailable:.*registry unavailable/);
+  } finally {
+    process.env.PM_OPS_OFFLINE = previousOffline;
+    process.env.PATH = previousPath;
+  }
 });
 
 test("ops status --format markdown emits a compact table", async () => {

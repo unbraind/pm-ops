@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[5]: agent-audit,context-management,fleet,release-readiness,safety
 created_at: "2026-07-09T21:35:58.168Z"
-updated_at: "2026-07-09T21:36:08.223Z"
+updated_at: "2026-07-11T19:39:43.910Z"
 assignee: codex-foundation
 author: codex-foundation
 estimated_minutes: 240
@@ -17,10 +17,21 @@ reviewer: codex-root
 risk: high
 confidence: high
 release: next
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-07-09T21:35:58.168Z",codex-foundation,Specialized agent started scoped production audit on 2026-07-09; pm-cli source and telemetry/observability configuration are out of scope.
   "2026-07-09T21:36:07.865Z",codex-foundation,"2026-07-09 scope checkpoint: inventorying GitHub reports, current PR branch, dependency versions, release automation, package activation, real-workspace behavior, and full-history privacy posture before implementation."
+  "2026-07-11T19:39:43.891Z",codex-foundation,"Verified release:check; 37/37 opted-in real-data tests passed against pm-brief and pm-context; pm-changelog release:check also passed. GitHub Dependabot and secret-scanning open alerts: 0; code-scanning is not configured. Full patch scan found only CI secret references,never values. Historical commit metadata contains the repository owner email but no credentials or hosted-service/user data."
 notes[2]{created_at,author,text}:
   "2026-07-09T21:35:58.168Z",codex-foundation,"Evidence will include exact commands, linked files/docs/tests, GitHub review disposition, package tarball verification, real workspace fixtures, and path-only sensitive-data scan summaries."
   "2026-07-09T21:36:08.218Z",codex-foundation,Toolchain baseline is global pm CLI 2026.7.9. Required package target is @unbrained/pm-cli 2026.7.9 and pm-changelog 2026.7.8 after registry verification. No telemetry/observability changes are authorized.
+files[4]{path,scope,note}:
+  index.ts,project,Verified audit-readiness implementation
+  test/ops.test.ts,project,Regression and real-data coverage
+  package.json,project,Current SDK and release toolchain
+  LICENSE,project,Package licensing
+tests[2]{command,path,scope,timeout_seconds,pm_context_mode}:
+  "npm run release:check",.,project,120,tracker
+  "PM_OPS_TEST_REPOS=/home/steve/container/pm-brief,/home/steve/container/pm-context npm test",.,project,120,tracker
+docs[1]{path,scope,note}:
+  README.md,project,Readiness behavior documentation
 body: "Audit GitHub issues, PRs, checks, dependency/security reports, full history, package contents, and real multi-repo behavior. Preserve unrelated work. Generate CHANGELOG.md and release notes with pm-changelog. Verify daily change-gated GitHub/npm/Bun release automation. Run Greptile before push, then bot review loops to green."

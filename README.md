@@ -48,7 +48,7 @@ For each repo `scan` checks:
 - `npm audit --omit=dev` critical/high counts
 - open PRs/issues via `gh` (when the repo is a GitHub repo)
 
-A repo is `ready` when it has a package.json, strict TS, a changelog, both CI/release workflows, pm-changelog wired, and zero critical audit vulnerabilities.
+A repo is `ready` when it has a package.json, strict TS, a changelog, both CI/release workflows, pm-changelog wired, and a successful audit with zero critical vulnerabilities. An unavailable or malformed online audit is reported and blocks readiness instead of being mistaken for a clean result. In explicit offline mode, network checks are skipped and do not gate file-based readiness.
 
 **Flags**
 

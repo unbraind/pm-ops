@@ -4,6 +4,7 @@
 
 ### Other
 
+- Address bot review feedback on PR \#1 (gemini+cubic+coderabbit) ([ops-81x9](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-81x9.toon))
 - SDK 2026.7.10 alignment and production readiness pass ([ops-9zcn](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-9zcn.toon))
 
 ## 2026.7.10 - 2026-07-10
