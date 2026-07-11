@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test, { before, after } from "node:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 import extension from "../dist/index.js";
@@ -21,6 +21,30 @@ interface CapturedCommand {
   name: string;
   run: (ctx: any) => Promise<unknown> | unknown;
   flags: any[];
+}
+
+function createAuditFailureBin(name: string, includeGh = false, mode: "json" | "stderr" = "json"): string {
+  const bin = join(tmpRoot, name);
+  mkdirSync(bin, { recursive: true });
+  if (process.platform === "win32") {
+    const auditFailure = mode === "json" ? 'echo {"error":{"code":"EAI_AGAIN","summary":"registry unavailable"}}' : "echo non-JSON audit failure 1>&2";
+    writeFileSync(join(bin, "npm.cmd"), `@echo off\nif "%~1"=="outdated" (echo {} & exit /b 0)\nif "%~1"=="audit" (${auditFailure} & exit /b 1)\nexit /b 1\n`);
+    if (includeGh) writeFileSync(join(bin, "gh.cmd"), "@echo off\necho []\n");
+  } else {
+    writeFileSync(join(bin, "npm"), `#!/usr/bin/env sh
+case "$1" in
+  outdated) printf '{}\\n'; exit 0 ;;
+  audit) ${mode === "json" ? `printf '{"error":{"code":"EAI_AGAIN","summary":"registry unavailable"}}\\n'` : `printf 'non-JSON audit failure\\n' >&2`}; exit 1 ;;
+esac
+exit 1
+`);
+    chmodSync(join(bin, "npm"), 0o755);
+    if (includeGh) {
+      writeFileSync(join(bin, "gh"), "#!/usr/bin/env sh\nprintf '[]\\n'\n");
+      chmodSync(join(bin, "gh"), 0o755);
+    }
+  }
+  return bin;
 }
 
 function activateAndCapture(): { commands: Map<string, CapturedCommand>; renderers: Map<string, (ctx: any) => string | null> } {
@@ -169,6 +193,36 @@ test("ops scan reports a clear error for missing repo paths", async () => {
   assert.strictEqual(result.repos.length, 1);
   assert.strictEqual(result.repos[0].ready, false);
   assert.deepStrictEqual(result.repos[0].errors, ["repository directory does not exist"]);
+});
+
+test("ops scan does not report ready when an online security audit is unavailable", async () => {
+  const { commands } = activateAndCapture();
+  const bin = createAuditFailureBin("bin-audit-unavailable", true);
+  const stderrBin = createAuditFailureBin("bin-audit-unavailable-stderr", true, "stderr");
+
+  const previousOffline = process.env.PM_OPS_OFFLINE;
+  const previousPath = process.env.PATH;
+  delete process.env.PM_OPS_OFFLINE;
+  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  try {
+    const result = (await runCommand(commands, "ops scan", { repos: [fixtureRepo] })) as any;
+    assert.strictEqual(result.repos[0].ready, false);
+    assert.match(result.repos[0].errors.join("\n"), /audit unavailable:.*registry unavailable/);
+    const markdown = (await runCommand(commands, "ops scan", { repos: [fixtureRepo], format: "markdown" })) as any;
+    assert.match(markdown.output, /audit unavailable:.*registry unavailable/);
+    process.env.PM_OPS_OFFLINE = "1";
+    const offline = (await runCommand(commands, "ops scan", { repos: [fixtureRepo] })) as any;
+    assert.strictEqual(offline.repos[0].ready, true);
+    assert.strictEqual(offline.repos[0].errors.length, 0);
+    delete process.env.PM_OPS_OFFLINE;
+    process.env.PATH = `${stderrBin}${delimiter}${previousPath ?? ""}`;
+    const stderrOnly = (await runCommand(commands, "ops scan", { repos: [fixtureRepo] })) as any;
+    assert.strictEqual(stderrOnly.repos[0].ready, false);
+    assert.match(stderrOnly.repos[0].errors.join("\n"), /audit unavailable:.*non-JSON audit failure/i);
+  } finally {
+    process.env.PM_OPS_OFFLINE = previousOffline;
+    process.env.PATH = previousPath;
+  }
 });
 
 test("ops scan respects later tsconfig array extends overrides", async () => {
@@ -631,6 +685,28 @@ test("ops status reports a clear error for missing repo paths", async () => {
   assert.strictEqual(result.repos[0].ready, false);
   assert.deepStrictEqual(result.repos[0].issues, ["repository directory does not exist"]);
   assert.strictEqual(result.summary.not_ready, 1);
+});
+
+test("ops status does not report ready when an online security audit is unavailable", async () => {
+  const { commands } = activateAndCapture();
+  const bin = createAuditFailureBin("bin-status-audit-unavailable");
+
+  const previousOffline = process.env.PM_OPS_OFFLINE;
+  const previousPath = process.env.PATH;
+  delete process.env.PM_OPS_OFFLINE;
+  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  try {
+    const result = (await runCommand(commands, "ops status", { repos: [fixtureRepo] })) as any;
+    assert.strictEqual(result.repos[0].ready, false);
+    assert.match(result.repos[0].issues.join("\n"), /audit unavailable: npm audit failed: \[EAI_AGAIN\] registry unavailable/);
+    process.env.PM_OPS_OFFLINE = "1";
+    const offline = (await runCommand(commands, "ops status", { repos: [fixtureRepo] })) as any;
+    assert.strictEqual(offline.repos[0].ready, true);
+    assert.strictEqual(offline.repos[0].issues.length, 0);
+  } finally {
+    process.env.PM_OPS_OFFLINE = previousOffline;
+    process.env.PATH = previousPath;
+  }
 });
 
 test("ops status --format markdown emits a compact table", async () => {

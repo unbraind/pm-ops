@@ -363,13 +363,42 @@ function readAudit(repoPath) {
     if (isOffline())
         return { critical: null, high: null };
     const r = runSync("npm", ["audit", "--omit=dev", "--json"], { cwd: repoPath, timeoutMs: 60_000 });
-    if (r.error)
-        return { critical: null, high: null };
+    if (r.error) {
+        const detail = summarizeNpmError(r.stdout, r.stderr, ["audit", "--omit=dev", "--json"]);
+        throw new Error(`npm audit failed: ${r.error.message}; ${detail}`);
+    }
     const parsed = parseJsonSafe(r.stdout);
+    if (parsed?.error) {
+        if (typeof parsed.error === "string")
+            throw new Error(`npm audit failed: ${parsed.error}`);
+        const code = parsed.error.code ?? "unknown";
+        const summary = parsed.error.summary ?? "unknown error";
+        throw new Error(`npm audit failed: [${code}] ${summary}`);
+    }
     const v = parsed?.metadata?.vulnerabilities;
     if (!v)
-        return { critical: null, high: null };
+        throw new Error(summarizeNpmError(r.stdout, r.stderr, ["audit", "--omit=dev", "--json"]));
     return { critical: v.critical ?? 0, high: v.high ?? 0 };
+}
+const AUDIT_UNAVAILABLE_PREFIX = "audit unavailable:";
+function describeUnknownError(error) {
+    if (error instanceof Error)
+        return error.message;
+    if (typeof error === "string")
+        return error;
+    if (error && typeof error === "object") {
+        const value = error;
+        const code = typeof value.code === "string" ? `[${value.code}] ` : "";
+        const message = typeof value.summary === "string" ? value.summary : typeof value.message === "string" ? value.message : "unknown error object";
+        return `${code}${message}`;
+    }
+    return String(error);
+}
+function auditUnavailable(error) {
+    return `${AUDIT_UNAVAILABLE_PREFIX} ${describeUnknownError(error)}`;
+}
+function passesAuditGate(critical, diagnostics) {
+    return isOffline() || (critical === 0 && !diagnostics.some((entry) => entry.startsWith(AUDIT_UNAVAILABLE_PREFIX)));
 }
 function ghRepoIsPrivate(repoPath) {
     if (isOffline())
@@ -446,13 +475,13 @@ function scanRepo(repoPath) {
         audit_high = a.high;
     }
     catch (err) {
-        errors.push(`audit: ${err instanceof Error ? err.message : String(err)}`);
+        errors.push(auditUnavailable(err));
     }
     const open_prs = ghOpenCount(repoPath, "pr");
     const open_issues = ghOpenCount(repoPath, "issue");
     const has_pkg = Boolean(pkg);
-    const criticalGate = audit_critical === null ? true : audit_critical === 0;
-    const ready = has_pkg && strict_ts && has_changelog && has_release_workflow && has_ci && has_pm_changelog && criticalGate;
+    const auditGate = passesAuditGate(audit_critical, errors);
+    const ready = has_pkg && strict_ts && has_changelog && has_release_workflow && has_ci && has_pm_changelog && auditGate;
     return {
         path: repoPath,
         name,
@@ -857,9 +886,11 @@ function collectStatus(repoPath) {
         audit_critical = a.critical;
         audit_high = a.high;
     }
-    catch { /* ignore */ }
+    catch (err) {
+        issues.push(auditUnavailable(err));
+    }
     // Critical vulnerabilities gate readiness (matching scanRepo's
-    // criticalGate). High-severity findings are still pushed to issues for
+    // audit gate). High-severity findings are still pushed to issues for
     // textual visibility but do not block ready, so fleet-health reports
     // from ops status and ops scan stay consistent.
     if (audit_critical !== null && audit_critical > 0)
@@ -869,8 +900,8 @@ function collectStatus(repoPath) {
     const items = readPmItems(repoPath);
     const pm_open_items = items ? items.filter((i) => (i.status ?? "").toLowerCase() === "open").length : null;
     // ready gates only on critical vulns, not high — aligned with scanRepo.
-    const criticalGate = audit_critical === null ? true : audit_critical === 0;
-    const ready = issues.filter((i) => !i.includes("high vuln")).length === 0 && criticalGate;
+    const auditGate = passesAuditGate(audit_critical, issues);
+    const ready = issues.filter((i) => !i.includes("high vuln")).length === 0 && auditGate;
     return { path: repoPath, name, version, ready, issues, pm_open_items, audit_critical, audit_high, outdated_count };
 }
 function collectStatusAll(repos, progress) {
@@ -1056,8 +1087,8 @@ function renderScanMarkdown(result) {
     lines.push("");
     lines.push(`Scanned **${result.summary.total}** repo(s): **${result.summary.ready}** ready, **${result.summary.not_ready}** not ready.`);
     lines.push("");
-    lines.push(renderMarkdownRow(["repo", "version", "strict", "changelog", "release", "ci", "pm-changelog", "open items", "outdated", "critical", "high", "prs", "issues", "ready"]));
-    lines.push(renderMarkdownRow(["---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---"]));
+    lines.push(renderMarkdownRow(["repo", "version", "strict", "changelog", "release", "ci", "pm-changelog", "open items", "outdated", "critical", "high", "prs", "issues", "ready", "diagnostics"]));
+    lines.push(renderMarkdownRow(["---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---"]));
     for (const r of result.repos) {
         const openItems = r.pm_open_items === null ? "?" : `${r.pm_open_items}/${r.pm_inprogress_items ?? 0}`;
         lines.push(renderMarkdownRow([
@@ -1075,6 +1106,7 @@ function renderScanMarkdown(result) {
             formatCount(r.open_prs),
             formatCount(r.open_issues),
             r.ready ? "yes" : "no",
+            r.errors.length === 0 ? "-" : r.errors.join("; ").replace(/\|/g, "\\|").slice(0, 300),
         ]));
     }
     lines.push("");
