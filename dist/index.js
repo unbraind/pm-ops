@@ -379,8 +379,23 @@ function readAudit(repoPath) {
     return { critical: v.critical ?? 0, high: v.high ?? 0 };
 }
 const AUDIT_UNAVAILABLE_PREFIX = "audit unavailable:";
+function describeUnknownError(error) {
+    if (error instanceof Error)
+        return error.message;
+    if (typeof error === "string")
+        return error;
+    if (error && typeof error === "object") {
+        try {
+            return JSON.stringify(error);
+        }
+        catch {
+            return "unserializable error object";
+        }
+    }
+    return String(error);
+}
 function auditUnavailable(error) {
-    return `${AUDIT_UNAVAILABLE_PREFIX} ${error instanceof Error ? error.message : String(error)}`;
+    return `${AUDIT_UNAVAILABLE_PREFIX} ${describeUnknownError(error)}`;
 }
 function passesAuditGate(critical, diagnostics) {
     return isOffline() || (critical === 0 && !diagnostics.some((entry) => entry.startsWith(AUDIT_UNAVAILABLE_PREFIX)));

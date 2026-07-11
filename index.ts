@@ -444,8 +444,21 @@ function readAudit(repoPath: string): { critical: number | null; high: number | 
 
 const AUDIT_UNAVAILABLE_PREFIX = "audit unavailable:";
 
+function describeUnknownError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return "unserializable error object";
+    }
+  }
+  return String(error);
+}
+
 function auditUnavailable(error: unknown): string {
-  return `${AUDIT_UNAVAILABLE_PREFIX} ${error instanceof Error ? error.message : String(error)}`;
+  return `${AUDIT_UNAVAILABLE_PREFIX} ${describeUnknownError(error)}`;
 }
 
 function passesAuditGate(critical: number | null, diagnostics: string[]): boolean {
