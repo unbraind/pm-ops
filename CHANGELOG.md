@@ -1,10 +1,15 @@
 # Changelog
 
-## 2026.7.11 - 2026-07-11
+## Unreleased
 
 ### Other
 
 - Address bot review feedback on PR \#1 (gemini+cubic+coderabbit) ([ops-81x9](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-81x9.toon))
+
+## 2026.7.10-1 - 2026-07-10
+
+### Other
+
 - SDK 2026.7.10 alignment and production readiness pass ([ops-9zcn](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-9zcn.toon))
 
 ## 2026.7.10 - 2026-07-10
