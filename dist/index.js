@@ -366,6 +366,11 @@ function readAudit(repoPath) {
     if (r.error)
         throw new Error(`npm audit failed: ${r.error.message}`);
     const parsed = parseJsonSafe(r.stdout);
+    if (parsed?.error) {
+        const code = parsed.error.code ?? "unknown";
+        const summary = parsed.error.summary ?? "unknown error";
+        throw new Error(`npm audit failed: [${code}] ${summary}`);
+    }
     const v = parsed?.metadata?.vulnerabilities;
     if (!v)
         throw new Error(summarizeNpmError(r.stdout, r.stderr, ["audit", "--omit=dev", "--json"]));
@@ -446,12 +451,12 @@ function scanRepo(repoPath) {
         audit_high = a.high;
     }
     catch (err) {
-        errors.push(`audit: ${err instanceof Error ? err.message : String(err)}`);
+        errors.push(`audit unavailable: ${err instanceof Error ? err.message : String(err)}`);
     }
     const open_prs = ghOpenCount(repoPath, "pr");
     const open_issues = ghOpenCount(repoPath, "issue");
     const has_pkg = Boolean(pkg);
-    const auditGate = isOffline() || (audit_critical === 0 && !errors.some((error) => error.startsWith("audit:")));
+    const auditGate = isOffline() || (audit_critical === 0 && !errors.some((error) => error.startsWith("audit unavailable:")));
     const ready = has_pkg && strict_ts && has_changelog && has_release_workflow && has_ci && has_pm_changelog && auditGate;
     return {
         path: repoPath,

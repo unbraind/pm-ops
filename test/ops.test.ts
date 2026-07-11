@@ -178,7 +178,7 @@ test("ops scan does not report ready when an online security audit is unavailabl
   writeFileSync(join(bin, "npm"), `#!/usr/bin/env sh
 case "$1" in
   outdated) printf '{}\\n'; exit 0 ;;
-  audit) printf 'registry unavailable\\n' >&2; exit 1 ;;
+  audit) printf '{"error":{"code":"EAI_AGAIN","summary":"registry unavailable"}}\\n'; exit 1 ;;
 esac
 exit 1
 `);
@@ -193,7 +193,11 @@ exit 1
   try {
     const result = (await runCommand(commands, "ops scan", { repos: [fixtureRepo] })) as any;
     assert.strictEqual(result.repos[0].ready, false);
-    assert.match(result.repos[0].errors.join("\n"), /audit:.*registry unavailable/);
+    assert.match(result.repos[0].errors.join("\n"), /audit unavailable:.*registry unavailable/);
+    process.env.PM_OPS_OFFLINE = "1";
+    const offline = (await runCommand(commands, "ops scan", { repos: [fixtureRepo] })) as any;
+    assert.strictEqual(offline.repos[0].ready, true);
+    assert.strictEqual(offline.repos[0].errors.length, 0);
   } finally {
     process.env.PM_OPS_OFFLINE = previousOffline;
     process.env.PATH = previousPath;
@@ -669,7 +673,7 @@ test("ops status does not report ready when an online security audit is unavaila
   writeFileSync(join(bin, "npm"), `#!/usr/bin/env sh
 case "$1" in
   outdated) printf '{}\\n'; exit 0 ;;
-  audit) printf 'registry unavailable\\n' >&2; exit 1 ;;
+  audit) printf '{"error":{"code":"EAI_AGAIN","summary":"registry unavailable"}}\\n'; exit 1 ;;
 esac
 exit 1
 `);
@@ -682,7 +686,11 @@ exit 1
   try {
     const result = (await runCommand(commands, "ops status", { repos: [fixtureRepo] })) as any;
     assert.strictEqual(result.repos[0].ready, false);
-    assert.match(result.repos[0].issues.join("\n"), /audit unavailable:.*registry unavailable/);
+    assert.match(result.repos[0].issues.join("\n"), /audit unavailable: npm audit failed: \[EAI_AGAIN\] registry unavailable/);
+    process.env.PM_OPS_OFFLINE = "1";
+    const offline = (await runCommand(commands, "ops status", { repos: [fixtureRepo] })) as any;
+    assert.strictEqual(offline.repos[0].ready, true);
+    assert.strictEqual(offline.repos[0].issues.length, 0);
   } finally {
     process.env.PM_OPS_OFFLINE = previousOffline;
     process.env.PATH = previousPath;
