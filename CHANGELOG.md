@@ -4,6 +4,7 @@
 
 ### Other
 
+- Production hardening and fleet-operations safety pass 2026-07-09 ([ops-b2aa](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-b2aa.toon))
 - Address bot review feedback on PR \#1 (gemini+cubic+coderabbit) ([ops-81x9](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-81x9.toon))
 
 ## 2026.7.10-1 - 2026-07-10
