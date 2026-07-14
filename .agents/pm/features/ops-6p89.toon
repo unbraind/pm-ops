@@ -1,0 +1,12 @@
+id: ops-6p89
+title: Add 'ops metrics' Prometheus exporter for pm workspace health
+description: ""
+type: Feature
+status: in_progress
+priority: 2
+tags[4]: grafana,metrics,observability,prometheus
+created_at: "2026-07-14T12:52:02.387Z"
+updated_at: "2026-07-14T12:52:31.736Z"
+author: claude-opus
+acceptance_criteria: "ops metrics emits valid Prometheus exposition (HELP/TYPE per family, no NaN); Counts, throughput, cycle-time and backlog-age computed from real pm items; Honors global --json for the fleet routing contract (payload.repos[].path); Missing pm workspace marked unavailable without failing"
+body: "Add an 'ops metrics' command that renders pm workspace health as Prometheus text-format gauges so the existing Prometheus/Grafana stack can scrape fleet project-management signals. Per-repo series: pm_items{status}, pm_active_items_by_type, pm_active_items_by_priority, pm_blocked_items (via pm list-blocked), pm_stale_items (--stale-days, default 14), pm_throughput_items{window=7d|30d}, pm_cycle_time_seconds{quantile} and pm_backlog_age_seconds{quantile} derived from created_at/closed_at (same closed_at methodology as pm-brief momentum), pm_workspace_available, pm_repos_scanned, pm_scrape_duration_seconds. Default output is Prometheus exposition; --output writes a node_exporter textfile; --json/--format json exposes the structured routing contract. Reframe of companion feature pm-cli-website-e8ty (enrich existing pm-ops over a standalone pm-metrics package)."

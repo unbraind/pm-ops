@@ -84,6 +84,7 @@ const OPS_COMMAND_PATHS = [
   "ops status",
   "ops outdated",
   "ops audit",
+  "ops metrics",
 ] as const;
 
 function additionalRepoArguments() {
@@ -474,6 +475,68 @@ function readPmItems(repoPath: string): PmItem[] | null {
   const result = items.filter((it: unknown): it is PmItem => Boolean(it) && typeof it === "object" && typeof (it as PmItem).id === "string");
   pmItemsCache.set(repoPath, result);
   return result;
+}
+
+/** Superset of PmItem carrying the lifecycle fields metrics needs. */
+interface FullPmItem extends PmItem {
+  type?: string;
+  priority?: number;
+  created_at?: string;
+  updated_at?: string;
+  closed_at?: string;
+  tags?: unknown;
+}
+
+const pmAllItemsCache = new Map<string, FullPmItem[] | null>();
+
+/**
+ * Read every pm item (including closed/canceled) via `pm list-all --json`.
+ * Distinct from readPmItems, which only returns active items. Metrics need the
+ * closed items for throughput and cycle-time, so this is a separate call.
+ */
+function readAllPmItems(repoPath: string): FullPmItem[] | null {
+  if (pmAllItemsCache.has(repoPath)) return pmAllItemsCache.get(repoPath) ?? null;
+  const pmRoot = join(repoPath, ".agents", "pm");
+  if (!existsSync(pmRoot)) {
+    pmAllItemsCache.set(repoPath, null);
+    return null;
+  }
+  const pm = resolvePmInvocation();
+  const r = runSync(pm.cmd, [...pm.args, "list-all", "--json", "--pm-path", pmRoot], { timeoutMs: 30_000 });
+  if (r.status !== 0) {
+    pmAllItemsCache.set(repoPath, null);
+    return null;
+  }
+  const parsed = parseJsonSafe(r.stdout);
+  if (!parsed) {
+    pmAllItemsCache.set(repoPath, null);
+    return null;
+  }
+  const items = Array.isArray(parsed) ? parsed : (parsed as any).items ?? (parsed as any).results ?? [];
+  if (!Array.isArray(items)) {
+    pmAllItemsCache.set(repoPath, null);
+    return null;
+  }
+  const result = items.filter((it: unknown): it is FullPmItem => Boolean(it) && typeof it === "object" && typeof (it as PmItem).id === "string");
+  pmAllItemsCache.set(repoPath, result);
+  return result;
+}
+
+/**
+ * Count items the pm CLI itself considers blocked (open with unresolved
+ * blocked_by edges). Delegating to `pm list-blocked` reuses the CLI's own
+ * dependency-resolution logic rather than re-deriving it from the flat list.
+ */
+function readBlockedCount(repoPath: string): number | null {
+  const pmRoot = join(repoPath, ".agents", "pm");
+  if (!existsSync(pmRoot)) return null;
+  const pm = resolvePmInvocation();
+  const r = runSync(pm.cmd, [...pm.args, "list-blocked", "--json", "--pm-path", pmRoot], { timeoutMs: 30_000 });
+  if (r.status !== 0) return null;
+  const parsed = parseJsonSafe(r.stdout);
+  if (!parsed) return null;
+  const items = Array.isArray(parsed) ? parsed : (parsed as any).items ?? (parsed as any).results ?? [];
+  return Array.isArray(items) ? items.length : null;
 }
 
 interface NpmOutdated {
@@ -1486,6 +1549,235 @@ function renderReportMarkdown(result: ReportResult): string {
   return sections.join("\n");
 }
 
+// ---------------------------------------------------------------------------
+// ops metrics — Prometheus exposition of pm workspace health
+// ---------------------------------------------------------------------------
+
+const DAY_MS = 86_400_000;
+
+const CLOSED_STATUSES = new Set(["closed", "done", "completed", "resolved"]);
+const CANCELED_STATUSES = new Set(["canceled", "cancelled", "wontfix", "rejected"]);
+
+interface RepoMetrics {
+  path: string;
+  repo: string;
+  available: boolean;
+  status_counts: Record<string, number>;
+  type_counts: Record<string, number>;
+  priority_counts: Record<string, number>;
+  blocked: number | null;
+  stale: number;
+  throughput_7d: number;
+  throughput_30d: number;
+  cycle_time_p50_seconds: number | null;
+  cycle_time_p90_seconds: number | null;
+  backlog_age_p50_seconds: number | null;
+  backlog_age_p90_seconds: number | null;
+}
+
+interface MetricsResult {
+  generated_at: string;
+  stale_threshold_days: number;
+  repos_scanned: number;
+  scrape_duration_seconds: number;
+  repos: RepoMetrics[];
+}
+
+function normalizeStatus(raw: string | undefined): string {
+  const s = (raw ?? "").toLowerCase().trim();
+  if (!s) return "unknown";
+  if (CLOSED_STATUSES.has(s)) return "closed";
+  if (CANCELED_STATUSES.has(s)) return "canceled";
+  return s.replace(/[\s-]+/g, "_");
+}
+
+/** Nearest-rank percentile over an unsorted numeric array. */
+function percentile(values: number[], q: number): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  if (sorted.length === 1) return sorted[0];
+  const rank = Math.ceil(q * sorted.length);
+  const idx = Math.min(sorted.length - 1, Math.max(0, rank - 1));
+  return sorted[idx];
+}
+
+function parseTime(value: string | undefined): number | null {
+  if (!value) return null;
+  const t = Date.parse(value);
+  return Number.isFinite(t) ? t : null;
+}
+
+function computeRepoMetrics(repo: string, nowMs: number, staleThresholdDays: number): RepoMetrics {
+  const items = readAllPmItems(repo);
+  const name = repoLabel(repo);
+  const path = resolve(repo);
+  if (items === null) {
+    return {
+      path,
+      repo: name,
+      available: false,
+      status_counts: {},
+      type_counts: {},
+      priority_counts: {},
+      blocked: null,
+      stale: 0,
+      throughput_7d: 0,
+      throughput_30d: 0,
+      cycle_time_p50_seconds: null,
+      cycle_time_p90_seconds: null,
+      backlog_age_p50_seconds: null,
+      backlog_age_p90_seconds: null,
+    };
+  }
+
+  const status_counts: Record<string, number> = {};
+  const type_counts: Record<string, number> = {};
+  const priority_counts: Record<string, number> = {};
+  const staleThresholdMs = staleThresholdDays * DAY_MS;
+  const cycleTimes: number[] = [];
+  const backlogAges: number[] = [];
+  let stale = 0;
+  let throughput_7d = 0;
+  let throughput_30d = 0;
+
+  for (const item of items) {
+    const status = normalizeStatus(item.status);
+    status_counts[status] = (status_counts[status] ?? 0) + 1;
+
+    const active = status !== "closed" && status !== "canceled" && status !== "draft";
+    if (active) {
+      const type = (item.type ?? "unknown").toLowerCase();
+      type_counts[type] = (type_counts[type] ?? 0) + 1;
+      const priority = typeof item.priority === "number" ? String(item.priority) : "none";
+      priority_counts[priority] = (priority_counts[priority] ?? 0) + 1;
+
+      const updated = parseTime(item.updated_at) ?? parseTime(item.created_at);
+      if (updated !== null && nowMs - updated > staleThresholdMs) stale += 1;
+
+      const created = parseTime(item.created_at);
+      if (created !== null) backlogAges.push((nowMs - created) / 1000);
+    }
+
+    if (status === "closed") {
+      const closed = parseTime(item.closed_at);
+      if (closed !== null) {
+        if (nowMs - closed <= 7 * DAY_MS) throughput_7d += 1;
+        if (nowMs - closed <= 30 * DAY_MS) throughput_30d += 1;
+        const created = parseTime(item.created_at);
+        if (created !== null && closed >= created) cycleTimes.push((closed - created) / 1000);
+      }
+    }
+  }
+
+  return {
+    path,
+    repo: name,
+    available: true,
+    status_counts,
+    type_counts,
+    priority_counts,
+    blocked: readBlockedCount(repo),
+    stale,
+    throughput_7d,
+    throughput_30d,
+    cycle_time_p50_seconds: percentile(cycleTimes, 0.5),
+    cycle_time_p90_seconds: percentile(cycleTimes, 0.9),
+    backlog_age_p50_seconds: percentile(backlogAges, 0.5),
+    backlog_age_p90_seconds: percentile(backlogAges, 0.9),
+  };
+}
+
+function collectMetricsAll(repos: string[], staleThresholdDays: number, progress: (msg: string) => void): MetricsResult {
+  const start = Date.now();
+  const nowMs = start;
+  const repoMetrics: RepoMetrics[] = [];
+  for (const repo of repos) {
+    progress(`metrics: ${repoLabel(repo)}`);
+    repoMetrics.push(computeRepoMetrics(repo, nowMs, staleThresholdDays));
+  }
+  return {
+    generated_at: new Date(nowMs).toISOString(),
+    stale_threshold_days: staleThresholdDays,
+    repos_scanned: repoMetrics.filter((r) => r.available).length,
+    scrape_duration_seconds: (Date.now() - start) / 1000,
+    repos: repoMetrics,
+  };
+}
+
+/** Escape a Prometheus label value per the exposition format spec. */
+function escapeLabel(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
+}
+
+function metricLine(name: string, labels: Record<string, string>, value: number): string {
+  const entries = Object.entries(labels);
+  if (entries.length === 0) return `${name} ${value}`;
+  const labelStr = entries.map(([k, v]) => `${k}="${escapeLabel(v)}"`).join(",");
+  return `${name}{${labelStr}} ${value}`;
+}
+
+/** Stable Prometheus repo label: package name, else directory basename. */
+function repoLabel(repoPath: string): string {
+  const pkg = readPackageJson(repoPath);
+  const name = typeof pkg?.name === "string" && pkg.name.trim() ? pkg.name.trim() : basename(resolve(repoPath));
+  return name;
+}
+
+function renderMetricsPrometheus(result: MetricsResult): string {
+  const lines: string[] = [];
+  const push = (name: string, help: string, type: string, samples: string[]) => {
+    lines.push(`# HELP ${name} ${help}`);
+    lines.push(`# TYPE ${name} ${type}`);
+    lines.push(...samples);
+  };
+
+  const itemSamples: string[] = [];
+  const typeSamples: string[] = [];
+  const prioritySamples: string[] = [];
+  const blockedSamples: string[] = [];
+  const staleSamples: string[] = [];
+  const throughputSamples: string[] = [];
+  const cycleSamples: string[] = [];
+  const backlogSamples: string[] = [];
+  const availableSamples: string[] = [];
+
+  for (const repo of result.repos) {
+    availableSamples.push(metricLine("pm_workspace_available", { repo: repo.repo }, repo.available ? 1 : 0));
+    if (!repo.available) continue;
+    for (const [status, count] of Object.entries(repo.status_counts)) {
+      itemSamples.push(metricLine("pm_items", { repo: repo.repo, status }, count));
+    }
+    for (const [type, count] of Object.entries(repo.type_counts)) {
+      typeSamples.push(metricLine("pm_active_items_by_type", { repo: repo.repo, type }, count));
+    }
+    for (const [priority, count] of Object.entries(repo.priority_counts)) {
+      prioritySamples.push(metricLine("pm_active_items_by_priority", { repo: repo.repo, priority }, count));
+    }
+    if (repo.blocked !== null) blockedSamples.push(metricLine("pm_blocked_items", { repo: repo.repo }, repo.blocked));
+    staleSamples.push(metricLine("pm_stale_items", { repo: repo.repo }, repo.stale));
+    throughputSamples.push(metricLine("pm_throughput_items", { repo: repo.repo, window: "7d" }, repo.throughput_7d));
+    throughputSamples.push(metricLine("pm_throughput_items", { repo: repo.repo, window: "30d" }, repo.throughput_30d));
+    if (repo.cycle_time_p50_seconds !== null) cycleSamples.push(metricLine("pm_cycle_time_seconds", { repo: repo.repo, quantile: "0.5" }, repo.cycle_time_p50_seconds));
+    if (repo.cycle_time_p90_seconds !== null) cycleSamples.push(metricLine("pm_cycle_time_seconds", { repo: repo.repo, quantile: "0.9" }, repo.cycle_time_p90_seconds));
+    if (repo.backlog_age_p50_seconds !== null) backlogSamples.push(metricLine("pm_backlog_age_seconds", { repo: repo.repo, quantile: "0.5" }, repo.backlog_age_p50_seconds));
+    if (repo.backlog_age_p90_seconds !== null) backlogSamples.push(metricLine("pm_backlog_age_seconds", { repo: repo.repo, quantile: "0.9" }, repo.backlog_age_p90_seconds));
+  }
+
+  push("pm_items", "Number of pm items by lifecycle status.", "gauge", itemSamples);
+  push("pm_active_items_by_type", "Active (non-closed/canceled/draft) pm items by item type.", "gauge", typeSamples);
+  push("pm_active_items_by_priority", "Active pm items by priority (0..4, or none).", "gauge", prioritySamples);
+  push("pm_blocked_items", "Open pm items blocked by unresolved dependencies (per pm list-blocked).", "gauge", blockedSamples);
+  push("pm_stale_items", `Active pm items not updated within the stale threshold (${result.stale_threshold_days}d).`, "gauge", staleSamples);
+  push("pm_throughput_items", "Items closed within the trailing window.", "gauge", throughputSamples);
+  push("pm_cycle_time_seconds", "Cycle time (closed_at - created_at) of closed items, by quantile.", "gauge", cycleSamples);
+  push("pm_backlog_age_seconds", "Age (now - created_at) of active items, by quantile.", "gauge", backlogSamples);
+  push("pm_workspace_available", "1 if the repo exposed a readable pm workspace, else 0.", "gauge", availableSamples);
+  push("pm_repos_scanned", "Number of repos with a readable pm workspace.", "gauge", [metricLine("pm_repos_scanned", {}, result.repos_scanned)]);
+  push("pm_scrape_duration_seconds", "Time spent collecting pm metrics for this scrape.", "gauge", [metricLine("pm_scrape_duration_seconds", {}, result.scrape_duration_seconds)]);
+
+  return lines.join("\n") + "\n";
+}
+
 function emitResult(structured: unknown, format: OutputFormat, outputPath: string | undefined, formatter: () => string): unknown {
   if (outputPath) {
     mkdirSync(dirname(resolve(outputPath)), { recursive: true });
@@ -1803,6 +2095,60 @@ export default defineExtension({
         const result = collectAuditAll(repos, (m) => console.error(`  ${m}`));
         console.error(`audit: ${result.summary.clean}/${result.summary.total} clean, ${result.summary.total_critical} critical, ${result.summary.total_high} high`);
         return emitResult(result, format, outputPath, () => renderAuditMarkdown(result));
+      },
+    });
+
+    api.registerCommand({
+      name: "ops metrics",
+      description:
+        "Export pm workspace health as Prometheus text-format gauges so a Prometheus/Grafana " +
+        "stack can scrape fleet project-management signals. Emits per-repo item counts by " +
+        "status/type/priority, blocked and stale counts, closed-item throughput (7d/30d), and " +
+        "cycle-time / backlog-age quantiles derived from created_at/closed_at — the same " +
+        "closed_at methodology pm-brief momentum uses. Default output is the Prometheus " +
+        "exposition format; --output writes a .prom file for the node_exporter textfile collector.",
+      intent: "expose pm workspace metrics to Prometheus/Grafana across many pm repositories",
+      arguments: additionalRepoArguments(),
+      examples: [
+        "pm ops metrics",
+        "pm ops metrics --repos ./pm-csv ./pm-github",
+        "pm ops metrics --output /var/lib/node_exporter/pm.prom",
+        "pm ops metrics --stale-days 7 --format json",
+      ],
+      flags: [
+        reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
+        { long: "--stale-days", value_name: "days", description: "Age (days) after which an active item counts as stale (default: 14)" },
+        { long: "--format", value_name: "prometheus|json|toon", description: "Output format (default: prometheus)" },
+        { long: "--output", value_name: "file", description: "Write output to a file instead of stdout (e.g. a node_exporter .prom textfile)" },
+      ],
+      async run(ctx: any) {
+        const options = ctx.options as Record<string, unknown>;
+        const repos = resolveRepos(options, ctx.args);
+        const staleDaysRaw = Number(readString(options, "staleDays", "stale-days"));
+        const staleThresholdDays = Number.isFinite(staleDaysRaw) && staleDaysRaw > 0 ? staleDaysRaw : 14;
+        const outputPath = readString(options, "output");
+        const rawFormat = readString(options, "format")?.toLowerCase();
+        // The global --json flag forces clean JSON to stdout, matching the other
+        // ops commands (and the fleet routing contract that scrapes payload.repos).
+        const format: "prometheus" | "json" | "toon" = readBool(options, "json")
+          ? "json"
+          : rawFormat === "json" || rawFormat === "toon"
+            ? rawFormat
+            : "prometheus";
+        console.error(`pm-ops metrics: ${repos.length} repo(s), stale threshold ${staleThresholdDays}d`);
+        const result = collectMetricsAll(repos, staleThresholdDays, (m) => console.error(`  ${m}`));
+        console.error(`metrics: ${result.repos_scanned}/${repos.length} workspace(s) readable`);
+        if (format === "prometheus") {
+          const body = renderMetricsPrometheus(result);
+          if (outputPath) {
+            mkdirSync(dirname(resolve(outputPath)), { recursive: true });
+            writeFileSync(outputPath, body, "utf-8");
+            console.error(`pm-ops: wrote prometheus output to ${outputPath}`);
+            return { written_to: outputPath, format };
+          }
+          return renderedCommandResult(body);
+        }
+        return emitResult(result, format === "json" ? "json" : "toon", outputPath, () => renderMetricsPrometheus(result));
       },
     });
 

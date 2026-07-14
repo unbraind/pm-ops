@@ -9,7 +9,7 @@ import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import extension from "../dist/index.js";
 
 const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf-8")) as { capabilities: string[] };
-const OPS_COMMANDS = ["ops scan", "ops policy", "ops verify-release", "ops report", "ops status", "ops outdated", "ops audit"] as const;
+const OPS_COMMANDS = ["ops scan", "ops policy", "ops verify-release", "ops report", "ops status", "ops outdated", "ops audit", "ops metrics"] as const;
 
 // Real fleet paths used for local real-data testing. CI and other developers
 // can set PM_OPS_TEST_REPOS to opt into the same checks with their own paths.
@@ -917,6 +917,46 @@ test("real-data: scan on configured pm repos reports all ready", { skip: !REAL_R
     assert.strictEqual(repo.has_pm_changelog, true, `${repo.path} should have pm-changelog wired`);
     assert.strictEqual(repo.ready, true, `${repo.path} should be ready`);
   }
+});
+
+test("ops metrics emits Prometheus exposition for the fixture pm workspace", async () => {
+  const { commands } = activateAndCapture();
+  const result = (await runCommand(commands, "ops metrics", { repos: [fixtureRepo] })) as any;
+  assert.strictEqual(result?.pmOpsRendered, true, "default output should be rendered Prometheus text");
+  const body = result.output as string;
+  // Every metric family must carry its HELP/TYPE header exactly once.
+  for (const family of ["pm_items", "pm_active_items_by_type", "pm_stale_items", "pm_throughput_items", "pm_workspace_available", "pm_repos_scanned", "pm_scrape_duration_seconds"]) {
+    assert.strictEqual((body.match(new RegExp(`^# TYPE ${family} `, "gm")) ?? []).length, 1, `${family} should declare TYPE once`);
+  }
+  // The fixture has exactly one active Task.
+  assert.match(body, /pm_items\{repo="pm-fixture",status="open"\} 1/);
+  assert.match(body, /pm_active_items_by_type\{repo="pm-fixture",type="task"\} 1/);
+  assert.match(body, /pm_workspace_available\{repo="pm-fixture"\} 1/);
+  assert.match(body, /^pm_repos_scanned 1$/m);
+  // Sample lines must be valid exposition format (no NaN, well-formed labels).
+  assert.doesNotMatch(body, /\bNaN\b/);
+});
+
+test("ops metrics --json exposes the structured routing contract", async () => {
+  const { commands } = activateAndCapture();
+  const result = (await runCommand(commands, "ops metrics", { repos: [fixtureRepo], json: true })) as any;
+  const payload = JSON.parse((result.output as string));
+  assert.deepStrictEqual(payload.repos.map((r: { path: string }) => r.path), [fixtureRepo]);
+  assert.strictEqual(payload.repos[0].available, true);
+  assert.strictEqual(payload.repos[0].repo, "pm-fixture");
+  assert.strictEqual(payload.repos[0].status_counts.open, 1);
+  assert.strictEqual(payload.repos_scanned, 1);
+  assert.strictEqual(typeof payload.generated_at, "string");
+});
+
+test("ops metrics marks a missing workspace unavailable without failing", async () => {
+  const { commands } = activateAndCapture();
+  const missingRepo = join(tmpRoot, "pm-metrics-missing");
+  const result = (await runCommand(commands, "ops metrics", { repos: [missingRepo], json: true })) as any;
+  const payload = JSON.parse((result.output as string));
+  assert.deepStrictEqual(payload.repos.map((r: { path: string }) => r.path), [resolve(missingRepo)]);
+  assert.strictEqual(payload.repos[0].available, false);
+  assert.strictEqual(payload.repos_scanned, 0);
 });
 
 test("real-data: verify-release on second configured pm repo passes", { skip: !REAL_REPOS_AVAILABLE }, async () => {
