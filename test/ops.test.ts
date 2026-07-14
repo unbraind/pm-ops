@@ -240,11 +240,11 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
 
   assertClean(runPm(["init", "--json"]), "pm init");
   assertClean(runPm(["install", process.cwd(), "--project", "--json"]), "pm install pm-ops");
-  const doctor = runPm(["package", "doctor", "--project", "--isolated", "--json", "--detail", "deep"]);
+  const doctor = runPm(["package", "doctor", "--project", "--json", "--detail", "deep"]);
   assertClean(doctor, "pm package doctor");
   const doctorPayload = JSON.parse(doctor.stdout);
   const installed = doctorPayload.details?.deep?.installed_extensions?.find((entry: { name?: string }) => entry.name === "pm-ops");
-  assert.ok(installed, "pm-ops should appear in isolated package diagnostics");
+  assert.ok(installed, "pm-ops should appear in deep package diagnostics");
   assert.strictEqual(installed.activation_status, "ok");
   assert.strictEqual(installed.runtime_active, true);
 

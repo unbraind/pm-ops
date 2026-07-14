@@ -137,14 +137,19 @@ function cliRepoFlagValues(commandPath: string, argv: readonly string[] = proces
 }
 
 function restoreCliRepoFlag(commandPath: string, context: ParserOverrideContext): ParserOverrideDelta {
-  if (asArray(context.options.repos).length > 0) return {};
   const cliValues = cliRepoFlagValues(commandPath);
   if (cliValues.length === 0) return {};
-  // pm-cli 2026.7.13 erases registered list values while coercing Commander
-  // options (https://github.com/unbraind/pm-cli/issues/550). Structured SDK/MCP
-  // callers retain their supplied options above; this branch only restores the
-  // active CLI invocation until the host fix reaches the minimum supported SDK.
-  return { options: { ...context.options, repos: cliValues } };
+  // argv is authoritative for a CLI invocation's --repos flag: it captures the
+  // complete repeated / `=`-joined set. Commander (pm-cli 2026.7.x) either
+  // erases registered list values entirely (#550) or collapses repeated flags
+  // to the last value, so `context.options.repos` may be empty OR a truncated
+  // tail. Restore the full argv-derived set whenever it differs from what
+  // Commander retained. Structured SDK/MCP callers never populate process.argv,
+  // so cliValues stays empty for them and their supplied options are untouched.
+  const restored = cliValues.flatMap((value) => asArray(value));
+  const current = asArray(context.options.repos);
+  if (current.length === restored.length && restored.every((value, index) => current[index] === value)) return {};
+  return { options: { ...context.options, repos: restored } };
 }
 
 function expandHome(path: string): string {
@@ -2118,6 +2123,7 @@ export default defineExtension({
       flags: [
         reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
         { long: "--stale-days", value_name: "days", description: "Age (days) after which an active item counts as stale (default: 14)" },
+        { long: "--json", description: "Emit clean JSON to stdout (progress on stderr); overrides the default Prometheus output" },
         { long: "--format", value_name: "prometheus|json|toon", description: "Output format (default: prometheus)" },
         { long: "--output", value_name: "file", description: "Write output to a file instead of stdout (e.g. a node_exporter .prom textfile)" },
       ],
@@ -2130,7 +2136,13 @@ export default defineExtension({
         const rawFormat = readString(options, "format")?.toLowerCase();
         // The global --json flag forces clean JSON to stdout, matching the other
         // ops commands (and the fleet routing contract that scrapes payload.repos).
-        const format: "prometheus" | "json" | "toon" = readBool(options, "json")
+        // The installed CLI consumes global --json into ctx.global (not
+        // ctx.options), so — unlike the other commands whose default returns a
+        // bare object the JSON renderer can serialize — the metrics default is a
+        // pre-rendered Prometheus string and must consult ctx.global explicitly.
+        const global = (ctx.global ?? {}) as { json?: boolean; defaultOutputFormat?: string };
+        const wantsJson = readBool(options, "json") || global.json === true || global.defaultOutputFormat === "json";
+        const format: "prometheus" | "json" | "toon" = wantsJson
           ? "json"
           : rawFormat === "json" || rawFormat === "toon"
             ? rawFormat
