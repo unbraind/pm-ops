@@ -214,6 +214,49 @@ pm ops audit --format markdown
 
 ---
 
+### `pm ops metrics`
+
+Export pm workspace health as **Prometheus** text-format gauges so a Prometheus/Grafana stack can scrape fleet project-management signals — turning `project management = context management` into a dashboard. Reads each repo's items via the pm CLI (`pm list-all`, `pm list-blocked`) and derives counts, throughput, and cycle-time in-process (the same `closed_at` methodology `pm-brief` momentum uses).
+
+```bash
+pm ops metrics                                   # Prometheus exposition for the current repo
+pm ops metrics --repos ~/container/pm-*           # fleet-wide, one series set per repo
+pm ops metrics --output /var/lib/node_exporter/pm.prom   # node_exporter textfile collector
+pm ops metrics --stale-days 7 --format json       # structured payload instead of exposition
+```
+
+**Exported metrics** (all gauges, labelled by `repo`):
+
+| Metric | Labels | Meaning |
+|---|---|---|
+| `pm_items` | `status` | Item count by lifecycle status |
+| `pm_active_items_by_type` | `type` | Active (non-closed/canceled/draft) items by type |
+| `pm_active_items_by_priority` | `priority` | Active items by priority (`0`..`4`, or `none`) |
+| `pm_blocked_items` | — | Open items blocked by unresolved dependencies (`pm list-blocked`) |
+| `pm_stale_items` | — | Active items not updated within `--stale-days` (default 14) |
+| `pm_throughput_items` | `window` (`7d`,`30d`) | Items closed within the trailing window |
+| `pm_cycle_time_seconds` | `quantile` (`0.5`,`0.9`) | `closed_at − created_at` of closed items |
+| `pm_backlog_age_seconds` | `quantile` (`0.5`,`0.9`) | `now − created_at` of active items |
+| `pm_workspace_available` | — | `1` if the repo exposed a readable pm workspace, else `0` |
+| `pm_repos_scanned` | — | Number of repos with a readable pm workspace |
+| `pm_scrape_duration_seconds` | — | Collection time for this scrape |
+
+Fleet totals are intentionally **not** pre-aggregated — expose per-repo series and let Prometheus roll them up (`sum(pm_items{status="open"})`, `avg(pm_cycle_time_seconds{quantile="0.5"})`).
+
+**Flags**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repos <paths>` | string[] | current dir | Repo paths |
+| `--stale-days <days>` | number | `14` | Age after which an active item counts as stale |
+| `--json` | boolean | false | Emit the structured JSON payload instead of exposition |
+| `--format <prometheus\|json\|toon>` | string | `prometheus` | Output format |
+| `--output <file>` | string | — | Write output to a file (e.g. a node_exporter `.prom` textfile) |
+
+> This command is **read-only** and derives metrics purely from pm item state. It does not touch, and is distinct from, the ecosystem's core telemetry/observability stack.
+
+---
+
 ## Agent usage
 
 `pm-ops` is designed for coding agents operating across a fleet of `pm-*` repos:

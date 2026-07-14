@@ -6,10 +6,10 @@ import { delimiter, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
-import extension from "../dist/index.js";
+import extension, { disambiguateRepoLabels } from "../dist/index.js";
 
 const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf-8")) as { capabilities: string[] };
-const OPS_COMMANDS = ["ops scan", "ops policy", "ops verify-release", "ops report", "ops status", "ops outdated", "ops audit"] as const;
+const OPS_COMMANDS = ["ops scan", "ops policy", "ops verify-release", "ops report", "ops status", "ops outdated", "ops audit", "ops metrics"] as const;
 
 // Real fleet paths used for local real-data testing. CI and other developers
 // can set PM_OPS_TEST_REPOS to opt into the same checks with their own paths.
@@ -240,11 +240,11 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
 
   assertClean(runPm(["init", "--json"]), "pm init");
   assertClean(runPm(["install", process.cwd(), "--project", "--json"]), "pm install pm-ops");
-  const doctor = runPm(["package", "doctor", "--project", "--isolated", "--json", "--detail", "deep"]);
+  const doctor = runPm(["package", "doctor", "--project", "--json", "--detail", "deep"]);
   assertClean(doctor, "pm package doctor");
   const doctorPayload = JSON.parse(doctor.stdout);
   const installed = doctorPayload.details?.deep?.installed_extensions?.find((entry: { name?: string }) => entry.name === "pm-ops");
-  assert.ok(installed, "pm-ops should appear in isolated package diagnostics");
+  assert.ok(installed, "pm-ops should appear in deep package diagnostics");
   assert.strictEqual(installed.activation_status, "ok");
   assert.strictEqual(installed.runtime_active, true);
 
@@ -917,6 +917,92 @@ test("real-data: scan on configured pm repos reports all ready", { skip: !REAL_R
     assert.strictEqual(repo.has_pm_changelog, true, `${repo.path} should have pm-changelog wired`);
     assert.strictEqual(repo.ready, true, `${repo.path} should be ready`);
   }
+});
+
+test("ops metrics emits Prometheus exposition for the fixture pm workspace", async () => {
+  const { commands } = activateAndCapture();
+  const result = (await runCommand(commands, "ops metrics", { repos: [fixtureRepo] })) as any;
+  assert.strictEqual(result?.pmOpsRendered, true, "default output should be rendered Prometheus text");
+  const body = result.output as string;
+  // Every metric family must carry its HELP/TYPE header exactly once.
+  for (const family of ["pm_items", "pm_active_items_by_type", "pm_stale_items", "pm_throughput_items", "pm_workspace_available", "pm_repos_scanned", "pm_scrape_duration_seconds"]) {
+    assert.strictEqual((body.match(new RegExp(`^# TYPE ${family} `, "gm")) ?? []).length, 1, `${family} should declare TYPE once`);
+  }
+  // The fixture has exactly one active Task.
+  assert.match(body, /pm_items\{repo="pm-fixture",status="open"\} 1/);
+  assert.match(body, /pm_active_items_by_type\{repo="pm-fixture",type="task"\} 1/);
+  assert.match(body, /pm_workspace_available\{repo="pm-fixture"\} 1/);
+  assert.match(body, /^pm_repos_scanned 1$/m);
+  // Sample lines must be valid exposition format (no NaN, well-formed labels).
+  assert.doesNotMatch(body, /\bNaN\b/);
+});
+
+test("ops metrics --json exposes the structured routing contract", async () => {
+  const { commands } = activateAndCapture();
+  // Structured stdout returns the bare result object (no renderedCommandResult
+  // wrapper) so `pm ops metrics --json | jq .repos` works under the CLI's
+  // global renderer — matching the sibling ops commands.
+  const payload = (await runCommand(commands, "ops metrics", { repos: [fixtureRepo], json: true })) as any;
+  assert.deepStrictEqual(payload.repos.map((r: { path: string }) => r.path), [fixtureRepo]);
+  assert.strictEqual(payload.repos[0].available, true);
+  assert.strictEqual(payload.repos[0].repo, "pm-fixture");
+  assert.strictEqual(payload.repos[0].status_counts.open, 1);
+  assert.strictEqual(payload.repos_scanned, 1);
+  assert.strictEqual(typeof payload.generated_at, "string");
+});
+
+test("ops metrics marks a missing workspace unavailable without failing", async () => {
+  const { commands } = activateAndCapture();
+  const missingRepo = join(tmpRoot, "pm-metrics-missing");
+  const payload = (await runCommand(commands, "ops metrics", { repos: [missingRepo], json: true })) as any;
+  assert.deepStrictEqual(payload.repos.map((r: { path: string }) => r.path), [resolve(missingRepo)]);
+  assert.strictEqual(payload.repos[0].available, false);
+  assert.strictEqual(payload.repos_scanned, 0);
+});
+
+test("ops metrics disambiguates repo labels when package names collide", async () => {
+  const { commands } = activateAndCapture();
+  // Two distinct checkouts that both declare the same package.json name must
+  // not emit duplicate Prometheus series — each needs a unique `repo` label.
+  const twin = join(tmpRoot, "pm-fixture-twin");
+  mkdirSync(join(twin, ".agents", "pm"), { recursive: true });
+  writeFileSync(join(twin, "package.json"), JSON.stringify({ name: "pm-fixture", version: "1.0.0" }));
+  const pmCmd = process.platform === "win32" ? "pm.cmd" : "pm";
+  const pmInit = spawnSync(pmCmd, ["init", "twin", "--pm-path", join(twin, ".agents", "pm")], { encoding: "utf-8", timeout: 30_000 });
+  assert.strictEqual(pmInit.status, 0, `twin pm init failed: ${pmInit.stderr}`);
+  const payload = (await runCommand(commands, "ops metrics", { repos: [fixtureRepo, twin], json: true })) as any;
+  const labels = payload.repos.map((r: { repo: string }) => r.repo);
+  assert.strictEqual(new Set(labels).size, labels.length, `repo labels must be unique, got ${JSON.stringify(labels)}`);
+  // Every colliding repo keeps the package name as a prefix so dashboards can
+  // still group by it, but each carries a distinguishing suffix.
+  assert.ok(labels.every((l: string) => l === "pm-fixture" || l.startsWith("pm-fixture (")), `labels should be name-prefixed, got ${JSON.stringify(labels)}`);
+  assert.ok(labels.some((l: string) => l.startsWith("pm-fixture (")), "colliding repos are disambiguated with a suffix");
+});
+
+test("disambiguateRepoLabels never generates a label that collides with an untouched original", () => {
+  // Greptile P1 repro: two `foo` repos disambiguate by basename, but a third
+  // repo is *genuinely* labeled `foo (bar)` (e.g. a directory basename with
+  // parens). The generated label must not steal the third repo's real label.
+  const metrics = [
+    { repo: "foo", path: "/repos/bar" }, // → wants "foo (bar)"
+    { repo: "foo", path: "/repos/baz" }, // → wants "foo (baz)"
+    { repo: "foo (bar)", path: "/repos/qux" }, // untouched original that must stay unique
+  ] as unknown as Parameters<typeof disambiguateRepoLabels>[0];
+  disambiguateRepoLabels(metrics);
+  const labels = metrics.map((m) => m.repo);
+  assert.strictEqual(new Set(labels).size, labels.length, `labels must be unique, got ${JSON.stringify(labels)}`);
+  // The repo genuinely named "foo (bar)" keeps its label; the colliding "foo"
+  // repo that wanted it falls back to its full path.
+  assert.ok(labels.includes("foo (bar)"), "the real 'foo (bar)' repo keeps its label");
+  assert.ok(labels.includes("foo (/repos/bar)"), "the colliding repo falls back to its path");
+
+  // Identical paths (same repo passed twice) still get distinct labels.
+  const dup = [
+    { repo: "x", path: "/r/x" },
+    { repo: "x", path: "/r/x" },
+  ] as unknown as Parameters<typeof disambiguateRepoLabels>[0];
+  disambiguateRepoLabels(dup);
+  assert.notStrictEqual(dup[0].repo, dup[1].repo, "identical-path duplicates are still distinct series");
 });
 
 test("real-data: verify-release on second configured pm repo passes", { skip: !REAL_REPOS_AVAILABLE }, async () => {

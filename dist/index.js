@@ -57,6 +57,7 @@ const OPS_COMMAND_PATHS = [
     "ops status",
     "ops outdated",
     "ops audit",
+    "ops metrics",
 ];
 function additionalRepoArguments() {
     return [{
@@ -108,16 +109,21 @@ function cliRepoFlagValues(commandPath, argv = process.argv.slice(2)) {
     return values;
 }
 function restoreCliRepoFlag(commandPath, context) {
-    if (asArray(context.options.repos).length > 0)
-        return {};
     const cliValues = cliRepoFlagValues(commandPath);
     if (cliValues.length === 0)
         return {};
-    // pm-cli 2026.7.13 erases registered list values while coercing Commander
-    // options (https://github.com/unbraind/pm-cli/issues/550). Structured SDK/MCP
-    // callers retain their supplied options above; this branch only restores the
-    // active CLI invocation until the host fix reaches the minimum supported SDK.
-    return { options: { ...context.options, repos: cliValues } };
+    // argv is authoritative for a CLI invocation's --repos flag: it captures the
+    // complete repeated / `=`-joined set. Commander (pm-cli 2026.7.x) either
+    // erases registered list values entirely (#550) or collapses repeated flags
+    // to the last value, so `context.options.repos` may be empty OR a truncated
+    // tail. Restore the full argv-derived set whenever it differs from what
+    // Commander retained. Structured SDK/MCP callers never populate process.argv,
+    // so cliValues stays empty for them and their supplied options are untouched.
+    const restored = cliValues.flatMap((value) => asArray(value));
+    const current = asArray(context.options.repos);
+    if (current.length === restored.length && restored.every((value, index) => current[index] === value))
+        return {};
+    return { options: { ...context.options, repos: restored } };
 }
 function expandHome(path) {
     if (path === "~")
@@ -389,31 +395,60 @@ function readTsConfigStrict(repoPath) {
     return readTsConfigStrictSetting(join(repoPath, "tsconfig.json")) === true;
 }
 const pmItemsCache = new Map();
-function readPmItems(repoPath) {
-    if (pmItemsCache.has(repoPath))
-        return pmItemsCache.get(repoPath) ?? null;
+const pmAllItemsCache = new Map();
+const pmBlockedCache = new Map();
+/** Per-scrape read caches. Cleared together so a fresh scrape re-reads pm. */
+const PM_READ_CACHES = [pmItemsCache, pmAllItemsCache, pmBlockedCache];
+/**
+ * Read pm items for a repo via one `pm <subcommand> --json` invocation, extract
+ * the item array, and memoize the result per repo in the supplied cache. Single
+ * implementation shared by the active-list, full-list, and blocked-list readers
+ * so their guard / invocation / JSON-extraction / caching logic can't drift
+ * (e.g. the cross-scrape cache-clear must cover all of them). Returns null when
+ * the workspace is absent or the CLI call fails.
+ */
+function readPmItemList(repoPath, subcommand, cache) {
+    if (cache.has(repoPath))
+        return cache.get(repoPath) ?? null;
+    const set = (value) => {
+        cache.set(repoPath, value);
+        return value;
+    };
     const pmRoot = join(repoPath, ".agents", "pm");
     if (!existsSync(pmRoot))
-        return null;
+        return set(null);
     const pm = resolvePmInvocation();
-    const r = runSync(pm.cmd, [...pm.args, "list", "--json", "--pm-path", pmRoot], { timeoutMs: 30_000 });
-    if (r.status !== 0) {
-        pmItemsCache.set(repoPath, null);
-        return null;
-    }
+    const r = runSync(pm.cmd, [...pm.args, subcommand, "--json", "--pm-path", pmRoot], { timeoutMs: 30_000 });
+    if (r.status !== 0)
+        return set(null);
     const parsed = parseJsonSafe(r.stdout);
-    if (!parsed) {
-        pmItemsCache.set(repoPath, null);
-        return null;
-    }
+    if (!parsed)
+        return set(null);
     const items = Array.isArray(parsed) ? parsed : parsed.items ?? parsed.results ?? [];
-    if (!Array.isArray(items)) {
-        pmItemsCache.set(repoPath, null);
-        return null;
-    }
-    const result = items.filter((it) => Boolean(it) && typeof it === "object" && typeof it.id === "string");
-    pmItemsCache.set(repoPath, result);
-    return result;
+    if (!Array.isArray(items))
+        return set(null);
+    return set(items.filter((it) => Boolean(it) && typeof it === "object" && typeof it.id === "string"));
+}
+/** Active pm items via `pm list --json`. */
+function readPmItems(repoPath) {
+    return readPmItemList(repoPath, "list", pmItemsCache);
+}
+/**
+ * Every pm item (including closed/canceled) via `pm list-all --json`. Metrics
+ * need the closed items for throughput and cycle-time, so this is distinct from
+ * readPmItems, which only returns active items.
+ */
+function readAllPmItems(repoPath) {
+    return readPmItemList(repoPath, "list-all", pmAllItemsCache);
+}
+/**
+ * Count items the pm CLI itself considers blocked (open with unresolved
+ * blocked_by edges). Delegating to `pm list-blocked` reuses the CLI's own
+ * dependency-resolution logic rather than re-deriving it from the flat list.
+ */
+function readBlockedCount(repoPath) {
+    const items = readPmItemList(repoPath, "list-blocked", pmBlockedCache);
+    return items === null ? null : items.length;
 }
 function isOffline() {
     return process.env.PM_OPS_OFFLINE === "1" || process.env.PM_OPS_OFFLINE === "true";
@@ -1223,6 +1258,250 @@ function renderReportMarkdown(result) {
     }
     return sections.join("\n");
 }
+// ---------------------------------------------------------------------------
+// ops metrics — Prometheus exposition of pm workspace health
+// ---------------------------------------------------------------------------
+const DAY_MS = 86_400_000;
+const CLOSED_STATUSES = new Set(["closed", "done", "completed", "resolved"]);
+const CANCELED_STATUSES = new Set(["canceled", "cancelled", "wontfix", "rejected"]);
+function normalizeStatus(raw) {
+    const s = (raw ?? "").toLowerCase().trim();
+    if (!s)
+        return "unknown";
+    if (CLOSED_STATUSES.has(s))
+        return "closed";
+    if (CANCELED_STATUSES.has(s))
+        return "canceled";
+    return s.replace(/[\s-]+/g, "_");
+}
+/** Nearest-rank percentile over an unsorted numeric array. */
+function percentile(values, q) {
+    if (values.length === 0)
+        return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    if (sorted.length === 1)
+        return sorted[0];
+    const rank = Math.ceil(q * sorted.length);
+    const idx = Math.min(sorted.length - 1, Math.max(0, rank - 1));
+    return sorted[idx];
+}
+function parseTime(value) {
+    if (!value)
+        return null;
+    const t = Date.parse(value);
+    return Number.isFinite(t) ? t : null;
+}
+function computeRepoMetrics(repo, nowMs, staleThresholdDays) {
+    const items = readAllPmItems(repo);
+    const name = repoLabel(repo);
+    const path = resolve(repo);
+    if (items === null) {
+        return {
+            path,
+            repo: name,
+            available: false,
+            status_counts: {},
+            type_counts: {},
+            priority_counts: {},
+            blocked: null,
+            stale: 0,
+            throughput_7d: 0,
+            throughput_30d: 0,
+            cycle_time_p50_seconds: null,
+            cycle_time_p90_seconds: null,
+            backlog_age_p50_seconds: null,
+            backlog_age_p90_seconds: null,
+        };
+    }
+    const status_counts = {};
+    const type_counts = {};
+    const priority_counts = {};
+    const staleThresholdMs = staleThresholdDays * DAY_MS;
+    const cycleTimes = [];
+    const backlogAges = [];
+    let stale = 0;
+    let throughput_7d = 0;
+    let throughput_30d = 0;
+    for (const item of items) {
+        const status = normalizeStatus(item.status);
+        status_counts[status] = (status_counts[status] ?? 0) + 1;
+        const active = status !== "closed" && status !== "canceled" && status !== "draft";
+        if (active) {
+            const type = (item.type ?? "unknown").toLowerCase();
+            type_counts[type] = (type_counts[type] ?? 0) + 1;
+            const priority = typeof item.priority === "number" ? String(item.priority) : "none";
+            priority_counts[priority] = (priority_counts[priority] ?? 0) + 1;
+            const updated = parseTime(item.updated_at) ?? parseTime(item.created_at);
+            if (updated !== null && nowMs - updated > staleThresholdMs)
+                stale += 1;
+            const created = parseTime(item.created_at);
+            if (created !== null)
+                backlogAges.push((nowMs - created) / 1000);
+        }
+        if (status === "closed") {
+            const closed = parseTime(item.closed_at);
+            if (closed !== null) {
+                if (nowMs - closed <= 7 * DAY_MS)
+                    throughput_7d += 1;
+                if (nowMs - closed <= 30 * DAY_MS)
+                    throughput_30d += 1;
+                const created = parseTime(item.created_at);
+                if (created !== null && closed >= created)
+                    cycleTimes.push((closed - created) / 1000);
+            }
+        }
+    }
+    return {
+        path,
+        repo: name,
+        available: true,
+        status_counts,
+        type_counts,
+        priority_counts,
+        blocked: readBlockedCount(repo),
+        stale,
+        throughput_7d,
+        throughput_30d,
+        cycle_time_p50_seconds: percentile(cycleTimes, 0.5),
+        cycle_time_p90_seconds: percentile(cycleTimes, 0.9),
+        backlog_age_p50_seconds: percentile(backlogAges, 0.5),
+        backlog_age_p90_seconds: percentile(backlogAges, 0.9),
+    };
+}
+function collectMetricsAll(repos, staleThresholdDays, progress) {
+    // A Prometheus exporter is scraped repeatedly. The module-level read caches
+    // dedupe pm invocations *within one scrape*, but must not survive across
+    // scrapes — otherwise a long-lived host re-invoking this handler would serve
+    // the first scrape's items forever. Clear them so every scrape reads fresh.
+    for (const cache of PM_READ_CACHES)
+        cache.clear();
+    const start = Date.now();
+    const nowMs = start;
+    const repoMetrics = [];
+    for (const repo of repos) {
+        progress(`metrics: ${repoLabel(repo)}`);
+        repoMetrics.push(computeRepoMetrics(repo, nowMs, staleThresholdDays));
+    }
+    disambiguateRepoLabels(repoMetrics);
+    return {
+        generated_at: new Date(nowMs).toISOString(),
+        stale_threshold_days: staleThresholdDays,
+        repos_scanned: repoMetrics.filter((r) => r.available).length,
+        scrape_duration_seconds: (Date.now() - start) / 1000,
+        repos: repoMetrics,
+    };
+}
+/** Escape a Prometheus label value per the exposition format spec. */
+function escapeLabel(value) {
+    return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
+}
+function metricLine(name, labels, value) {
+    const entries = Object.entries(labels);
+    if (entries.length === 0)
+        return `${name} ${value}`;
+    const labelStr = entries.map(([k, v]) => `${k}="${escapeLabel(v)}"`).join(",");
+    return `${name}{${labelStr}} ${value}`;
+}
+/** Stable Prometheus repo label: package name, else directory basename. */
+function repoLabel(repoPath) {
+    const pkg = readPackageJson(repoPath);
+    const name = typeof pkg?.name === "string" && pkg.name.trim() ? pkg.name.trim() : basename(resolve(repoPath));
+    return name;
+}
+/**
+ * Guarantee unique `repo` labels within a single scrape. Two checkouts can share
+ * a package.json name (e.g. a fork and its upstream, or the same repo passed
+ * twice), which would emit duplicate Prometheus series and make the scrape
+ * ambiguous or rejected. On collision, disambiguate with the directory basename,
+ * then the full path, then a numeric suffix as a last resort.
+ */
+export function disambiguateRepoLabels(repoMetrics) {
+    const labelCounts = new Map();
+    for (const r of repoMetrics)
+        labelCounts.set(r.repo, (labelCounts.get(r.repo) ?? 0) + 1);
+    // Reserve every label a non-colliding repo keeps verbatim BEFORE generating
+    // any disambiguated label. Otherwise a generated `foo (bar)` could collide
+    // with a distinct repo genuinely labeled `foo (bar)` that stays untouched,
+    // re-emitting duplicate Prometheus series.
+    const used = new Set();
+    for (const r of repoMetrics) {
+        if ((labelCounts.get(r.repo) ?? 0) <= 1)
+            used.add(r.repo);
+    }
+    for (const r of repoMetrics) {
+        if ((labelCounts.get(r.repo) ?? 0) <= 1)
+            continue;
+        // Prefer the directory basename, then the full path; both are checked
+        // against every already-claimed label (reserved originals + prior
+        // generations), with a numeric suffix as a guaranteed-unique last resort.
+        let label = [`${r.repo} (${basename(r.path)})`, `${r.repo} (${r.path})`].find((c) => !used.has(c));
+        if (!label) {
+            const base = `${r.repo} (${r.path})`;
+            label = base;
+            let n = 2;
+            while (used.has(label))
+                label = `${base} #${n++}`;
+        }
+        r.repo = label;
+        used.add(label);
+    }
+}
+function renderMetricsPrometheus(result) {
+    const lines = [];
+    const push = (name, help, type, samples) => {
+        lines.push(`# HELP ${name} ${help}`);
+        lines.push(`# TYPE ${name} ${type}`);
+        lines.push(...samples);
+    };
+    const itemSamples = [];
+    const typeSamples = [];
+    const prioritySamples = [];
+    const blockedSamples = [];
+    const staleSamples = [];
+    const throughputSamples = [];
+    const cycleSamples = [];
+    const backlogSamples = [];
+    const availableSamples = [];
+    for (const repo of result.repos) {
+        availableSamples.push(metricLine("pm_workspace_available", { repo: repo.repo }, repo.available ? 1 : 0));
+        if (!repo.available)
+            continue;
+        for (const [status, count] of Object.entries(repo.status_counts)) {
+            itemSamples.push(metricLine("pm_items", { repo: repo.repo, status }, count));
+        }
+        for (const [type, count] of Object.entries(repo.type_counts)) {
+            typeSamples.push(metricLine("pm_active_items_by_type", { repo: repo.repo, type }, count));
+        }
+        for (const [priority, count] of Object.entries(repo.priority_counts)) {
+            prioritySamples.push(metricLine("pm_active_items_by_priority", { repo: repo.repo, priority }, count));
+        }
+        if (repo.blocked !== null)
+            blockedSamples.push(metricLine("pm_blocked_items", { repo: repo.repo }, repo.blocked));
+        staleSamples.push(metricLine("pm_stale_items", { repo: repo.repo }, repo.stale));
+        throughputSamples.push(metricLine("pm_throughput_items", { repo: repo.repo, window: "7d" }, repo.throughput_7d));
+        throughputSamples.push(metricLine("pm_throughput_items", { repo: repo.repo, window: "30d" }, repo.throughput_30d));
+        if (repo.cycle_time_p50_seconds !== null)
+            cycleSamples.push(metricLine("pm_cycle_time_seconds", { repo: repo.repo, quantile: "0.5" }, repo.cycle_time_p50_seconds));
+        if (repo.cycle_time_p90_seconds !== null)
+            cycleSamples.push(metricLine("pm_cycle_time_seconds", { repo: repo.repo, quantile: "0.9" }, repo.cycle_time_p90_seconds));
+        if (repo.backlog_age_p50_seconds !== null)
+            backlogSamples.push(metricLine("pm_backlog_age_seconds", { repo: repo.repo, quantile: "0.5" }, repo.backlog_age_p50_seconds));
+        if (repo.backlog_age_p90_seconds !== null)
+            backlogSamples.push(metricLine("pm_backlog_age_seconds", { repo: repo.repo, quantile: "0.9" }, repo.backlog_age_p90_seconds));
+    }
+    push("pm_items", "Number of pm items by lifecycle status.", "gauge", itemSamples);
+    push("pm_active_items_by_type", "Active (non-closed/canceled/draft) pm items by item type.", "gauge", typeSamples);
+    push("pm_active_items_by_priority", "Active pm items by priority (0..4, or none).", "gauge", prioritySamples);
+    push("pm_blocked_items", "Open pm items blocked by unresolved dependencies (per pm list-blocked).", "gauge", blockedSamples);
+    push("pm_stale_items", `Active pm items not updated within the stale threshold (${result.stale_threshold_days}d).`, "gauge", staleSamples);
+    push("pm_throughput_items", "Items closed within the trailing window.", "gauge", throughputSamples);
+    push("pm_cycle_time_seconds", "Cycle time (closed_at - created_at) of closed items, by quantile.", "gauge", cycleSamples);
+    push("pm_backlog_age_seconds", "Age (now - created_at) of active items, by quantile.", "gauge", backlogSamples);
+    push("pm_workspace_available", "1 if the repo exposed a readable pm workspace, else 0.", "gauge", availableSamples);
+    push("pm_repos_scanned", "Number of repos with a readable pm workspace.", "gauge", [metricLine("pm_repos_scanned", {}, result.repos_scanned)]);
+    push("pm_scrape_duration_seconds", "Time spent collecting pm metrics for this scrape.", "gauge", [metricLine("pm_scrape_duration_seconds", {}, result.scrape_duration_seconds)]);
+    return lines.join("\n") + "\n";
+}
 function emitResult(structured, format, outputPath, formatter) {
     if (outputPath) {
         mkdirSync(dirname(resolve(outputPath)), { recursive: true });
@@ -1527,6 +1806,77 @@ export default defineExtension({
                 const result = collectAuditAll(repos, (m) => console.error(`  ${m}`));
                 console.error(`audit: ${result.summary.clean}/${result.summary.total} clean, ${result.summary.total_critical} critical, ${result.summary.total_high} high`);
                 return emitResult(result, format, outputPath, () => renderAuditMarkdown(result));
+            },
+        });
+        api.registerCommand({
+            name: "ops metrics",
+            description: "Export pm workspace health as Prometheus text-format gauges so a Prometheus/Grafana " +
+                "stack can scrape fleet project-management signals. Emits per-repo item counts by " +
+                "status/type/priority, blocked and stale counts, closed-item throughput (7d/30d), and " +
+                "cycle-time / backlog-age quantiles derived from created_at/closed_at — the same " +
+                "closed_at methodology pm-brief momentum uses. Default output is the Prometheus " +
+                "exposition format; --output writes a .prom file for the node_exporter textfile collector.",
+            intent: "expose pm workspace metrics to Prometheus/Grafana across many pm repositories",
+            arguments: additionalRepoArguments(),
+            examples: [
+                "pm ops metrics",
+                "pm ops metrics --repos ./pm-csv ./pm-github",
+                "pm ops metrics --output /var/lib/node_exporter/pm.prom",
+                "pm ops metrics --stale-days 7 --format json",
+            ],
+            flags: [
+                reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
+                { long: "--stale-days", value_name: "days", description: "Age (days) after which an active item counts as stale (default: 14)" },
+                { long: "--json", description: "Emit clean JSON to stdout (progress on stderr); overrides the default Prometheus output" },
+                { long: "--format", value_name: "prometheus|json|toon", description: "Output format (default: prometheus)" },
+                { long: "--output", value_name: "file", description: "Write output to a file instead of stdout (e.g. a node_exporter .prom textfile)" },
+            ],
+            async run(ctx) {
+                const options = ctx.options;
+                const repos = resolveRepos(options, ctx.args);
+                const staleDaysRaw = Number(readString(options, "staleDays", "stale-days"));
+                const staleThresholdDays = Number.isFinite(staleDaysRaw) && staleDaysRaw > 0 ? staleDaysRaw : 14;
+                const outputPath = readString(options, "output");
+                const rawFormat = readString(options, "format")?.toLowerCase();
+                // The global --json flag forces clean JSON to stdout, matching the other
+                // ops commands (and the fleet routing contract that scrapes payload.repos).
+                // The installed CLI consumes global --json into ctx.global (not
+                // ctx.options), so — unlike the other commands whose default returns a
+                // bare object the JSON renderer can serialize — the metrics default is a
+                // pre-rendered Prometheus string and must consult ctx.global explicitly.
+                const global = (ctx.global ?? {});
+                const wantsJson = readBool(options, "json") || global.json === true || global.defaultOutputFormat === "json";
+                const format = wantsJson
+                    ? "json"
+                    : rawFormat === "json" || rawFormat === "toon"
+                        ? rawFormat
+                        : "prometheus";
+                console.error(`pm-ops metrics: ${repos.length} repo(s), stale threshold ${staleThresholdDays}d`);
+                const result = collectMetricsAll(repos, staleThresholdDays, (m) => console.error(`  ${m}`));
+                console.error(`metrics: ${result.repos_scanned}/${repos.length} workspace(s) readable`);
+                if (format === "prometheus") {
+                    const body = renderMetricsPrometheus(result);
+                    if (outputPath) {
+                        mkdirSync(dirname(resolve(outputPath)), { recursive: true });
+                        writeFileSync(outputPath, body, "utf-8");
+                        console.error(`pm-ops: wrote prometheus output to ${outputPath}`);
+                        return { written_to: outputPath, format };
+                    }
+                    return renderedCommandResult(body);
+                }
+                // Structured (json/toon) output. When writing to a file we serialize
+                // ourselves. To stdout we return the BARE result object and let the
+                // CLI's global renderer emit it — exactly like the sibling ops
+                // commands. The per-command renderer override that would let us force a
+                // format is a no-op on command results in the shipped CLI, so wrapping
+                // in renderedCommandResult here would double-wrap the payload as
+                // { pmOpsRendered, output } and hide `repos` from `pm ops metrics
+                // --json | jq .repos`. Deferring to the global format keeps the fleet
+                // routing contract (payload.repos[].path) directly scrapeable.
+                if (outputPath) {
+                    return emitResult(result, format === "json" ? "json" : "toon", outputPath, () => renderMetricsPrometheus(result));
+                }
+                return result;
             },
         });
         for (const commandPath of OPS_COMMAND_PATHS) {
