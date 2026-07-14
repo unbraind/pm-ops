@@ -100,7 +100,7 @@ function cliRepoFlagValues(commandPath, argv = process.argv.slice(2)) {
         if (token !== "--repos")
             continue;
         const value = argv[index + 1];
-        if (value && value !== "--") {
+        if (value && value !== "--" && !value.startsWith("--")) {
             values.push(value);
             index += 1;
         }

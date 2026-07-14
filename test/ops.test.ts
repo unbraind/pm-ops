@@ -282,6 +282,18 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
   assertClean(dashResult, `pm ops status --repos ${dashPrefixed}`);
   const dashPayload = JSON.parse(dashResult.stdout);
   assert.deepStrictEqual(dashPayload.repos.map((entry: { path: string }) => entry.path), [resolve(project, dashPrefixed)]);
+
+  const doubleDashPrefixed = "--missing-repo";
+  const doubleDashResult = runPm(["ops", "status", `--repos=${doubleDashPrefixed}`, "--json"]);
+  assertClean(doubleDashResult, `pm ops status --repos=${doubleDashPrefixed}`);
+  const doubleDashPayload = JSON.parse(doubleDashResult.stdout);
+  assert.deepStrictEqual(doubleDashPayload.repos.map((entry: { path: string }) => entry.path), [resolve(project, doubleDashPrefixed)]);
+
+  const missingValueResult = runPm(["ops", "status", "--repos", "--json"]);
+  assert.strictEqual(missingValueResult.error, undefined, "pm ops status with a missing --repos value should launch");
+  assert.notStrictEqual(missingValueResult.status, 0, "pm ops status with a missing --repos value should fail");
+  assert.match(missingValueResult.stderr, /option ['"]--repos <paths>['"] argument missing/);
+  assert.doesNotMatch(missingValueResult.stderr, new RegExp(`${resolve(project, "--json").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 });
 
 test("ops scan produces a structured readiness snapshot for the fixture", async () => {

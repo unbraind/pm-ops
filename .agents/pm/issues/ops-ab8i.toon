@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags[4]: "area:cli-ux","area:sdk-contract",context-management,regression
 created_at: "2026-07-14T02:16:35.558Z"
-updated_at: "2026-07-14T02:31:40.139Z"
+updated_at: "2026-07-14T03:10:20.873Z"
 closed_at: "2026-07-14T02:31:40.137Z"
 author: codex-root
 acceptance_criteria: All seven flag definitions satisfy the current pm SDK string-list contract; a parser-boundary regression test covers command registration; installed CLI tests prove supplied paths are used and cwd fallback is not; invalid paths remain explicit and safe; full release gate passes.
@@ -26,8 +26,9 @@ fixed_version: 2026.7.14
 component: SDK command flag parsing
 regression: true
 customer_impact: "Agents can receive authoritative-looking fleet results for the wrong repository, breaking project-management-as-context-management decisions."
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-07-14T02:27:45.170Z",codex-root,"Black-box baseline proved pm ops status --repos <missing> exited 0 while reporting the clean fixture cwd instead. Adding value_type:string made pm contracts/help correct but the installed handler still received repos: []. Published host defect: https://github.com/unbraind/pm-cli/issues/550. Package workaround now uses the declared parser capability to recover only missing CLI --repos occurrences; structured SDK/MCP options remain authoritative and unchanged. Installed isolated tests cover all seven commands, one value, repeated values, comma lists, explicit missing-path diagnostics, and package doctor activation."
+  "2026-07-14T03:10:20.854Z",Codex,"PR review round 2: Greptile P1 identified that a missing --repos value could be confused with a following long option in the compatibility scanner. The scanner now rejects separate values beginning with -- while preserving single-dash paths; double-dash-prefixed paths remain supported through --repos=--path. Installed CLI regression coverage proves --repos --json exits with structured invalid_command_usage instead of scanning cwd/--json."
 files[3]{path,scope,note}:
   index.ts,project,SDK flag metadata and repository resolution
   test/ops.test.ts,project,Parser-boundary and installed CLI regressions
