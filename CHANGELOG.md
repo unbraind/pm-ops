@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Add 'ops metrics' Prometheus exporter for pm workspace health ([ops-6p89](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-6p89.toon))
+
 ## 2026.7.14 - 2026-07-14
 
 ### Fixed
