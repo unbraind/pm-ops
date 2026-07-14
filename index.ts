@@ -455,33 +455,6 @@ interface PmItem {
   status?: string;
 }
 
-const pmItemsCache = new Map<string, PmItem[] | null>();
-
-function readPmItems(repoPath: string): PmItem[] | null {
-  if (pmItemsCache.has(repoPath)) return pmItemsCache.get(repoPath) ?? null;
-  const pmRoot = join(repoPath, ".agents", "pm");
-  if (!existsSync(pmRoot)) return null;
-  const pm = resolvePmInvocation();
-  const r = runSync(pm.cmd, [...pm.args, "list", "--json", "--pm-path", pmRoot], { timeoutMs: 30_000 });
-  if (r.status !== 0) {
-    pmItemsCache.set(repoPath, null);
-    return null;
-  }
-  const parsed = parseJsonSafe(r.stdout);
-  if (!parsed) {
-    pmItemsCache.set(repoPath, null);
-    return null;
-  }
-  const items = Array.isArray(parsed) ? parsed : (parsed as any).items ?? (parsed as any).results ?? [];
-  if (!Array.isArray(items)) {
-    pmItemsCache.set(repoPath, null);
-    return null;
-  }
-  const result = items.filter((it: unknown): it is PmItem => Boolean(it) && typeof it === "object" && typeof (it as PmItem).id === "string");
-  pmItemsCache.set(repoPath, result);
-  return result;
-}
-
 /** Superset of PmItem carrying the lifecycle fields metrics needs. */
 interface FullPmItem extends PmItem {
   type?: string;
@@ -492,39 +465,51 @@ interface FullPmItem extends PmItem {
   tags?: unknown;
 }
 
+const pmItemsCache = new Map<string, PmItem[] | null>();
 const pmAllItemsCache = new Map<string, FullPmItem[] | null>();
+const pmBlockedCache = new Map<string, PmItem[] | null>();
+
+/** Per-scrape read caches. Cleared together so a fresh scrape re-reads pm. */
+const PM_READ_CACHES: Map<string, unknown>[] = [pmItemsCache, pmAllItemsCache, pmBlockedCache];
 
 /**
- * Read every pm item (including closed/canceled) via `pm list-all --json`.
- * Distinct from readPmItems, which only returns active items. Metrics need the
- * closed items for throughput and cycle-time, so this is a separate call.
+ * Read pm items for a repo via one `pm <subcommand> --json` invocation, extract
+ * the item array, and memoize the result per repo in the supplied cache. Single
+ * implementation shared by the active-list, full-list, and blocked-list readers
+ * so their guard / invocation / JSON-extraction / caching logic can't drift
+ * (e.g. the cross-scrape cache-clear must cover all of them). Returns null when
+ * the workspace is absent or the CLI call fails.
+ */
+function readPmItemList<T extends PmItem>(repoPath: string, subcommand: string, cache: Map<string, T[] | null>): T[] | null {
+  if (cache.has(repoPath)) return cache.get(repoPath) ?? null;
+  const set = (value: T[] | null): T[] | null => {
+    cache.set(repoPath, value);
+    return value;
+  };
+  const pmRoot = join(repoPath, ".agents", "pm");
+  if (!existsSync(pmRoot)) return set(null);
+  const pm = resolvePmInvocation();
+  const r = runSync(pm.cmd, [...pm.args, subcommand, "--json", "--pm-path", pmRoot], { timeoutMs: 30_000 });
+  if (r.status !== 0) return set(null);
+  const parsed = parseJsonSafe(r.stdout);
+  if (!parsed) return set(null);
+  const items = Array.isArray(parsed) ? parsed : (parsed as any).items ?? (parsed as any).results ?? [];
+  if (!Array.isArray(items)) return set(null);
+  return set(items.filter((it: unknown): it is T => Boolean(it) && typeof it === "object" && typeof (it as PmItem).id === "string"));
+}
+
+/** Active pm items via `pm list --json`. */
+function readPmItems(repoPath: string): PmItem[] | null {
+  return readPmItemList<PmItem>(repoPath, "list", pmItemsCache);
+}
+
+/**
+ * Every pm item (including closed/canceled) via `pm list-all --json`. Metrics
+ * need the closed items for throughput and cycle-time, so this is distinct from
+ * readPmItems, which only returns active items.
  */
 function readAllPmItems(repoPath: string): FullPmItem[] | null {
-  if (pmAllItemsCache.has(repoPath)) return pmAllItemsCache.get(repoPath) ?? null;
-  const pmRoot = join(repoPath, ".agents", "pm");
-  if (!existsSync(pmRoot)) {
-    pmAllItemsCache.set(repoPath, null);
-    return null;
-  }
-  const pm = resolvePmInvocation();
-  const r = runSync(pm.cmd, [...pm.args, "list-all", "--json", "--pm-path", pmRoot], { timeoutMs: 30_000 });
-  if (r.status !== 0) {
-    pmAllItemsCache.set(repoPath, null);
-    return null;
-  }
-  const parsed = parseJsonSafe(r.stdout);
-  if (!parsed) {
-    pmAllItemsCache.set(repoPath, null);
-    return null;
-  }
-  const items = Array.isArray(parsed) ? parsed : (parsed as any).items ?? (parsed as any).results ?? [];
-  if (!Array.isArray(items)) {
-    pmAllItemsCache.set(repoPath, null);
-    return null;
-  }
-  const result = items.filter((it: unknown): it is FullPmItem => Boolean(it) && typeof it === "object" && typeof (it as PmItem).id === "string");
-  pmAllItemsCache.set(repoPath, result);
-  return result;
+  return readPmItemList<FullPmItem>(repoPath, "list-all", pmAllItemsCache);
 }
 
 /**
@@ -533,15 +518,8 @@ function readAllPmItems(repoPath: string): FullPmItem[] | null {
  * dependency-resolution logic rather than re-deriving it from the flat list.
  */
 function readBlockedCount(repoPath: string): number | null {
-  const pmRoot = join(repoPath, ".agents", "pm");
-  if (!existsSync(pmRoot)) return null;
-  const pm = resolvePmInvocation();
-  const r = runSync(pm.cmd, [...pm.args, "list-blocked", "--json", "--pm-path", pmRoot], { timeoutMs: 30_000 });
-  if (r.status !== 0) return null;
-  const parsed = parseJsonSafe(r.stdout);
-  if (!parsed) return null;
-  const items = Array.isArray(parsed) ? parsed : (parsed as any).items ?? (parsed as any).results ?? [];
-  return Array.isArray(items) ? items.length : null;
+  const items = readPmItemList<PmItem>(repoPath, "list-blocked", pmBlockedCache);
+  return items === null ? null : items.length;
 }
 
 interface NpmOutdated {
@@ -1697,8 +1675,7 @@ function collectMetricsAll(repos: string[], staleThresholdDays: number, progress
   // dedupe pm invocations *within one scrape*, but must not survive across
   // scrapes — otherwise a long-lived host re-invoking this handler would serve
   // the first scrape's items forever. Clear them so every scrape reads fresh.
-  pmItemsCache.clear();
-  pmAllItemsCache.clear();
+  for (const cache of PM_READ_CACHES) cache.clear();
   const start = Date.now();
   const nowMs = start;
   const repoMetrics: RepoMetrics[] = [];
@@ -1742,22 +1719,31 @@ function repoLabel(repoPath: string): string {
  * ambiguous or rejected. On collision, disambiguate with the directory basename,
  * then the full path, then a numeric suffix as a last resort.
  */
-function disambiguateRepoLabels(repoMetrics: RepoMetrics[]): void {
+export function disambiguateRepoLabels(repoMetrics: RepoMetrics[]): void {
   const labelCounts = new Map<string, number>();
   for (const r of repoMetrics) labelCounts.set(r.repo, (labelCounts.get(r.repo) ?? 0) + 1);
+  // Reserve every label a non-colliding repo keeps verbatim BEFORE generating
+  // any disambiguated label. Otherwise a generated `foo (bar)` could collide
+  // with a distinct repo genuinely labeled `foo (bar)` that stays untouched,
+  // re-emitting duplicate Prometheus series.
   const used = new Set<string>();
   for (const r of repoMetrics) {
-    if ((labelCounts.get(r.repo) ?? 0) <= 1) {
-      used.add(r.repo);
-      continue;
+    if ((labelCounts.get(r.repo) ?? 0) <= 1) used.add(r.repo);
+  }
+  for (const r of repoMetrics) {
+    if ((labelCounts.get(r.repo) ?? 0) <= 1) continue;
+    // Prefer the directory basename, then the full path; both are checked
+    // against every already-claimed label (reserved originals + prior
+    // generations), with a numeric suffix as a guaranteed-unique last resort.
+    let label = [`${r.repo} (${basename(r.path)})`, `${r.repo} (${r.path})`].find((c) => !used.has(c));
+    if (!label) {
+      const base = `${r.repo} (${r.path})`;
+      label = base;
+      let n = 2;
+      while (used.has(label)) label = `${base} #${n++}`;
     }
-    let label = `${r.repo} (${basename(r.path)})`;
-    if (used.has(label)) label = `${r.repo} (${r.path})`;
-    let candidate = label;
-    let n = 2;
-    while (used.has(candidate)) candidate = `${label} #${n++}`;
-    r.repo = candidate;
-    used.add(candidate);
+    r.repo = label;
+    used.add(label);
   }
 }
 

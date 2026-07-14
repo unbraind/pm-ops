@@ -6,7 +6,7 @@ import { delimiter, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
-import extension from "../dist/index.js";
+import extension, { disambiguateRepoLabels } from "../dist/index.js";
 
 const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf-8")) as { capabilities: string[] };
 const OPS_COMMANDS = ["ops scan", "ops policy", "ops verify-release", "ops report", "ops status", "ops outdated", "ops audit", "ops metrics"] as const;
@@ -977,6 +977,32 @@ test("ops metrics disambiguates repo labels when package names collide", async (
   // still group by it, but each carries a distinguishing suffix.
   assert.ok(labels.every((l: string) => l === "pm-fixture" || l.startsWith("pm-fixture (")), `labels should be name-prefixed, got ${JSON.stringify(labels)}`);
   assert.ok(labels.some((l: string) => l.startsWith("pm-fixture (")), "colliding repos are disambiguated with a suffix");
+});
+
+test("disambiguateRepoLabels never generates a label that collides with an untouched original", () => {
+  // Greptile P1 repro: two `foo` repos disambiguate by basename, but a third
+  // repo is *genuinely* labeled `foo (bar)` (e.g. a directory basename with
+  // parens). The generated label must not steal the third repo's real label.
+  const metrics = [
+    { repo: "foo", path: "/repos/bar" }, // → wants "foo (bar)"
+    { repo: "foo", path: "/repos/baz" }, // → wants "foo (baz)"
+    { repo: "foo (bar)", path: "/repos/qux" }, // untouched original that must stay unique
+  ] as unknown as Parameters<typeof disambiguateRepoLabels>[0];
+  disambiguateRepoLabels(metrics);
+  const labels = metrics.map((m) => m.repo);
+  assert.strictEqual(new Set(labels).size, labels.length, `labels must be unique, got ${JSON.stringify(labels)}`);
+  // The repo genuinely named "foo (bar)" keeps its label; the colliding "foo"
+  // repo that wanted it falls back to its full path.
+  assert.ok(labels.includes("foo (bar)"), "the real 'foo (bar)' repo keeps its label");
+  assert.ok(labels.includes("foo (/repos/bar)"), "the colliding repo falls back to its path");
+
+  // Identical paths (same repo passed twice) still get distinct labels.
+  const dup = [
+    { repo: "x", path: "/r/x" },
+    { repo: "x", path: "/r/x" },
+  ] as unknown as Parameters<typeof disambiguateRepoLabels>[0];
+  disambiguateRepoLabels(dup);
+  assert.notStrictEqual(dup[0].repo, dup[1].repo, "identical-path duplicates are still distinct series");
 });
 
 test("real-data: verify-release on second configured pm repo passes", { skip: !REAL_REPOS_AVAILABLE }, async () => {
