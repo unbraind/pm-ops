@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import test, { before, after } from "node:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, chmodSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { devNull, tmpdir } from "node:os";
+import { delimiter, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 
 import extension from "../dist/index.js";
 
 const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf-8")) as { capabilities: string[] };
+const OPS_COMMANDS = ["ops scan", "ops policy", "ops verify-release", "ops report", "ops status", "ops outdated", "ops audit"] as const;
 
 // Real fleet paths used for local real-data testing. CI and other developers
 // can set PM_OPS_TEST_REPOS to opt into the same checks with their own paths.
@@ -146,11 +148,134 @@ test("manifest declares capabilities required by registered command metadata", (
 
 test("registers the ops commands and renderers", () => {
   const { commands, renderers } = activateAndCapture();
-  for (const name of ["ops scan", "ops policy", "ops verify-release", "ops report", "ops status", "ops outdated", "ops audit"]) {
+  for (const name of OPS_COMMANDS) {
     assert.ok(commands.has(name), `should register ${name}`);
   }
   assert.ok(renderers.has("toon"), "should register a toon renderer");
   assert.ok(renderers.has("json"), "should register a json renderer");
+});
+
+test("pm SDK preserves the typed repeatable --repos contract on every command", async () => {
+  const harness = await createExtensionTestHarness(extension, {
+    name: "pm-ops",
+    capabilities: manifest.capabilities as any,
+  });
+
+  assert.deepStrictEqual(
+    harness.assertCapabilityUsage({ declared: manifest.capabilities as any, extensionName: "pm-ops" }).unused,
+    [],
+    "manifest capabilities should match the SDK surfaces pm-ops actually uses",
+  );
+
+  for (const command of OPS_COMMANDS) {
+    const contract = harness.assertCommandContract({ command, flags: ["--repos"], arguments: ["additional-repos"] });
+    const reposFlag = contract.flags.find((flag) => flag.long === "--repos");
+    assert.ok(reposFlag, `${command} should expose --repos through the real SDK registry`);
+    assert.strictEqual(reposFlag.value_type, "string", `${command} --repos should consume string values`);
+    assert.strictEqual(reposFlag.list, true, `${command} --repos should accumulate repeated and comma-list values`);
+    harness.assertParserOverride({ command, extensionName: "pm-ops" });
+  }
+
+  const structured = await harness.runParserOverride({
+    command: "ops status",
+    args: [],
+    options: { repos: ["sdk-one", "sdk-two"] },
+    global: { json: true, quiet: true, noPager: true } as any,
+    pm_root: "",
+  });
+  assert.deepStrictEqual(
+    structured.context.options.repos,
+    ["sdk-one", "sdk-two"],
+    "the CLI compatibility parser must leave structured SDK and MCP inputs unchanged",
+  );
+});
+
+test("installed pm CLI routes --repos values to every fleet command", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "pm-ops-install-"));
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+
+  const project = join(root, "project");
+  const home = join(root, "home");
+  const appData = join(root, "app-data");
+  const localAppData = join(root, "local-app-data");
+  const xdgConfigHome = join(root, "xdg-config");
+  const xdgDataHome = join(root, "xdg-data");
+  for (const directory of [project, home, appData, localAppData, xdgConfigHome, xdgDataHome]) {
+    mkdirSync(directory, { recursive: true });
+  }
+
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of ["PATH", "PATHEXT", "SystemRoot", "SystemDrive", "ComSpec", "WINDIR", "LANG", "LC_ALL", "LC_CTYPE"] as const) {
+    const value = process.env[key];
+    if (value !== undefined) env[key] = value;
+  }
+  Object.assign(env, {
+    APPDATA: appData,
+    HOME: home,
+    LOCALAPPDATA: localAppData,
+    NPM_CONFIG_USERCONFIG: devNull,
+    PM_GLOBAL_PATH: join(root, "global-pm"),
+    PM_OPS_OFFLINE: "1",
+    PM_PATH: join(project, ".agents", "pm"),
+    PM_TELEMETRY_DISABLED: "1",
+    TEMP: root,
+    TMP: root,
+    TMPDIR: root,
+    USERPROFILE: home,
+    XDG_CONFIG_HOME: xdgConfigHome,
+    XDG_DATA_HOME: xdgDataHome,
+  });
+
+  const pmBin = join(process.cwd(), "node_modules", ".bin", process.platform === "win32" ? "pm.cmd" : "pm");
+  const runPm = (args: string[]) => spawnSync(pmBin, args, {
+    cwd: project,
+    encoding: "utf-8",
+    env,
+    timeout: 30_000,
+  });
+  const assertClean = (result: ReturnType<typeof runPm>, operation: string) => {
+    assert.strictEqual(result.error, undefined, `${operation} should launch: ${result.error?.message ?? ""}`);
+    assert.strictEqual(result.status, 0, `${operation} should pass: ${result.stderr}`);
+  };
+
+  assertClean(runPm(["init", "--json"]), "pm init");
+  assertClean(runPm(["install", process.cwd(), "--project", "--json"]), "pm install pm-ops");
+  const doctor = runPm(["package", "doctor", "--project", "--isolated", "--json", "--detail", "deep"]);
+  assertClean(doctor, "pm package doctor");
+  const doctorPayload = JSON.parse(doctor.stdout);
+  const installed = doctorPayload.details?.deep?.installed_extensions?.find((entry: { name?: string }) => entry.name === "pm-ops");
+  assert.ok(installed, "pm-ops should appear in isolated package diagnostics");
+  assert.strictEqual(installed.activation_status, "ok");
+  assert.strictEqual(installed.runtime_active, true);
+
+  const missing = join(root, "definitely-missing");
+  for (const command of OPS_COMMANDS) {
+    const result = runPm([...command.split(" "), "--repos", missing, "--json"]);
+    const expectsFailure = command === "ops verify-release";
+    assert.strictEqual(result.error, undefined, `${command} should launch`);
+    assert.strictEqual(result.status, expectsFailure ? 1 : 0, `${command} exit status: ${result.stderr}`);
+    const payload = JSON.parse(result.stdout);
+    const repos = command === "ops report" ? payload.scan?.repos : payload.repos;
+    assert.deepStrictEqual(
+      repos?.map((entry: { path?: string }) => entry.path),
+      [resolve(missing)],
+      `${command} must use --repos instead of silently scanning cwd`,
+    );
+  }
+
+  const first = join(root, "missing-one");
+  const second = join(root, "missing-two");
+  for (const reposArgs of [
+    ["--repos", first, "--repos", second],
+    [`--repos=${first}`, `--repos=${second}`],
+    ["--repos", `${first},${second}`],
+    ["--repos", first, second],
+  ]) {
+    const result = runPm(["ops", "status", ...reposArgs, "--json"]);
+    assertClean(result, `pm ops status ${reposArgs.join(" ")}`);
+    const payload = JSON.parse(result.stdout);
+    assert.deepStrictEqual(payload.repos.map((entry: { path: string }) => entry.path), [resolve(first), resolve(second)]);
+  }
 });
 
 test("ops scan produces a structured readiness snapshot for the fixture", async () => {
