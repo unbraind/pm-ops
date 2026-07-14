@@ -66,6 +66,15 @@ function additionalRepoArguments() {
             description: "Additional repository paths after --repos (optional).",
         }];
 }
+function reposFlag(description) {
+    return {
+        long: "--repos",
+        value_name: "paths",
+        value_type: "string",
+        description,
+        list: true,
+    };
+}
 function cliRepoFlagValues(commandPath, argv = process.argv.slice(2)) {
     const commandTokens = commandPath.split(" ");
     let commandEnd = -1;
@@ -91,7 +100,7 @@ function cliRepoFlagValues(commandPath, argv = process.argv.slice(2)) {
         if (token !== "--repos")
             continue;
         const value = argv[index + 1];
-        if (value && value !== "--" && !value.startsWith("-")) {
+        if (value && value !== "--") {
             values.push(value);
             index += 1;
         }
@@ -1255,7 +1264,7 @@ export default defineExtension({
                 "pm ops scan --repos ~/container/pm-* --format markdown --output FLEET.md",
             ],
             flags: [
-                { long: "--repos", value_name: "paths", value_type: "string", description: "Repo paths to scan (comma-separated or repeatable; default: current dir)", list: true },
+                reposFlag("Repo paths to scan (comma-separated or repeatable; default: current dir)"),
                 { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
                 { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
                 { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
@@ -1287,7 +1296,7 @@ export default defineExtension({
                 "pm ops policy --format markdown",
             ],
             flags: [
-                { long: "--repos", value_name: "paths", value_type: "string", description: "Repo paths to check (comma-separated or repeatable; default: current dir)", list: true },
+                reposFlag("Repo paths to check (comma-separated or repeatable; default: current dir)"),
                 { long: "--policy", value_name: "file", description: "JSON policy bundle overriding the default checks" },
                 { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
                 { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
@@ -1343,7 +1352,7 @@ export default defineExtension({
                 "pm ops verify-release --format markdown --output RELEASE.md",
             ],
             flags: [
-                { long: "--repos", value_name: "paths", value_type: "string", description: "Repo paths to verify (comma-separated or repeatable; default: current dir)", list: true },
+                reposFlag("Repo paths to verify (comma-separated or repeatable; default: current dir)"),
                 { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
                 { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
                 { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
@@ -1413,7 +1422,7 @@ export default defineExtension({
                 "pm ops report --json",
             ],
             flags: [
-                { long: "--repos", value_name: "paths", value_type: "string", description: "Repo paths to report on (comma-separated or repeatable; default: current dir)", list: true },
+                reposFlag("Repo paths to report on (comma-separated or repeatable; default: current dir)"),
                 { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
                 { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
                 { long: "--output", value_name: "file", description: "Write the rendered report to a file instead of stdout" },
@@ -1446,7 +1455,7 @@ export default defineExtension({
                 "pm ops status --format markdown",
             ],
             flags: [
-                { long: "--repos", value_name: "paths", value_type: "string", description: "Repo paths (comma-separated or repeatable; default: current dir)", list: true },
+                reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
                 { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
                 { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
                 { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
@@ -1475,7 +1484,7 @@ export default defineExtension({
                 "pm ops outdated --format markdown",
             ],
             flags: [
-                { long: "--repos", value_name: "paths", value_type: "string", description: "Repo paths (comma-separated or repeatable; default: current dir)", list: true },
+                reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
                 { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
                 { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
                 { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
@@ -1504,7 +1513,7 @@ export default defineExtension({
                 "pm ops audit --format markdown",
             ],
             flags: [
-                { long: "--repos", value_name: "paths", value_type: "string", description: "Repo paths (comma-separated or repeatable; default: current dir)", list: true },
+                reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
                 { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
                 { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
                 { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },

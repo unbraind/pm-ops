@@ -190,7 +190,7 @@ test("pm SDK preserves the typed repeatable --repos contract on every command", 
   );
 });
 
-test("installed pm CLI routes --repos values to every fleet command", (t) => {
+test("installed pm CLI routes --repos values to every fleet command", { timeout: 120_000 }, (t) => {
   const root = mkdtempSync(join(tmpdir(), "pm-ops-install-"));
   t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
@@ -276,6 +276,12 @@ test("installed pm CLI routes --repos values to every fleet command", (t) => {
     const payload = JSON.parse(result.stdout);
     assert.deepStrictEqual(payload.repos.map((entry: { path: string }) => entry.path), [resolve(first), resolve(second)]);
   }
+
+  const dashPrefixed = "-missing-repo";
+  const dashResult = runPm(["ops", "status", "--repos", dashPrefixed, "--json"]);
+  assertClean(dashResult, `pm ops status --repos ${dashPrefixed}`);
+  const dashPayload = JSON.parse(dashResult.stdout);
+  assert.deepStrictEqual(dashPayload.repos.map((entry: { path: string }) => entry.path), [resolve(project, dashPrefixed)]);
 });
 
 test("ops scan produces a structured readiness snapshot for the fixture", async () => {
