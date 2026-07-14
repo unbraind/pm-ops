@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Restore --repos routing for every fleet command ([ops-ab8i](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-ab8i.toon))
+
 ## 2026.7.11-1 - 2026-07-11
 
 ### Other

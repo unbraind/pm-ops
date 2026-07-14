@@ -3,7 +3,11 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { createRequire } from "node:module";
 import { devNull, homedir } from "node:os";
 import { resolve, basename, dirname, join, relative } from "node:path";
-import type { defineExtension as defineExtensionType } from "@unbrained/pm-cli/sdk";
+import type {
+  defineExtension as defineExtensionType,
+  ParserOverrideContext,
+  ParserOverrideDelta,
+} from "@unbrained/pm-cli/sdk";
 
 const defineExtension: typeof defineExtensionType = ((extension: any) => extension) as any;
 
@@ -70,6 +74,76 @@ function asArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.flatMap(asArray);
   if (typeof value !== "string") return [];
   return value.split(",").map((entry) => entry.trim()).filter(Boolean);
+}
+
+const OPS_COMMAND_PATHS = [
+  "ops scan",
+  "ops policy",
+  "ops verify-release",
+  "ops report",
+  "ops status",
+  "ops outdated",
+  "ops audit",
+] as const;
+
+function additionalRepoArguments() {
+  return [{
+    name: "additional-repos",
+    required: false,
+    variadic: true,
+    description: "Additional repository paths after --repos (optional).",
+  }];
+}
+
+function reposFlag(description: string) {
+  return {
+    long: "--repos",
+    value_name: "paths",
+    value_type: "string" as const,
+    description,
+    list: true,
+  };
+}
+
+function cliRepoFlagValues(commandPath: string, argv: readonly string[] = process.argv.slice(2)): string[] {
+  const commandTokens = commandPath.split(" ");
+  let commandEnd = -1;
+  for (let index = 0; index <= argv.length - commandTokens.length; index += 1) {
+    if (commandTokens.every((token, offset) => argv[index + offset] === token)) {
+      commandEnd = index + commandTokens.length;
+      break;
+    }
+  }
+  if (commandEnd < 0) return [];
+
+  const values: string[] = [];
+  for (let index = commandEnd; index < argv.length; index += 1) {
+    const token = argv[index]!;
+    if (token === "--") break;
+    if (token.startsWith("--repos=")) {
+      const value = token.slice("--repos=".length).trim();
+      if (value) values.push(value);
+      continue;
+    }
+    if (token !== "--repos") continue;
+    const value = argv[index + 1];
+    if (value && value !== "--" && !value.startsWith("--")) {
+      values.push(value);
+      index += 1;
+    }
+  }
+  return values;
+}
+
+function restoreCliRepoFlag(commandPath: string, context: ParserOverrideContext): ParserOverrideDelta {
+  if (asArray(context.options.repos).length > 0) return {};
+  const cliValues = cliRepoFlagValues(commandPath);
+  if (cliValues.length === 0) return {};
+  // pm-cli 2026.7.13 erases registered list values while coercing Commander
+  // options (https://github.com/unbraind/pm-cli/issues/550). Structured SDK/MCP
+  // callers retain their supplied options above; this branch only restores the
+  // active CLI invocation until the host fix reaches the minimum supported SDK.
+  return { options: { ...context.options, repos: cliValues } };
 }
 
 function expandHome(path: string): string {
@@ -1447,6 +1521,7 @@ export default defineExtension({
         "npm audit critical/high, open PRs/issues). Use --repos to pass multiple paths " +
         "(comma-separated or repeatable). --json emits clean JSON; --format markdown emits a table.",
       intent: "audit release readiness across many pm repositories",
+      arguments: additionalRepoArguments(),
       examples: [
         "pm ops scan",
         "pm ops scan --repos ./pm-csv ./pm-github",
@@ -1455,7 +1530,7 @@ export default defineExtension({
         "pm ops scan --repos ~/container/pm-* --format markdown --output FLEET.md",
       ],
       flags: [
-        { long: "--repos", value_name: "paths", description: "Repo paths to scan (comma-separated or repeatable; default: current dir)", list: true },
+        reposFlag("Repo paths to scan (comma-separated or repeatable; default: current dir)"),
         { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
         { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
         { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
@@ -1481,6 +1556,7 @@ export default defineExtension({
         "(no two open items share a title), pm-changelog-wired. --policy <file> loads a JSON bundle " +
         "({ checks: [{ id, severity, repo_filter?, params? }] }). --strict exits non-zero on any failure.",
       intent: "enforce naming/workflow/pm policies across many pm repositories",
+      arguments: additionalRepoArguments(),
       examples: [
         "pm ops policy",
         "pm ops policy --repos ./pm-csv ./pm-github",
@@ -1488,7 +1564,7 @@ export default defineExtension({
         "pm ops policy --format markdown",
       ],
       flags: [
-        { long: "--repos", value_name: "paths", description: "Repo paths to check (comma-separated or repeatable; default: current dir)", list: true },
+        reposFlag("Repo paths to check (comma-separated or repeatable; default: current dir)"),
         { long: "--policy", value_name: "file", description: "JSON policy bundle overriding the default checks" },
         { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
         { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
@@ -1536,6 +1612,7 @@ export default defineExtension({
         "and reports pass/fail with per-step timing and concise error summaries. Does NOT publish. " +
         "Exits non-zero if any repo fails. --output writes the report to a file.",
       intent: "run a release gate matrix across many pm repositories",
+      arguments: additionalRepoArguments(),
       examples: [
         "pm ops verify-release",
         "pm ops verify-release --repos ./pm-csv ./pm-github",
@@ -1543,7 +1620,7 @@ export default defineExtension({
         "pm ops verify-release --format markdown --output RELEASE.md",
       ],
       flags: [
-        { long: "--repos", value_name: "paths", description: "Repo paths to verify (comma-separated or repeatable; default: current dir)", list: true },
+        reposFlag("Repo paths to verify (comma-separated or repeatable; default: current dir)"),
         { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
         { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
         { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
@@ -1605,6 +1682,7 @@ export default defineExtension({
         "--include-release also runs the release gate matrix and appends results. " +
         "--output writes the report to a file. Default stdout TOON.",
       intent: "produce a concise fleet report across many pm repositories",
+      arguments: additionalRepoArguments(),
       examples: [
         "pm ops report",
         "pm ops report --repos ./pm-csv ./pm-github --format markdown",
@@ -1613,7 +1691,7 @@ export default defineExtension({
         "pm ops report --json",
       ],
       flags: [
-        { long: "--repos", value_name: "paths", description: "Repo paths to report on (comma-separated or repeatable; default: current dir)", list: true },
+        reposFlag("Repo paths to report on (comma-separated or repeatable; default: current dir)"),
         { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
         { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
         { long: "--output", value_name: "file", description: "Write the rendered report to a file instead of stdout" },
@@ -1642,13 +1720,14 @@ export default defineExtension({
         "because it skips GitHub PR/issue probes and pm workspace detail. --format markdown " +
         "emits a compact table.",
       intent: "get a quick fleet health overview across many pm repositories",
+      arguments: additionalRepoArguments(),
       examples: [
         "pm ops status",
         "pm ops status --repos ./pm-csv ./pm-github",
         "pm ops status --format markdown",
       ],
       flags: [
-        { long: "--repos", value_name: "paths", description: "Repo paths (comma-separated or repeatable; default: current dir)", list: true },
+        reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
         { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
         { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
         { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
@@ -1672,13 +1751,14 @@ export default defineExtension({
         "summarizes packages that have newer versions available. --format markdown groups " +
         "by repo with per-package current/wanted/latest columns.",
       intent: "check dependency freshness across many pm repositories",
+      arguments: additionalRepoArguments(),
       examples: [
         "pm ops outdated",
         "pm ops outdated --repos ./pm-csv ./pm-github",
         "pm ops outdated --format markdown",
       ],
       flags: [
-        { long: "--repos", value_name: "paths", description: "Repo paths (comma-separated or repeatable; default: current dir)", list: true },
+        reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
         { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
         { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
         { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
@@ -1702,13 +1782,14 @@ export default defineExtension({
         "and summarizes critical/high/moderate/low counts. --format markdown emits a compact " +
         "fleet-wide vulnerability table.",
       intent: "audit security vulnerabilities across many pm repositories",
+      arguments: additionalRepoArguments(),
       examples: [
         "pm ops audit",
         "pm ops audit --repos ./pm-csv ./pm-github",
         "pm ops audit --format markdown",
       ],
       flags: [
-        { long: "--repos", value_name: "paths", description: "Repo paths (comma-separated or repeatable; default: current dir)", list: true },
+        reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
         { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
         { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
         { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
@@ -1724,5 +1805,9 @@ export default defineExtension({
         return emitResult(result, format, outputPath, () => renderAuditMarkdown(result));
       },
     });
+
+    for (const commandPath of OPS_COMMAND_PATHS) {
+      api.registerParser(commandPath, (context: ParserOverrideContext) => restoreCliRepoFlag(commandPath, context));
+    }
   },
 });

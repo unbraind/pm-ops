@@ -8,7 +8,8 @@
   "capabilities": [
     "commands",
     "renderers",
-    "schema"
+    "schema",
+    "parser"
   ],
   "pm": {
     "compatibility": "v2"
