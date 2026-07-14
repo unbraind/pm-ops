@@ -939,8 +939,10 @@ test("ops metrics emits Prometheus exposition for the fixture pm workspace", asy
 
 test("ops metrics --json exposes the structured routing contract", async () => {
   const { commands } = activateAndCapture();
-  const result = (await runCommand(commands, "ops metrics", { repos: [fixtureRepo], json: true })) as any;
-  const payload = JSON.parse((result.output as string));
+  // Structured stdout returns the bare result object (no renderedCommandResult
+  // wrapper) so `pm ops metrics --json | jq .repos` works under the CLI's
+  // global renderer — matching the sibling ops commands.
+  const payload = (await runCommand(commands, "ops metrics", { repos: [fixtureRepo], json: true })) as any;
   assert.deepStrictEqual(payload.repos.map((r: { path: string }) => r.path), [fixtureRepo]);
   assert.strictEqual(payload.repos[0].available, true);
   assert.strictEqual(payload.repos[0].repo, "pm-fixture");
@@ -952,8 +954,7 @@ test("ops metrics --json exposes the structured routing contract", async () => {
 test("ops metrics marks a missing workspace unavailable without failing", async () => {
   const { commands } = activateAndCapture();
   const missingRepo = join(tmpRoot, "pm-metrics-missing");
-  const result = (await runCommand(commands, "ops metrics", { repos: [missingRepo], json: true })) as any;
-  const payload = JSON.parse((result.output as string));
+  const payload = (await runCommand(commands, "ops metrics", { repos: [missingRepo], json: true })) as any;
   assert.deepStrictEqual(payload.repos.map((r: { path: string }) => r.path), [resolve(missingRepo)]);
   assert.strictEqual(payload.repos[0].available, false);
   assert.strictEqual(payload.repos_scanned, 0);
@@ -969,8 +970,7 @@ test("ops metrics disambiguates repo labels when package names collide", async (
   const pmCmd = process.platform === "win32" ? "pm.cmd" : "pm";
   const pmInit = spawnSync(pmCmd, ["init", "twin", "--pm-path", join(twin, ".agents", "pm")], { encoding: "utf-8", timeout: 30_000 });
   assert.strictEqual(pmInit.status, 0, `twin pm init failed: ${pmInit.stderr}`);
-  const result = (await runCommand(commands, "ops metrics", { repos: [fixtureRepo, twin], json: true })) as any;
-  const payload = JSON.parse(result.output as string);
+  const payload = (await runCommand(commands, "ops metrics", { repos: [fixtureRepo, twin], json: true })) as any;
   const labels = payload.repos.map((r: { repo: string }) => r.repo);
   assert.strictEqual(new Set(labels).size, labels.length, `repo labels must be unique, got ${JSON.stringify(labels)}`);
   // Every colliding repo keeps the package name as a prefix so dashboards can

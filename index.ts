@@ -2193,7 +2193,19 @@ export default defineExtension({
           }
           return renderedCommandResult(body);
         }
-        return emitResult(result, format === "json" ? "json" : "toon", outputPath, () => renderMetricsPrometheus(result));
+        // Structured (json/toon) output. When writing to a file we serialize
+        // ourselves. To stdout we return the BARE result object and let the
+        // CLI's global renderer emit it — exactly like the sibling ops
+        // commands. The per-command renderer override that would let us force a
+        // format is a no-op on command results in the shipped CLI, so wrapping
+        // in renderedCommandResult here would double-wrap the payload as
+        // { pmOpsRendered, output } and hide `repos` from `pm ops metrics
+        // --json | jq .repos`. Deferring to the global format keeps the fleet
+        // routing contract (payload.repos[].path) directly scrapeable.
+        if (outputPath) {
+          return emitResult(result, format === "json" ? "json" : "toon", outputPath, () => renderMetricsPrometheus(result));
+        }
+        return result;
       },
     });
 
