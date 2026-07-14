@@ -1393,6 +1393,12 @@ function computeRepoMetrics(repo, nowMs, staleThresholdDays) {
     };
 }
 function collectMetricsAll(repos, staleThresholdDays, progress) {
+    // A Prometheus exporter is scraped repeatedly. The module-level read caches
+    // dedupe pm invocations *within one scrape*, but must not survive across
+    // scrapes — otherwise a long-lived host re-invoking this handler would serve
+    // the first scrape's items forever. Clear them so every scrape reads fresh.
+    pmItemsCache.clear();
+    pmAllItemsCache.clear();
     const start = Date.now();
     const nowMs = start;
     const repoMetrics = [];
@@ -1400,6 +1406,7 @@ function collectMetricsAll(repos, staleThresholdDays, progress) {
         progress(`metrics: ${repoLabel(repo)}`);
         repoMetrics.push(computeRepoMetrics(repo, nowMs, staleThresholdDays));
     }
+    disambiguateRepoLabels(repoMetrics);
     return {
         generated_at: new Date(nowMs).toISOString(),
         stale_threshold_days: staleThresholdDays,
@@ -1424,6 +1431,34 @@ function repoLabel(repoPath) {
     const pkg = readPackageJson(repoPath);
     const name = typeof pkg?.name === "string" && pkg.name.trim() ? pkg.name.trim() : basename(resolve(repoPath));
     return name;
+}
+/**
+ * Guarantee unique `repo` labels within a single scrape. Two checkouts can share
+ * a package.json name (e.g. a fork and its upstream, or the same repo passed
+ * twice), which would emit duplicate Prometheus series and make the scrape
+ * ambiguous or rejected. On collision, disambiguate with the directory basename,
+ * then the full path, then a numeric suffix as a last resort.
+ */
+function disambiguateRepoLabels(repoMetrics) {
+    const labelCounts = new Map();
+    for (const r of repoMetrics)
+        labelCounts.set(r.repo, (labelCounts.get(r.repo) ?? 0) + 1);
+    const used = new Set();
+    for (const r of repoMetrics) {
+        if ((labelCounts.get(r.repo) ?? 0) <= 1) {
+            used.add(r.repo);
+            continue;
+        }
+        let label = `${r.repo} (${basename(r.path)})`;
+        if (used.has(label))
+            label = `${r.repo} (${r.path})`;
+        let candidate = label;
+        let n = 2;
+        while (used.has(candidate))
+            candidate = `${label} #${n++}`;
+        r.repo = candidate;
+        used.add(candidate);
+    }
 }
 function renderMetricsPrometheus(result) {
     const lines = [];

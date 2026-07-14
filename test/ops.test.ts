@@ -959,6 +959,26 @@ test("ops metrics marks a missing workspace unavailable without failing", async 
   assert.strictEqual(payload.repos_scanned, 0);
 });
 
+test("ops metrics disambiguates repo labels when package names collide", async () => {
+  const { commands } = activateAndCapture();
+  // Two distinct checkouts that both declare the same package.json name must
+  // not emit duplicate Prometheus series — each needs a unique `repo` label.
+  const twin = join(tmpRoot, "pm-fixture-twin");
+  mkdirSync(join(twin, ".agents", "pm"), { recursive: true });
+  writeFileSync(join(twin, "package.json"), JSON.stringify({ name: "pm-fixture", version: "1.0.0" }));
+  const pmCmd = process.platform === "win32" ? "pm.cmd" : "pm";
+  const pmInit = spawnSync(pmCmd, ["init", "twin", "--pm-path", join(twin, ".agents", "pm")], { encoding: "utf-8", timeout: 30_000 });
+  assert.strictEqual(pmInit.status, 0, `twin pm init failed: ${pmInit.stderr}`);
+  const result = (await runCommand(commands, "ops metrics", { repos: [fixtureRepo, twin], json: true })) as any;
+  const payload = JSON.parse(result.output as string);
+  const labels = payload.repos.map((r: { repo: string }) => r.repo);
+  assert.strictEqual(new Set(labels).size, labels.length, `repo labels must be unique, got ${JSON.stringify(labels)}`);
+  // Every colliding repo keeps the package name as a prefix so dashboards can
+  // still group by it, but each carries a distinguishing suffix.
+  assert.ok(labels.every((l: string) => l === "pm-fixture" || l.startsWith("pm-fixture (")), `labels should be name-prefixed, got ${JSON.stringify(labels)}`);
+  assert.ok(labels.some((l: string) => l.startsWith("pm-fixture (")), "colliding repos are disambiguated with a suffix");
+});
+
 test("real-data: verify-release on second configured pm repo passes", { skip: !REAL_REPOS_AVAILABLE }, async () => {
   const { commands } = activateAndCapture();
   const result = (await runCommand(commands, "ops verify-release", { repos: [REAL_REPOS[1]] })) as any;
