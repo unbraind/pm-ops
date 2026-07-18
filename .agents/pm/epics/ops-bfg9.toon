@@ -2,12 +2,19 @@ id: ops-bfg9
 title: "pm-ops v0.1: initial production-ready package"
 description: ""
 type: Epic
-status: open
+status: closed
 priority: 1
 tags: []
 created_at: "2026-07-05T15:10:41.605Z"
-updated_at: "2026-07-11T19:39:43.360Z"
+updated_at: "2026-07-18T09:58:05.043Z"
+closed_at: "2026-07-18T09:58:05.042Z"
 author: unknown
 estimated_minutes: 480
 acceptance_criteria: "All pm-ops commands are production ready, current with the pm SDK, release automated, privacy reviewed, and validated against real repositories."
+resolution: All 10 child items closed; pm-ops shipped through 2026.7.14-1 including Prometheus exporter; release automation and privacy review done
+expected_result: pm-ops v0.1 epic complete with all children shipped
+actual_result: Epic acceptance criteria met (verified 2026-07-18)
+comments[1]{created_at,author,text}:
+  "2026-07-18T09:58:04.277Z",pi-agent,"Verified done 2026-07-18: all 10 child items closed; pm-ops shipped through 2026.7.14-1 (incl. Prometheus exporter), release automation + privacy review done. Acceptance criteria met. Closing the epic."
+close_reason: all 10 children closed; pm-ops v0.1 shipped (2026.7.14-1)
 body: ""
