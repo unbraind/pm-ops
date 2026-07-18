@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- pm-ops v0.1: initial production-ready package ([ops-bfg9](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/epics/ops-bfg9.toon))
+
 ## 2026.7.14-1 - 2026-07-14
 
 ### Added
