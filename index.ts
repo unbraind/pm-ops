@@ -1821,7 +1821,7 @@ function emitResult(structured: unknown, format: OutputFormat, outputPath: strin
 
 export default defineExtension({
   name: "pm-ops",
-  version: "2026.7.14-1",
+  version: "2026.7.19",
 
   activate(api: any) {
     if (typeof api.registerRenderer === "function") {
