@@ -1521,7 +1521,7 @@ function emitResult(structured, format, outputPath, formatter) {
 // ---------------------------------------------------------------------------
 export default defineExtension({
     name: "pm-ops",
-    version: "2026.7.19",
+    version: "2026.7.20",
     activate(api) {
         if (typeof api.registerRenderer === "function") {
             api.registerRenderer("toon", renderCommandResult);
