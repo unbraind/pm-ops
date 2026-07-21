@@ -10,8 +10,8 @@ updated_at: "2026-07-06T00:01:39.965Z"
 author: unknown
 resolution: Updated peer/dev dependency pins and regenerated package-lock after confirming PM_OPS_TEST_REPOS based real-data tests are portable.
 expected_result: pm-ops release checks use @unbrained/pm-cli 2026.7.5 and pm-changelog 2026.6.30 without exposing local paths.
-actual_result: package.json/package-lock resolve latest toolchain versions; current tests contain no /home/steve constants.
+actual_result: package.json/package-lock resolve latest toolchain versions; current tests contain no $HOME constants.
 notes[1]{created_at,author,text}:
-  "2026-07-06T00:01:39.921Z",codex,"Verified privacy finding before editing: current origin/main uses PM_OPS_TEST_REPOS for optional real-data tests and contains no hard-coded /home/steve repository constants in test/ops.test.ts. Implemented package metadata refresh to @unbrained/pm-cli 2026.7.5 and pm-changelog 2026.6.30, then regenerated package-lock with npm install --package-lock-only --ignore-scripts."
+  "2026-07-06T00:01:39.921Z",codex,"Verified privacy finding before editing: current origin/main uses PM_OPS_TEST_REPOS for optional real-data tests and contains no hard-coded $HOME repository constants in test/ops.test.ts. Implemented package metadata refresh to @unbrained/pm-cli 2026.7.5 and pm-changelog 2026.6.30, then regenerated package-lock with npm install --package-lock-only --ignore-scripts."
 close_reason: "pm-ops now targets the latest pm CLI and pm-changelog versions, and the current test suite remains free of host-specific real-data paths."
 body: "Context: pm-ops main already removed host-specific real-data paths by using PM_OPS_TEST_REPOS, but its package metadata still referenced older pm CLI and pm-changelog versions.\\n\\nScope: update peer/dev dependency pins to the current pm CLI 2026.7.5 and pm-changelog 2026.6.30, regenerate package-lock, run release checks, and refresh CHANGELOG.md."
