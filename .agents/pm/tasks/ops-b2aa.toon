@@ -39,7 +39,7 @@ files[4]{path,scope,note}:
   LICENSE,project,Package licensing
 tests[2]{command,path,scope,timeout_seconds,pm_context_mode}:
   "npm run release:check",.,project,120,tracker
-  "PM_OPS_TEST_REPOS=/home/steve/container/pm-brief,/home/steve/container/pm-context npm test",.,project,120,tracker
+  "PM_OPS_TEST_REPOS=/workspace/pm-brief,/workspace/pm-context npm test",.,project,120,tracker
 docs[1]{path,scope,note}:
   README.md,project,Readiness behavior documentation
 close_reason: completed
