@@ -289,3 +289,12 @@ Fleet totals are intentionally **not** pre-aggregated — expose per-repo series
 ## License
 
 MIT © unbrained
+
+## Multi-agent merge safety
+
+This repo tracks its project management in `.agents/pm/` and ships a committed `.gitattributes`
+that maps those tracker artifacts to pm-cli's field-aware Git merge drivers, so concurrent-branch
+tracker edits merge cleanly instead of hard-conflicting. The driver **definitions** live in
+per-clone Git config; `npm install` / `npm ci` wires them automatically via the `prepare` script
+(`pm merge install`). To (re)run manually: `npm run merge:install`. After merging a branch that
+touched `.agents/pm/`, run `pm history-repair --all` to reconcile history verification.
