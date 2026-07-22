@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Recommend pm merge reconcile (2026.7.22) over raw history-repair in Multi-agent merge safety docs ([ops-owhy](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-owhy.toon))
+
 ### Other
 
 - Adopt pm field-aware merge driver for multi-agent branch-merge safety ([ops-3ype](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-3ype.toon))
