@@ -1,16 +1,33 @@
 {
   "version": 1,
   "id_prefix": "ops-",
+  "ids": {
+    "token_length": 4
+  },
   "author_default": "",
+  "mutation_guard": {
+    "require_attributed_author": false,
+    "secret_guard": "advise",
+    "stale_in_progress_hours": 72
+  },
   "item_format": "toon",
   "locks": {
-    "ttl_seconds": 1800
+    "ttl_seconds": 1800,
+    "wait_ms": 3000
+  },
+  "checkpoints": {
+    "retention_days": 14
   },
   "output": {
     "default_format": "toon"
   },
   "history": {
-    "missing_stream": "auto_create"
+    "missing_stream": "auto_create",
+    "compact_policy": {
+      "enabled": false,
+      "max_entries": 500,
+      "trigger": "health_warn"
+    }
   },
   "validation": {
     "sprint_release_format": "warn",
@@ -37,10 +54,14 @@
       "closed and recorded",
       "work completed",
       "work completed and recorded"
-    ]
+    ],
+    "estimate_defaults_by_type": {}
   },
   "governance": {
-    "preset": "minimal"
+    "preset": "minimal",
+    "duplicate_detection_mode": "advisory",
+    "duplicate_detection_threshold": 0.8,
+    "duplicate_detection_limit": 3
   },
   "workflow": {
     "definition_of_done": []
