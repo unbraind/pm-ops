@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Enable governance duplicate-detection advisory mode and adopt pm-cli 2026.7.25 ([ops-73km](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-73km.toon))
+
 ## 2026.7.23 - 2026-07-23
 
 ### Fixed
