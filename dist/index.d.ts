@@ -1,3 +1,4 @@
+import type { ExtensionApi } from "@unbrained/pm-cli/sdk/authoring";
 interface RepoMetrics {
     path: string;
     repo: string;
@@ -25,7 +26,7 @@ export declare function disambiguateRepoLabels(repoMetrics: RepoMetrics[]): void
 declare const _default: {
     name: string;
     version: string;
-    activate(api: any): void;
+    activate(api: ExtensionApi): void;
 };
 export default _default;
 //# sourceMappingURL=index.d.ts.map

@@ -3,7 +3,6 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { createRequire } from "node:module";
 import { devNull, homedir } from "node:os";
 import { resolve, basename, dirname, join, relative } from "node:path";
-const defineExtension = ((extension) => extension);
 // ---------------------------------------------------------------------------
 // Error contract — mirror pm-cli SDK EXIT_CODE so the host treats thrown
 // CommandError as a clean non-zero exit instead of re-invoking the handler.
@@ -1519,6 +1518,15 @@ function emitResult(structured, format, outputPath, formatter) {
 // ---------------------------------------------------------------------------
 // Extension
 // ---------------------------------------------------------------------------
+/**
+ * Local stand-in for the SDK's `defineExtension` identity helper.
+ *
+ * Declared here rather than imported so this package keeps a type-only
+ * dependency on `@unbrained/pm-cli` and adds no runtime module edge. The
+ * generic constraint is the SDK's own, so the extension object is contract-
+ * checked against {@link ExtensionModule} exactly as the imported helper would.
+ */
+const defineExtension = (module) => module;
 export default defineExtension({
     name: "pm-ops",
     version: "2026.7.26",

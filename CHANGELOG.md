@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Removed
+
+- Adopt pm-cli 2026.7.26 typed authoring contracts and remove the any-cast defineExtension shim ([ops-l8bf](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-l8bf.toon))
+
 ## 2026.7.26 - 2026-07-26
 
 ### Other

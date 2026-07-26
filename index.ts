@@ -1,15 +1,14 @@
+import type { ExtensionApi, ExtensionModule } from "@unbrained/pm-cli/sdk/authoring";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { devNull, homedir } from "node:os";
 import { resolve, basename, dirname, join, relative } from "node:path";
 import type {
-  defineExtension as defineExtensionType,
   ParserOverrideContext,
   ParserOverrideDelta,
 } from "@unbrained/pm-cli/sdk";
 
-const defineExtension: typeof defineExtensionType = ((extension: any) => extension) as any;
 
 // ---------------------------------------------------------------------------
 // Error contract — mirror pm-cli SDK EXIT_CODE so the host treats thrown
@@ -1819,11 +1818,21 @@ function emitResult(structured: unknown, format: OutputFormat, outputPath: strin
 // Extension
 // ---------------------------------------------------------------------------
 
+/**
+ * Local stand-in for the SDK's `defineExtension` identity helper.
+ *
+ * Declared here rather than imported so this package keeps a type-only
+ * dependency on `@unbrained/pm-cli` and adds no runtime module edge. The
+ * generic constraint is the SDK's own, so the extension object is contract-
+ * checked against {@link ExtensionModule} exactly as the imported helper would.
+ */
+const defineExtension = <TModule extends ExtensionModule>(module: TModule): TModule => module;
+
 export default defineExtension({
   name: "pm-ops",
   version: "2026.7.26",
 
-  activate(api: any) {
+  activate(api: ExtensionApi) {
     if (typeof api.registerRenderer === "function") {
       api.registerRenderer("toon", renderCommandResult);
       api.registerRenderer("json", renderCommandResult);
