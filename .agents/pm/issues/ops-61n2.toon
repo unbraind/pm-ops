@@ -1,0 +1,13 @@
+id: ops-61n2
+title: All eight ops commands fail to register on pm-cli 2026.7.27 because each redeclares the host-owned --json global
+description: "pm-cli 2026.7.27 (GH-719) makes the host reject any extension command whose flags shadow a host-owned global flag. All eight ops commands (scan, policy, verify-release, report, status, outdated, audit, metrics) declared { long: \"--json\" } in their flags array, so every registerCommand call threw and every command failed to register against a real pm host. The suite never caught this because every functional test built a hand-rolled api double that accepts all registrations unconditionally. Fix: drop all eight --json flag declarations, read the value from ctx.global.json via resolveFormat(options, ctx.global) (and directly from ctx.global for ops metrics), rebuild the smoke suite on the SDK createExtensionTestHarness so pm's real activation engine validates registration, and add a suite-wide guard asserting no registered command redeclares any of the nine host-owned globals."
+type: Issue
+status: in_progress
+priority: 1
+tags: []
+created_at: "2026-07-27T05:01:20.976Z"
+updated_at: "2026-07-27T05:01:27.459Z"
+author: pi-agent
+notes[1]{created_at,author,text}:
+  "2026-07-27T05:01:27.459Z",pi-agent,"Verified end-to-end: activation probe prints failed=[]; full suite 44 pass / 2 skip / 0 fail; release:check green; installed pm CLI routes --repos values test confirms all 8 commands register and route correctly against the real host."
+body: ""
