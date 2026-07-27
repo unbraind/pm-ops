@@ -201,8 +201,10 @@ function resolveRepos(options, args = []) {
         return repos.flatMap((r) => expandSimpleGlob(r));
     return [process.cwd()];
 }
-function resolveFormat(options) {
-    if (readBool(options, "json"))
+function resolveFormat(options, global) {
+    // `--json` is a host-owned global flag: extensions must not redeclare it
+    // (the host rejects the registration) and must read it from ctx.global.
+    if (global?.json === true)
         return "json";
     const raw = readString(options, "format")?.toLowerCase();
     if (raw === "json" || raw === "markdown" || raw === "toon")
@@ -1529,7 +1531,7 @@ function emitResult(structured, format, outputPath, formatter) {
 const defineExtension = (module) => module;
 export default defineExtension({
     name: "pm-ops",
-    version: "2026.7.26",
+    version: "2026.7.27",
     activate(api) {
         if (typeof api.registerRenderer === "function") {
             api.registerRenderer("toon", renderCommandResult);
@@ -1552,14 +1554,13 @@ export default defineExtension({
             ],
             flags: [
                 reposFlag("Repo paths to scan (comma-separated or repeatable; default: current dir)"),
-                { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
                 { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
                 { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
             ],
             async run(ctx) {
                 const options = ctx.options;
                 const repos = resolveRepos(options, ctx.args);
-                const format = resolveFormat(options);
+                const format = resolveFormat(options, ctx.global);
                 const outputPath = readString(options, "output");
                 console.error(`pm-ops scan: ${repos.length} repo(s)`);
                 const result = scanRepos(repos, (m) => console.error(`  ${m}`));
@@ -1585,7 +1586,6 @@ export default defineExtension({
             flags: [
                 reposFlag("Repo paths to check (comma-separated or repeatable; default: current dir)"),
                 { long: "--policy", value_name: "file", description: "JSON policy bundle overriding the default checks" },
-                { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
                 { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
                 { long: "--strict", description: "Exit non-zero on any failed check (any severity)" },
                 { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
@@ -1593,7 +1593,7 @@ export default defineExtension({
             async run(ctx) {
                 const options = ctx.options;
                 const repos = resolveRepos(options, ctx.args);
-                const format = resolveFormat(options);
+                const format = resolveFormat(options, ctx.global);
                 const strict = readBool(options, "strict");
                 const outputPath = readString(options, "output");
                 let bundle = DEFAULT_POLICY;
@@ -1640,14 +1640,13 @@ export default defineExtension({
             ],
             flags: [
                 reposFlag("Repo paths to verify (comma-separated or repeatable; default: current dir)"),
-                { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
                 { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
                 { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
             ],
             async run(ctx) {
                 const options = ctx.options;
                 const repos = resolveRepos(options, ctx.args);
-                const format = resolveFormat(options);
+                const format = resolveFormat(options, ctx.global);
                 const outputPath = readString(options, "output");
                 console.error(`pm-ops verify-release: ${repos.length} repo(s)`);
                 const result = verifyRelease(repos, (m) => console.error(`  ${m}`));
@@ -1710,7 +1709,6 @@ export default defineExtension({
             ],
             flags: [
                 reposFlag("Repo paths to report on (comma-separated or repeatable; default: current dir)"),
-                { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
                 { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
                 { long: "--output", value_name: "file", description: "Write the rendered report to a file instead of stdout" },
                 { long: "--include-release", description: "Also run verify-release and include results in the report" },
@@ -1718,7 +1716,7 @@ export default defineExtension({
             async run(ctx) {
                 const options = ctx.options;
                 const repos = resolveRepos(options, ctx.args);
-                const format = resolveFormat(options);
+                const format = resolveFormat(options, ctx.global);
                 const outputPath = readString(options, "output");
                 const includeRelease = readBool(options, "include-release");
                 console.error(`pm-ops report: ${repos.length} repo(s)${includeRelease ? " (+release)" : ""}`);
@@ -1743,14 +1741,13 @@ export default defineExtension({
             ],
             flags: [
                 reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
-                { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
                 { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
                 { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
             ],
             async run(ctx) {
                 const options = ctx.options;
                 const repos = resolveRepos(options, ctx.args);
-                const format = resolveFormat(options);
+                const format = resolveFormat(options, ctx.global);
                 const outputPath = readString(options, "output");
                 console.error(`pm-ops status: ${repos.length} repo(s)`);
                 const result = collectStatusAll(repos, (m) => console.error(`  ${m}`));
@@ -1772,14 +1769,13 @@ export default defineExtension({
             ],
             flags: [
                 reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
-                { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
                 { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
                 { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
             ],
             async run(ctx) {
                 const options = ctx.options;
                 const repos = resolveRepos(options, ctx.args);
-                const format = resolveFormat(options);
+                const format = resolveFormat(options, ctx.global);
                 const outputPath = readString(options, "output");
                 console.error(`pm-ops outdated: ${repos.length} repo(s)`);
                 const result = collectOutdatedAll(repos, (m) => console.error(`  ${m}`));
@@ -1801,14 +1797,13 @@ export default defineExtension({
             ],
             flags: [
                 reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
-                { long: "--json", description: "Emit clean JSON to stdout (progress on stderr)" },
                 { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
                 { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
             ],
             async run(ctx) {
                 const options = ctx.options;
                 const repos = resolveRepos(options, ctx.args);
-                const format = resolveFormat(options);
+                const format = resolveFormat(options, ctx.global);
                 const outputPath = readString(options, "output");
                 console.error(`pm-ops audit: ${repos.length} repo(s)`);
                 const result = collectAuditAll(repos, (m) => console.error(`  ${m}`));
@@ -1835,7 +1830,6 @@ export default defineExtension({
             flags: [
                 reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
                 { long: "--stale-days", value_name: "days", description: "Age (days) after which an active item counts as stale (default: 14)" },
-                { long: "--json", description: "Emit clean JSON to stdout (progress on stderr); overrides the default Prometheus output" },
                 { long: "--format", value_name: "prometheus|json|toon", description: "Output format (default: prometheus)" },
                 { long: "--output", value_name: "file", description: "Write output to a file instead of stdout (e.g. a node_exporter .prom textfile)" },
             ],
@@ -1850,10 +1844,13 @@ export default defineExtension({
                 // ops commands (and the fleet routing contract that scrapes payload.repos).
                 // The installed CLI consumes global --json into ctx.global (not
                 // ctx.options), so — unlike the other commands whose default returns a
-                // bare object the JSON renderer can serialize — the metrics default is a
-                // pre-rendered Prometheus string and must consult ctx.global explicitly.
+                // `--json` is a host-owned global flag: extensions must not redeclare it
+                // (the host rejects the registration) and must read it from ctx.global.
+                // The metrics default is a pre-rendered Prometheus string, so — unlike
+                // the other commands whose default returns a bare object the JSON
+                // renderer can serialize — it must consult ctx.global explicitly.
                 const global = (ctx.global ?? {});
-                const wantsJson = readBool(options, "json") || global.json === true || global.defaultOutputFormat === "json";
+                const wantsJson = global.json === true || global.defaultOutputFormat === "json";
                 const format = wantsJson
                     ? "json"
                     : rawFormat === "json" || rawFormat === "toon"
