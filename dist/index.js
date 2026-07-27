@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { createRequire } from "node:module";
 import { devNull, homedir } from "node:os";
 import { resolve, basename, dirname, join, relative } from "node:path";
+import { listMergeReceipts, auditMergeDriverConfiguration, auditMergeAttributeFence, findGitWorkspaceRoot, } from "@unbrained/pm-cli/sdk/merge";
 // ---------------------------------------------------------------------------
 // Error contract — mirror pm-cli SDK EXIT_CODE so the host treats thrown
 // CommandError as a clean non-zero exit instead of re-invoking the handler.
@@ -57,6 +58,7 @@ const OPS_COMMAND_PATHS = [
     "ops outdated",
     "ops audit",
     "ops metrics",
+    "ops merge-receipts",
 ];
 function additionalRepoArguments() {
     return [{
@@ -401,6 +403,24 @@ const pmBlockedCache = new Map();
 /** Per-scrape read caches. Cleared together so a fresh scrape re-reads pm. */
 const PM_READ_CACHES = [pmItemsCache, pmAllItemsCache, pmBlockedCache];
 /**
+ * Narrow the `pm <subcommand> --json` payload to its item array without an `any`
+ * cast. The CLI returns either a bare array or an envelope object (`{ items: [...] }`
+ * / `{ results: [...] }`); both shapes are accepted, everything else falls back to
+ * an empty array so a malformed envelope never reaches the item filter.
+ */
+function extractPmListBody(parsed) {
+    if (Array.isArray(parsed))
+        return parsed;
+    if (parsed && typeof parsed === "object") {
+        const obj = parsed;
+        if (Array.isArray(obj.items))
+            return obj.items;
+        if (Array.isArray(obj.results))
+            return obj.results;
+    }
+    return [];
+}
+/**
  * Read pm items for a repo via one `pm <subcommand> --json` invocation, extract
  * the item array, and memoize the result per repo in the supplied cache. Single
  * implementation shared by the active-list, full-list, and blocked-list readers
@@ -425,7 +445,7 @@ function readPmItemList(repoPath, subcommand, cache) {
     const parsed = parseJsonSafe(r.stdout);
     if (!parsed)
         return set(null);
-    const items = Array.isArray(parsed) ? parsed : parsed.items ?? parsed.results ?? [];
+    const items = extractPmListBody(parsed);
     if (!Array.isArray(items))
         return set(null);
     return set(items.filter((it) => Boolean(it) && typeof it === "object" && typeof it.id === "string"));
@@ -947,7 +967,7 @@ function renderVerifyReleaseMarkdown(result) {
     lines.push("");
     return lines.join("\n");
 }
-function collectStatus(repoPath) {
+async function collectStatus(repoPath) {
     if (!existsSync(repoPath)) {
         return {
             path: repoPath,
@@ -959,6 +979,7 @@ function collectStatus(repoPath) {
             audit_critical: null,
             audit_high: null,
             outdated_count: null,
+            pending_receipts: null,
         };
     }
     const pkg = readPackageJson(repoPath);
@@ -1005,28 +1026,39 @@ function collectStatus(repoPath) {
         issues.push(`${audit_high} high vuln(s)`);
     const items = readPmItems(repoPath);
     const pm_open_items = items ? items.filter((i) => (i.status ?? "").toLowerCase() === "open").length : null;
+    // Surface clone-local pending merge receipts so the default health view shows
+    // unreconciled merge decisions (a peer's scalar edit silently dropped by the
+    // field-aware driver). Pending receipts do not gate `ready` here — `ops
+    // merge-receipts` is the dedicated gate — but the count is pushed to issues so
+    // the compact view surfaces it without a separate command.
+    const pendingReceipts = await listMergeReceipts(repoPath, { includeReconciled: false });
+    const pending_receipts = pendingReceipts.length;
+    if (pending_receipts > 0)
+        issues.push(`${pending_receipts} pending merge receipt(s)`);
     // ready gates only on critical vulns, not high — aligned with scanRepo.
     const auditGate = passesAuditGate(audit_critical, issues);
-    const ready = issues.filter((i) => !i.includes("high vuln")).length === 0 && auditGate;
-    return { path: repoPath, name, version, ready, issues, pm_open_items, audit_critical, audit_high, outdated_count };
+    const ready = issues.filter((i) => !i.includes("high vuln") && !i.includes("pending merge receipt")).length === 0 && auditGate;
+    return { path: repoPath, name, version, ready, issues, pm_open_items, audit_critical, audit_high, outdated_count, pending_receipts };
 }
-function collectStatusAll(repos, progress) {
-    const results = repos.map((repo) => {
+async function collectStatusAll(repos, progress) {
+    const results = [];
+    for (const repo of repos) {
         progress(`status ${repo}`);
-        return collectStatus(repo);
-    });
+        results.push(await collectStatus(repo));
+    }
     const ready = results.filter((r) => r.ready).length;
     const totalIssues = results.reduce((sum, r) => sum + r.issues.length, 0);
-    return { repos: results, summary: { total: results.length, ready, not_ready: results.length - ready, total_issues: totalIssues } };
+    const totalPendingReceipts = results.reduce((sum, r) => sum + (r.pending_receipts ?? 0), 0);
+    return { repos: results, summary: { total: results.length, ready, not_ready: results.length - ready, total_issues: totalIssues, total_pending_receipts: totalPendingReceipts } };
 }
 function renderStatusMarkdown(result) {
     const lines = [];
     lines.push("# pm-ops status");
     lines.push("");
-    lines.push(`Fleet: **${result.summary.total}** repo(s) — **${result.summary.ready}** ready, **${result.summary.not_ready}** not ready, **${result.summary.total_issues}** issue(s).`);
+    lines.push(`Fleet: **${result.summary.total}** repo(s) — **${result.summary.ready}** ready, **${result.summary.not_ready}** not ready, **${result.summary.total_issues}** issue(s), **${result.summary.total_pending_receipts}** pending merge receipt(s).`);
     lines.push("");
-    lines.push(renderMarkdownRow(["repo", "version", "ready", "open items", "outdated", "critical", "high", "issues"]));
-    lines.push(renderMarkdownRow(["---", "---", "---", "---", "---", "---", "---", "---"]));
+    lines.push(renderMarkdownRow(["repo", "version", "ready", "open items", "outdated", "critical", "high", "pending receipts", "issues"]));
+    lines.push(renderMarkdownRow(["---", "---", "---", "---", "---", "---", "---", "---", "---"]));
     for (const r of result.repos) {
         lines.push(renderMarkdownRow([
             r.name ?? basename(r.path),
@@ -1036,6 +1068,7 @@ function renderStatusMarkdown(result) {
             formatCount(r.outdated_count),
             formatCount(r.audit_critical),
             formatCount(r.audit_high),
+            formatCount(r.pending_receipts),
             r.issues.length === 0 ? "-" : r.issues.join("; ").replace(/\|/g, "\\|").slice(0, 200),
         ]));
     }
@@ -1169,6 +1202,203 @@ function renderAuditMarkdown(result) {
     lines.push("");
     return lines.join("\n");
 }
+// ---------------------------------------------------------------------------
+// merge-receipts — gate on clone-local field-aware merge decision receipts
+// ---------------------------------------------------------------------------
+/** Tracker infrastructure directories that are not item-type folders.
+ * `history`, `schema`, `settings.json`, and the relationship JSONL glob are
+ * fenced by `buildMergeAttributePatterns` regardless of the type-folder list,
+ * so excluding `history`/`schema` here does not lose their coverage. `runtime`
+ * and `locks` are scratch/state directories. `extensions` and `search` are
+ * infrastructure directories `pm init` creates (extension-installed item
+ * storage and the search index) that `pm merge install` deliberately does NOT
+ * fence, so leaving them in would make the fence audit report perpetual
+ * `drift` on every healthy `pm init` + `pm merge install` clone. */
+const MERGE_FENCE_EXCLUDED_DIRS = new Set(["schema", "history", "runtime", "locks", "extensions", "search"]);
+/**
+ * Strip one matched layer of surrounding single or double quotes from a merge
+ * receipt `item_path`. Upstream pm-cli records the Git `%P` placeholder value
+ * verbatim, and Git passes item paths wrapped in literal `'` quotes (see
+ * unbraind/pm-cli#771), so the raw receipt value is `'.agents/pm/tasks/x.toon'`
+ * rather than `.agents/pm/tasks/x.toon`. The normalization is intentionally a
+ * single layer (not a loop) so a path genuinely containing a leading/trailing
+ * quote character is not over-stripped; the raw value is always preserved
+ * alongside the normalized one so nothing is hidden. Removable once #771 lands.
+ */
+function normalizeItemPath(raw) {
+    const len = raw.length;
+    if (len >= 2 && ((raw[0] === "'" && raw[len - 1] === "'") || (raw[0] === '"' && raw[len - 1] === '"'))) {
+        return raw.slice(1, -1);
+    }
+    return raw;
+}
+/**
+ * Enumerate the tracker item-type folders under a pm root so the merge-fence
+ * audit compares the committed `.gitattributes` block against the types the
+ * workspace actually uses. Type folders are the directories that hold item
+ * documents; `schema`, `history`, `runtime`, and `locks` are tracker
+ * infrastructure rather than item types and are excluded.
+ */
+function discoverTypeFolders(pmRoot) {
+    if (!existsSync(pmRoot))
+        return [];
+    return readdirSync(pmRoot, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && !MERGE_FENCE_EXCLUDED_DIRS.has(entry.name))
+        .map((entry) => entry.name)
+        .sort();
+}
+/**
+ * Project a clone-local {@link MergeDecisionReceipt} into the fleet report view,
+ * normalizing the quoted `item_path` (unbraind/pm-cli#771) while preserving the
+ * raw value so the unmodified Git record is never hidden.
+ */
+function toReceiptView(receipt) {
+    return {
+        id: receipt.id,
+        item_id: receipt.item_id,
+        item_path: normalizeItemPath(receipt.item_path),
+        item_path_raw: receipt.item_path,
+        state: receipt.state,
+        preferred: receipt.preferred,
+        fields_from_theirs: receipt.fields_from_theirs,
+        union_fields: receipt.union_fields,
+        decisions: receipt.decisions.map((d) => ({
+            field: d.field,
+            base: d.base,
+            ours: d.ours,
+            theirs: d.theirs,
+            retained: d.retained,
+            discarded: d.discarded,
+        })),
+        created_at: receipt.created_at,
+        reconciled_at: receipt.reconciled_at,
+    };
+}
+/**
+ * Collect the merge-receipt report for one repo: resolves the git workspace
+ * root, audits the clone-local merge-driver configuration and the committed
+ * `.gitattributes` fence, and reads every (pending, or all) receipt the
+ * field-aware driver wrote under `.git/pm-merge-receipts/`. Repos outside git
+ * are reported with `available: false` and empty receipts — the gate treats
+ * them as not-installed only when a pm workspace expects the driver.
+ */
+async function collectMergeReceiptsRepo(repoPath, includeReconciled) {
+    const pkg = readPackageJson(repoPath);
+    const name = pkg?.name ?? null;
+    const gitRoot = await findGitWorkspaceRoot(repoPath);
+    if (gitRoot === null) {
+        return { path: repoPath, name, available: false, driver: null, fence: null, receipts: [], pending_count: 0, reconciled_count: 0 };
+    }
+    // Discover the tracker root instead of assuming one. `.agents/pm` is the fleet
+    // convention, but `.pm` is equally valid and a relocated tracker is legal, so a
+    // hardcoded path made every non-conventional repo report a missing fence and
+    // spuriously fail the gate. The SDK exposes no public tracker-root discovery
+    // helper (only findGitWorkspaceRoot / ensureTrackerInitialized), so the
+    // conventional roots are probed in order.
+    const pmRoot = [join(repoPath, ".agents", "pm"), join(repoPath, ".pm")].find((candidate) => existsSync(join(candidate, "settings.json")));
+    // A git repo with NO pm workspace has no merge-safety obligation at all: there
+    // are no tracker artifacts for the field-aware driver to protect and no fence to
+    // audit. Reporting either as missing would fail the gate over a repo that is
+    // correctly configured for what it is, so both are reported as `null`
+    // (not-applicable) and both summary counts exclude `null` by design.
+    const driver = pmRoot === undefined
+        ? null
+        : await auditMergeDriverConfiguration(gitRoot);
+    // The fence audit compares the committed block against the active schema's
+    // type folders.
+    const fence = pmRoot === undefined
+        ? null
+        : await auditMergeAttributeFence(pmRoot, discoverTypeFolders(pmRoot));
+    const receipts = await listMergeReceipts(repoPath, { includeReconciled });
+    const views = receipts.map(toReceiptView);
+    const pending_count = views.filter((r) => r.state === "pending").length;
+    const reconciled_count = views.filter((r) => r.state === "reconciled").length;
+    return { path: repoPath, name, available: true, driver, fence, receipts: views, pending_count, reconciled_count };
+}
+/**
+ * Collect merge-receipt reports across many repos in the order passed on
+ * `--repos`, rolling per-repo counts into fleet-wide gate signals. A receipt is
+ * `pending` until `pm merge reconcile` embeds it into committed history; the
+ * gate fails when any pending receipt or any missing driver/fence is found.
+ */
+async function collectMergeReceiptsAll(repos, includeReconciled, progress) {
+    const repoReports = [];
+    for (const repo of repos) {
+        progress(`merge-receipts ${repoLabel(repo)}`);
+        repoReports.push(await collectMergeReceiptsRepo(repo, includeReconciled));
+    }
+    const total = repoReports.length;
+    const with_pending = repoReports.filter((r) => r.pending_count > 0).length;
+    const total_pending = repoReports.reduce((sum, r) => sum + r.pending_count, 0);
+    const total_reconciled = repoReports.reduce((sum, r) => sum + r.reconciled_count, 0);
+    const missing_driver = repoReports.filter((r) => r.driver?.status === "missing").length;
+    const missing_fence = repoReports.filter((r) => r.fence?.status === "not_installed").length;
+    return {
+        generated_at: new Date().toISOString(),
+        repos: repoReports,
+        summary: { total, with_pending, total_pending, total_reconciled, missing_driver, missing_fence },
+    };
+}
+/** Render an unknown retained/discarded value as a short, single-line markdown cell. */
+function describeDecisionValue(value) {
+    if (value === undefined)
+        return "-";
+    const text = typeof value === "string" ? value : JSON.stringify(value);
+    return text.replace(/\|/g, "\\|").replace(/\s+/g, " ").slice(0, 120);
+}
+/**
+ * Render the merge-receipt report as a GitHub-flavoured markdown document: a
+ * fleet summary table, a per-repo driver/fence status line, and one row per
+ * receipt with its state, item id, normalized path, preferred side, and the
+ * retained/discarded values for every scalar conflict decision.
+ */
+function renderMergeReceiptsMarkdown(result) {
+    const lines = [];
+    lines.push("# pm-ops merge-receipts");
+    lines.push("");
+    lines.push(`Scanned **${result.summary.total}** repo(s): **${result.summary.total_pending}** pending receipt(s), ` +
+        `**${result.summary.total_reconciled}** reconciled, **${result.summary.missing_driver}** missing driver(s), ` +
+        `**${result.summary.missing_fence}** missing fence(s).`);
+    lines.push("");
+    lines.push(renderMarkdownRow(["repo", "available", "driver", "fence", "pending", "reconciled"]));
+    lines.push(renderMarkdownRow(["---", "---", "---", "---", "---", "---"]));
+    for (const repo of result.repos) {
+        lines.push(renderMarkdownRow([
+            repo.name ?? basename(repo.path),
+            repo.available ? "yes" : "no",
+            repo.driver ? repo.driver.status : "-",
+            repo.fence ? repo.fence.status : "-",
+            String(repo.pending_count),
+            String(repo.reconciled_count),
+        ]));
+    }
+    lines.push("");
+    for (const repo of result.repos) {
+        if (repo.receipts.length === 0)
+            continue;
+        lines.push(`## ${repo.name ?? basename(repo.path)}`);
+        lines.push("");
+        lines.push(renderMarkdownRow(["receipt", "item_id", "state", "item_path", "preferred", "field", "retained", "discarded"]));
+        lines.push(renderMarkdownRow(["---", "---", "---", "---", "---", "---", "---", "---"]));
+        for (const receipt of repo.receipts) {
+            const decisions = receipt.decisions.length > 0 ? receipt.decisions : [{ field: "-", retained: "-", discarded: "-" }];
+            for (const decision of decisions) {
+                lines.push(renderMarkdownRow([
+                    receipt.id,
+                    receipt.item_id,
+                    receipt.state,
+                    receipt.item_path,
+                    receipt.preferred,
+                    decision.field,
+                    describeDecisionValue(decision.retained),
+                    describeDecisionValue(decision.discarded),
+                ]));
+            }
+        }
+        lines.push("");
+    }
+    return lines.join("\n");
+}
 function buildReport(repos, progress, includeRelease = false) {
     const scan = scanRepos(repos, progress);
     const policy = runPolicy(repos, DEFAULT_POLICY, progress);
@@ -1292,7 +1522,7 @@ function parseTime(value) {
     const t = Date.parse(value);
     return Number.isFinite(t) ? t : null;
 }
-function computeRepoMetrics(repo, nowMs, staleThresholdDays) {
+async function computeRepoMetrics(repo, nowMs, staleThresholdDays) {
     const items = readAllPmItems(repo);
     const name = repoLabel(repo);
     const path = resolve(repo);
@@ -1312,6 +1542,10 @@ function computeRepoMetrics(repo, nowMs, staleThresholdDays) {
             cycle_time_p90_seconds: null,
             backlog_age_p50_seconds: null,
             backlog_age_p90_seconds: null,
+            merge_receipts_pending: 0,
+            merge_receipts_reconciled: 0,
+            merge_driver_installed: 0,
+            merge_fence_installed: 0,
         };
     }
     const status_counts = {};
@@ -1352,6 +1586,11 @@ function computeRepoMetrics(repo, nowMs, staleThresholdDays) {
             }
         }
     }
+    // Merge-receipt / driver / fence audit (clone-local, git-level). Computed
+    // for every repo with a pm workspace so Prometheus can alarm on silent merge
+    // drops and missing merge-safety configuration. Reuses the merge-receipts
+    // collector so the two surfaces never drift on what "installed" means.
+    const merge = await collectMergeReceiptsRepo(repo, true);
     return {
         path,
         repo: name,
@@ -1367,9 +1606,13 @@ function computeRepoMetrics(repo, nowMs, staleThresholdDays) {
         cycle_time_p90_seconds: percentile(cycleTimes, 0.9),
         backlog_age_p50_seconds: percentile(backlogAges, 0.5),
         backlog_age_p90_seconds: percentile(backlogAges, 0.9),
+        merge_receipts_pending: merge.pending_count,
+        merge_receipts_reconciled: merge.reconciled_count,
+        merge_driver_installed: merge.driver ? (merge.driver.status === "missing" ? 0 : 1) : 0,
+        merge_fence_installed: merge.fence ? (merge.fence.status === "not_installed" ? 0 : 1) : 0,
     };
 }
-function collectMetricsAll(repos, staleThresholdDays, progress) {
+async function collectMetricsAll(repos, staleThresholdDays, progress) {
     // A Prometheus exporter is scraped repeatedly. The module-level read caches
     // dedupe pm invocations *within one scrape*, but must not survive across
     // scrapes — otherwise a long-lived host re-invoking this handler would serve
@@ -1381,7 +1624,7 @@ function collectMetricsAll(repos, staleThresholdDays, progress) {
     const repoMetrics = [];
     for (const repo of repos) {
         progress(`metrics: ${repoLabel(repo)}`);
-        repoMetrics.push(computeRepoMetrics(repo, nowMs, staleThresholdDays));
+        repoMetrics.push(await computeRepoMetrics(repo, nowMs, staleThresholdDays));
     }
     disambiguateRepoLabels(repoMetrics);
     return {
@@ -1463,8 +1706,18 @@ function renderMetricsPrometheus(result) {
     const cycleSamples = [];
     const backlogSamples = [];
     const availableSamples = [];
+    const mergePendingSamples = [];
+    const mergeReconciledSamples = [];
+    const mergeDriverSamples = [];
+    const mergeFenceSamples = [];
     for (const repo of result.repos) {
         availableSamples.push(metricLine("pm_workspace_available", { repo: repo.repo }, repo.available ? 1 : 0));
+        // Merge-receipt / driver / fence gauges are git-level (clone-local), so
+        // they are emitted for every repo — including those without a pm workspace.
+        mergePendingSamples.push(metricLine("pm_merge_receipts_pending", { repo: repo.repo }, repo.merge_receipts_pending));
+        mergeReconciledSamples.push(metricLine("pm_merge_receipts_reconciled", { repo: repo.repo }, repo.merge_receipts_reconciled));
+        mergeDriverSamples.push(metricLine("pm_merge_driver_installed", { repo: repo.repo }, repo.merge_driver_installed));
+        mergeFenceSamples.push(metricLine("pm_merge_fence_installed", { repo: repo.repo }, repo.merge_fence_installed));
         if (!repo.available)
             continue;
         for (const [status, count] of Object.entries(repo.status_counts)) {
@@ -1499,6 +1752,10 @@ function renderMetricsPrometheus(result) {
     push("pm_cycle_time_seconds", "Cycle time (closed_at - created_at) of closed items, by quantile.", "gauge", cycleSamples);
     push("pm_backlog_age_seconds", "Age (now - created_at) of active items, by quantile.", "gauge", backlogSamples);
     push("pm_workspace_available", "1 if the repo exposed a readable pm workspace, else 0.", "gauge", availableSamples);
+    push("pm_merge_receipts_pending", "Clone-local merge decision receipts not yet represented in committed history (state: pending).", "gauge", mergePendingSamples);
+    push("pm_merge_receipts_reconciled", "Clone-local merge decision receipts already embedded in committed history (state: reconciled).", "gauge", mergeReconciledSamples);
+    push("pm_merge_driver_installed", "1 if the pm field-aware merge driver is installed in clone-local git config (not missing), else 0.", "gauge", mergeDriverSamples);
+    push("pm_merge_fence_installed", "1 if a committed .gitattributes merge-driver fence is present (not missing), else 0.", "gauge", mergeFenceSamples);
     push("pm_repos_scanned", "Number of repos with a readable pm workspace.", "gauge", [metricLine("pm_repos_scanned", {}, result.repos_scanned)]);
     push("pm_scrape_duration_seconds", "Time spent collecting pm metrics for this scrape.", "gauge", [metricLine("pm_scrape_duration_seconds", {}, result.scrape_duration_seconds)]);
     return lines.join("\n") + "\n";
@@ -1718,7 +1975,7 @@ export default defineExtension({
                 const repos = resolveRepos(options, ctx.args);
                 const format = resolveFormat(options, ctx.global);
                 const outputPath = readString(options, "output");
-                const includeRelease = readBool(options, "include-release");
+                const includeRelease = readBool(options, "includeRelease", "include-release");
                 console.error(`pm-ops report: ${repos.length} repo(s)${includeRelease ? " (+release)" : ""}`);
                 const result = buildReport(repos, (m) => console.error(`  ${m}`), includeRelease);
                 console.error(`report: scan ${result.scan.summary.ready}/${result.scan.summary.total} ready; policy ${result.policy.summary.failed} failed${result.release ? `; release ${result.release.summary.passed}/${result.release.summary.total} passed` : ""}`);
@@ -1750,7 +2007,7 @@ export default defineExtension({
                 const format = resolveFormat(options, ctx.global);
                 const outputPath = readString(options, "output");
                 console.error(`pm-ops status: ${repos.length} repo(s)`);
-                const result = collectStatusAll(repos, (m) => console.error(`  ${m}`));
+                const result = await collectStatusAll(repos, (m) => console.error(`  ${m}`));
                 console.error(`status: ${result.summary.ready}/${result.summary.total} ready, ${result.summary.total_issues} issue(s)`);
                 return emitResult(result, format, outputPath, () => renderStatusMarkdown(result));
             },
@@ -1849,7 +2106,7 @@ export default defineExtension({
                 // The metrics default is a pre-rendered Prometheus string, so — unlike
                 // the other commands whose default returns a bare object the JSON
                 // renderer can serialize — it must consult ctx.global explicitly.
-                const global = (ctx.global ?? {});
+                const global = ctx.global;
                 const wantsJson = global.json === true || global.defaultOutputFormat === "json";
                 const format = wantsJson
                     ? "json"
@@ -1857,7 +2114,7 @@ export default defineExtension({
                         ? rawFormat
                         : "prometheus";
                 console.error(`pm-ops metrics: ${repos.length} repo(s), stale threshold ${staleThresholdDays}d`);
-                const result = collectMetricsAll(repos, staleThresholdDays, (m) => console.error(`  ${m}`));
+                const result = await collectMetricsAll(repos, staleThresholdDays, (m) => console.error(`  ${m}`));
                 console.error(`metrics: ${result.repos_scanned}/${repos.length} workspace(s) readable`);
                 if (format === "prometheus") {
                     const body = renderMetricsPrometheus(result);
@@ -1882,6 +2139,80 @@ export default defineExtension({
                     return emitResult(result, format === "json" ? "json" : "toon", outputPath, () => renderMetricsPrometheus(result));
                 }
                 return result;
+            },
+        });
+        api.registerCommand({
+            name: "ops merge-receipts",
+            description: "Audit clone-local merge decision receipts and merge-safety configuration across repos. " +
+                "For each repo reports the field-aware merge-driver configuration audit, the committed " +
+                ".gitattributes merge-fence audit, and every receipt the driver wrote under " +
+                ".git/pm-merge-receipts/ with its state, item_id, conflicting fields, and the retained/" +
+                "discarded values. Normalizes the quoted item_path (unbraind/pm-cli#771) while preserving " +
+                "the raw value. Exits non-zero when any receipt is still pending (a peer scalar edit was " +
+                "silently dropped and exists nowhere in committed history) or when the merge driver / fence " +
+                "is missing in a scanned repo — the gate pm validate cannot (unbraind/pm-cli#770). " +
+                "--warn-only reports identically but always exits 0.",
+            intent: "gate fleet merges on clone-local decision receipts and merge-driver safety",
+            arguments: additionalRepoArguments(),
+            examples: [
+                "pm ops merge-receipts",
+                "pm ops merge-receipts --repos ./pm-csv ./pm-github",
+                "pm ops merge-receipts --json",
+                "pm ops merge-receipts --warn-only",
+                "pm ops merge-receipts --include-reconciled --format markdown",
+                "pm ops merge-receipts --repos ~/container/pm-* --format markdown --output MERGE.md",
+            ],
+            flags: [
+                reposFlag("Repo paths to audit (comma-separated or repeatable; default: current dir)"),
+                { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
+                { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
+                { long: "--warn-only", description: "Report identically but always exit 0 (never fail the gate)" },
+                { long: "--include-reconciled", description: "Include receipts already represented in committed history (default: pending only)" },
+            ],
+            async run(ctx) {
+                const options = ctx.options;
+                const repos = resolveRepos(options, ctx.args);
+                const format = resolveFormat(options, ctx.global);
+                const outputPath = readString(options, "output");
+                const warnOnly = readBool(options, "warnOnly", "warn-only");
+                const includeReconciled = readBool(options, "includeReconciled", "include-reconciled");
+                console.error(`pm-ops merge-receipts: ${repos.length} repo(s)${includeReconciled ? " (+reconciled)" : ""}${warnOnly ? " [warn-only]" : ""}`);
+                const result = await collectMergeReceiptsAll(repos, includeReconciled, (m) => console.error(`  ${m}`));
+                console.error(`merge-receipts: ${result.summary.total_pending} pending, ${result.summary.total_reconciled} reconciled, ` +
+                    `${result.summary.missing_driver} missing driver(s), ${result.summary.missing_fence} missing fence(s)`);
+                const shouldFail = !warnOnly && (result.summary.total_pending > 0 || result.summary.missing_driver > 0 || result.summary.missing_fence > 0);
+                if (shouldFail) {
+                    // Emit the report before throwing so agents get the full diagnostics AND
+                    // the non-zero exit, matching how `ops verify-release` behaves on failure.
+                    //
+                    // Throwing bypasses the host's renderer, so the report has to be written
+                    // to stdout here. That means the default `toon` format cannot be honored
+                    // on the failure path — the host is what serializes TOON. JSON is used
+                    // instead, and the substitution is announced on stderr rather than being
+                    // a silent format change an agent would have to discover by parsing.
+                    if (outputPath) {
+                        emitResult(result, format, outputPath, () => renderMergeReceiptsMarkdown(result));
+                    }
+                    else if (format === "markdown") {
+                        const md = renderMergeReceiptsMarkdown(result);
+                        process.stdout.write(md.endsWith("\n") ? md : `${md}\n`);
+                    }
+                    else {
+                        if (format === "toon") {
+                            console.error("merge-receipts: gate failed — emitting JSON (the host TOON renderer is bypassed by the non-zero exit)");
+                        }
+                        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+                    }
+                    const reasons = [];
+                    if (result.summary.total_pending > 0)
+                        reasons.push(`${result.summary.total_pending} pending receipt(s)`);
+                    if (result.summary.missing_driver > 0)
+                        reasons.push(`${result.summary.missing_driver} missing driver(s)`);
+                    if (result.summary.missing_fence > 0)
+                        reasons.push(`${result.summary.missing_fence} missing fence(s)`);
+                    throw new CommandError(`merge-receipts: ${reasons.join(", ")} (reconcile with 'pm merge reconcile', or rerun with --warn-only)`, EXIT_CODE.GENERIC_FAILURE);
+                }
+                return emitResult(result, format, outputPath, () => renderMergeReceiptsMarkdown(result));
             },
         });
         for (const commandPath of OPS_COMMAND_PATHS) {

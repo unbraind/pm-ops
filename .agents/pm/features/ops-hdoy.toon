@@ -1,0 +1,17 @@
+id: ops-hdoy
+title: Add an ops merge-receipts gate over sdk/merge that fails while any clone-local merge decision receipt is pending
+description: "New command ops merge-receipts scans one or many repos via the existing repos plumbing and reports, per repo, the field-aware merge-driver configuration audit, the committed gitattributes fence audit, and every receipt the driver wrote under .git/pm-merge-receipts with its state, item_id, conflicting fields and retained or discarded values. Exits non-zero while any receipt is pending, meaning a peer scalar edit was silently dropped and exists nowhere in committed history, or when the driver or fence is missing in a repo that has a pm workspace. A warn-only flag reports identically but always exits 0. Normalizes the quoted item_path from upstream pm-cli#771 while preserving the raw value so the unmodified git record is never hidden. Pending and reconciled receipt counts plus driver-installed state are also exported as Prometheus gauges from ops metrics and summarized as pending_receipts in ops status. Uses the sdk/merge subpath which had zero fleet consumers before this work: listMergeReceipts, auditMergeDriverConfiguration, auditMergeAttributeFence and findGitWorkspaceRoot. Complements pm health, which detects pending decisions in a single repo but cannot scan a fleet, and pm validate, which has no such check at all per upstream pm-cli#770."
+type: Feature
+status: closed
+priority: 1
+tags: []
+created_at: "2026-07-27T15:42:37.962Z"
+updated_at: "2026-07-27T15:44:34.152Z"
+closed_at: "2026-07-27T15:44:34.151Z"
+author: claude-code
+acceptance_criteria: "pm ops merge-receipts exits non-zero while any receipt is pending and exits 0 after pm merge reconcile, verified through the real CLI against a two-branch conflicting merge; --warn-only always exits 0; receipts report item_id, state, conflicting fields and retained/discarded values with the upstream #771 quoted item_path normalized and the raw value preserved; the driver and gitattributes fence are audited per repo; ops metrics emits pm_merge_receipts_pending, pm_merge_receipts_reconciled and pm_merge_driver_installed gauges with HELP and TYPE; ops status reports pending_receipts; 58 tests pass with zero any in index.ts."
+notes[2]{created_at,author,text}:
+  "2026-07-27T15:42:38.758Z",claude-code,"Production proof against a REAL two-branch conflicting merge, with the built extension installed into a separate throwaway workspace: gate exits 1 reporting 1 pending receipt, --warn-only exits 0, markdown renders the normalized .pm/tasks/<id>.toon path with retained Agent B and discarded Agent A values, and after pm merge reconcile the same gate exits 0. ops metrics emits pm_merge_receipts_pending, pm_merge_receipts_reconciled and pm_merge_driver_installed gauges each with HELP and TYPE. ops status reports pending_receipts."
+  "2026-07-27T15:42:39.085Z",claude-code,"Gates: build, typecheck, check, 58 tests with 56 pass 2 skip 0 fail, changelog:full and changelog:check after git fetch --tags --force. Zero any in index.ts."
+close_reason: "Shipped: the fleet-wide merge-safety gate pm validate does not provide. Verified end to end against a real conflicting merge, including the post-reconcile pass, the Prometheus gauges and the ops status summary."
+body: ""

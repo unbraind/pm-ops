@@ -14,6 +14,14 @@ interface RepoMetrics {
     cycle_time_p90_seconds: number | null;
     backlog_age_p50_seconds: number | null;
     backlog_age_p90_seconds: number | null;
+    /** Pending clone-local merge decision receipts (field-aware driver). */
+    merge_receipts_pending: number;
+    /** Reconciled clone-local merge decision receipts. */
+    merge_receipts_reconciled: number;
+    /** 1 if the clone-local merge driver is installed (not missing), else 0. */
+    merge_driver_installed: number;
+    /** 1 if a committed `.gitattributes` merge fence is installed (not missing), else 0. */
+    merge_fence_installed: number;
 }
 /**
  * Guarantee unique `repo` labels within a single scrape. Two checkouts can share

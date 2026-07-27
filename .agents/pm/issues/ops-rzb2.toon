@@ -1,0 +1,17 @@
+id: ops-rzb2
+title: "The merge-receipts gate never read warn-only or include-reconciled, and failed the gate on repos with no pm tracker"
+description: "Two defects found by real CLI testing that the unit tests could not see. First, multi-word flags arrive from the host CAMEL-CASED: Commander converts warn-only to warnOnly and include-reconciled to includeReconciled, but the handler read only the hyphenated keys. The documented escape hatch was therefore dead at the CLI: pm ops merge-receipts --warn-only still exited 1. The unit tests passed the hyphenated keys directly so they never exercised the shape the host actually delivers. The same latent defect existed in ops report for include-release and is fixed too. Second, the fence audit hardcoded the .agents/pm fleet layout, so a git repo with a tracker at .pm reported the fence not_installed, and a git repo with no pm workspace at all reported both a missing driver and a missing fence and failed the gate over a repo that has nothing for the field-aware driver to protect. Now the tracker root is discovered by probing .agents/pm then .pm for a settings.json, and when no tracker exists both driver and fence are reported as null meaning not-applicable, which the summary counts exclude by design. Four regression tests added that pin the camelCase shape the host delivers and the not-applicable behaviour."
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-07-27T15:42:57.102Z"
+updated_at: "2026-07-27T15:44:03.324Z"
+closed_at: "2026-07-27T15:44:03.323Z"
+author: claude-code
+acceptance_criteria: pm ops merge-receipts --warn-only exits 0 through the real CLI against a repo with a pending receipt; --include-reconciled widens the receipt set; a repo whose tracker is at .pm reports fence ok rather than not_installed; a git repo with no pm workspace reports driver null and fence null and does not fail the gate; ops report --include-release is read under both key shapes; 58 tests pass with 0 failures.
+notes[2]{created_at,author,text}:
+  "2026-07-27T15:42:57.798Z",claude-code,"Both defects were invisible to the suite for the same reason: the tests supplied option keys in the author's chosen shape rather than the host's, and used only .agents/pm fixtures. Fixed by parameterizing the lab builder's tracker directory and adding cases that pass warnOnly and includeReconciled in camelCase."
+  "2026-07-27T15:42:58.107Z",claude-code,"Also fixed a third, smaller issue in the same command: the gate-failure path duplicated the json branch for toon, so toon output silently became JSON. Throwing bypasses the host renderer, so toon cannot be honoured there; the substitution is now announced on stderr instead of being silent, and the duplicated branch is collapsed."
+close_reason: "Fixed: camelCase flag reads for warn-only/include-reconciled (and ops report include-release), tracker-root discovery for .pm layouts, and not-applicable driver/fence for repos with no pm workspace. Four regression tests pin the host's option shape; 58 tests pass."
+body: ""
