@@ -1295,7 +1295,17 @@ async function collectMergeReceiptsRepo(repoPath, includeReconciled) {
     // spuriously fail the gate. The SDK exposes no public tracker-root discovery
     // helper (only findGitWorkspaceRoot / ensureTrackerInitialized), so the
     // conventional roots are probed in order.
-    const pmRoot = [join(repoPath, ".agents", "pm"), join(repoPath, ".pm")].find((candidate) => existsSync(join(candidate, "settings.json")));
+    //
+    // The GIT ROOT is probed as well as the supplied path: `--repos <subdir>` must
+    // still audit the enclosing repository's tracker. Probing only the supplied
+    // path meant a path below the git root found no tracker, reported driver and
+    // fence as not-applicable, and silently exited 0 — a false NEGATIVE that
+    // disabled the gate entirely (caught in review by Greptile's T-Rex run).
+    const trackerCandidates = [repoPath, gitRoot].flatMap((base) => [
+        join(base, ".agents", "pm"),
+        join(base, ".pm"),
+    ]);
+    const pmRoot = trackerCandidates.find((candidate) => existsSync(join(candidate, "settings.json")));
     // A git repo with NO pm workspace has no merge-safety obligation at all: there
     // are no tracker artifacts for the field-aware driver to protect and no fence to
     // audit. Reporting either as missing would fail the gate over a repo that is
@@ -1332,11 +1342,25 @@ async function collectMergeReceiptsAll(repos, includeReconciled, progress) {
     const total_pending = repoReports.reduce((sum, r) => sum + r.pending_count, 0);
     const total_reconciled = repoReports.reduce((sum, r) => sum + r.reconciled_count, 0);
     const missing_driver = repoReports.filter((r) => r.driver?.status === "missing").length;
+    // Driver `drift` means "the configured command does not match THIS installation",
+    // which is a false positive whenever the driver was installed by an equally valid
+    // pm (e.g. a repo's own devDependency vs a global install) — filed upstream as
+    // unbraind/pm-cli#773. It is reported but deliberately does NOT fail the gate,
+    // because "repair" flips the config to a machine-global path, the next
+    // `npm install` prepare hook flips it back, and the loop never converges.
+    const drifted_driver = repoReports.filter((r) => r.driver?.status === "drift").length;
+    // Fence `drift` is different: `missing_patterns` means some item type folder (or
+    // a tracker JSONL store) is NOT covered by the committed fence, so those paths
+    // fall back to git's line-based merge — the exact data-loss the field-aware
+    // driver exists to prevent. That fails the gate. Purely `stale_patterns` drift
+    // is over-coverage and harmless, so it is reported without failing.
+    const unprotected_fence = repoReports.filter((r) => r.fence?.status === "drift" && r.fence.missing_patterns.length > 0).length;
+    const drifted_fence = repoReports.filter((r) => r.fence?.status === "drift").length;
     const missing_fence = repoReports.filter((r) => r.fence?.status === "not_installed").length;
     return {
         generated_at: new Date().toISOString(),
         repos: repoReports,
-        summary: { total, with_pending, total_pending, total_reconciled, missing_driver, missing_fence },
+        summary: { total, with_pending, total_pending, total_reconciled, missing_driver, missing_fence, drifted_driver, drifted_fence, unprotected_fence },
     };
 }
 /** Render an unknown retained/discarded value as a short, single-line markdown cell. */
@@ -2179,8 +2203,10 @@ export default defineExtension({
                 console.error(`pm-ops merge-receipts: ${repos.length} repo(s)${includeReconciled ? " (+reconciled)" : ""}${warnOnly ? " [warn-only]" : ""}`);
                 const result = await collectMergeReceiptsAll(repos, includeReconciled, (m) => console.error(`  ${m}`));
                 console.error(`merge-receipts: ${result.summary.total_pending} pending, ${result.summary.total_reconciled} reconciled, ` +
-                    `${result.summary.missing_driver} missing driver(s), ${result.summary.missing_fence} missing fence(s)`);
-                const shouldFail = !warnOnly && (result.summary.total_pending > 0 || result.summary.missing_driver > 0 || result.summary.missing_fence > 0);
+                    `${result.summary.missing_driver} missing driver(s), ${result.summary.missing_fence} missing fence(s), ` +
+                    `${result.summary.unprotected_fence} uncovered fence(s); reported-not-gated: ` +
+                    `${result.summary.drifted_driver} driver drift (upstream #773), ${result.summary.drifted_fence} fence drift`);
+                const shouldFail = !warnOnly && (result.summary.total_pending > 0 || result.summary.missing_driver > 0 || result.summary.missing_fence > 0 || result.summary.unprotected_fence > 0);
                 if (shouldFail) {
                     // Emit the report before throwing so agents get the full diagnostics AND
                     // the non-zero exit, matching how `ops verify-release` behaves on failure.
@@ -2210,6 +2236,8 @@ export default defineExtension({
                         reasons.push(`${result.summary.missing_driver} missing driver(s)`);
                     if (result.summary.missing_fence > 0)
                         reasons.push(`${result.summary.missing_fence} missing fence(s)`);
+                    if (result.summary.unprotected_fence > 0)
+                        reasons.push(`${result.summary.unprotected_fence} fence(s) leaving item paths uncovered`);
                     throw new CommandError(`merge-receipts: ${reasons.join(", ")} (reconcile with 'pm merge reconcile', or rerun with --warn-only)`, EXIT_CODE.GENERIC_FAILURE);
                 }
                 return emitResult(result, format, outputPath, () => renderMergeReceiptsMarkdown(result));

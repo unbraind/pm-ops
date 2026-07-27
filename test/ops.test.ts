@@ -145,15 +145,25 @@ interface RepoMergeReceipts {
   path: string;
   name: string | null;
   available: boolean;
-  driver: { status: string } | null;
-  fence: { status: string } | null;
+  driver: { status: string; missing_keys: string[]; drifted_keys: string[] } | null;
+  fence: { status: string; missing_patterns: string[]; stale_patterns: string[] } | null;
   receipts: MergeReceiptView[];
   pending_count: number;
   reconciled_count: number;
 }
 interface MergeReceiptsResult {
   repos: RepoMergeReceipts[];
-  summary: { total: number; with_pending: number; total_pending: number; total_reconciled: number; missing_driver: number; missing_fence: number };
+  summary: {
+    total: number;
+    with_pending: number;
+    total_pending: number;
+    total_reconciled: number;
+    missing_driver: number;
+    missing_fence: number;
+    drifted_driver: number;
+    drifted_fence: number;
+    unprotected_fence: number;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1619,4 +1629,70 @@ test("ops merge-receipts discovers a tracker rooted at .pm, not just .agents/pm"
   const result = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", { repos: [alt.path] });
   assert.strictEqual(result.repos[0].fence?.status, "ok", "a .pm tracker's committed fence must be audited, not reported missing");
   assert.strictEqual(result.summary.missing_fence, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Regression: two defects Greptile's review found by running the real CLI.
+//
+// 1. Tracker discovery probed only the supplied path, so `--repos <subdir>` (a
+//    path BELOW the git root) found no tracker, reported driver/fence as
+//    not-applicable and exited 0 — a false NEGATIVE that silently disabled the
+//    gate. Discovery now probes the git root too.
+// 2. The summary counted only `missing`/`not_installed`, so a DRIFTED
+//    configuration passed the gate. Driver drift is reported but deliberately not
+//    gated (it is the upstream unbraind/pm-cli#773 false positive), while a fence
+//    whose drift leaves item paths UNCOVERED does fail — those paths fall back to
+//    git's line-based merge, the exact loss the driver prevents.
+// ---------------------------------------------------------------------------
+
+test("ops merge-receipts audits the enclosing repo when --repos points below the git root", async () => {
+  const nested = join(conflictingMergeLab.path, "nested", "deeper");
+  mkdirSync(nested, { recursive: true });
+  const ext = await harness();
+  const result = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", { repos: [nested], warnOnly: true });
+  const repo = result.repos[0];
+  assert.strictEqual(result.summary.total_pending, 1, "a subdirectory must still surface the repository's pending receipt");
+  assert.strictEqual(repo.driver?.status, "ok", "the driver audit must run, not report not-applicable");
+  assert.strictEqual(repo.fence?.status, "ok", "the fence audit must run against the repo's tracker");
+});
+
+test("ops merge-receipts reports driver drift without failing the gate (upstream #773)", async () => {
+  const drifted = buildMergeReceiptLab(tmpRoot, "pm-driver-drift", false);
+  const set = spawnSync(
+    "git",
+    ["config", "merge.pm-item-toon.driver", "not-the-installed-cli merge driver item %O %A %B --item-path %P"],
+    { cwd: drifted.path, encoding: "utf-8", timeout: 30_000 },
+  );
+  assert.strictEqual(set.status, 0, `git config failed: ${set.stderr}`);
+
+  const ext = await harness();
+  const result = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", { repos: [drifted.path] });
+  assert.strictEqual(result.repos[0].driver?.status, "drift", "the drift must be detected and reported");
+  assert.strictEqual(result.summary.drifted_driver, 1, "drift is surfaced in its own counter");
+  assert.strictEqual(result.summary.missing_driver, 0, "drift is not conflated with a missing driver");
+  // Reaching a resolved result without --warn-only proves the gate did not fail:
+  // repairing this 'drift' loops (see unbraind/pm-cli#773), so it must not gate.
+  assert.ok(result.summary.total >= 1);
+});
+
+test("ops merge-receipts fails the gate when fence drift leaves item paths uncovered", async () => {
+  const uncovered = buildMergeReceiptLab(tmpRoot, "pm-fence-uncovered", false);
+  const attrs = join(uncovered.path, ".gitattributes");
+  const kept = readFileSync(attrs, "utf-8").split("\n").filter((line) => !line.includes("/tasks/"));
+  writeFileSync(attrs, `${kept.join("\n")}\n`, "utf-8");
+
+  const ext = await harness();
+  const reported = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", { repos: [uncovered.path], warnOnly: true });
+  assert.strictEqual(reported.repos[0].fence?.status, "drift");
+  assert.ok(
+    (reported.repos[0].fence?.missing_patterns.length ?? 0) > 0,
+    "dropping the tasks coverage must surface missing fence patterns",
+  );
+  assert.strictEqual(reported.summary.unprotected_fence, 1, "uncovered item paths are counted separately from stale drift");
+
+  await assert.rejects(
+    () => runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", { repos: [uncovered.path] }),
+    /uncovered/i,
+    "a fence leaving item paths uncovered must fail the gate",
+  );
 });
