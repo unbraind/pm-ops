@@ -3,9 +3,11 @@ import test, { before, after } from "node:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, chmodSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import type { GlobalOptions } from "@unbrained/pm-cli/sdk";
+import { listMergeReceipts, markMergeReceiptReconciled } from "@unbrained/pm-cli/sdk/merge";
 
 import extension, { disambiguateRepoLabels } from "../dist/index.js";
 
@@ -124,6 +126,46 @@ interface MetricsResult {
   generated_at: string;
 }
 
+// --- Merge-receipts ---
+interface MergeReceiptDecision {
+  field: string;
+  retained: unknown;
+  discarded: unknown;
+}
+interface MergeReceiptView {
+  id: string;
+  item_id: string;
+  item_path: string;
+  item_path_raw: string;
+  state: string;
+  preferred: string;
+  decisions: MergeReceiptDecision[];
+}
+interface RepoMergeReceipts {
+  path: string;
+  name: string | null;
+  available: boolean;
+  driver: { status: string; missing_keys: string[]; drifted_keys: string[] } | null;
+  fence: { status: string; missing_patterns: string[]; stale_patterns: string[] } | null;
+  receipts: MergeReceiptView[];
+  pending_count: number;
+  reconciled_count: number;
+}
+interface MergeReceiptsResult {
+  repos: RepoMergeReceipts[];
+  summary: {
+    total: number;
+    with_pending: number;
+    total_pending: number;
+    total_reconciled: number;
+    missing_driver: number;
+    missing_fence: number;
+    drifted_driver: number;
+    drifted_fence: number;
+    unprotected_fence: number;
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -131,7 +173,7 @@ interface MetricsResult {
 const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf-8")) as {
   capabilities: readonly ExtensionCapability[];
 };
-const OPS_COMMANDS = ["ops scan", "ops policy", "ops verify-release", "ops report", "ops status", "ops outdated", "ops audit", "ops metrics"] as const;
+const OPS_COMMANDS = ["ops scan", "ops policy", "ops verify-release", "ops report", "ops status", "ops outdated", "ops audit", "ops metrics", "ops merge-receipts"] as const;
 
 // Real fleet paths used for local real-data testing. CI and other developers
 // can set PM_OPS_TEST_REPOS to opt into the same checks with their own paths.
@@ -215,6 +257,89 @@ function buildFixture(root: string): string {
   return repo;
 }
 
+/** A built merge-receipt lab fixture: a real git repo with a pm tracker at
+ *  `.agents/pm`, the field-aware merge driver installed in `.git/config`, the
+ *  committed `.gitattributes` fence, and (when `withConflict`) a divergent
+ *  two-branch merge that records one real pending decision receipt. */
+interface MergeReceiptLab {
+  path: string;
+  itemId: string;
+}
+
+// Build a real, self-contained git repo with a pm tracker at `.agents/pm` and
+// the field-aware merge driver + committed `.gitattributes` fence installed
+// — the exact configuration `ops merge-receipts` audits. When `withConflict`
+// is set, diverges the item `description` across two branches and performs a
+// merge so the item merge-driver records a real clone-local pending receipt
+// under `.git/pm-merge-receipts/`, exactly the shape the gate fails on. Unlike
+// mocked receipts, this exercises the real driver, receipt writer, git-config
+// audit, and committed-fence audit end-to-end.
+function buildMergeReceiptLab(root: string, name: string, withConflict: boolean, trackerDir = ".agents/pm"): MergeReceiptLab {
+  const repo = join(root, name);
+  const pmRoot = join(repo, ...trackerDir.split("/"));
+  // Use the LOCAL pm-cli (the devDependency the test process links against) for
+  // every pm call, so the installed merge-driver command references the same
+  // `dist/cli.js` the in-process `auditMergeDriverConfiguration` expects —
+  // otherwise install (global pm) and audit (local pm) resolve different cli.js
+  // paths and the driver audit spuriously reports `drift`. `--pm-path` is the
+  // host-owned global that scopes every pm subcommand to the lab's tracker, so
+  // the labs never depend on the ambient repo or env PM_PATH.
+  // Resolved ABSOLUTELY from this test file: every pm call below runs with
+  // `cwd` set to the temp lab repo, so a relative "./node_modules/.bin/pm"
+  // would resolve inside the lab (which has no node_modules) and spawn would
+  // fail with status null and undefined stdio.
+  const pmCmd = fileURLToPath(
+    new URL(process.platform === "win32" ? "../node_modules/.bin/pm.cmd" : "../node_modules/.bin/pm", import.meta.url),
+  );
+  const git = (args: string[]) => spawnSync("git", args, { cwd: repo, encoding: "utf-8", timeout: 30_000 });
+  const pm = (args: string[]) => spawnSync(pmCmd, [...args, "--pm-path", pmRoot], { cwd: repo, encoding: "utf-8", timeout: 30_000 });
+  const assertOk = (r: { status: number | null; stdout: string; stderr: string }, op: string) => {
+    if (r.status !== 0) throw new Error(`${op} failed (exit ${r.status}): ${r.stdout}\n${r.stderr}`);
+  };
+
+  mkdirSync(repo, { recursive: true });
+  assertOk(git(["init", "-q"]), "git init");
+  assertOk(git(["config", "user.email", "test@pm-ops.local"]), "git config email");
+  assertOk(git(["config", "user.name", "pm-ops tests"]), "git config name");
+  assertOk(pm(["init", name]), "pm init");
+  assertOk(pm(["merge", "install"]), "pm merge install");
+  const createOut = pm(["create", "--title", "Shared item", "--type", "Task", "--json"]);
+  assertOk(createOut, "pm create");
+  const itemId = (JSON.parse(createOut.stdout) as { id: string }).id;
+
+  assertOk(git(["add", "-A"]), "git add base");
+  assertOk(git(["commit", "-qm", "base"]), "git commit base");
+  const baseHead = git(["rev-parse", "HEAD"]);
+  assertOk(baseHead, "git rev-parse HEAD");
+  const baseSha = baseHead.stdout.trim();
+
+  if (withConflict) {
+    assertOk(git(["checkout", "-q", "-b", "agent-a"]), "git branch agent-a");
+    assertOk(pm(["update", itemId, "--description", "Agent A description"]), "pm update agent-a");
+    assertOk(git(["add", "-A"]), "git add agent-a");
+    assertOk(git(["commit", "-qm", "a"]), "git commit agent-a");
+
+    assertOk(git(["checkout", "-q", "-b", "agent-b", baseSha]), "git branch agent-b");
+    assertOk(pm(["update", itemId, "--description", "Agent B description"]), "pm update agent-b");
+    assertOk(git(["add", "-A"]), "git add agent-b");
+    assertOk(git(["commit", "-qm", "b"]), "git commit agent-b");
+
+    const merge = git(["merge", "agent-a", "-m", "merge"]);
+    // The field-aware driver resolves the scalar conflict toward `preferred`
+    // (ours), records a pending receipt, and reports `ok: false` — so git marks
+    // the item path unmerged and exits 1. A different exit means the fixture no
+    // longer reproduces the conflict the gate is built around.
+    if (merge.status !== 1) {
+      throw new Error(`conflicting merge expected exit 1 but got ${merge.status}: ${merge.stdout}\n${merge.stderr}`);
+    }
+    if (!existsSync(join(repo, ".git", "pm-merge-receipts"))) {
+      throw new Error("conflicting merge did not write a receipt under .git/pm-merge-receipts/");
+    }
+  }
+
+  return { path: repo, itemId };
+}
+
 // ---------------------------------------------------------------------------
 // Test harness
 // ---------------------------------------------------------------------------
@@ -268,11 +393,21 @@ function parseJson<T>(text: string): T {
 
 let tmpRoot: string;
 let fixtureRepo: string;
+let cleanMergeLab: MergeReceiptLab;
+let conflictingMergeLab: MergeReceiptLab;
+let reconciledLab: MergeReceiptLab;
+let driverMissingLab: MergeReceiptLab;
 
 before(() => {
   process.env.PM_OPS_OFFLINE = "1";
   tmpRoot = mkdtempSync(join(tmpdir(), "pm-ops-test-"));
   fixtureRepo = buildFixture(tmpRoot);
+  // Real git + real driver merges are heavier than the package-less scan
+  // fixture, so build them once and share across the merge-receipts tests.
+  cleanMergeLab = buildMergeReceiptLab(tmpRoot, "pm-merge-clean", false);
+  conflictingMergeLab = buildMergeReceiptLab(tmpRoot, "pm-merge-conflict", true);
+  reconciledLab = buildMergeReceiptLab(tmpRoot, "pm-merge-reconcile", true);
+  driverMissingLab = buildMergeReceiptLab(tmpRoot, "pm-merge-no-driver", false);
 });
 
 after(() => {
@@ -1223,6 +1358,148 @@ test("disambiguateRepoLabels never generates a label that collides with an untou
 });
 
 // ---------------------------------------------------------------------------
+// ops merge-receipts
+// ---------------------------------------------------------------------------
+// These tests build REAL git fixtures with a REAL conflicting two-branch
+// merge that drives the field-aware merge driver end-to-end — no receipts are
+// mocked. Git's item merge-driver records the clone-local pending receipt
+// under `.git/pm-merge-receipts/` and `pm ops merge-receipts` gates on it.
+// ---------------------------------------------------------------------------
+
+test("ops merge-receipts fails the gate when a pending receipt exists (non-zero)", async () => {
+  const ext = await harness();
+  await assert.rejects(
+    runCmd(ext, "ops merge-receipts", { repos: [conflictingMergeLab.path] }),
+    /merge-receipts: 1 pending receipt\(s\)/,
+    "an unreconciled pending receipt must fail the gate (unbraind/pm-cli#770)",
+  );
+  await ext.deactivate();
+});
+
+test("ops merge-receipts --warn-only returns the pending receipt and exits 0", async () => {
+  const ext = await harness();
+  const result = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", { repos: [conflictingMergeLab.path], "warn-only": true });
+  assert.strictEqual(result.summary.total, 1);
+  assert.strictEqual(result.summary.with_pending, 1);
+  assert.strictEqual(result.summary.total_pending, 1, "the conflicting-merge lab produced exactly one pending receipt");
+  assert.strictEqual(result.summary.total_reconciled, 0);
+  assert.strictEqual(result.summary.missing_driver, 0, "the driver is installed in the lab");
+  assert.strictEqual(result.summary.missing_fence, 0, "the fence is committed in the lab");
+  const repo = result.repos[0];
+  assert.strictEqual(repo.available, true);
+  assert.strictEqual(repo.driver?.status, "ok");
+  assert.strictEqual(repo.fence?.status, "ok");
+  assert.strictEqual(repo.pending_count, 1);
+  assert.strictEqual(repo.receipts.length, 1);
+  const receipt = repo.receipts[0];
+  assert.strictEqual(receipt.state, "pending");
+  assert.strictEqual(receipt.item_id, conflictingMergeLab.itemId);
+  assert.strictEqual(receipt.preferred, "ours");
+  // #771: Git records item_path wrapped in literal single quotes; the view
+  // strips one quote layer while preserving the raw value verbatim.
+  const expectedPath = `.agents/pm/tasks/${conflictingMergeLab.itemId}.toon`;
+  assert.strictEqual(receipt.item_path, expectedPath, "item_path should be the normalized, dequoted path");
+  assert.strictEqual(receipt.item_path_raw, `'${expectedPath}'`, "item_path_raw preserves the raw Git value (#771)");
+  assert.strictEqual(receipt.decisions.length, 1);
+  assert.strictEqual(receipt.decisions[0].field, "description");
+  assert.strictEqual(receipt.decisions[0].retained, "Agent B description", "ours=branch-b won the preferred-side scalar conflict");
+  assert.strictEqual(receipt.decisions[0].discarded, "Agent A description");
+  await ext.deactivate();
+});
+
+test("ops merge-receipts --format markdown renders the normalized #771 path and never the quoted raw value", async () => {
+  const ext = await harness();
+  const result = await runCmd<RenderedResult>(ext, "ops merge-receipts", { repos: [conflictingMergeLab.path], "warn-only": true, format: "markdown" });
+  assert.ok(result?.pmOpsRendered === true, "markdown result should be a rendered marker");
+  const expectedPath = `.agents/pm/tasks/${conflictingMergeLab.itemId}.toon`;
+  const escapedPath = expectedPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  assert.match(result.output, /# pm-ops merge-receipts/);
+  // The summary line bolds counts with `**N**` markdown, so match the bolded form.
+  assert.match(result.output, /Scanned \*\*1\*\* repo\(s\): \*\*1\*\* pending receipt\(s\)/);
+  assert.match(result.output, new RegExp(`\\| ${conflictingMergeLab.itemId} \\|`), "the item_id column should appear");
+  assert.match(result.output, new RegExp(`\\| ${escapedPath} \\|`), "the normalized item_path should appear in the table");
+  assert.match(result.output, /Agent B description/, "the retained decision value is rendered for review");
+  // The raw quoted path from #771 must never reach a committed-history-safe report.
+  assert.doesNotMatch(result.output, /'\.agents\/pm\/tasks\//, "the quoted raw item_path must not appear in markdown");
+  await ext.deactivate();
+});
+
+test("ops merge-receipts passes the gate when there are no receipts (exit 0)", async () => {
+  const ext = await harness();
+  const result = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", { repos: [cleanMergeLab.path] });
+  assert.strictEqual(result.summary.total, 1);
+  assert.strictEqual(result.summary.total_pending, 0);
+  assert.strictEqual(result.summary.missing_driver, 0);
+  assert.strictEqual(result.summary.missing_fence, 0);
+  assert.strictEqual(result.repos[0].receipts.length, 0);
+  assert.strictEqual(result.repos[0].driver?.status, "ok");
+  assert.strictEqual(result.repos[0].fence?.status, "ok");
+  await ext.deactivate();
+});
+
+test("ops merge-receipts fails the gate when the clone-local merge driver is missing (non-zero)", async () => {
+  const ext = await harness();
+  // Remove only the clone-local driver definitions so the driver audit reports
+  // `missing` while the committed fence stays `ok` and no receipts exist.
+  for (const driver of ["pm-item-toon", "pm-item-markdown", "pm-history", "pm-relationship", "pm-json"]) {
+    spawnSync("git", ["config", "--local", "--unset", `merge.${driver}.driver`], { cwd: driverMissingLab.path, encoding: "utf-8" });
+  }
+  await assert.rejects(
+    runCmd(ext, "ops merge-receipts", { repos: [driverMissingLab.path] }),
+    /merge-receipts: 1 missing driver\(s\)/,
+    "a missing clone-local driver must fail the gate (unbraind/pm-cli#770)",
+  );
+  await ext.deactivate();
+});
+
+test("ops merge-receipts --include-reconciled surfaces reconciled receipts while the default excludes them", async () => {
+  const ext = await harness();
+  // The reconcile lab currently holds a pending receipt; consume it into history
+  // via the SDK so the default listing excludes it (--include-reconciled keeps it).
+  const receipts = await listMergeReceipts(reconciledLab.path, { includeReconciled: true });
+  assert.strictEqual(receipts.length, 1, "reconcile lab should start with one pending receipt");
+  await markMergeReceiptReconciled(reconciledLab.path, receipts[0]);
+
+  const defaulted = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", { repos: [reconciledLab.path] });
+  assert.strictEqual(defaulted.summary.total_pending, 0, "a reconciled receipt no longer counts as pending");
+  assert.strictEqual(defaulted.repos[0].receipts.length, 0, "the default listing excludes reconciled receipts");
+
+  const including = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", { repos: [reconciledLab.path], "include-reconciled": true });
+  assert.strictEqual(including.summary.total_pending, 0);
+  assert.strictEqual(including.summary.total_reconciled, 1, "--include-reconciled counts reconciled receipts");
+  assert.strictEqual(including.repos[0].receipts.length, 1);
+  assert.strictEqual(including.repos[0].receipts[0].state, "reconciled");
+  assert.strictEqual(including.repos[0].reconciled_count, 1);
+  await ext.deactivate();
+});
+
+test("ops merge-receipts --format json --output writes structured JSON to a file", async () => {
+  const ext = await harness();
+  const outFile = join(tmpRoot, "merge-receipts.json");
+  const result = await runCmd<WrittenResult>(ext, "ops merge-receipts", { repos: [cleanMergeLab.path], format: "json", output: outFile });
+  assert.strictEqual(result.written_to, outFile);
+  assert.strictEqual(result.format, "json");
+  const body = readFileSync(outFile, "utf-8");
+  const parsed = JSON.parse(body) as MergeReceiptsResult;
+  assert.strictEqual(parsed.summary.total, 1);
+  assert.strictEqual(parsed.summary.total_pending, 0);
+  assert.strictEqual(parsed.summary.missing_driver, 0);
+  assert.deepStrictEqual(parsed.repos.map((r) => r.path), [cleanMergeLab.path]);
+  await ext.deactivate();
+});
+
+test("ops merge-receipts --format json returns a rendered structured payload to stdout", async () => {
+  const ext = await harness();
+  const result = await runCmd<RenderedResult>(ext, "ops merge-receipts", { repos: [cleanMergeLab.path], format: "json" });
+  assert.ok(result?.pmOpsRendered === true, "structured stdout should be a rendered marker");
+  const parsed = JSON.parse(result.output) as MergeReceiptsResult;
+  assert.strictEqual(parsed.summary.total, 1);
+  assert.strictEqual(parsed.repos[0].pending_count, 0);
+  assert.strictEqual(parsed.repos[0].fence?.status, "ok");
+  await ext.deactivate();
+});
+
+// ---------------------------------------------------------------------------
 // Real-data tests against the live pm fleet. These run only when the real
 // repos are present (local dev on Steve's machine); they skip on CI where the
 // absolute host paths do not exist. The fixture tests above cover CI.
@@ -1281,4 +1558,141 @@ test("no command redeclares a host-owned global flag", async () => {
   }
 
   await ext.deactivate();
+});
+// ---------------------------------------------------------------------------
+// Regression: multi-word flags arrive from the host CAMEL-CASED.
+//
+// Commander converts `--warn-only` to `warnOnly` and `--include-reconciled` to
+// `includeReconciled` before handing options to the extension. The sibling tests
+// above pass the hyphenated keys, which the handler also accepts — so they
+// passed while the real CLI was broken: `pm ops merge-receipts --warn-only`
+// still exited non-zero because the flag was never read.
+//
+// These cases pin the shape the HOST actually delivers.
+// ---------------------------------------------------------------------------
+
+test("ops merge-receipts reads --warn-only under the host's camelCase key", async () => {
+  const ext = await harness();
+  const result = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", {
+    repos: [conflictingMergeLab.path],
+    warnOnly: true,
+  });
+  // Reaching a resolved result at all proves the gate did not throw: the lab has
+  // a pending receipt, so without --warn-only this command exits non-zero.
+  assert.strictEqual(result.summary.total_pending, 1, "the pending receipt is still reported under warn-only");
+});
+
+test("ops merge-receipts reads --include-reconciled under the host's camelCase key", async () => {
+  const ext = await harness();
+  const withFlag = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", {
+    repos: [conflictingMergeLab.path],
+    warnOnly: true,
+    includeReconciled: true,
+  });
+  const withoutFlag = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", {
+    repos: [conflictingMergeLab.path],
+    warnOnly: true,
+  });
+  assert.ok(
+    withFlag.repos[0].receipts.length >= withoutFlag.repos[0].receipts.length,
+    "camelCase includeReconciled must widen (never narrow) the receipt set",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Regression: a repo with NO pm tracker must not fail the merge-safety gate.
+//
+// The fence audit used to assume the `.agents/pm` fleet layout, so a git repo
+// with no pm workspace — or a tracker at `.pm` — reported `not_installed` and
+// counted toward `missing_fence`, failing the gate over a repo that has nothing
+// for the driver to protect.
+// ---------------------------------------------------------------------------
+
+test("ops merge-receipts does not count a repo without a pm tracker as a missing fence", async () => {
+  const bare = join(tmpRoot, "pm-no-tracker");
+  mkdirSync(bare, { recursive: true });
+  const init = spawnSync("git", ["init", "-q"], { cwd: bare, encoding: "utf-8", timeout: 30_000 });
+  assert.strictEqual(init.status, 0, `git init failed: ${init.stderr}`);
+
+  const ext = await harness();
+  const result = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", { repos: [bare] });
+  assert.strictEqual(result.summary.missing_fence, 0, "a repo with no pm workspace has no fence to be missing");
+  assert.strictEqual(result.summary.total_pending, 0);
+  assert.strictEqual(result.summary.missing_driver, 0, "a repo with no pm workspace has no driver obligation either");
+  assert.strictEqual(result.repos[0].fence, null, "fence must be null (not-applicable), not a not_installed verdict");
+  assert.strictEqual(result.repos[0].driver, null, "driver must be null (not-applicable) for a repo with no tracker");
+});
+
+test("ops merge-receipts discovers a tracker rooted at .pm, not just .agents/pm", async () => {
+  const alt = buildMergeReceiptLab(tmpRoot, "pm-alt-root", false, ".pm");
+  const ext = await harness();
+  const result = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", { repos: [alt.path] });
+  assert.strictEqual(result.repos[0].fence?.status, "ok", "a .pm tracker's committed fence must be audited, not reported missing");
+  assert.strictEqual(result.summary.missing_fence, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Regression: two defects Greptile's review found by running the real CLI.
+//
+// 1. Tracker discovery probed only the supplied path, so `--repos <subdir>` (a
+//    path BELOW the git root) found no tracker, reported driver/fence as
+//    not-applicable and exited 0 — a false NEGATIVE that silently disabled the
+//    gate. Discovery now probes the git root too.
+// 2. The summary counted only `missing`/`not_installed`, so a DRIFTED
+//    configuration passed the gate. Driver drift is reported but deliberately not
+//    gated (it is the upstream unbraind/pm-cli#773 false positive), while a fence
+//    whose drift leaves item paths UNCOVERED does fail — those paths fall back to
+//    git's line-based merge, the exact loss the driver prevents.
+// ---------------------------------------------------------------------------
+
+test("ops merge-receipts audits the enclosing repo when --repos points below the git root", async () => {
+  const nested = join(conflictingMergeLab.path, "nested", "deeper");
+  mkdirSync(nested, { recursive: true });
+  const ext = await harness();
+  const result = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", { repos: [nested], warnOnly: true });
+  const repo = result.repos[0];
+  assert.strictEqual(result.summary.total_pending, 1, "a subdirectory must still surface the repository's pending receipt");
+  assert.strictEqual(repo.driver?.status, "ok", "the driver audit must run, not report not-applicable");
+  assert.strictEqual(repo.fence?.status, "ok", "the fence audit must run against the repo's tracker");
+});
+
+test("ops merge-receipts reports driver drift without failing the gate (upstream #773)", async () => {
+  const drifted = buildMergeReceiptLab(tmpRoot, "pm-driver-drift", false);
+  const set = spawnSync(
+    "git",
+    ["config", "merge.pm-item-toon.driver", "not-the-installed-cli merge driver item %O %A %B --item-path %P"],
+    { cwd: drifted.path, encoding: "utf-8", timeout: 30_000 },
+  );
+  assert.strictEqual(set.status, 0, `git config failed: ${set.stderr}`);
+
+  const ext = await harness();
+  const result = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", { repos: [drifted.path] });
+  assert.strictEqual(result.repos[0].driver?.status, "drift", "the drift must be detected and reported");
+  assert.strictEqual(result.summary.drifted_driver, 1, "drift is surfaced in its own counter");
+  assert.strictEqual(result.summary.missing_driver, 0, "drift is not conflated with a missing driver");
+  // Reaching a resolved result without --warn-only proves the gate did not fail:
+  // repairing this 'drift' loops (see unbraind/pm-cli#773), so it must not gate.
+  assert.ok(result.summary.total >= 1);
+});
+
+test("ops merge-receipts fails the gate when fence drift leaves item paths uncovered", async () => {
+  const uncovered = buildMergeReceiptLab(tmpRoot, "pm-fence-uncovered", false);
+  const attrs = join(uncovered.path, ".gitattributes");
+  const kept = readFileSync(attrs, "utf-8").split("\n").filter((line) => !line.includes("/tasks/"));
+  writeFileSync(attrs, `${kept.join("\n")}\n`, "utf-8");
+
+  const ext = await harness();
+  const reported = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", { repos: [uncovered.path], warnOnly: true });
+  assert.strictEqual(reported.repos[0].fence?.status, "drift");
+  assert.ok(
+    (reported.repos[0].fence?.missing_patterns.length ?? 0) > 0,
+    "dropping the tasks coverage must surface missing fence patterns",
+  );
+  assert.strictEqual(reported.summary.unprotected_fence, 1, "uncovered item paths are counted separately from stale drift");
+
+  await assert.rejects(
+    () => runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", { repos: [uncovered.path] }),
+    /uncovered/i,
+    "a fence leaving item paths uncovered must fail the gate",
+  );
 });

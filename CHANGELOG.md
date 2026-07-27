@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Add an ops merge-receipts gate over sdk/merge that fails while any clone-local merge decision receipt is pending ([ops-hdoy](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-hdoy.toon))
+
+### Fixed
+
+- All eight ops commands fail to register on pm-cli 2026.7.27 because each redeclares the host-owned --json global ([ops-61n2](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-61n2.toon))
+- The merge-receipts gate never read warn-only or include-reconciled, and failed the gate on repos with no pm tracker ([ops-rzb2](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-rzb2.toon))
+
 ## 2026.7.27 - 2026-07-27
 
 ### Removed
