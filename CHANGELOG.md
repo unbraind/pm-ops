@@ -27,6 +27,12 @@
 
 - Enable governance duplicate-detection advisory mode and adopt pm-cli 2026.7.25 ([ops-73km](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-73km.toon))
 
+## 2026.7.25 - 2026-07-25
+
+### Other
+
+- Adopt --respect-item-release in changelog scripts and bump pm-changelog to 2026.7.24 ([ops-g3br](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-g3br.toon))
+
 ## 2026.7.23 - 2026-07-23
 
 ### Fixed
