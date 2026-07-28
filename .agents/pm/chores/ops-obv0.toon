@@ -1,0 +1,13 @@
+id: ops-obv0
+title: Adopt pm-cli 2026.7.28
+description: Bump pm-cli dev and peer dependency ranges from 2026.7.27 to 2026.7.28 and update the extension version constant. Fix the merge-receipts test for the upstream #771 fix that removes extra quotes from item_path_raw.
+type: Chore
+status: closed
+priority: 2
+tags: []
+created_at: "2026-07-28T03:33:48.886Z"
+updated_at: "2026-07-28T03:33:56.653Z"
+closed_at: "2026-07-28T03:33:56.653Z"
+author: pi-agent
+close_reason: Bumped pm-cli dependency to 2026.7.28 across package.json manifest.json and extension version constant. Fixed merge-receipts test for upstream #771 fix that removes extra quotes from item_path_raw. Release checks pass.
+body: ""
