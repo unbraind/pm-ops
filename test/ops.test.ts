@@ -1395,11 +1395,11 @@ test("ops merge-receipts --warn-only returns the pending receipt and exits 0", a
   assert.strictEqual(receipt.state, "pending");
   assert.strictEqual(receipt.item_id, conflictingMergeLab.itemId);
   assert.strictEqual(receipt.preferred, "ours");
-  // #771: Git records item_path wrapped in literal single quotes; the view
-  // strips one quote layer while preserving the raw value verbatim.
+  // #771 was fixed in pm-cli 2026.7.28: the raw item_path no longer carries
+  // the extra single-quote layer Git used to wrap around %P paths.
   const expectedPath = `.agents/pm/tasks/${conflictingMergeLab.itemId}.toon`;
-  assert.strictEqual(receipt.item_path, expectedPath, "item_path should be the normalized, dequoted path");
-  assert.strictEqual(receipt.item_path_raw, `'${expectedPath}'`, "item_path_raw preserves the raw Git value (#771)");
+  assert.strictEqual(receipt.item_path, expectedPath, "item_path should be the normalized path");
+  assert.strictEqual(receipt.item_path_raw, expectedPath, "item_path_raw matches the normalized path after the #771 fix");
   assert.strictEqual(receipt.decisions.length, 1);
   assert.strictEqual(receipt.decisions[0].field, "description");
   assert.strictEqual(receipt.decisions[0].retained, "Agent B description", "ours=branch-b won the preferred-side scalar conflict");
