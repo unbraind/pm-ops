@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Enforce a real coverage gate by running tests against TypeScript sources ([ops-vtit](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-vtit.toon))
+
 ## 2026.7.28 - 2026-07-28
 
 ### Added
