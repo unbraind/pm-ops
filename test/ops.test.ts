@@ -9,7 +9,7 @@ import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbraine
 import type { GlobalOptions } from "@unbrained/pm-cli/sdk";
 import { listMergeReceipts, markMergeReceiptReconciled } from "@unbrained/pm-cli/sdk/merge";
 
-import extension, { disambiguateRepoLabels } from "../dist/index.js";
+import extension, { disambiguateRepoLabels } from "../index.ts";
 
 // ---------------------------------------------------------------------------
 // Types
