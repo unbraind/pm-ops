@@ -1,0 +1,16 @@
+id: ops-j6i7
+title: Adopt pm-cli 2026.7.29
+description: "Bump pm-cli dependency to 2026.7.29, update peerDependency, audit for removed --all flag, audit for fixed upstream workarounds (GH-651, GH-672, GH-676, GH-785/792, GH-794), pass all quality gates."
+type: Chore
+status: closed
+priority: 2
+tags: []
+created_at: "2026-07-29T04:44:50.025Z"
+updated_at: "2026-07-29T04:46:27.432Z"
+closed_at: "2026-07-29T04:46:27.422Z"
+completed_at: "2026-07-29T04:46:27.422Z"
+author: pi-agent
+comments[1]{created_at,author,text}:
+  "2026-07-29T04:45:17.680Z",pi-agent,"Bumped @unbrained/pm-cli devDependency to 2026.7.29, set peerDependency to >=2026.7.29. Audited for 'list --all' and 'list -a': no hits found. Upstream workaround audit: GH-651/676/794 - no hits. GH-672 - README.md references pm list-blocked (correct new form, not a workaround). GH-785/792 - --warn-only is pm-ops merge-receipts command's own flag (not pm health), health_warn in settings.json is a history compaction trigger (not a pm health dir workaround). No workarounds to remove."
+close_reason: "Bumped @unbrained/pm-cli to 2026.7.29 (devDep + peerDep >=2026.7.29). No 'list --all' hits found. No upstream workarounds to remove. All quality gates pass: 61 tests (59 pass, 2 skipped, 0 fail), coverage lines 93.29% (threshold 93), branches 72.06% (threshold 71), functions 93.94% (threshold 93). Changelog check and audit:prod clean."
+body: ""
