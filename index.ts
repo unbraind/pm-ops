@@ -17,6 +17,7 @@ import {
   type MergeDriverConfigurationAuditResult,
   type MergeFenceAuditResult,
 } from "@unbrained/pm-cli/sdk/merge";
+import { analyzeDocstringCoverage, type DocstringViolation } from "./docstrings.ts";
 
 
 // ---------------------------------------------------------------------------
@@ -70,6 +71,7 @@ function readBool(options: Record<string, unknown>, ...keys: string[]): boolean 
   return keys.some((key) => options[key] === true || options[key] === "true" || options[key] === "1");
 }
 
+/** Read the first non-empty string option among alternative key spellings. */
 function readString(options: Record<string, unknown>, ...keys: string[]): string | undefined {
   for (const key of keys) {
     const value = options[key];
@@ -94,8 +96,10 @@ const OPS_COMMAND_PATHS = [
   "ops audit",
   "ops metrics",
   "ops merge-receipts",
+  "ops docstrings",
 ] as const;
 
+/** Build the variadic additional-repos argument definition shared by every command. */
 function additionalRepoArguments() {
   return [{
     name: "additional-repos",
@@ -105,6 +109,7 @@ function additionalRepoArguments() {
   }];
 }
 
+/** Construct the repeatable --repos flag definition with a per-command description. */
 function reposFlag(description: string) {
   return {
     long: "--repos",
@@ -115,6 +120,7 @@ function reposFlag(description: string) {
   };
 }
 
+/** Extract every --repos value that follows a command path in the raw argv array. */
 function cliRepoFlagValues(commandPath: string, argv: readonly string[] = process.argv.slice(2)): string[] {
   const commandTokens = commandPath.split(" ");
   let commandEnd = -1;
@@ -145,6 +151,7 @@ function cliRepoFlagValues(commandPath: string, argv: readonly string[] = proces
   return values;
 }
 
+/** Re-insert the argv --repos values Commander dropped or truncated for a command. */
 function restoreCliRepoFlag(commandPath: string, context: ParserOverrideContext): ParserOverrideDelta {
   const cliValues = cliRepoFlagValues(commandPath);
   if (cliValues.length === 0) return {};
@@ -174,6 +181,7 @@ function escapeRegexChar(char: string): string {
   return /[.+^${}()|[\]\\]/.test(char) ? `\\${char}` : char;
 }
 
+/** Compile one path segment with glob metacharacters into an anchored RegExp. */
 function globSegmentToRegex(segment: string): RegExp {
   let pattern = "";
   for (let i = 0; i < segment.length; i += 1) {
@@ -200,6 +208,7 @@ function globSegmentToRegex(segment: string): RegExp {
   return new RegExp(`^${pattern}$`);
 }
 
+/** Expand a glob pattern against the filesystem into a sorted list of paths. */
 function expandSimpleGlob(pattern: string): string[] {
   const expanded = expandHome(pattern);
   const absolute = /^[A-Za-z]:[\\/]/.test(expanded) ? expanded : resolve(expanded);
@@ -241,6 +250,7 @@ function resolveRepos(options: Record<string, unknown>, args: unknown[] = []): s
 
 type OutputFormat = "toon" | "json" | "markdown";
 
+/** Resolve the output format from --format and the host-owned --json global. */
 function resolveFormat(options: Record<string, unknown>, global?: { json?: boolean }): OutputFormat {
   // `--json` is a host-owned global flag: extensions must not redeclare it
   // (the host rejects the registration) and must read it from ctx.global.
@@ -312,6 +322,7 @@ function runSync(cmd: string, args: string[], opts: { cwd?: string; timeoutMs?: 
 
 let pmInvocationCache: CommandInvocation | null = null;
 
+/** Resolve and cache the pm command, falling back to this process when pm is absent. */
 function resolvePmInvocation(): CommandInvocation {
   if (pmInvocationCache) return pmInvocationCache;
   const command = process.platform === "win32" ? "pm.cmd" : "pm";
@@ -325,6 +336,7 @@ function resolvePmInvocation(): CommandInvocation {
   return pmInvocationCache;
 }
 
+/** Parse JSON, returning undefined on any syntax error instead of throwing. */
 function parseJsonSafe(text: string): unknown {
   try {
     return JSON.parse(text);
@@ -333,6 +345,7 @@ function parseJsonSafe(text: string): unknown {
   }
 }
 
+/** Read and JSON-parse a file, returning undefined when missing or invalid. */
 function readJsonFile<T = unknown>(path: string): T | undefined {
   if (!existsSync(path)) return undefined;
   try {
@@ -342,6 +355,7 @@ function readJsonFile<T = unknown>(path: string): T | undefined {
   }
 }
 
+/** Strip comments and trailing commas from JSONC text to yield plain JSON. */
 function stripJsonc(input: string): string {
   let output = "";
   let inString = false;
@@ -384,6 +398,7 @@ function stripJsonc(input: string): string {
   return output.replace(/,\s*([}\]])/g, "$1");
 }
 
+/** Read and parse a JSONC file by stripping comments before JSON.parse. */
 function readJsoncFile<T = unknown>(path: string): T | undefined {
   if (!existsSync(path)) return undefined;
   try {
@@ -415,6 +430,7 @@ interface TsConfigJson {
   compilerOptions?: { strict?: boolean };
 }
 
+/** Resolve a tsconfig extends value to an absolute config file path. */
 function resolveExtendsPath(currentFile: string, value: string): string {
   const withExtension = value.endsWith(".json") ? value : `${value}.json`;
   if (value.startsWith(".") || value.startsWith("/") || value.startsWith("~")) {
@@ -432,6 +448,7 @@ function resolveExtendsPath(currentFile: string, value: string): string {
   }
 }
 
+/** Walk a tsconfig extends chain to find the inherited strict compiler setting. */
 function readTsConfigStrictSetting(path: string, seen = new Set<string>()): boolean | null {
   const resolved = resolve(path);
   if (seen.has(resolved)) return null;
@@ -557,6 +574,7 @@ function isOffline(): boolean {
   return process.env.PM_OPS_OFFLINE === "1" || process.env.PM_OPS_OFFLINE === "true";
 }
 
+/** Count outdated dependencies via npm outdated --json, null when offline or failing. */
 function countOutdated(repoPath: string): number | null {
   if (isOffline()) return null;
   const r = runSync("npm", ["outdated", "--json"], { cwd: repoPath, timeoutMs: 60_000 });
@@ -573,6 +591,7 @@ interface NpmAudit {
   };
 }
 
+/** Read production vulnerability counts from npm audit, throwing on failure. */
 function readAudit(repoPath: string): { critical: number | null; high: number | null } {
   if (isOffline()) return { critical: null, high: null };
   const r = runSync("npm", ["audit", "--omit=dev", "--json"], { cwd: repoPath, timeoutMs: 60_000 });
@@ -594,6 +613,7 @@ function readAudit(repoPath: string): { critical: number | null; high: number | 
 
 const AUDIT_UNAVAILABLE_PREFIX = "audit unavailable:";
 
+/** Reduce an unknown thrown value to a single human-readable diagnostic string. */
 function describeUnknownError(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
@@ -614,6 +634,7 @@ function passesAuditGate(critical: number | null, diagnostics: string[]): boolea
   return isOffline() || (critical === 0 && !diagnostics.some((entry) => entry.startsWith(AUDIT_UNAVAILABLE_PREFIX)));
 }
 
+/** Ask gh whether a repo is private, returning null when the query fails. */
 function ghRepoIsPrivate(repoPath: string): boolean | null {
   if (isOffline()) return null;
   const r = runSync("gh", ["repo", "view", "--json", "isPrivate", "--jq", ".isPrivate"], { cwd: repoPath, timeoutMs: 30_000 });
@@ -623,6 +644,7 @@ function ghRepoIsPrivate(repoPath: string): boolean | null {
   return raw === "true";
 }
 
+/** Count open pull requests or issues for a repo via the gh CLI. */
 function ghOpenCount(repoPath: string, kind: "pr" | "issue"): number | null {
   if (isOffline()) return null;
   const args = kind === "pr"
@@ -664,6 +686,7 @@ interface ScanResult {
   summary: { total: number; ready: number; not_ready: number };
 }
 
+/** Gather the full release-readiness snapshot for a single repository path. */
 function scanRepo(repoPath: string): RepoScan {
   const errors: string[] = [];
   if (!existsSync(repoPath)) {
@@ -749,6 +772,7 @@ function scanRepo(repoPath: string): RepoScan {
   };
 }
 
+/** Scan every repo in parallel and roll the snapshots into an aggregate result. */
 function scanRepos(repos: string[], progress: (msg: string) => void): ScanResult {
   const results = repos.map((repo) => {
     progress(`scanning ${repo}`);
@@ -818,6 +842,7 @@ function leadingSpaces(value: string): number {
   return value.match(/^\s*/)?.[0].length ?? 0;
 }
 
+/** Strip comments, quotes, and trailing commas from a YAML scalar value. */
 function normalizeYamlScalar(value: string): string {
   return value
     .replace(/\s+#.*$/, "")
@@ -826,6 +851,7 @@ function normalizeYamlScalar(value: string): string {
     .replace(/^['"]|['"]$/g, "");
 }
 
+/** Test whether a runs-on scalar names a GitHub-hosted runner label. */
 function hasGithubHostedRunnerScalar(value: string): boolean {
   const normalized = normalizeYamlScalar(value);
   if (!normalized || normalized.includes("${{")) return false;
@@ -845,6 +871,7 @@ function hasGithubHostedRunnerEntries(values: string[]): boolean {
   return entries.some((entry) => GITHUB_HOSTED_RUNNER_PATTERN.test(entry));
 }
 
+/** Detect a GitHub-hosted runner in an inline or block runs-on workflow value. */
 function hasGithubHostedRunsOnValue(inlineValue: string, blockLines: string[]): boolean {
   if (hasGithubHostedRunnerScalar(inlineValue)) return true;
   const directItems: string[] = [];
@@ -868,6 +895,7 @@ function hasGithubHostedRunsOnValue(inlineValue: string, blockLines: string[]): 
   return directItems.some(hasGithubHostedRunnerScalar) || hasGithubHostedRunnerEntries(labelItems);
 }
 
+/** Validate the package name against the fleet naming convention. */
 function checkNaming(name: string | null): PolicyCheckResult {
   if (!name) return { id: "naming", severity: "error", pass: false, message: "package.json has no name" };
   if (FORBIDDEN_PREFIXES.some((p) => name.startsWith(p))) {
@@ -877,6 +905,7 @@ function checkNaming(name: string | null): PolicyCheckResult {
   return { id: "naming", severity: "error", pass, message: pass ? `name "${name}" matches ^pm-[a-z][a-z0-9-]*$` : `name "${name}" does not match ^pm-[a-z][a-z0-9-]*$` };
 }
 
+/** Verify that every required npm script is defined in package.json. */
 function checkRequiredScripts(pkg: PkgJson | undefined, required: string[]): PolicyCheckResult {
   const scripts = pkg?.scripts ?? {};
   const missing = required.filter((s) => typeof scripts[s] !== "string");
@@ -889,6 +918,7 @@ function checkRequiredScripts(pkg: PkgJson | undefined, required: string[]): Pol
   };
 }
 
+/** Verify that every required workflow file exists under .github/workflows. */
 function checkRequiredWorkflows(repoPath: string, required: string[]): PolicyCheckResult {
   const missing = required.filter((w) => !existsSync(join(repoPath, ".github", "workflows", w)));
   return {
@@ -900,6 +930,7 @@ function checkRequiredWorkflows(repoPath: string, required: string[]): PolicyChe
   };
 }
 
+/** Forbid GitHub-hosted runners in the workflows of a private repository. */
 function checkPrivateNoRunners(repoPath: string): PolicyCheckResult {
   const isPrivate = ghRepoIsPrivate(repoPath);
   if (isPrivate === null || isPrivate === false) {
@@ -946,6 +977,7 @@ function checkPrivateNoRunners(repoPath: string): PolicyCheckResult {
   };
 }
 
+/** Flag any two open pm items that share an identical title. */
 function checkPmDuplicateTitles(items: PmItem[] | null): PolicyCheckResult {
   if (items === null) return { id: "pm-duplicate-titles", severity: "warning", pass: true, message: "no pm workspace — check skipped" };
   const open = items.filter((i) => (i.status ?? "").toLowerCase() === "open");
@@ -965,6 +997,7 @@ function checkPmDuplicateTitles(items: PmItem[] | null): PolicyCheckResult {
   };
 }
 
+/** Confirm pm-changelog is present as a dependency and a changelog script. */
 function checkPmChangelogWired(pkg: PkgJson | undefined): PolicyCheckResult {
   const hasDep = hasPmChangelogDep(pkg);
   const hasScript = Boolean(pkg?.scripts && typeof pkg.scripts["changelog"] === "string");
@@ -977,6 +1010,7 @@ function checkPmChangelogWired(pkg: PkgJson | undefined): PolicyCheckResult {
   };
 }
 
+/** Dispatch one policy check definition to its implementation and attach severity. */
 function runPolicyCheck(def: PolicyCheckDef, ctx: { repoPath: string; pkg: PkgJson | undefined; items: PmItem[] | null }): PolicyCheckResult {
   let result: PolicyCheckResult;
   switch (def.id) {
@@ -1004,6 +1038,7 @@ function runPolicyCheck(def: PolicyCheckDef, ctx: { repoPath: string; pkg: PkgJs
   return { ...result, severity: def.severity };
 }
 
+/** Decide whether a repo matches a policy check repo_filter expression. */
 function matchesFilter(repoPath: string, name: string | null, filter: string | undefined): boolean {
   if (!filter) return true;
   if (filter === "*") return true;
@@ -1011,6 +1046,7 @@ function matchesFilter(repoPath: string, name: string | null, filter: string | u
   return basename(repoPath) === filter;
 }
 
+/** Run a policy bundle across every repo and tally results by severity. */
 function runPolicy(repos: string[], bundle: PolicyBundle, progress: (msg: string) => void): PolicyResult {
   const by_severity: Record<Severity, number> = { error: 0, warning: 0, info: 0 };
   let totalPassed = 0;
@@ -1084,6 +1120,7 @@ function summarizeNpmError(stdout: string, stderr: string, args: string[]): stri
   return lines.slice(-3).join(" | ").slice(-2000);
 }
 
+/** Execute one npm release step in a repo and time its pass or failure. */
 function runReleaseCheck(repoPath: string, name: string, args: string[], progress: (msg: string) => void): ReleaseCheck {
   progress(`verify ${relative(process.cwd(), repoPath) || repoPath}: ${name}`);
   const start = Date.now();
@@ -1094,6 +1131,7 @@ function runReleaseCheck(repoPath: string, name: string, args: string[], progres
   return { name, pass, duration_ms, error };
 }
 
+/** Run the release gate steps for one repo, falling back to individual scripts. */
 function verifyReleaseRepo(repoPath: string, progress: (msg: string) => void): RepoRelease {
   if (!existsSync(repoPath)) {
     return {
@@ -1122,6 +1160,7 @@ function verifyReleaseRepo(repoPath: string, progress: (msg: string) => void): R
   return { path: repoPath, name: pkg?.name ?? null, checks, passed, failed };
 }
 
+/** Verify the release gate across every repo and summarize pass and fail counts. */
 function verifyRelease(repos: string[], progress: (msg: string) => void): VerifyReleaseResult {
   const results = repos.map((r) => verifyReleaseRepo(r, progress));
   return {
@@ -1130,6 +1169,7 @@ function verifyRelease(repos: string[], progress: (msg: string) => void): Verify
   };
 }
 
+/** Render the verify-release result as a markdown table of checks per repo. */
 function renderVerifyReleaseMarkdown(result: VerifyReleaseResult): string {
   const lines: string[] = [
     "# pm-ops verify-release",
@@ -1177,6 +1217,7 @@ interface StatusResult {
   summary: { total: number; ready: number; not_ready: number; total_issues: number; total_pending_receipts: number };
 }
 
+/** Assemble the ready-or-not status verdict and metrics for one repository. */
 async function collectStatus(repoPath: string): Promise<RepoStatus> {
   if (!existsSync(repoPath)) {
     return {
@@ -1251,6 +1292,7 @@ async function collectStatus(repoPath: string): Promise<RepoStatus> {
   return { path: repoPath, name, version, ready, issues, pm_open_items, audit_critical, audit_high, outdated_count, pending_receipts };
 }
 
+/** Collect readiness status across every repo in parallel into one result. */
 async function collectStatusAll(repos: string[], progress: (msg: string) => void): Promise<StatusResult> {
   const results: RepoStatus[] = [];
   for (const repo of repos) {
@@ -1263,6 +1305,7 @@ async function collectStatusAll(repos: string[], progress: (msg: string) => void
   return { repos: results, summary: { total: results.length, ready, not_ready: results.length - ready, total_issues: totalIssues, total_pending_receipts: totalPendingReceipts } };
 }
 
+/** Render the fleet readiness status as a markdown summary table. */
 function renderStatusMarkdown(result: StatusResult): string {
   const lines: string[] = [];
   lines.push("# pm-ops status");
@@ -1313,6 +1356,7 @@ interface OutdatedResult {
   summary: { total: number; repos_with_outdated: number; total_outdated: number };
 }
 
+/** Gather the outdated-dependency report for a single repository path. */
 function collectOutdatedRepo(repoPath: string): RepoOutdated {
   const pkg = readPackageJson(repoPath);
   if (isOffline()) {
@@ -1344,6 +1388,7 @@ function collectOutdatedRepo(repoPath: string): RepoOutdated {
   return { path: repoPath, name: pkg?.name ?? null, outdated: entries, count: entries.length };
 }
 
+/** Collect outdated-dependency reports across every repo in parallel. */
 function collectOutdatedAll(repos: string[], progress: (msg: string) => void): OutdatedResult {
   const results = repos.map((repo) => {
     progress(`outdated ${repo}`);
@@ -1354,6 +1399,7 @@ function collectOutdatedAll(repos: string[], progress: (msg: string) => void): O
   return { repos: results, summary: { total: results.length, repos_with_outdated: withOutdated, total_outdated: totalOutdated } };
 }
 
+/** Render the outdated-dependency report as a markdown table per repo. */
 function renderOutdatedMarkdown(result: OutdatedResult): string {
   const lines: string[] = [];
   lines.push("# pm-ops outdated");
@@ -1406,6 +1452,7 @@ interface AuditResult {
   summary: { total: number; clean: number; with_vulns: number; unknown: number; total_critical: number; total_high: number };
 }
 
+/** Gather the production vulnerability audit for a single repository path. */
 function collectAuditRepo(repoPath: string): RepoAudit {
   const pkg = readPackageJson(repoPath);
   if (isOffline()) {
@@ -1428,6 +1475,7 @@ function collectAuditRepo(repoPath: string): RepoAudit {
   return { path: repoPath, name: pkg?.name ?? null, critical, high, moderate, low, total, ok: total === 0 };
 }
 
+/** Collect production audit reports across every repo in parallel. */
 function collectAuditAll(repos: string[], progress: (msg: string) => void): AuditResult {
   const results = repos.map((repo) => {
     progress(`audit ${repo}`);
@@ -1441,6 +1489,7 @@ function collectAuditAll(repos: string[], progress: (msg: string) => void): Audi
   return { repos: results, summary: { total: results.length, clean, with_vulns: withVulns, unknown, total_critical: totalCritical, total_high: totalHigh } };
 }
 
+/** Render the fleet vulnerability audit as a compact markdown table. */
 function renderAuditMarkdown(result: AuditResult): string {
   const lines: string[] = [];
   lines.push("# pm-ops audit");
@@ -1798,6 +1847,7 @@ interface ReportResult {
   release?: VerifyReleaseResult;
 }
 
+/** Compose the combined scan, policy, and optional release report for the fleet. */
 function buildReport(repos: string[], progress: (msg: string) => void, includeRelease: boolean = false): ReportResult {
   const scan = scanRepos(repos, progress);
   const policy = runPolicy(repos, DEFAULT_POLICY, progress);
@@ -1821,6 +1871,7 @@ function renderMarkdownRow(cells: string[]): string {
   return `| ${cells.join(" | ")} |`;
 }
 
+/** Render the per-repo scan snapshot as a wide markdown readiness table. */
 function renderScanMarkdown(result: ScanResult): string {
   const lines: string[] = [];
   lines.push("# pm-ops scan");
@@ -1853,6 +1904,7 @@ function renderScanMarkdown(result: ScanResult): string {
   return lines.join("\n");
 }
 
+/** Render the policy result as a markdown table of checks per repo. */
 function renderPolicyMarkdown(result: PolicyResult): string {
   const lines: string[] = [];
   lines.push("# pm-ops policy");
@@ -1876,6 +1928,7 @@ function renderPolicyMarkdown(result: PolicyResult): string {
   return lines.join("\n");
 }
 
+/** Render the combined report as scan, policy, and release markdown sections. */
 function renderReportMarkdown(result: ReportResult): string {
   const sections: string[] = [];
   // Header with timestamp
@@ -1938,6 +1991,7 @@ interface MetricsResult {
   repos: RepoMetrics[];
 }
 
+/** Canonicalize a raw pm status string into a stable lowercase token. */
 function normalizeStatus(raw: string | undefined): string {
   const s = (raw ?? "").toLowerCase().trim();
   if (!s) return "unknown";
@@ -1962,6 +2016,7 @@ function parseTime(value: string | undefined): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
+/** Compute the item-status and freshness metrics for one repository asynchronously. */
 async function computeRepoMetrics(repo: string, nowMs: number, staleThresholdDays: number): Promise<RepoMetrics> {
   const items = readAllPmItems(repo);
   const name = repoLabel(repo);
@@ -2055,6 +2110,7 @@ async function computeRepoMetrics(repo: string, nowMs: number, staleThresholdDay
   };
 }
 
+/** Compute metrics across every repo in parallel and time the full scrape. */
 async function collectMetricsAll(repos: string[], staleThresholdDays: number, progress: (msg: string) => void): Promise<MetricsResult> {
   // A Prometheus exporter is scraped repeatedly. The module-level read caches
   // dedupe pm invocations *within one scrape*, but must not survive across
@@ -2083,6 +2139,7 @@ function escapeLabel(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
 }
 
+/** Format one Prometheus metric sample line with sorted labels and a value. */
 function metricLine(name: string, labels: Record<string, string>, value: number): string {
   const entries = Object.entries(labels);
   if (entries.length === 0) return `${name} ${value}`;
@@ -2132,6 +2189,7 @@ export function disambiguateRepoLabels(repoMetrics: RepoMetrics[]): void {
   }
 }
 
+/** Render the fleet metrics as a Prometheus text exposition with help and type. */
 function renderMetricsPrometheus(result: MetricsResult): string {
   const lines: string[] = [];
   const push = (name: string, help: string, type: string, samples: string[]) => {
@@ -2201,6 +2259,7 @@ function renderMetricsPrometheus(result: MetricsResult): string {
   return lines.join("\n") + "\n";
 }
 
+/** Emit a structured result honoring format and output, returning the host-rendered payload. */
 function emitResult(structured: unknown, format: OutputFormat, outputPath: string | undefined, formatter: () => string): unknown {
   if (outputPath) {
     mkdirSync(dirname(resolve(outputPath)), { recursive: true });
@@ -2212,6 +2271,106 @@ function emitResult(structured: unknown, format: OutputFormat, outputPath: strin
   if (format === "toon") return structured;
   if (format === "json") return renderedCommandResult(`${JSON.stringify(structured, null, 2)}\n`);
   return renderedCommandResult(formatter());
+}
+
+// ---------------------------------------------------------------------------
+// Docstring coverage (fleet-wide lexer-backed gate)
+// ---------------------------------------------------------------------------
+
+/** Per-repo slice of a docstring coverage run. */
+interface DocstringsRepoResult {
+  /** Absolute or resolved repo path, as passed on --repos. */
+  readonly repo: string;
+  /** Stable repo label (package name or directory basename) for display. */
+  readonly name: string;
+  /** `.ts` files scanned beneath the repo root. */
+  readonly files_scanned: number;
+  /** Declarations evaluated against the documented-surface rules. */
+  readonly declarations_checked: number;
+  /** Number of violations found in this repo. */
+  readonly violation_count: number;
+  /** Violations, capped for display when a repo is large. */
+  readonly violations: readonly DocstringViolation[];
+  /** Error message when a repo could not be scanned at all. */
+  readonly error?: string;
+}
+
+/** Aggregate docstring coverage result across the requested repos. */
+interface DocstringsResult {
+  /** One entry per repo, in --repos order. */
+  readonly repos: readonly DocstringsRepoResult[];
+  /** Fleet-wide totals. */
+  readonly summary: { readonly total: number; readonly with_violations: number; readonly total_violations: number };
+}
+
+/** Cap on violations retained per repo so structured output stays readable for noisy repos. */
+const DOCSTRING_VIOLATIONS_PER_REPO = 50;
+
+/**
+ * Run the docstring analyzer across every repo and roll the per-repo reports
+ * into one aggregate result. A repo with no TypeScript source is recorded as
+ * an error rather than crashing the whole fleet scan.
+ */
+function collectDocstringsAll(repos: string[], progress: (msg: string) => void): DocstringsResult {
+  const repoResults = repos.map((repoPath) => {
+    progress(`docstrings ${relative(process.cwd(), repoPath) || repoPath}`);
+    try {
+      const report = analyzeDocstringCoverage({ root: repoPath });
+      return {
+        repo: repoPath,
+        name: readPackageJson(repoPath)?.name ?? basename(repoPath),
+        files_scanned: report.files_scanned,
+        declarations_checked: report.declarations_checked,
+        violation_count: report.violations.length,
+        violations: report.violations.slice(0, DOCSTRING_VIOLATIONS_PER_REPO),
+      } satisfies DocstringsRepoResult;
+    } catch (err) {
+      return {
+        repo: repoPath,
+        name: basename(repoPath),
+        files_scanned: 0,
+        declarations_checked: 0,
+        violation_count: 0,
+        violations: [],
+        error: err instanceof Error ? err.message : String(err),
+      } satisfies DocstringsRepoResult;
+    }
+  });
+  const totalViolations = repoResults.reduce((sum, repo) => sum + repo.violation_count, 0);
+  return {
+    repos: repoResults,
+    summary: {
+      total: repoResults.length,
+      with_violations: repoResults.filter((repo) => repo.violation_count > 0 || repo.error).length,
+      total_violations: totalViolations,
+    },
+  };
+}
+
+/** Render the docstring coverage result as a markdown table with a per-repo violation breakdown. */
+function renderDocstringsMarkdown(result: DocstringsResult): string {
+  const lines: string[] = [
+    "# pm-ops docstrings",
+    "",
+    `Scanned **${result.summary.total}** repo(s): **${result.summary.with_violations}** with violations, **${result.summary.total_violations}** total violation(s).`,
+    "",
+    renderMarkdownRow(["repo", "files", "declarations", "violations", "sample"]),
+    renderMarkdownRow(["---", "---", "---", "---", "---"]),
+  ];
+  for (const repo of result.repos) {
+    const sample = repo.violations[0]
+      ? `${repo.violations[0].symbol} (${repo.violations[0].reason})`
+      : repo.error ?? "clean";
+    lines.push(renderMarkdownRow([
+      repo.name,
+      String(repo.files_scanned),
+      String(repo.declarations_checked),
+      repo.error ? "error" : String(repo.violation_count),
+      sample.replace(/\s+/g, " ").replace(/\|/g, "\\|").slice(0, 120),
+    ]));
+  }
+  lines.push("");
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -2672,6 +2831,51 @@ export default defineExtension({
           throw new CommandError(`merge-receipts: ${reasons.join(", ")} (reconcile with 'pm merge reconcile', or rerun with --warn-only)`, EXIT_CODE.GENERIC_FAILURE);
         }
         return emitResult(result, format, outputPath, () => renderMergeReceiptsMarkdown(result));
+      },
+    });
+
+    api.registerCommand({
+      name: "ops docstrings",
+      description:
+        "Audit docstring coverage across repos with a lexer-backed, fail-closed analyzer. " +
+        "Every exported declaration, every public member of an exported class, and every " +
+        "non-exported function with a long body must carry a real JSDoc block comment that " +
+        "adds information the identifier does not. JSDoc inside strings, templates, or " +
+        "commented-out lines cannot satisfy it. Exits non-zero when any repo has violations.",
+      intent: "enforce docstring coverage across many pm repositories",
+      arguments: additionalRepoArguments(),
+      examples: [
+        "pm ops docstrings",
+        "pm ops docstrings --repos ./pm-csv ./pm-github",
+        "pm ops docstrings --format markdown",
+        "pm ops docstrings --repos ./pm-csv --json",
+      ],
+      flags: [
+        reposFlag("Repo paths to audit (comma-separated or repeatable; default: current dir)"),
+        { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
+        { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
+      ],
+      async run(ctx: CommandHandlerContext) {
+        const options = ctx.options;
+        const repos = resolveRepos(options, ctx.args);
+        const format = resolveFormat(options, ctx.global);
+        const outputPath = readString(options, "output");
+        console.error(`pm-ops docstrings: ${repos.length} repo(s)`);
+        const result = collectDocstringsAll(repos, (m) => console.error(`  ${m}`));
+        console.error(`docstrings: ${result.summary.total_violations} violation(s) across ${result.summary.with_violations}/${result.summary.total} repo(s)`);
+        if (result.summary.total_violations > 0 || result.summary.with_violations > 0) {
+          const failed = result.summary.with_violations;
+          if (outputPath) {
+            emitResult(result, format, outputPath, () => renderDocstringsMarkdown(result));
+          } else if (format === "markdown") {
+            const md = renderDocstringsMarkdown(result);
+            process.stdout.write(md.endsWith("\n") ? md : `${md}\n`);
+          } else {
+            process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+          }
+          throw new CommandError(`docstrings: ${failed} repo(s) with violations (${result.summary.total_violations} total)`, EXIT_CODE.GENERIC_FAILURE);
+        }
+        return emitResult(result, format, outputPath, () => renderDocstringsMarkdown(result));
       },
     });
 

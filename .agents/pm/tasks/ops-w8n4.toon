@@ -1,0 +1,22 @@
+id: ops-w8n4
+title: Build the lexer-backed docstring analyzer and its negative controls
+description: "Implement docstrings.ts on typescript/unstable/ast createScanner, cover it to the package thresholds, and add fixtures that must fail."
+type: Task
+status: closed
+priority: 1
+tags[2]: "area:quality-gate","pkg:pm-ops"
+created_at: "2026-07-30T21:51:59.478Z"
+updated_at: "2026-07-30T23:16:48.359Z"
+closed_at: "2026-07-30T23:16:48.346Z"
+completed_at: "2026-07-30T23:16:48.346Z"
+author: "harness:claude-code"
+parent: ops-073p
+comments[2]{created_at,author,text}:
+  "2026-07-30T22:15:51.896Z",pi-agent,"Starting the lexer-backed analyzer. Verified the TypeScript 7 unstable scanner surface on this host: createScanner(skipTrivia, languageVariant, text) works; plain scan() emits a stray CloseBraceToken for template substitutions (must call reScanTemplateToken only when the brace closes a template-substitution frame) and never auto-detects regex literals (must call reScanSlashToken selectively using the previous-token heuristic, since unconditional rescan swallows division as a regex). getLeadingCommentRanges(text, token.fullStart) returns only comments in the contiguous preceding trivia, so JSDoc inside strings/templates/commented-out lines is correctly invisible."
+  "2026-07-30T23:16:32.307Z",pi-agent,"Analyzer complete: docstrings.ts (lexer-backed via typescript/unstable createScanner, with template-substitution and regex/division corrections so braces in strings/templates/regex never corrupt depth), 0 violations on pm-ops itself (4 files, 84 declarations), full test suite of negative controls + branch coverage (docstrings.ts 96.24% lines / 90.11% branches / 100% functions). Raised package coverage thresholds 93/71/93 -> 94/78/95."
+learnings[1]{created_at,author,text}:
+  "2026-07-30T22:33:57.537Z",pi-agent,"The TypeScript 7 unstable scanner requires correcting two things a plain scan() loop gets wrong: (1) template substitutions emit a CloseBraceToken for the closing brace that has no matching OpenBraceToken, so it must be converted via reScanTemplateToken(false) only when a tracked frame stack says the brace closes a substitution; (2) reScanSlashToken scans a regex unconditionally and swallows division, so '/' is rescanned as a regex only when the previous significant token cannot end an expression. reScanTemplateToken's type requires an isTaggedTemplate boolean argument even though it works with none at runtime. Node's strip-only type transformer rejects constructor parameter properties, so the analyzer must declare fields explicitly (which also satisfies the erasable-syntax rule)."
+files[1]{path,scope}:
+  docstrings.ts,project
+close_reason: "Built the lexer-backed docstring analyzer in docstrings.ts (fail-closed, implements the internal-body-line rule, immune to JSDoc in strings/templates/comments) with a negative-control + branch-coverage test suite; pm-ops passes its own gate and coverage thresholds were ratcheted up."
+body: ""

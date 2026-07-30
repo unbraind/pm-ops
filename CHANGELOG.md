@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Expose the analyzer as a pm ops subcommand and a package subpath export ([ops-qvbu](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-qvbu.toon))
+- Build the lexer-backed docstring analyzer and its negative controls ([ops-w8n4](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-w8n4.toon))
+
 ## 2026.7.29 - 2026-07-29
 
 ### Added
