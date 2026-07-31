@@ -1,0 +1,12 @@
+id: ops-k6wq
+title: The docstrings command writes JSON on the failure path under the default toon format
+description: "Found by Greptile on PR 33 and confirmed at index.ts. When violations are found and no output file is given and the format is not markdown, the handler writes JSON.stringify directly to stdout before throwing, so a failing run under the default toon format emits JSON and silently breaks the command's advertised output contract on every failure. The passing path goes through emitResult and honours the format. The asymmetry matters because the failing run is the one whose output gets parsed by whatever is gating on it."
+type: Issue
+status: open
+priority: 2
+tags: []
+created_at: "2026-07-31T08:38:22.144Z"
+updated_at: "2026-07-31T08:38:22.144Z"
+author: "harness:claude-code"
+acceptance_criteria: A failing run under the default format emits toon through the host renderer; a failing run under json emits json; a failing run under markdown emits markdown; the exit code is non-zero in every case
+body: ""
