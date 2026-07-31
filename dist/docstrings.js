@@ -86,7 +86,7 @@
  */
 import { createScanner, getLeadingCommentRanges } from "typescript/unstable/ast/scanner";
 import { SyntaxKind, LanguageVariant } from "typescript/unstable/ast";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 /**
  * Minimum number of meaningful words a docstring must contain after filler
@@ -176,6 +176,29 @@ const MEMBER_STARTS = new Set([
     SyntaxKind.GetKeyword,
     SyntaxKind.SetKeyword,
     SyntaxKind.ConstructorKeyword,
+]);
+/** Tokens that can end an expression immediately before an ASI boundary. */
+const STATEMENT_ENDS = new Set([
+    ...DIVISION_PREVIOUS,
+    SyntaxKind.PlusPlusToken,
+    SyntaxKind.MinusMinusToken,
+    SyntaxKind.ExclamationToken,
+]);
+/** Tokens that can begin a declaration after an ASI-terminated variable statement. */
+const DECLARATION_STARTS = new Set([
+    SyntaxKind.ExportKeyword,
+    SyntaxKind.ImportKeyword,
+    SyntaxKind.FunctionKeyword,
+    SyntaxKind.ClassKeyword,
+    SyntaxKind.InterfaceKeyword,
+    SyntaxKind.TypeKeyword,
+    SyntaxKind.EnumKeyword,
+    SyntaxKind.NamespaceKeyword,
+    SyntaxKind.ModuleKeyword,
+    SyntaxKind.ConstKeyword,
+    SyntaxKind.LetKeyword,
+    SyntaxKind.VarKeyword,
+    SyntaxKind.DeclareKeyword,
 ]);
 /**
  * Tokens after which a fresh primary type may begin, so a following `{` is an
@@ -314,7 +337,18 @@ function cleanComment(raw) {
  */
 function collectSourceFiles(roots) {
     const out = [];
+    const visited = new Set();
     const walk = (dir) => {
+        let canonical;
+        try {
+            canonical = realpathSync(dir);
+        }
+        catch (error) {
+            throw new Error(`docstring coverage: cannot resolve directory ${dir}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        if (visited.has(canonical))
+            return;
+        visited.add(canonical);
         let entries;
         try {
             entries = readdirSync(dir);
@@ -954,6 +988,7 @@ class SourceAnalyzer {
                 return;
             }
             let hasInitializer = false;
+            let hasNextDeclarator = false;
             while (this.i < this.tokens.length) {
                 const k = this.cur().kind;
                 if (k === SyntaxKind.SemicolonToken) {
@@ -964,12 +999,20 @@ class SourceAnalyzer {
                     return;
                 if (k === SyntaxKind.CommaToken) {
                     this.i++;
+                    hasNextDeclarator = true;
                     break;
                 }
                 if (k === SyntaxKind.EqualsToken) {
                     hasInitializer = true;
                     this.i++;
                     continue;
+                }
+                const previous = this.tokens[this.i - 1];
+                if (previous &&
+                    this.lineOf[this.cur().start] > this.lineOf[previous.start] &&
+                    STATEMENT_ENDS.has(previous.kind) &&
+                    DECLARATION_STARTS.has(k)) {
+                    return;
                 }
                 if (!hasInitializer && k === SyntaxKind.LessThanToken) {
                     this.skipTypeParams();
@@ -981,6 +1024,8 @@ class SourceAnalyzer {
                 }
                 this.i++;
             }
+            if (!hasNextDeclarator)
+                return;
         }
     }
     /** Skip a callable's optional type parameters, parameter list, and body. */

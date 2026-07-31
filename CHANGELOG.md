@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Prevent symlink cycles during docstring source traversal ([ops-hkxb](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-hkxb.toon))
+- Semicolon-free exported variables consume following declarations ([ops-aun4](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-aun4.toon))
 - Sanitize Node test-runner context before release verification ([ops-hq5u](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-hq5u.toon))
 - The docstrings command writes JSON on the failure path under the default toon format ([ops-k6wq](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-k6wq.toon))
 - Semicolon-free class fields bypass docstring evaluation ([ops-6wen](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-6wen.toon))

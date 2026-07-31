@@ -1,0 +1,31 @@
+id: ops-hkxb
+title: Prevent symlink cycles during docstring source traversal
+description: collectSourceFiles follows directory symlinks through statSync without remembering canonical paths. A directory link back to an ancestor can recurse until stack exhaustion instead of returning a controlled fail-closed result.
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-07-31T10:31:08.883Z"
+updated_at: "2026-07-31T10:32:43.196Z"
+closed_at: "2026-07-31T10:32:43.165Z"
+completed_at: "2026-07-31T10:32:43.165Z"
+author: "harness:codex"
+estimated_minutes: 30
+acceptance_criteria: Traversal keys visited directories by real path; Canonicalization failures produce a controlled fail-closed error; A real symlink-cycle regression completes and preserves source coverage
+parent: ops-073p
+reporter: coderabbitai
+severity: medium
+environment: PR 33 exact head b610690
+repro_steps: "Place a directory symlink beneath the scan root that resolves to the root itself, then run analyzeDocstringCoverage."
+resolution: Each directory is canonicalized through realpathSync under a contextual fail-closed error boundary and traversed only once through a visited set.
+expected_result: Each canonical directory is traversed at most once; cycles terminate deterministically while source files remain covered.
+actual_result: "A real directory symlink back to the scan root completes deterministically, scans the authored TypeScript file exactly once, checks its declaration, and reports no false violation."
+component: docstring-traversal
+regression: true
+customer_impact: A repository symlink cycle can crash the fleet gate with an uncontrolled stack overflow.
+files[1]{path,scope,note}:
+  docstrings.ts,project,Canonical traversal guard
+tests[1]{command,path,scope,timeout_seconds}:
+  node --test --test-name-pattern='symlink cycle' test/docstrings.test.ts,test/docstrings.test.ts,project,60
+close_reason: Canonical-path traversal guard prevents directory symlink recursion while preserving coverage.
+body: ""

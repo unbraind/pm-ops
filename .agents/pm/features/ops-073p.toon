@@ -6,15 +6,16 @@ status: in_progress
 priority: 1
 tags[4]: "area:quality-gate",docstrings,fleet-wide,"pkg:pm-ops"
 created_at: "2026-07-30T21:51:52.205Z"
-updated_at: "2026-07-31T10:20:21.545Z"
+updated_at: "2026-07-31T10:35:03.452Z"
 assignee: "harness:codex"
 claim_principal: "harness:codex"
 author: "harness:claude-code"
 estimated_minutes: 240
 acceptance_criteria: "A docstrings module is exported from pm-ops, backed by createScanner token streams rather than line regexes, so JSDoc inside strings, template literals and commented-out code can never satisfy it; every declaration form the finder does not recognise is reported as a violation rather than skipped; the internal-function rule is implemented rather than documented; negative-control tests prove the gate fails on each known-bad input; pm ops docstrings runs the same analyzer across one repo or the fleet; pm-ops passes its own gate"
-notes[2]{created_at,author,text}:
+notes[3]{created_at,author,text}:
   "2026-07-31T09:59:20.024Z","harness:codex","PR 33 has 10 unresolved threads. Implement all verified Greptile and CodeRabbit findings,regenerate the changelog that fails both CI jobs,and rerun the complete release gate before requesting exact-head reviews."
   "2026-07-31T10:20:21.519Z","harness:codex","Complete real-data release gate passes: 113 tests,0 failures,0 skips; pm-todos/pm-csv scan 2/2 ready; pm-csv nested release gate 1/1 passed; docstrings 85/85; production audit 0 vulnerabilities; pack and changelog checks pass. Source coverage remains 94.32% lines,78.45% branches,and 95.04% functions,so the separate mandatory 100/100/100/100 gap is tracked as ops-q6ki and is not being misrepresented as complete."
+  "2026-07-31T10:35:03.436Z","harness:codex","Exact-head review round found and resolved two additional fail-closed edge cases: semicolon-free exported variable statements now stop at valid ASI declaration boundaries,and source traversal tracks canonical directories to terminate symlink cycles. Full opted-in release gate now passes 115 tests with 0 failures and 0 skips; coverage is 94.40% lines,78.66% branches,and 95.04% functions,still honestly tracked by ops-q6ki."
 files[2]{path,scope,note}:
   docstrings.ts,project,Lexer-backed analyzer implementation
   index.ts,project,Fleet command and output contract

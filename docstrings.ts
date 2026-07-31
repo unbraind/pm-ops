@@ -87,7 +87,7 @@
 
 import { createScanner, getLeadingCommentRanges } from "typescript/unstable/ast/scanner";
 import { SyntaxKind, LanguageVariant } from "typescript/unstable/ast";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
 /**
@@ -217,6 +217,31 @@ const MEMBER_STARTS = new Set<SyntaxKind>([
   SyntaxKind.GetKeyword,
   SyntaxKind.SetKeyword,
   SyntaxKind.ConstructorKeyword,
+]);
+
+/** Tokens that can end an expression immediately before an ASI boundary. */
+const STATEMENT_ENDS = new Set<SyntaxKind>([
+  ...DIVISION_PREVIOUS,
+  SyntaxKind.PlusPlusToken,
+  SyntaxKind.MinusMinusToken,
+  SyntaxKind.ExclamationToken,
+]);
+
+/** Tokens that can begin a declaration after an ASI-terminated variable statement. */
+const DECLARATION_STARTS = new Set<SyntaxKind>([
+  SyntaxKind.ExportKeyword,
+  SyntaxKind.ImportKeyword,
+  SyntaxKind.FunctionKeyword,
+  SyntaxKind.ClassKeyword,
+  SyntaxKind.InterfaceKeyword,
+  SyntaxKind.TypeKeyword,
+  SyntaxKind.EnumKeyword,
+  SyntaxKind.NamespaceKeyword,
+  SyntaxKind.ModuleKeyword,
+  SyntaxKind.ConstKeyword,
+  SyntaxKind.LetKeyword,
+  SyntaxKind.VarKeyword,
+  SyntaxKind.DeclareKeyword,
 ]);
 
 /**
@@ -363,7 +388,16 @@ function cleanComment(raw: string): string {
  */
 function collectSourceFiles(roots: readonly string[]): string[] {
   const out: string[] = [];
+  const visited = new Set<string>();
   const walk = (dir: string): void => {
+    let canonical: string;
+    try {
+      canonical = realpathSync(dir);
+    } catch (error) {
+      throw new Error(`docstring coverage: cannot resolve directory ${dir}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (visited.has(canonical)) return;
+    visited.add(canonical);
     let entries: string[];
     try {
       entries = readdirSync(dir);
@@ -969,6 +1003,7 @@ class SourceAnalyzer {
       }
 
       let hasInitializer = false;
+      let hasNextDeclarator = false;
       while (this.i < this.tokens.length) {
         const k = this.cur().kind;
         if (k === SyntaxKind.SemicolonToken) {
@@ -978,12 +1013,22 @@ class SourceAnalyzer {
         if (k === SyntaxKind.CloseBraceToken || k === SyntaxKind.EndOfFile) return;
         if (k === SyntaxKind.CommaToken) {
           this.i++;
+          hasNextDeclarator = true;
           break;
         }
         if (k === SyntaxKind.EqualsToken) {
           hasInitializer = true;
           this.i++;
           continue;
+        }
+        const previous = this.tokens[this.i - 1];
+        if (
+          previous &&
+          this.lineOf[this.cur().start] > this.lineOf[previous.start] &&
+          STATEMENT_ENDS.has(previous.kind) &&
+          DECLARATION_STARTS.has(k)
+        ) {
+          return;
         }
         if (!hasInitializer && k === SyntaxKind.LessThanToken) {
           this.skipTypeParams();
@@ -995,6 +1040,7 @@ class SourceAnalyzer {
         }
         this.i++;
       }
+      if (!hasNextDeclarator) return;
     }
   }
 

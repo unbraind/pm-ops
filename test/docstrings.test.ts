@@ -123,6 +123,30 @@ test("every exported binding is judged, including destructuring patterns", () =>
   ), []);
 });
 
+test("semicolon-free exported variables do not consume following declarations", () => {
+  const result = analyzeSource(`
+/** Document the first public configuration value. */
+export const first = condition
+  ? primary
+  : fallback
+export const second = 2
+`, "asi-exports.ts");
+  assert.equal(result.declarations, 2);
+  assert.deepEqual(result.violations.map(({ symbol }) => symbol), ["second"]);
+
+  const grouped = analyzeSource(`
+/** Document a grouped initializer without a trailing semicolon. */
+export const first = makeValue(
+  primary,
+  fallback,
+)
+/** Document the declaration after the grouped initializer. */
+export function second() {}
+`, "asi-grouped.ts");
+  assert.equal(grouped.declarations, 2);
+  assert.deepEqual(grouped.violations, []);
+});
+
 test("semicolon-free class fields remain separate documented-surface declarations", () => {
   const missing = violationsOf(`
 /** Store public counters used by the reporting layer. */
@@ -573,6 +597,20 @@ test("analyzeDocstringCoverage fails closed when a traversed entry cannot be ins
   try {
     symlinkSync(join(root, "missing-target"), join(root, "broken.ts"));
     assert.throws(() => analyzeDocstringCoverage({ root }), /cannot stat .*broken\.ts/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("analyzeDocstringCoverage traverses each canonical directory once across a symlink cycle", () => {
+  const root = mkdtempSync(join(tmpdir(), "docstrings-symlink-cycle-"));
+  try {
+    writeFileSync(join(root, "index.ts"), `/** Document the exported cycle fixture entry point. */\nexport function main() {}\n`);
+    symlinkSync(root, join(root, "cycle"), "dir");
+    const report = analyzeDocstringCoverage({ root });
+    assert.equal(report.files_scanned, 1);
+    assert.equal(report.declarations_checked, 1);
+    assert.deepEqual(report.violations, []);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
