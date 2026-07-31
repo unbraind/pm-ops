@@ -41,6 +41,9 @@ jobs:
       - name: Type check
         run: npm run check
 
+      - name: Docstring coverage gate
+        run: npm run docstring
+
       - name: Test with coverage gate
         run: npm run coverage
 

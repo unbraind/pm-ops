@@ -1,0 +1,22 @@
+id: ops-xhbt
+title: Remove legacy absolute host paths from published git history
+description: "A full-patch history scan found no credential-token or private-key patterns, but 12 patch-line matches retain an absolute home-directory prefix from old real-data test constants and PM test evidence. Current tracked files and this PR are clean. Removing published historical blobs requires a coordinated history rewrite and force-update across main, tags, open branches, npm provenance references, and every collaborator clone; it must not be improvised inside an unrelated feature PR."
+type: Issue
+status: open
+priority: 1
+tags: []
+created_at: "2026-07-31T10:21:21.582Z"
+updated_at: "2026-07-31T10:21:21.582Z"
+assignee: "harness:codex"
+author: "harness:codex"
+estimated_minutes: 180
+acceptance_criteria: "Inventory every affected object and ref without printing sensitive values into public logs; Prepare a reviewed rewrite mapping from absolute paths to portable workspace-relative examples; Coordinate and execute the history rewrite across branches and tags, then verify GitHub and fresh-clone reachability; Invalidate or recreate affected release provenance only after confirming package integrity"
+reporter: "harness:codex"
+severity: medium
+environment: "Public unbraind/pm-ops repository, all refs scanned with git log patch output"
+repro_steps: Scan all ref patches for the absolute home-directory prefix and count 12 matching patch lines; scan current tracked files and the current patch and observe zero.
+expected_result: "No public ref or reachable historical blob contains personal host paths, and all rewritten refs, signatures/provenance, release tags, PR branches, and collaborator clones are reconciled safely."
+actual_result: "Credential-token patterns: 0; private-key patterns: 0; current-patch host paths: 0; historical absolute-host-path patch lines: 12."
+component: privacy-history
+customer_impact: "The paths disclose a personal host layout but no credentials, tokens, hosted-service data, or user content."
+body: ""

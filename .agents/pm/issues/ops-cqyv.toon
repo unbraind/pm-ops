@@ -1,0 +1,33 @@
+id: ops-cqyv
+title: Brace-ending initializers consume following ASI declarations and members
+description: The ASI recovery guards use expression-ending token sets that omit CloseBraceToken. An object-literal initializer therefore consumes a following semicolon-free export or class field instead of returning control to declaration parsing; the slash lexer heuristic also misclassifies division after an object-literal close.
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-07-31T10:39:42.914Z"
+updated_at: "2026-07-31T10:40:18.150Z"
+closed_at: "2026-07-31T10:40:18.137Z"
+completed_at: "2026-07-31T10:40:18.137Z"
+author: "harness:codex"
+estimated_minutes: 30
+acceptance_criteria: Object-literal export initializer followed by an export judges both declarations; Object-literal public field followed by another field judges both members; A slash after an object-literal close remains division rather than being rescanned as a regex
+parent: ops-073p
+reporter: greptile-apps
+severity: high
+environment: PR 33 exact head 82380b1
+repro_steps: Analyze semicolon-free exported variables or public class fields whose initializer ends in an object literal and is followed by another declaration on the next line.
+resolution: "Added CloseBraceToken to the shared expression-ending classification used by slash rescanning and ASI recovery. Behavioral regressions cover exports, class fields, and division after object literals."
+expected_result: "CloseBraceToken is recognized as expression-ending; the next declaration or member is independently judged, while division after an object literal remains division."
+actual_result: "Focused regression passes: two semicolon-free exports are counted separately, a following undocumented public field is reported, and an object-literal division expression remains valid with no false violation."
+component: docstring-analyzer
+regression: true
+customer_impact: Undocumented exports and public fields can bypass the fail-closed documentation gate through an ordinary object-literal initializer.
+learnings[1]{created_at,author,text}:
+  "2026-07-31T10:40:17.654Z","harness:codex","CloseBraceToken ends both object literals and block statements. In expression recovery it must be treated as expression-ending; doing so also corrects slash rescanning after an object literal,where slash denotes division rather than the start of a regex."
+files[1]{path,scope,note}:
+  docstrings.ts,project,Expression-ending token classification
+tests[1]{command,path,scope,timeout_seconds}:
+  node --test --test-name-pattern='object-literal ASI boundaries' test/docstrings.test.ts,test/docstrings.test.ts,project,60
+close_reason: CloseBraceToken now preserves object-literal declaration boundaries and division tokenization.
+body: ""

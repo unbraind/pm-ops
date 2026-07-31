@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import type { GlobalOptions } from "@unbrained/pm-cli/sdk";
 import { listMergeReceipts, markMergeReceiptReconciled } from "@unbrained/pm-cli/sdk/merge";
+import { decode } from "@toon-format/toon";
 
 import extension, { disambiguateRepoLabels } from "../index.ts";
 
@@ -173,7 +174,7 @@ interface MergeReceiptsResult {
 const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf-8")) as {
   capabilities: readonly ExtensionCapability[];
 };
-const OPS_COMMANDS = ["ops scan", "ops policy", "ops verify-release", "ops report", "ops status", "ops outdated", "ops audit", "ops metrics", "ops merge-receipts"] as const;
+const OPS_COMMANDS = ["ops scan", "ops policy", "ops verify-release", "ops report", "ops status", "ops outdated", "ops audit", "ops metrics", "ops merge-receipts", "ops docstrings"] as const;
 
 // Real fleet paths used for local real-data testing. CI and other developers
 // can set PM_OPS_TEST_REPOS to opt into the same checks with their own paths.
@@ -541,18 +542,29 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
   assert.strictEqual(installed.activation_status, "ok");
   assert.strictEqual(installed.runtime_active, true);
 
-  interface RepoEntry { path?: string }
+  writeFileSync(join(project, "undocumented.ts"), "export function undocumented() {}\n");
+  const toonFailure = runPm(["ops", "docstrings", "--repos", project]);
+  assert.strictEqual(toonFailure.error, undefined, "pm ops docstrings should launch");
+  assert.strictEqual(toonFailure.status, 1, `pm ops docstrings should fail the dirty project: ${toonFailure.stderr}`);
+  const toonPayload = decode(toonFailure.stdout) as { summary?: { total_violations?: number } };
+  assert.strictEqual(toonPayload.summary?.total_violations, 1, "default failure output must remain valid TOON");
+
+  const jsonFailure = runPm(["ops", "docstrings", "--repos", project, "--json"]);
+  assert.strictEqual(jsonFailure.status, 1, `pm ops docstrings --json should fail the dirty project: ${jsonFailure.stderr}`);
+  assert.strictEqual(parseJson<{ summary?: { total_violations?: number } }>(jsonFailure.stdout).summary?.total_violations, 1);
+
+  interface RepoEntry { path?: string; repo?: string }
   interface CmdPayload { repos?: RepoEntry[]; scan?: { repos?: RepoEntry[] } }
   const missing = join(root, "definitely-missing");
   for (const command of OPS_COMMANDS) {
     const result = runPm([...command.split(" "), "--repos", missing, "--json"]);
-    const expectsFailure = command === "ops verify-release";
+    const expectsFailure = command === "ops verify-release" || command === "ops docstrings";
     assert.strictEqual(result.error, undefined, `${command} should launch`);
     assert.strictEqual(result.status, expectsFailure ? 1 : 0, `${command} exit status: ${result.stderr}`);
     const payload = parseJson<CmdPayload>(result.stdout);
     const repos = command === "ops report" ? payload.scan?.repos : payload.repos;
     assert.deepStrictEqual(
-      repos?.map((entry) => entry.path),
+      repos?.map((entry) => entry.path ?? entry.repo),
       [resolve(missing)],
       `${command} must use --repos instead of silently scanning cwd`,
     );
@@ -1047,6 +1059,30 @@ test("ops verify-release runs the release gate matrix on the fixture", async () 
   assert.strictEqual(result.summary.passed, 1);
   assert.strictEqual(result.summary.failed, 0);
   await ext.deactivate();
+});
+
+test("ops verify-release strips NODE_TEST_CONTEXT from release gates", async () => {
+  const ext = await harness();
+  const repo = join(tmpRoot, "pm-node-test-context");
+  mkdirSync(repo, { recursive: true });
+  writeFileSync(join(repo, "package.json"), JSON.stringify({
+    name: "pm-node-test-context",
+    version: "2026.7.31",
+    scripts: {
+      "release:check": "node -e \"if (process.env.NODE_TEST_CONTEXT) process.exit(9)\"",
+    },
+  }) + "\n");
+  const originalContext = process.env.NODE_TEST_CONTEXT;
+  process.env.NODE_TEST_CONTEXT = "child-v8";
+  try {
+    const result = await runCmd<VerifyResult>(ext, "ops verify-release", { repos: [repo] });
+    assert.strictEqual(result.repos[0].failed, 0);
+    assert.strictEqual(result.summary.failed, 0);
+  } finally {
+    if (originalContext === undefined) delete process.env.NODE_TEST_CONTEXT;
+    else process.env.NODE_TEST_CONTEXT = originalContext;
+    await ext.deactivate();
+  }
 });
 
 test("ops verify-release fails when no release gate scripts exist", async () => {

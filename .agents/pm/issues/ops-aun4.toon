@@ -1,0 +1,33 @@
+id: ops-aun4
+title: Semicolon-free exported variables consume following declarations
+description: "parseExportedVar has no automatic-semicolon-insertion boundary for an exported variable statement. A semicolon-free export followed on a new line by another declaration is consumed as initializer syntax, so the following binding is never judged."
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-07-31T10:31:08.430Z"
+updated_at: "2026-07-31T10:32:42.786Z"
+closed_at: "2026-07-31T10:32:42.775Z"
+completed_at: "2026-07-31T10:32:42.775Z"
+author: "harness:codex"
+estimated_minutes: 40
+acceptance_criteria: "Semicolon-free export followed by another export judges both bindings; Multiline conditional, call, type, and grouped initializers are not split prematurely"
+parent: ops-073p
+reporter: greptile-apps
+severity: high
+environment: PR 33 exact head b610690
+repro_steps: Analyze a documented export const first = 1 without a semicolon followed by an undocumented export const second = 2; observe only first is counted and no second violation is reported.
+resolution: "Added declaration-start and expression-end token sets, stopped semicolon-free variable recovery only at a valid newline declaration boundary, and returned cleanly after an EOF-terminated final declarator."
+expected_result: ASI terminates the first variable statement at a declaration boundary and the following export is independently judged.
+actual_result: "Focused regression passes 2/2 together with the symlink-cycle test; two semicolon-free exports are counted independently, the undocumented second binding is reported, and a grouped multiline initializer remains intact."
+component: docstring-analyzer
+regression: true
+customer_impact: Undocumented exports can bypass a gate advertised as fail-closed.
+learnings[1]{created_at,author,text}:
+  "2026-07-31T10:32:42.367Z","harness:codex",Variable-statement recovery needs an explicit post-loop return because the tokenizer omits an EOF token; otherwise a semicolon-free final declarator re-enters the outer declarator loop and creates a synthetic fail-closed violation.
+files[1]{path,scope,note}:
+  docstrings.ts,project,Exported variable statement recovery
+tests[1]{command,path,scope,timeout_seconds}:
+  node --test --test-name-pattern='semicolon-free exported variables' test/docstrings.test.ts,test/docstrings.test.ts,project,60
+close_reason: ASI-aware declaration boundaries and EOF recovery now preserve following exports and multiline initializers.
+body: ""

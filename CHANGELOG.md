@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Docstring coverage gate: a lexer-backed, fail-closed documentation gate the fleet can share ([ops-073p](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-073p.toon))
+
+### Fixed
+
+- Brace-ending initializers consume following ASI declarations and members ([ops-cqyv](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-cqyv.toon))
+- Prevent symlink cycles during docstring source traversal ([ops-hkxb](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-hkxb.toon))
+- Semicolon-free exported variables consume following declarations ([ops-aun4](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-aun4.toon))
+- Sanitize Node test-runner context before release verification ([ops-hq5u](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-hq5u.toon))
+- The docstrings command writes JSON on the failure path under the default toon format ([ops-k6wq](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-k6wq.toon))
+- Semicolon-free class fields bypass docstring evaluation ([ops-6wen](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-6wen.toon))
+- The docstring gate is fail-open for exported bindings it cannot decompose ([ops-f25k](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-f25k.toon))
+
+## 2026.7.31 - 2026-07-31
+
+### Other
+
+- Expose the analyzer as a pm ops subcommand and a package subpath export ([ops-qvbu](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-qvbu.toon))
+- Build the lexer-backed docstring analyzer and its negative controls ([ops-w8n4](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-w8n4.toon))
+
 ## 2026.7.29 - 2026-07-29
 
 ### Added

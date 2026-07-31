@@ -13,6 +13,16 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./docstrings": {
+      "types": "./dist/docstrings.d.ts",
+      "default": "./dist/docstrings.js"
+    }
+  },
   "files": [
     "dist/",
     "manifest.json",
@@ -31,21 +41,25 @@
     "changelog": "pm-changelog --pm-root .agents/pm --mode prepend --output CHANGELOG.md --release-version-from-package --since-previous-tag --until-release-tag --item-url-base https://github.com/unbraind/pm-ops/blob/main/.agents/pm --respect-item-release",
     "changelog:full": "pm-changelog --pm-root .agents/pm --mode replace --output CHANGELOG.md --all-release-tags --release-version-from-package --item-url-base https://github.com/unbraind/pm-ops/blob/main/.agents/pm --respect-item-release",
     "changelog:check": "pm-changelog --pm-root .agents/pm --mode replace --output CHANGELOG.md --all-release-tags --release-version-from-package --item-url-base https://github.com/unbraind/pm-ops/blob/main/.agents/pm --respect-item-release --check",
-    "release:check": "npm run check && npm run coverage && npm run audit:prod && npm run pack:dry-run && npm run changelog:check",
+    "docstring": "node scripts/docstring-gate.ts",
+    "release:check": "npm run check && npm run docstring && npm run coverage && npm run audit:prod && npm run pack:dry-run && npm run changelog:check",
     "prepublishOnly": "npm run release:check",
     "release:notes": "pm-changelog --pm-root .agents/pm --stdout --since-previous-tag --until-release-tag --release-version-from-package --item-url-base https://github.com/unbraind/pm-ops/blob/main/.agents/pm --respect-item-release --pm-bin ./node_modules/.bin/pm --github-step-summary",
     "prepare": "node scripts/prepare-merge-driver.mjs",
     "merge:install": "pm merge install",
     "coverage": "npm run build && npm run build:test && node scripts/coverage-gate.ts"
   },
+  "dependencies": {
+    "@toon-format/toon": "^4.1.0",
+    "typescript": "7.0.2"
+  },
   "peerDependencies": {
-    "@unbrained/pm-cli": ">=2026.7.29"
+    "@unbrained/pm-cli": ">=2026.7.31"
   },
   "devDependencies": {
-    "@types/node": "26.1.1",
-    "@unbrained/pm-cli": "^2026.7.29",
-    "pm-changelog": "^2026.7.25",
-    "typescript": "7.0.2"
+    "@types/node": "^26.1.2",
+    "@unbrained/pm-cli": "^2026.7.31",
+    "pm-changelog": "^2026.7.29-1"
   },
   "keywords": [
     "pm-cli",
@@ -104,9 +118,9 @@
       "test/*.test.ts"
     ],
     "thresholds": {
-      "lines": 93,
-      "branches": 71,
-      "functions": 93
+      "lines": 94,
+      "branches": 78,
+      "functions": 95
     },
     "ignore": []
   }

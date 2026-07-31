@@ -1,0 +1,20 @@
+id: ops-qvbu
+title: Expose the analyzer as a pm ops subcommand and a package subpath export
+description: Register the fleet command and add the exports map entry so other repos import the analyzer instead of copying it.
+type: Task
+status: closed
+priority: 2
+tags[2]: "area:quality-gate","pkg:pm-ops"
+created_at: "2026-07-30T21:51:59.851Z"
+updated_at: "2026-07-30T23:16:48.743Z"
+closed_at: "2026-07-30T23:16:48.732Z"
+completed_at: "2026-07-30T23:16:48.732Z"
+author: "harness:claude-code"
+parent: ops-073p
+files[4]{path,scope}:
+  docstrings.ts,project
+  index.ts,project
+  scripts/docstring-gate.ts,project
+  test/docstrings.test.ts,project
+close_reason: "Exposed the analyzer as the pm ops docstrings subcommand (accepts --repos/--format/--output, exits non-zero on violations, no host-flag collisions) and as the ./docstrings subpath export; wired the docstring script into release:check before coverage and into CI after the type check."
+body: ""
