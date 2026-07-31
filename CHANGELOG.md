@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Docstring coverage gate: a lexer-backed, fail-closed documentation gate the fleet can share ([ops-073p](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-073p.toon))
+
 ### Fixed
 
 - Brace-ending initializers consume following ASI declarations and members ([ops-cqyv](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-cqyv.toon))
