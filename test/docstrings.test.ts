@@ -147,6 +147,33 @@ export function second() {}
   assert.deepEqual(grouped.violations, []);
 });
 
+test("object-literal ASI boundaries preserve following exports and class fields", () => {
+  const exported = analyzeSource(`
+/** Document a public object-literal configuration value. */
+export const first = { enabled: true }
+export const second = 2
+`, "asi-object-export.ts");
+  assert.equal(exported.declarations, 2);
+  assert.deepEqual(exported.violations.map(({ symbol }) => symbol), ["second"]);
+
+  const fields = analyzeSource(`
+/** Store public object-literal configuration fields. */
+export class Configuration {
+  /** Initial object-literal configuration available to consumers. */
+  first = { enabled: true }
+  second = 2
+}
+`, "asi-object-field.ts");
+  assert.deepEqual(fields.violations.map(({ symbol }) => symbol), ["Configuration.second"]);
+
+  const division = analyzeSource(`
+/** Compute a public division result after an object literal. */
+export const quotient = {} / 2
+`, "object-division.ts");
+  assert.equal(division.declarations, 1);
+  assert.deepEqual(division.violations, []);
+});
+
 test("semicolon-free class fields remain separate documented-surface declarations", () => {
   const missing = violationsOf(`
 /** Store public counters used by the reporting layer. */

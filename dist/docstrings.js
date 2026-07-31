@@ -154,6 +154,7 @@ const DIVISION_PREVIOUS = new Set([
     SyntaxKind.SuperKeyword,
     SyntaxKind.CloseParenToken,
     SyntaxKind.CloseBracketToken,
+    SyntaxKind.CloseBraceToken,
 ]);
 /** Tokens that can begin a class member after automatic semicolon insertion. */
 const MEMBER_STARTS = new Set([

@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Brace-ending initializers consume following ASI declarations and members ([ops-cqyv](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-cqyv.toon))
 - Prevent symlink cycles during docstring source traversal ([ops-hkxb](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-hkxb.toon))
 - Semicolon-free exported variables consume following declarations ([ops-aun4](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-aun4.toon))
 - Sanitize Node test-runner context before release verification ([ops-hq5u](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-hq5u.toon))
