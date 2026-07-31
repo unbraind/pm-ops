@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test, { before, after } from "node:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import type { GlobalOptions } from "@unbrained/pm-cli/sdk";
+import { decode } from "@toon-format/toon";
 
 import extension from "../index.ts";
 import {
@@ -106,6 +107,61 @@ test("a public class member with no docstring is flagged inside a documented exp
   const v = onlyViolation(src);
   assert.equal(v.symbol, "Widget.render");
   assert.equal(v.reason, "no docstring");
+});
+
+test("every exported binding is judged, including destructuring patterns", () => {
+  const declarations = analyzeSource(`export const first = 1, second = 2;\n`, "bindings.ts");
+  assert.deepEqual(declarations.violations.map(({ symbol }) => symbol), ["first", "second"]);
+  assert.equal(declarations.declarations, 2);
+
+  const destructured = onlyViolation(`export const { left, right: renamed } = source;\n`);
+  assert.equal(destructured.symbol, "{ left, right: renamed }");
+  assert.equal(destructured.reason, "no docstring");
+
+  assert.deepEqual(violationsOf(
+    `/** Bind both public values from the configuration source. */\nexport const first = 1, { second } = source;\n`,
+  ), []);
+});
+
+test("semicolon-free class fields remain separate documented-surface declarations", () => {
+  const missing = violationsOf(`
+/** Store public counters used by the reporting layer. */
+export class Counters {
+  /** Initial counter available before any updates occur. */
+  first = 1
+  second = 2
+}
+`);
+  assert.deepEqual(missing.map(({ symbol }) => symbol), ["Counters.second"]);
+
+  assert.deepEqual(violationsOf(`
+/** Store public counters used by the reporting layer. */
+export class Counters {
+  /** Choose the first counter through a multiline conditional. */
+  first = condition
+    ? primary
+    : fallback
+  /** Secondary counter available after initialization completes. */
+  second = 2
+}
+`), []);
+});
+
+test("private identifier methods still expose substantial nested declarations", () => {
+  const body = Array.from({ length: INTERNAL_BODY_LINES + 2 }, (_, index) => `      const value${index} = ${index};`).join("\n");
+  const violation = onlyViolation(`
+/** Hold private behavior while exposing a stable public shell. */
+export class Holder {
+  #secret() {
+    function nested() {
+${body}
+    }
+    return nested();
+  }
+}
+`);
+  assert.equal(violation.symbol, "nested");
+  assert.equal(violation.reason, "no docstring");
 });
 
 test("a long non-exported function with no docstring is flagged", () => {
@@ -498,14 +554,25 @@ test("a fully documented source exercising every declaration and statement form 
   assert.deepEqual(violationsOf(src), []);
 });
 
-test("analyzeDocstringCoverage accepts a single source file as the root", () => {
+test("analyzeDocstringCoverage reports a single-file root with its filename", () => {
   const root = mkdtempSync(join(tmpdir(), "docstrings-file-"));
   const file = join(root, "lone.ts");
   try {
-    writeFileSync(file, `/** Documented exported lone entry point. */\nexport function lone() {}\n`);
+    writeFileSync(file, `export function lone() {}\n`);
     const report = analyzeDocstringCoverage({ root: file });
     assert.equal(report.files_scanned, 1);
-    assert.equal(report.violations.length, 0);
+    assert.equal(report.violations.length, 1);
+    assert.equal(report.violations[0]!.file, "lone.ts");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("analyzeDocstringCoverage fails closed when a traversed entry cannot be inspected", () => {
+  const root = mkdtempSync(join(tmpdir(), "docstrings-broken-entry-"));
+  try {
+    symlinkSync(join(root, "missing-target"), join(root, "broken.ts"));
+    assert.throws(() => analyzeDocstringCoverage({ root }), /cannot stat .*broken\.ts/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -654,6 +721,19 @@ test("pm ops docstrings writes the report to a file before failing", async () =>
   await assert.rejects(() => runCmd(ext, "ops docstrings", { repos: dirtyRepo, format: "markdown", output: out }), /repo\(s\) with violations/);
   const written = readFileSyncSafe(out);
   assert.ok(written.includes("pm-ops docstrings"), "markdown report was written before the non-zero exit");
+});
+
+test("pm ops docstrings writes format-correct structured reports before failing", async () => {
+  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser"] });
+  const toonOut = join(tmpRoot, "dirty-report.toon");
+  await assert.rejects(() => runCmd(ext, "ops docstrings", { repos: dirtyRepo, format: "toon", output: toonOut }), /repo\(s\) with violations/);
+  const toon = decode(readFileSync(toonOut, "utf8"));
+  assert.equal((toon as { summary: { total_violations: number } }).summary.total_violations, 1);
+
+  const jsonOut = join(tmpRoot, "dirty-report.json");
+  await assert.rejects(() => runCmd(ext, "ops docstrings", { repos: dirtyRepo, format: "json", output: jsonOut }), /repo\(s\) with violations/);
+  const json = JSON.parse(readFileSync(jsonOut, "utf8")) as DocstringsCommandResult;
+  assert.equal(json.summary.total_violations, 1);
 });
 
 test("pm ops docstrings reports a repo with no source as an error and fails", async () => {

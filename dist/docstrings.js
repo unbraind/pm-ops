@@ -87,7 +87,7 @@
 import { createScanner, getLeadingCommentRanges } from "typescript/unstable/ast/scanner";
 import { SyntaxKind, LanguageVariant } from "typescript/unstable/ast";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 /**
  * Minimum number of meaningful words a docstring must contain after filler
  * removal. Below this the comment is too thin to document anything.
@@ -154,6 +154,28 @@ const DIVISION_PREVIOUS = new Set([
     SyntaxKind.SuperKeyword,
     SyntaxKind.CloseParenToken,
     SyntaxKind.CloseBracketToken,
+]);
+/** Tokens that can begin a class member after automatic semicolon insertion. */
+const MEMBER_STARTS = new Set([
+    SyntaxKind.Identifier,
+    SyntaxKind.PrivateIdentifier,
+    SyntaxKind.StringLiteral,
+    SyntaxKind.NumericLiteral,
+    SyntaxKind.AtToken,
+    SyntaxKind.OpenBracketToken,
+    SyntaxKind.AsteriskToken,
+    SyntaxKind.PublicKeyword,
+    SyntaxKind.PrivateKeyword,
+    SyntaxKind.ProtectedKeyword,
+    SyntaxKind.StaticKeyword,
+    SyntaxKind.ReadonlyKeyword,
+    SyntaxKind.AbstractKeyword,
+    SyntaxKind.OverrideKeyword,
+    SyntaxKind.DeclareKeyword,
+    SyntaxKind.AsyncKeyword,
+    SyntaxKind.GetKeyword,
+    SyntaxKind.SetKeyword,
+    SyntaxKind.ConstructorKeyword,
 ]);
 /**
  * Tokens after which a fresh primary type may begin, so a following `{` is an
@@ -297,8 +319,8 @@ function collectSourceFiles(roots) {
         try {
             entries = readdirSync(dir);
         }
-        catch {
-            return;
+        catch (error) {
+            throw new Error(`docstring coverage: cannot read directory ${dir}: ${error instanceof Error ? error.message : String(error)}`);
         }
         for (const name of entries) {
             const full = join(dir, name);
@@ -306,8 +328,8 @@ function collectSourceFiles(roots) {
             try {
                 info = statSync(full);
             }
-            catch {
-                continue;
+            catch (error) {
+                throw new Error(`docstring coverage: cannot stat ${full}: ${error instanceof Error ? error.message : String(error)}`);
             }
             if (info.isDirectory()) {
                 if (!SKIP_DIRS.has(name))
@@ -323,8 +345,10 @@ function collectSourceFiles(roots) {
         try {
             info = statSync(root);
         }
-        catch {
-            continue;
+        catch (error) {
+            if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT")
+                continue;
+            throw new Error(`docstring coverage: cannot stat root ${root}: ${error instanceof Error ? error.message : String(error)}`);
         }
         if (info.isDirectory()) {
             walk(root);
@@ -686,8 +710,12 @@ class SourceAnalyzer {
             break;
         }
         const k = this.cur().kind;
-        if (k === SyntaxKind.HashToken) {
-            this.skipMemberRest();
+        if (k === SyntaxKind.HashToken || k === SyntaxKind.PrivateIdentifier) {
+            this.i++;
+            if (this.at(SyntaxKind.OpenParenToken) || this.at(SyntaxKind.LessThanToken))
+                this.skipCallable();
+            else
+                this.skipMemberRest();
             return;
         }
         if (k === SyntaxKind.SemicolonToken) {
@@ -905,11 +933,55 @@ class SourceAnalyzer {
             this.skipTypeParams();
         this.skipUntilSemicolon();
     }
-    /** Judge an exported `const` / `let` / `var` by its first declared name, then skip the rest. */
+    /** Judge every binding in an exported `const` / `let` / `var` declaration. */
     parseExportedVar(opts) {
-        if (this.at(SyntaxKind.Identifier))
-            this.judge(opts.head, this.cur().text);
-        this.skipExpressionStatement();
+        for (;;) {
+            if (this.at(SyntaxKind.Identifier)) {
+                this.judge(opts.head, this.cur().text);
+                this.i++;
+            }
+            else if (this.at(SyntaxKind.OpenBraceToken) || this.at(SyntaxKind.OpenBracketToken)) {
+                const openIdx = this.i;
+                const closeIdx = this.matchingClose(openIdx);
+                const open = this.tokens[openIdx];
+                const close = this.tokens[closeIdx];
+                this.judge(opts.head, this.text.slice(open.start, close.start + close.text.length).replace(/\s+/g, " "));
+                this.i = closeIdx + 1;
+            }
+            else {
+                this.failClosed(this.cur(), "unrecognized declaration form");
+                this.skipExpressionStatement();
+                return;
+            }
+            let hasInitializer = false;
+            while (this.i < this.tokens.length) {
+                const k = this.cur().kind;
+                if (k === SyntaxKind.SemicolonToken) {
+                    this.i++;
+                    return;
+                }
+                if (k === SyntaxKind.CloseBraceToken || k === SyntaxKind.EndOfFile)
+                    return;
+                if (k === SyntaxKind.CommaToken) {
+                    this.i++;
+                    break;
+                }
+                if (k === SyntaxKind.EqualsToken) {
+                    hasInitializer = true;
+                    this.i++;
+                    continue;
+                }
+                if (!hasInitializer && k === SyntaxKind.LessThanToken) {
+                    this.skipTypeParams();
+                    continue;
+                }
+                if (k === SyntaxKind.OpenBraceToken || k === SyntaxKind.OpenParenToken || k === SyntaxKind.OpenBracketToken) {
+                    this.skipGroup();
+                    continue;
+                }
+                this.i++;
+            }
+        }
     }
     /** Skip a callable's optional type parameters, parameter list, and body. */
     skipCallable() {
@@ -931,6 +1003,13 @@ class SourceAnalyzer {
             }
             if (k === SyntaxKind.CloseBraceToken || k === SyntaxKind.EndOfFile)
                 return;
+            const previous = this.tokens[this.i - 1];
+            if (previous &&
+                this.lineOf[this.cur().start] > this.lineOf[previous.start] &&
+                DIVISION_PREVIOUS.has(previous.kind) &&
+                MEMBER_STARTS.has(k)) {
+                return;
+            }
             if (k === SyntaxKind.OpenBraceToken || k === SyntaxKind.OpenParenToken || k === SyntaxKind.OpenBracketToken) {
                 this.skipGroup();
                 continue;
@@ -1093,7 +1172,7 @@ class SourceAnalyzer {
     }
     /**
      * Recover the JSDoc text immediately preceding a token, or `""` when none.
-     * Only a block comment (`kind` `3`) beginning with `/**` counts; a `//` line
+     * Only a block comment (`kind` {@link SyntaxKind.MultiLineCommentTrivia}) beginning with `/**` counts; a `//` line
      * comment, or no comment at all, yields `""`.
      */
     extractJsdoc(head) {
@@ -1103,7 +1182,7 @@ class SourceAnalyzer {
         let best = -1;
         for (let index = 0; index < ranges.length; index++) {
             const range = ranges[index];
-            if (range.kind === 3 &&
+            if (range.kind === SyntaxKind.MultiLineCommentTrivia &&
                 this.text.charCodeAt(range.pos) === 0x2f &&
                 this.text.charCodeAt(range.pos + 1) === 0x2a &&
                 this.text.charCodeAt(range.pos + 2) === 0x2a) {
@@ -1139,11 +1218,12 @@ export function analyzeDocstringCoverage(options) {
     if (files.length === 0) {
         throw new Error(`docstring coverage: no TypeScript source files found under ${options.root} (scanning zero files cannot pass vacuously)`);
     }
+    const reportBase = files.length === 1 && files[0] === options.root ? dirname(options.root) : options.root;
     let declarations = 0;
     const violations = [];
     for (const file of files) {
         const text = readFileSync(file, "utf8");
-        const result = analyzeSource(text, relative(options.root, file));
+        const result = analyzeSource(text, relative(reportBase, file));
         declarations += result.declarations;
         violations.push(...result.violations);
     }

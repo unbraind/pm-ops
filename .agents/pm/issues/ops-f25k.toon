@@ -2,11 +2,26 @@ id: ops-f25k
 title: The docstring gate is fail-open for exported bindings it cannot decompose
 description: "Found by Greptile on PR 33 and confirmed by reading parseExportedVar. The gate judges an exported const, let or var by its first leading identifier only, which is fail-open twice in a gate whose entire value is being fail-closed. An export with several declarators leaves every binding after the first unjudged. Worse, an export whose binding is a destructuring pattern starts on a brace rather than an identifier, so nothing is judged at all and an undocumented export walks straight through. The first case is mostly cosmetic because judge reads the doc comment attached to the statement head, so every name in one statement is judged against the SAME comment and produces the same verdict, which means judging once per statement is behaviourally equivalent for pass or fail. The second case is a genuine hole: no judgement happens, so no verdict exists."
 type: Issue
-status: open
+status: closed
 priority: 2
 tags: []
 created_at: "2026-07-31T08:38:21.339Z"
-updated_at: "2026-07-31T08:38:21.339Z"
+updated_at: "2026-07-31T10:11:14.725Z"
+closed_at: "2026-07-31T10:11:14.711Z"
+completed_at: "2026-07-31T10:11:14.711Z"
+claim_principal: "harness:codex"
 author: "harness:claude-code"
+estimated_minutes: 60
 acceptance_criteria: An exported destructuring pattern with no doc comment is reported as a violation naming the pattern; an exported statement with several declarators is judged; neither change introduces a false positive on a documented export
+parent: ops-073p
+resolution: Implemented fail-closed multi-binding and destructuring evaluation with focused regression tests.
+expected_result: Every exported binding is evaluated without false positives on documented multi-declarator or destructuring exports.
+actual_result: "The lexer now walks every top-level declarator, names destructuring patterns, and the negative controls pass."
+notes[1]{created_at,author,text}:
+  "2026-07-31T10:11:13.446Z","harness:codex",Focused suite passed 51/51 through the PM-linked test runner; full package suite later passed 112/112 with 110 executed and 2 opt-in real-data tests skipped.
+files[1]{path,scope,note}:
+  docstrings.ts,project,Exported binding parser
+tests[1]{command,path,scope,timeout_seconds,pm_context_mode}:
+  "npm run build:test && node --test test/docstrings.test.ts",test/docstrings.test.ts,project,300,schema
+close_reason: Every exported binding and destructuring pattern is now evaluated without documented-export false positives.
 body: ""

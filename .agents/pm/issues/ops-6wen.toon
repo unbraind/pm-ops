@@ -2,11 +2,26 @@ id: ops-6wen
 title: Semicolon-free class fields bypass docstring evaluation
 description: "Found by Greptile on PR 33 and confirmed by reading skipMemberRest. The helper consumes tokens until a semicolon, a closing brace or end of file, so in an exported class written without semicolons every field after the first is consumed as part of the first field's trailing type or initialiser and never judged. The repository's own style uses semicolons everywhere, which is why the suite did not catch it, but a gate that depends on the code under test using one particular optional token is not fail-closed. A fix needs an automatic-semicolon-insertion heuristic narrow enough to avoid splitting a multi-line initialiser: stop when the next token begins a new line, the previous token could end an expression, and the next token could begin a member."
 type: Issue
-status: open
+status: closed
 priority: 2
 tags: []
 created_at: "2026-07-31T08:38:21.708Z"
-updated_at: "2026-07-31T08:38:21.708Z"
+updated_at: "2026-07-31T10:11:15.145Z"
+closed_at: "2026-07-31T10:11:15.128Z"
+completed_at: "2026-07-31T10:11:15.128Z"
+claim_principal: "harness:codex"
 author: "harness:claude-code"
+estimated_minutes: 90
 acceptance_criteria: An exported class with semicolon-free fields has every public member judged; a field with a multi-line initialiser or a multi-line conditional is not split; no false positive appears on the repository's own sources
+parent: ops-073p
+resolution: Implemented bounded ASI member detection and explicit private-identifier handling with negative controls.
+expected_result: Semicolon-free public fields remain independently evaluated while multiline initializers and private methods parse correctly.
+actual_result: "Line-aware member boundaries preserve multiline conditionals, split ASI fields, and dispatch PrivateIdentifier methods through callable parsing."
+notes[1]{created_at,author,text}:
+  "2026-07-31T10:11:13.855Z","harness:codex",Focused suite passed 51/51; multiline conditional and semicolon-free field negative controls both pass.
+files[1]{path,scope,note}:
+  docstrings.ts,project,Class member scanner
+tests[1]{command,path,scope,timeout_seconds,pm_context_mode}:
+  "npm run build:test && node --test test/docstrings.test.ts",test/docstrings.test.ts,project,300,schema
+close_reason: Semicolon-free fields and private identifier methods now parse safely with multiline initializer regressions covered.
 body: ""

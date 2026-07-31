@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { createRequire } from "node:module";
 import { devNull, homedir } from "node:os";
 import { resolve, basename, dirname, join, relative } from "node:path";
+import { encode } from "@toon-format/toon";
 import { listMergeReceipts, auditMergeDriverConfiguration, auditMergeAttributeFence, findGitWorkspaceRoot, } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage } from "./docstrings.js";
 // ---------------------------------------------------------------------------
@@ -241,9 +242,16 @@ function resolveFormat(options, global) {
  * operations pm-ops runs (typecheck, build, test, audit, pack:dry-run,
  * changelog:check, outdated) — all of which operate on local or public-registry
  * data.
+ *
+ * Callers may explicitly unset inherited variables by assigning `undefined`
+ * in `opts.env`; those entries are removed before spawning the child.
  */
 function runSync(cmd, args, opts = {}) {
     const env = { ...process.env, ...opts.env };
+    for (const [key, value] of Object.entries(env)) {
+        if (value === undefined)
+            delete env[key];
+    }
     const command = process.platform === "win32" && ["npm", "npx", "pm"].includes(cmd) ? `${cmd}.cmd` : cmd;
     if (cmd === "npm" || cmd === "npx") {
         // Prevent npm from reading the user-level .npmrc (which may contain
@@ -940,7 +948,14 @@ function summarizeNpmError(stdout, stderr, args) {
 function runReleaseCheck(repoPath, name, args, progress) {
     progress(`verify ${relative(process.cwd(), repoPath) || repoPath}: ${name}`);
     const start = Date.now();
-    const r = runSync("npm", args, { cwd: repoPath, timeoutMs: 5 * 60_000 });
+    const r = runSync("npm", args, {
+        cwd: repoPath,
+        timeoutMs: 5 * 60_000,
+        // node:test marks its process with NODE_TEST_CONTEXT. Inheriting that
+        // marker makes nested `node --test` commands treat the run as recursive
+        // and skip the repository's test files.
+        env: { NODE_TEST_CONTEXT: undefined },
+    });
     const duration_ms = Date.now() - start;
     const pass = r.status === 0;
     const error = pass ? undefined : r.error?.message ?? summarizeNpmError(r.stdout, r.stderr, args);
@@ -1842,12 +1857,20 @@ function renderMetricsPrometheus(result) {
     push("pm_scrape_duration_seconds", "Time spent collecting pm metrics for this scrape.", "gauge", [metricLine("pm_scrape_duration_seconds", {}, result.scrape_duration_seconds)]);
     return lines.join("\n") + "\n";
 }
+/** Serialize a result in the requested transport format with one trailing newline. */
+function serializeResult(structured, format, formatter) {
+    const body = format === "markdown"
+        ? formatter()
+        : format === "toon"
+            ? encode(structured)
+            : JSON.stringify(structured, null, 2);
+    return body.endsWith("\n") ? body : `${body}\n`;
+}
 /** Emit a structured result honoring format and output, returning the host-rendered payload. */
 function emitResult(structured, format, outputPath, formatter) {
     if (outputPath) {
         mkdirSync(dirname(resolve(outputPath)), { recursive: true });
-        const body = format === "markdown" ? formatter() : `${JSON.stringify(structured, null, 2)}\n`;
-        writeFileSync(outputPath, body, "utf-8");
+        writeFileSync(outputPath, serializeResult(structured, format, formatter), "utf-8");
         console.error(`pm-ops: wrote ${format} output to ${outputPath}`);
         return { written_to: outputPath, format };
     }
@@ -2398,17 +2421,13 @@ export default defineExtension({
                 console.error(`pm-ops docstrings: ${repos.length} repo(s)`);
                 const result = collectDocstringsAll(repos, (m) => console.error(`  ${m}`));
                 console.error(`docstrings: ${result.summary.total_violations} violation(s) across ${result.summary.with_violations}/${result.summary.total} repo(s)`);
-                if (result.summary.total_violations > 0 || result.summary.with_violations > 0) {
-                    const failed = result.summary.with_violations;
+                const failed = result.summary.with_violations;
+                if (failed > 0) {
                     if (outputPath) {
                         emitResult(result, format, outputPath, () => renderDocstringsMarkdown(result));
                     }
-                    else if (format === "markdown") {
-                        const md = renderDocstringsMarkdown(result);
-                        process.stdout.write(md.endsWith("\n") ? md : `${md}\n`);
-                    }
                     else {
-                        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+                        process.stdout.write(serializeResult(result, format, () => renderDocstringsMarkdown(result)));
                     }
                     throw new CommandError(`docstrings: ${failed} repo(s) with violations (${result.summary.total_violations} total)`, EXIT_CODE.GENERIC_FAILURE);
                 }

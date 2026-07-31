@@ -2,11 +2,26 @@ id: ops-k6wq
 title: The docstrings command writes JSON on the failure path under the default toon format
 description: "Found by Greptile on PR 33 and confirmed at index.ts. When violations are found and no output file is given and the format is not markdown, the handler writes JSON.stringify directly to stdout before throwing, so a failing run under the default toon format emits JSON and silently breaks the command's advertised output contract on every failure. The passing path goes through emitResult and honours the format. The asymmetry matters because the failing run is the one whose output gets parsed by whatever is gating on it."
 type: Issue
-status: open
+status: closed
 priority: 2
 tags: []
 created_at: "2026-07-31T08:38:22.144Z"
-updated_at: "2026-07-31T08:38:22.144Z"
+updated_at: "2026-07-31T10:11:15.554Z"
+closed_at: "2026-07-31T10:11:15.541Z"
+completed_at: "2026-07-31T10:11:15.541Z"
+claim_principal: "harness:codex"
 author: "harness:claude-code"
+estimated_minutes: 60
 acceptance_criteria: A failing run under the default format emits toon through the host renderer; a failing run under json emits json; a failing run under markdown emits markdown; the exit code is non-zero in every case
+parent: ops-073p
+resolution: Centralized format serialization and emitted the selected format before throwing the expected failure.
+expected_result: Every failing output format remains parseable and the command preserves a non-zero exit.
+actual_result: "TOON, JSON, and Markdown now share one serializer; real installed-CLI tests decode default TOON and JSON while observing exit 1."
+notes[1]{created_at,author,text}:
+  "2026-07-31T10:11:14.237Z","harness:codex",Focused suite passed 51/51; a fresh installed pm 2026.7.31 project decoded default TOON and JSON failure output while both invocations returned exit 1.
+files[1]{path,scope,note}:
+  index.ts,project,Docstrings command failure output
+tests[1]{command,path,scope,timeout_seconds,pm_context_mode}:
+  "npm run build:test && node --test test/docstrings.test.ts",test/docstrings.test.ts,project,300,schema
+close_reason: "Failure output now honors TOON, JSON, and Markdown while retaining a non-zero exit."
 body: ""

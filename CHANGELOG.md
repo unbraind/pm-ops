@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- Sanitize Node test-runner context before release verification ([ops-hq5u](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-hq5u.toon))
+- The docstrings command writes JSON on the failure path under the default toon format ([ops-k6wq](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-k6wq.toon))
+- Semicolon-free class fields bypass docstring evaluation ([ops-6wen](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-6wen.toon))
+- The docstring gate is fail-open for exported bindings it cannot decompose ([ops-f25k](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-f25k.toon))
+
+## 2026.7.31 - 2026-07-31
+
 ### Other
 
 - Expose the analyzer as a pm ops subcommand and a package subpath export ([ops-qvbu](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-qvbu.toon))

@@ -2,11 +2,22 @@ id: ops-073p
 title: "Docstring coverage gate: a lexer-backed, fail-closed documentation gate the fleet can share"
 description: "pm-ops becomes the home of the fleet's documentation gate. Today no repo has one: the mandate requires full docstring coverage on all source, and the only attempt (an unmerged pm-changelog branch) is a line-regex scanner whose own header claims compiler-API rigor it does not have, leaves its internal-function rule unimplemented, and counts braces inside strings and template literals. Implement the analyzer once here, on the TypeScript lexer that ships with the repo's existing typescript devDependency, and expose it both as a pm-ops subpath export the other packages can call from a ten-line script and as a fleet-wide command."
 type: Feature
-status: open
+status: in_progress
 priority: 1
 tags[4]: "area:quality-gate",docstrings,fleet-wide,"pkg:pm-ops"
 created_at: "2026-07-30T21:51:52.205Z"
-updated_at: "2026-07-30T21:51:52.205Z"
+updated_at: "2026-07-31T10:20:21.545Z"
+assignee: "harness:codex"
+claim_principal: "harness:codex"
 author: "harness:claude-code"
+estimated_minutes: 240
 acceptance_criteria: "A docstrings module is exported from pm-ops, backed by createScanner token streams rather than line regexes, so JSDoc inside strings, template literals and commented-out code can never satisfy it; every declaration form the finder does not recognise is reported as a violation rather than skipped; the internal-function rule is implemented rather than documented; negative-control tests prove the gate fails on each known-bad input; pm ops docstrings runs the same analyzer across one repo or the fleet; pm-ops passes its own gate"
+notes[2]{created_at,author,text}:
+  "2026-07-31T09:59:20.024Z","harness:codex","PR 33 has 10 unresolved threads. Implement all verified Greptile and CodeRabbit findings,regenerate the changelog that fails both CI jobs,and rerun the complete release gate before requesting exact-head reviews."
+  "2026-07-31T10:20:21.519Z","harness:codex","Complete real-data release gate passes: 113 tests,0 failures,0 skips; pm-todos/pm-csv scan 2/2 ready; pm-csv nested release gate 1/1 passed; docstrings 85/85; production audit 0 vulnerabilities; pack and changelog checks pass. Source coverage remains 94.32% lines,78.45% branches,and 95.04% functions,so the separate mandatory 100/100/100/100 gap is tracked as ops-q6ki and is not being misrepresented as complete."
+files[2]{path,scope,note}:
+  docstrings.ts,project,Lexer-backed analyzer implementation
+  index.ts,project,Fleet command and output contract
+tests[1]{command,path,scope,timeout_seconds,pm_context_mode}:
+  "NPM_CONFIG_USERCONFIG=/dev/null npm run release:check",package.json,project,1800,schema
 body: ""

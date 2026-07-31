@@ -50,15 +50,16 @@
     "coverage": "npm run build && npm run build:test && node scripts/coverage-gate.ts"
   },
   "dependencies": {
+    "@toon-format/toon": "^4.1.0",
     "typescript": "7.0.2"
   },
   "peerDependencies": {
-    "@unbrained/pm-cli": ">=2026.7.29"
+    "@unbrained/pm-cli": ">=2026.7.31"
   },
   "devDependencies": {
-    "@types/node": "26.1.1",
-    "@unbrained/pm-cli": "^2026.7.29",
-    "pm-changelog": "^2026.7.25"
+    "@types/node": "^26.1.2",
+    "@unbrained/pm-cli": "^2026.7.31",
+    "pm-changelog": "^2026.7.29-1"
   },
   "keywords": [
     "pm-cli",
