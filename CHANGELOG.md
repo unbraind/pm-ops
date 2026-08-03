@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Resolve pm-changelog to the release that derives release dates in UTC ([ops-70qk](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-70qk.toon))
+
 ## 2026.8.1 - 2026-08-01
 
 ### Added
