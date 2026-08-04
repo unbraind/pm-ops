@@ -26,9 +26,17 @@ class CommandError extends Error {
 function renderedCommandResult(output) {
     return { pmOpsRendered: true, output: output.endsWith("\n") ? output : `${output}\n` };
 }
+/** Determine whether an unknown command result carries valid pre-rendered pm-ops output. */
+function isRenderedCommandResult(value) {
+    return (typeof value === "object" &&
+        value !== null &&
+        "pmOpsRendered" in value &&
+        value.pmOpsRendered === true &&
+        "output" in value &&
+        typeof value.output === "string");
+}
 function renderCommandResult(context) {
-    const result = context.result;
-    return result?.pmOpsRendered === true && typeof result.output === "string" ? result.output : null;
+    return isRenderedCommandResult(context.result) ? context.result.output : null;
 }
 // ---------------------------------------------------------------------------
 // Option helpers
@@ -1965,8 +1973,20 @@ export default defineExtension({
     version: "2026.8.4",
     activate(api) {
         if (typeof api.registerRenderer === "function") {
-            api.registerRenderer("toon", renderCommandResult);
-            api.registerRenderer("json", renderCommandResult);
+            // Derived from OPS_COMMAND_PATHS rather than restated. A literal copy is
+            // right the day it is written and wrong the day a command is added: the
+            // new command registers, returns a pmOpsRendered result, and silently
+            // falls back to native rendering because the host declines it. Nothing
+            // fails — not the build, not the types, not a test whose expected list
+            // carries the same omission. Pointing at the one list every ops command
+            // already registers through makes the drift impossible instead of merely
+            // unlikely.
+            const rendererOwnership = {
+                commands: [...OPS_COMMAND_PATHS],
+                resultDiscriminator: isRenderedCommandResult,
+            };
+            api.registerRenderer("toon", renderCommandResult, rendererOwnership);
+            api.registerRenderer("json", renderCommandResult, rendererOwnership);
         }
         api.registerCommand({
             name: "ops scan",

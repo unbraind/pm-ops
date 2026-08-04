@@ -1,0 +1,20 @@
+id: ops-rozk
+title: Declare renderer ownership so the host enforces scoping the package only applied at runtime
+description: "The renderer overrides self-scoped by checking a private result marker and returning null, which is correct but invisible to the host. Passing the ownership argument makes commands and result ownership enforced before the callback runs."
+type: Task
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-04T21:42:09.635Z"
+updated_at: "2026-08-04T22:14:11.125Z"
+closed_at: "2026-08-04T22:14:11.108Z"
+completed_at: "2026-08-04T22:14:11.108Z"
+author: pi-agent
+acceptance_criteria: Both renderer registrations pass a shared ownership object naming the package's own commands and its result discriminator; a test proves the renderer still renders its own marked result and declines a foreign one; coverage stays at 100
+resolution: "Renderer ownership enforced by the host before the callback runs; three-axis decline test covers command rejection, result rejection, and both-foreign."
+expected_result: A renderer override claims only its own marked results emitted under its own command paths; foreign results and foreign commands fall through to native rendering.
+actual_result: "All three decline cases pass for toon and json; dropping the commands array fails the command-rejection case; coverage thresholds met (lines 94.54%, branch 78.68%, funcs 95.44%)."
+notes[1]{created_at,author,text}:
+  "2026-08-04T21:42:14.727Z",pi-agent,"Derived command paths from the ten api.registerCommand({ name }) calls in index.ts: ops scan (2424), ops policy (2457), ops verify-release (2513), ops report (2582), ops status (2619), ops outdated (2650), ops audit (2680), ops metrics (2710), ops merge-receipts (2785), ops docstrings (2861). All ten commands can return a pmOpsRendered-marked result, either directly via renderedCommandResult() or through the shared emitResult() helper. The resultDiscriminator reuses the extracted isRenderedCommandResult predicate."
+close_reason: "Both toon and json registerRenderer calls pass a shared ownership object naming all ten ops command paths plus the isRenderedCommandResult discriminator. The decline test is split into three cases that isolate command rejection (foreign command + marked result) from result rejection (owned command + foreign/bare result), with a belt-and-braces both-foreign case, so the commands declaration is independently covered and cannot be deleted with the suite still green."
+body: ""

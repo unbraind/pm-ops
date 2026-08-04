@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Declare renderer ownership so the host enforces scoping the package only applied at runtime ([ops-rozk](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-rozk.toon))
+
 ## 2026.8.4 - 2026-08-04
 
 ### Other
