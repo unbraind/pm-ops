@@ -1,10 +1,15 @@
 # Changelog
 
-## 2026.8.4 - 2026-08-04
+## Unreleased
 
 ### Other
 
 - Declare renderer ownership so the host enforces scoping the package only applied at runtime ([ops-rozk](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-rozk.toon))
+
+## 2026.8.4 - 2026-08-04
+
+### Other
+
 - Resolve pm-changelog to the release that derives release dates in UTC ([ops-70qk](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-70qk.toon))
 
 ## 2026.8.1 - 2026-08-01
