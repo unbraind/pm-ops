@@ -2427,19 +2427,16 @@ export default defineExtension({
 
   activate(api: ExtensionApi) {
     if (typeof api.registerRenderer === "function") {
+      // Derived from OPS_COMMAND_PATHS rather than restated. A literal copy is
+      // right the day it is written and wrong the day a command is added: the
+      // new command registers, returns a pmOpsRendered result, and silently
+      // falls back to native rendering because the host declines it. Nothing
+      // fails — not the build, not the types, not a test whose expected list
+      // carries the same omission. Pointing at the one list every ops command
+      // already registers through makes the drift impossible instead of merely
+      // unlikely.
       const rendererOwnership = {
-        commands: [
-          "ops scan",
-          "ops policy",
-          "ops verify-release",
-          "ops report",
-          "ops status",
-          "ops outdated",
-          "ops audit",
-          "ops metrics",
-          "ops merge-receipts",
-          "ops docstrings",
-        ],
+        commands: [...OPS_COMMAND_PATHS],
         resultDiscriminator: isRenderedCommandResult,
       };
       api.registerRenderer("toon", renderCommandResult, rendererOwnership);

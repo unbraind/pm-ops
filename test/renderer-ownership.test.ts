@@ -16,6 +16,16 @@ const CAPABILITIES = ["commands", "renderers", "schema", "parser"] as const;
  * ops command can return a `pmOpsRendered`-marked result, either directly via
  * `renderedCommandResult()` or through the shared `emitResult()` helper.
  */
+/**
+ * The ops command paths the renderer must own.
+ *
+ * Kept as an independent literal on purpose: if this restated the source's
+ * `OPS_COMMAND_PATHS`, the test and the code would share one mistake and prove
+ * nothing. The drift guard below closes the remaining gap by comparing the
+ * declared ownership against the commands the extension actually registers, so
+ * a command added to the source without being added here fails the suite rather
+ * than silently losing its rendering.
+ */
 const OWNED_COMMANDS = [
   "ops scan",
   "ops policy",
@@ -128,4 +138,22 @@ test("registered resultDiscriminator accepts the package marker and rejects a fo
     assert.equal(override.resultDiscriminator?.({ output: "x" }), false, "discriminator must reject a bare object");
   }
   await ext.deactivate();
+});
+test("renderer ownership covers every command the extension registers", async () => {
+  // The failure this catches: a new ops command is registered, returns a
+  // pmOpsRendered result, and is missing from the renderer ownership list. The
+  // host then declines the renderer for it and the command silently falls back
+  // to native rendering. No build error, no type error, and an ownership test
+  // that restates the same omission stays green. Comparing against what the
+  // extension actually registered is the only assertion that notices.
+  const ext = await harness();
+  const registered = ext.activation.registrations.commands
+    .map((entry) => entry.command)
+    .sort((a, b) => a.localeCompare(b));
+  const owned = [...OWNED_COMMANDS].sort((a, b) => a.localeCompare(b));
+  assert.deepEqual(
+    registered,
+    owned,
+    "every registered ops command returns a pmOpsRendered result, so the renderer ownership list must match the registered command set exactly",
+  );
 });
