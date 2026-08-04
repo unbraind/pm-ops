@@ -1962,7 +1962,7 @@ function renderDocstringsMarkdown(result) {
 const defineExtension = (module) => module;
 export default defineExtension({
     name: "pm-ops",
-    version: "2026.8.3",
+    version: "2026.8.4",
     activate(api) {
         if (typeof api.registerRenderer === "function") {
             api.registerRenderer("toon", renderCommandResult);
