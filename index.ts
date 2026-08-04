@@ -59,9 +59,20 @@ function renderedCommandResult(output: string): RenderedCommandResult {
   return { pmOpsRendered: true, output: output.endsWith("\n") ? output : `${output}\n` };
 }
 
+/** Determine whether an unknown command result carries valid pre-rendered pm-ops output. */
+function isRenderedCommandResult(value: unknown): value is RenderedCommandResult {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "pmOpsRendered" in value &&
+    (value as Partial<RenderedCommandResult>).pmOpsRendered === true &&
+    "output" in value &&
+    typeof (value as Partial<RenderedCommandResult>).output === "string"
+  );
+}
+
 function renderCommandResult(context: { result?: unknown }): string | null {
-  const result = context.result as Partial<RenderedCommandResult> | null | undefined;
-  return result?.pmOpsRendered === true && typeof result.output === "string" ? result.output : null;
+  return isRenderedCommandResult(context.result) ? context.result.output : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -2416,8 +2427,23 @@ export default defineExtension({
 
   activate(api: ExtensionApi) {
     if (typeof api.registerRenderer === "function") {
-      api.registerRenderer("toon", renderCommandResult);
-      api.registerRenderer("json", renderCommandResult);
+      const rendererOwnership = {
+        commands: [
+          "ops scan",
+          "ops policy",
+          "ops verify-release",
+          "ops report",
+          "ops status",
+          "ops outdated",
+          "ops audit",
+          "ops metrics",
+          "ops merge-receipts",
+          "ops docstrings",
+        ],
+        resultDiscriminator: isRenderedCommandResult,
+      };
+      api.registerRenderer("toon", renderCommandResult, rendererOwnership);
+      api.registerRenderer("json", renderCommandResult, rendererOwnership);
     }
 
     api.registerCommand({

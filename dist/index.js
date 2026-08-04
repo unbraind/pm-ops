@@ -26,9 +26,17 @@ class CommandError extends Error {
 function renderedCommandResult(output) {
     return { pmOpsRendered: true, output: output.endsWith("\n") ? output : `${output}\n` };
 }
+/** Determine whether an unknown command result carries valid pre-rendered pm-ops output. */
+function isRenderedCommandResult(value) {
+    return (typeof value === "object" &&
+        value !== null &&
+        "pmOpsRendered" in value &&
+        value.pmOpsRendered === true &&
+        "output" in value &&
+        typeof value.output === "string");
+}
 function renderCommandResult(context) {
-    const result = context.result;
-    return result?.pmOpsRendered === true && typeof result.output === "string" ? result.output : null;
+    return isRenderedCommandResult(context.result) ? context.result.output : null;
 }
 // ---------------------------------------------------------------------------
 // Option helpers
@@ -1965,8 +1973,23 @@ export default defineExtension({
     version: "2026.8.4",
     activate(api) {
         if (typeof api.registerRenderer === "function") {
-            api.registerRenderer("toon", renderCommandResult);
-            api.registerRenderer("json", renderCommandResult);
+            const rendererOwnership = {
+                commands: [
+                    "ops scan",
+                    "ops policy",
+                    "ops verify-release",
+                    "ops report",
+                    "ops status",
+                    "ops outdated",
+                    "ops audit",
+                    "ops metrics",
+                    "ops merge-receipts",
+                    "ops docstrings",
+                ],
+                resultDiscriminator: isRenderedCommandResult,
+            };
+            api.registerRenderer("toon", renderCommandResult, rendererOwnership);
+            api.registerRenderer("json", renderCommandResult, rendererOwnership);
         }
         api.registerCommand({
             name: "ops scan",
