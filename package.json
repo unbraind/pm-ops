@@ -1,6 +1,6 @@
 {
   "name": "pm-ops",
-  "version": "2026.8.4",
+  "version": "2026.8.5",
   "description": "Multi-repo fleet operations for pm-cli",
   "repository": {
     "type": "git",
