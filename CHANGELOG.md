@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Clear author-attribution health warning for \_workspace history event ([ops-whzj](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-whzj.toon))
+
 ## 2026.8.5 - 2026-08-05
 
 ### Other
