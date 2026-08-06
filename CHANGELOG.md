@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Gate durable PM project health in CI on pm CLI 2026.8.6 ([ops-54ed](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-54ed.toon))
+
+### Other
+
+- Clear author-attribution health warning for \_workspace history event ([ops-whzj](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-whzj.toon))
+
 ## 2026.8.5 - 2026-08-05
 
 ### Other
