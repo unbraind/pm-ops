@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { createRequire } from "node:module";
 import { devNull, homedir } from "node:os";
 import { resolve, basename, dirname, isAbsolute, join, parse, relative, win32 } from "node:path";
+import { fileURLToPath } from "node:url";
 import type {
   ParserOverrideContext,
   ParserOverrideDelta,
@@ -283,11 +284,6 @@ interface SyncResult {
   error?: Error;
 }
 
-interface CommandInvocation {
-  cmd: string;
-  args: string[];
-}
-
 /**
  * Spawn a subprocess without a shell.
  *
@@ -338,9 +334,30 @@ function runSync(cmd: string, args: string[], opts: { cwd?: string; timeoutMs?: 
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error: r.error };
 }
 
-/** Resolve the platform-specific pm executable used for workspace reads. */
+interface CommandInvocation {
+  cmd: string;
+  args: readonly string[];
+}
+
+const PM_CLI_FALLBACK: CommandInvocation = {
+  cmd: process.execPath,
+  args: [resolve(dirname(fileURLToPath(import.meta.resolve("@unbrained/pm-cli/package.json"))), "dist", "cli.js")],
+};
+const pmInvocationCache = new Map<string, CommandInvocation>();
+
+/** Prefer a PATH override while retaining the installed host CLI as a reliable fallback. */
 function resolvePmInvocation(): CommandInvocation {
-  return { cmd: process.platform === "win32" ? "pm.cmd" : "pm", args: [] };
+  const command = process.platform === "win32" ? "pm.cmd" : "pm";
+  const key = `${process.platform}\0${String(process.env.PATH)}`;
+  const cached = pmInvocationCache.get(key);
+  if (cached) return cached;
+  const probe = spawnSync(command, ["--version"], { encoding: "utf-8", timeout: 5_000 });
+  // Absence uses the installed host CLI; a present-but-broken PATH command is
+  // retained so its failure remains visible instead of being silently masked.
+  const errorCode = (probe.error as NodeJS.ErrnoException | undefined)?.code;
+  const invocation = errorCode === "ENOENT" ? PM_CLI_FALLBACK : { cmd: command, args: [] };
+  pmInvocationCache.set(key, invocation);
+  return invocation;
 }
 
 /** Parse JSON, returning undefined on any syntax error instead of throwing. */
@@ -538,7 +555,13 @@ function readPmItemList<T extends PmItem>(repoPath: string, subcommand: string, 
   const pmRoot = join(repoPath, ".agents", "pm");
   if (!existsSync(pmRoot)) return set(null);
   const pm = resolvePmInvocation();
-  const r = runSync(pm.cmd, [...pm.args, subcommand, "--json", "--pm-path", pmRoot], { timeoutMs: 30_000 });
+  const r = runSync(pm.cmd, [...pm.args, subcommand, "--json", "--pm-path", pmRoot], {
+    timeoutMs: 30_000,
+    // The package source is already instrumented in the host process. Do not
+    // merge coverage from the compiled extension loaded by a nested CLI read,
+    // which would count a second generated branch graph for the same source.
+    env: { NODE_V8_COVERAGE: undefined },
+  });
   if (r.status !== 0) return set(null);
   const parsed = parseJsonSafe(r.stdout);
   if (!parsed) return set(null);

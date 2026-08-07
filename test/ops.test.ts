@@ -676,6 +676,20 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
   assert.strictEqual(installed.activation_status, "ok");
   assert.strictEqual(installed.runtime_active, true);
 
+  const noPmBin = join(root, "no-pm-bin");
+  mkdirSync(noPmBin);
+  const cliEntry = join(process.cwd(), "node_modules", "@unbrained", "pm-cli", "dist", "cli.js");
+  const hostedFallback = spawnSync(process.execPath, [cliEntry, "ops", "metrics", "--repos", project, "--json"], {
+    cwd: project,
+    encoding: "utf-8",
+    env: { ...env, PATH: noPmBin },
+    timeout: 30_000,
+  });
+  assertClean(hostedFallback, "active pm host fallback without a standalone pm executable");
+  const hostedMetrics = parseJson<MetricsResult>(hostedFallback.stdout);
+  assert.strictEqual(hostedMetrics.repos_scanned, 1);
+  assert.strictEqual(hostedMetrics.repos[0].available, true);
+
   writeFileSync(join(project, "undocumented.ts"), "export function undocumented() {}\n");
   const toonFailure = runPm(["ops", "docstrings", "--repos", project]);
   assert.strictEqual(toonFailure.error, undefined, "pm ops docstrings should launch");
@@ -1971,6 +1985,39 @@ test("ops metrics rejects a stale pm list envelope instead of treating it as ite
   }
   const previousPath = process.env.PATH;
   process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  try {
+    const payload = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
+    assert.strictEqual(payload.repos[0].available, false);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    await ext.deactivate();
+  }
+});
+
+test("pm workspace readers use the installed host CLI when PATH has no pm executable", async () => {
+  const ext = await harness();
+  const emptyBin = join(tmpRoot, "bin-without-pm");
+  mkdirSync(emptyBin, { recursive: true });
+  const previousPath = process.env.PATH;
+  process.env.PATH = emptyBin;
+  try {
+    const payload = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
+    assert.strictEqual(payload.repos[0].available, true);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    await ext.deactivate();
+  }
+});
+
+test("pm workspace readers expose a present but non-executable PATH override", { skip: process.platform === "win32" }, async () => {
+  const ext = await harness();
+  const bin = join(tmpRoot, "bin-non-executable-pm");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "pm"), "#!/usr/bin/env sh\nexit 0\n", { mode: 0o644 });
+  const previousPath = process.env.PATH;
+  process.env.PATH = bin;
   try {
     const payload = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
     assert.strictEqual(payload.repos[0].available, false);
