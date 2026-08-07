@@ -92,6 +92,12 @@ function writeLcov(directory: string, files: readonly string[]): void {
   );
 }
 
+/** Assert that one failing fixture appended exactly its expected diagnostic. */
+function assertSingleDiagnostic(messages: readonly string[], before: number, expected: RegExp): void {
+  assert.strictEqual(messages.length, before + 1);
+  assert.match(messages[before], expected);
+}
+
 test("coverage gate accepts a complete report and forwards all four exact thresholds", () => {
   const directory = fixture("complete");
   const calls: Array<{ command: string; args: readonly string[] }> = [];
@@ -106,10 +112,12 @@ test("coverage gate accepts a complete report and forwards all four exact thresh
 
   runCoverageGate({ repoRoot: directory, spawn, exit });
   assert.strictEqual(calls.length, 1);
-  assert.ok(calls[0].args.includes("--statements"));
-  assert.ok(calls[0].args.includes("--branches"));
-  assert.ok(calls[0].args.includes("--functions"));
-  assert.ok(calls[0].args.includes("--lines"));
+  for (const flag of ["--statements", "--branches", "--functions", "--lines"]) {
+    const index = calls[0].args.indexOf(flag);
+    assert.notStrictEqual(index, -1);
+    assert.strictEqual(calls[0].args[index + 1], "100");
+  }
+  assert.ok(calls[0].args.includes("--per-file"));
   assert.deepStrictEqual(
     calls[0].args.filter((arg) => arg === "--include").length,
     2,
@@ -128,7 +136,11 @@ test("coverage gate defaults to its package root and native process boundaries",
     ]);
     return spawnResult();
   }) as unknown as typeof spawnSync;
-  runCoverageGate({ spawn });
+  try {
+    runCoverageGate({ spawn, exit });
+  } finally {
+    rmSync(join(packageRoot, "coverage", "lcov.info"), { force: true });
+  }
 });
 
 test("coverage gate direct entrypoint executes against an explicit package root", () => {
@@ -178,19 +190,24 @@ test("coverage gate direct entrypoint executes against an explicit package root"
       "#!/usr/bin/env sh\nmkdir -p coverage\nprintf 'SF:index.ts\\nend_of_record\\nSF:docstrings.ts\\nend_of_record\\nSF:scripts/coverage-gate.ts\\nend_of_record\\nSF:scripts/docstring-gate.ts\\nend_of_record\\nSF:scripts/prepare-merge-driver.ts\\nend_of_record\\n' > coverage/lcov.info\n",
     );
   }
-  const defaultRoot = spawnSync(process.execPath, [
-    resolve(import.meta.dirname, "../scripts/coverage-gate.ts"),
-  ], {
-    cwd: resolve(import.meta.dirname, ".."),
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      PATH: `${bin}${process.platform === "win32" ? ";" : ":"}${
-        process.env.PATH ?? ""
-      }`,
-    },
-  });
-  assert.strictEqual(defaultRoot.status, 0, defaultRoot.stderr);
+  const packageRoot = resolve(import.meta.dirname, "..");
+  try {
+    const defaultRoot = spawnSync(process.execPath, [
+      resolve(import.meta.dirname, "../scripts/coverage-gate.ts"),
+    ], {
+      cwd: packageRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${bin}${process.platform === "win32" ? ";" : ":"}${
+          process.env.PATH ?? ""
+        }`,
+      },
+    });
+    assert.strictEqual(defaultRoot.status, 0, defaultRoot.stderr);
+  } finally {
+    rmSync(join(packageRoot, "coverage", "lcov.info"), { force: true });
+  }
 });
 
 test("coverage gate rejects missing configuration and invalid or empty source declarations", (context) => {
@@ -201,45 +218,68 @@ test("coverage gate rejects missing configuration and invalid or empty source de
     (...args: unknown[]) => messages.push(args.join(" ")),
   );
 
+  let before = messages.length;
   assert.throws(
     () => runCoverageGate({ repoRoot: fixture("no-config", null), exit }),
     GateExit,
   );
+  assertSingleDiagnostic(messages, before, /no `coverageGate` block/);
 
   const missing = fixture("missing-source", {
     sources: ["missing"],
     tests: [],
     thresholds: { statements: 100, lines: 100, branches: 100, functions: 100 },
   });
+  before = messages.length;
   assert.throws(() => runCoverageGate({ repoRoot: missing, exit }), GateExit);
+  assertSingleDiagnostic(messages, before, /does not exist/);
 
   const invalid = fixture("invalid-source", {
     sources: ["package.json"],
     tests: [],
     thresholds: { statements: 100, lines: 100, branches: 100, functions: 100 },
   });
+  before = messages.length;
   assert.throws(() => runCoverageGate({ repoRoot: invalid, exit }), GateExit);
+  assertSingleDiagnostic(messages, before, /not a TypeScript source/);
 
   const declaration = fixture("declaration-source", {
     sources: ["src/types.d.ts"],
     tests: [],
     thresholds: { statements: 100, lines: 100, branches: 100, functions: 100 },
   });
+  before = messages.length;
   assert.throws(
     () => runCoverageGate({ repoRoot: declaration, exit }),
     GateExit,
   );
+  assertSingleDiagnostic(messages, before, /not a TypeScript source/);
 
   const empty = fixture("empty-source", {
     sources: [],
     tests: [],
     thresholds: { statements: 100, lines: 100, branches: 100, functions: 100 },
   });
+  before = messages.length;
   assert.throws(() => runCoverageGate({ repoRoot: empty, exit }), GateExit);
-  assert.match(
-    messages.join("\n"),
-    /no `coverageGate` block|does not exist|not a TypeScript source|source walk found no files/,
-  );
+  assertSingleDiagnostic(messages, before, /source walk found no files/);
+});
+
+test("coverage gate diagnoses unreadable and malformed package manifests", (context) => {
+  const messages: string[] = [];
+  context.mock.method(console, "error", (...args: unknown[]) => messages.push(args.join(" ")));
+  const missing = join(root, "missing-manifest");
+  mkdirSync(missing);
+  let before = messages.length;
+  assert.throws(() => runCoverageGate({ repoRoot: missing, exit }), GateExit);
+  assertSingleDiagnostic(messages, before, /could not read package\.json/);
+
+  const malformed = join(root, "malformed-manifest");
+  mkdirSync(malformed);
+  writeFileSync(join(malformed, "package.json"), "not-json\n");
+  before = messages.length;
+  assert.throws(() => runCoverageGate({ repoRoot: malformed, exit }), GateExit);
+  assertSingleDiagnostic(messages, before, /could not read package\.json/);
 });
 
 test("coverage gate rejects runner launch failures and non-zero test or threshold results", (context) => {
@@ -276,24 +316,24 @@ test("coverage gate rejects absent and incomplete lcov reports", (context) => {
 
   const absent = fixture("absent-report");
   const noReport = (() => spawnResult()) as unknown as typeof spawnSync;
+  let before = messages.length;
   assert.throws(
     () => runCoverageGate({ repoRoot: absent, spawn: noReport, exit }),
     GateExit,
   );
+  assertSingleDiagnostic(messages, before, /no coverage report/);
 
   const incomplete = fixture("incomplete-report");
   const omitted = (() => {
     writeLcov(incomplete, ["src/index.ts"]);
     return spawnResult();
   }) as unknown as typeof spawnSync;
+  before = messages.length;
   assert.throws(
     () => runCoverageGate({ repoRoot: incomplete, spawn: omitted, exit }),
     GateExit,
   );
-  assert.match(
-    messages.join("\n"),
-    /no coverage report|never loaded during the run/,
-  );
+  assertSingleDiagnostic(messages, before, /never loaded during the run/);
 });
 
 test("coverage gate verifies type-only ignores against effective compiler output", (context) => {
@@ -320,10 +360,12 @@ test("coverage gate verifies type-only ignores against effective compiler output
         compilerOptions: { outDir: "dist", rootDir: "." },
       }),
     })) as unknown as typeof spawnSync;
+  let before = messages.length;
   assert.throws(
     () => runCoverageGate({ repoRoot: outside, spawn: showConfig, exit }),
     GateExit,
   );
+  assertSingleDiagnostic(messages, before, /not under `sources`/);
 
   for (
     const [name, result] of [
@@ -336,17 +378,30 @@ test("coverage gate verifies type-only ignores against effective compiler output
   ) {
     const directory = fixture(name, config);
     const failedConfig = (() => result) as unknown as typeof spawnSync;
+    before = messages.length;
     assert.throws(
       () => runCoverageGate({ repoRoot: directory, spawn: failedConfig, exit }),
       GateExit,
     );
+    assertSingleDiagnostic(messages, before, /could not resolve the effective tsconfig/);
   }
 
+  const invalidConfig = fixture("show-config-invalid-json", config);
+  const invalidJson = (() => spawnResult({ stdout: "not-json" })) as unknown as typeof spawnSync;
+  before = messages.length;
+  assert.throws(
+    () => runCoverageGate({ repoRoot: invalidConfig, spawn: invalidJson, exit }),
+    GateExit,
+  );
+  assertSingleDiagnostic(messages, before, /tsc --showConfig returned invalid JSON/);
+
   const missingEmit = fixture("ignore-missing-emit", config);
+  before = messages.length;
   assert.throws(
     () => runCoverageGate({ repoRoot: missingEmit, spawn: showConfig, exit }),
     GateExit,
   );
+  assertSingleDiagnostic(messages, before, /no compiled output/);
 
   const runtimeEmit = fixture("ignore-runtime-emit", config);
   mkdirSync(join(runtimeEmit, "dist", "src", "nested"), { recursive: true });
@@ -354,10 +409,12 @@ test("coverage gate verifies type-only ignores against effective compiler output
     join(runtimeEmit, "dist", "src", "nested", "worker.js"),
     "export const worker = 2;\n",
   );
+  before = messages.length;
   assert.throws(
     () => runCoverageGate({ repoRoot: runtimeEmit, spawn: showConfig, exit }),
     GateExit,
   );
+  assertSingleDiagnostic(messages, before, /emits runtime code/);
 
   const typeOnly = fixture("ignore-type-only", config);
   mkdirSync(join(typeOnly, "dist", "src", "nested"), { recursive: true });
@@ -396,10 +453,6 @@ test("coverage gate verifies type-only ignores against effective compiler output
     return spawnResult();
   }) as unknown as typeof spawnSync;
   runCoverageGate({ repoRoot: defaultEmit, spawn: defaultPaths, exit });
-  assert.match(
-    messages.join("\n"),
-    /cannot resolve the effective tsconfig|not under `sources`|no compiled output|emits runtime code/,
-  );
 });
 
 test("coverage gate honors custom skipped directories and Windows launcher selection", () => {
@@ -408,11 +461,18 @@ test("coverage gate honors custom skipped directories and Windows launcher selec
     skipDirs: ["nested"],
     tests: [],
     thresholds: { statements: 100, lines: 100, branches: 100, functions: 100 },
+    ignore: ["src/types-only.ts"],
   });
+  writeFileSync(join(directory, "src", "types-only.ts"), "export interface TypeOnly {}\n");
+  mkdirSync(join(directory, "dist", "src"), { recursive: true });
+  writeFileSync(join(directory, "dist", "src", "types-only.js"), "export {};\n");
   const platform = Object.getOwnPropertyDescriptor(process, "platform");
   const commands: string[] = [];
   const spawn = ((command: string) => {
     commands.push(command);
+    if (commands.length === 1) {
+      return spawnResult({ stdout: JSON.stringify({ compilerOptions: { outDir: "dist", rootDir: "." } }) });
+    }
     writeLcov(directory, ["src/index.ts"]);
     return spawnResult();
   }) as unknown as typeof spawnSync;
@@ -422,5 +482,5 @@ test("coverage gate honors custom skipped directories and Windows launcher selec
   } finally {
     Object.defineProperty(process, "platform", platform!);
   }
-  assert.deepStrictEqual(commands, ["npx.cmd"]);
+  assert.deepStrictEqual(commands, ["npx.cmd", "npx.cmd"]);
 });

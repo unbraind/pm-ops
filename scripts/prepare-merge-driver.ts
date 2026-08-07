@@ -8,7 +8,7 @@
 
 import { execSync } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
-import { delimiter, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Inputs controlling PATH resolution and command execution. */
@@ -57,7 +57,7 @@ export function isExecutableFile(
  */
 export function pmOnPath(options: PrepareMergeDriverOptions = {}): boolean {
   const platform = options.platform ?? process.platform;
-  const pathDelimiter = platform === "win32" ? ";" : delimiter;
+  const pathDelimiter = platform === "win32" ? ";" : ":";
   const directories = (options.path ?? process.env.PATH ?? "")
     .split(pathDelimiter)
     .map((directory) => {
@@ -95,13 +95,29 @@ export function prepareMergeDriver(
   options: PrepareMergeDriverOptions = {},
 ): boolean {
   if (!pmOnPath(options)) return false;
-  (options.execute ?? execSync)("pm merge install", { stdio: "inherit" });
+  const env = { ...process.env };
+  if (options.path !== undefined) env.PATH = options.path;
+  (options.execute ?? execSync)("pm merge install", { stdio: "inherit", env });
   return true;
+}
+
+/** Run the prepare process boundary and preserve a failing pm command's status. */
+export function prepareMergeDriverExitCode(
+  options: PrepareMergeDriverOptions = {},
+): number {
+  try {
+    prepareMergeDriver(options);
+    return 0;
+  } catch (error) {
+    console.error(error);
+    const status = (error as { status?: unknown }).status;
+    return typeof status === "number" ? status : 1;
+  }
 }
 
 if (
   process.argv[1] !== undefined &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  prepareMergeDriver();
+  process.exitCode = prepareMergeDriverExitCode();
 }

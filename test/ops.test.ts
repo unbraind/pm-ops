@@ -959,7 +959,7 @@ test("ops scan handles malformed bracket globs without crashing", async () => {
   await ext.deactivate();
 });
 
-test("ops scan selects Windows command shims when the host platform is win32", async () => {
+test("ops scan selects Windows command shims when the host platform is win32", { skip: process.platform === "win32" }, async () => {
   const ext = await harness();
   const bin = join(tmpRoot, "bin-win32-command-selection");
   const pmMarker = join(tmpRoot, "win32-pm-invoked");
@@ -1284,7 +1284,7 @@ jobs:
   await ext.deactivate();
 });
 
-test("ops policy reports unreadable private workflow entries", async () => {
+test("ops policy reports unreadable private workflow entries", { skip: process.platform === "win32" }, async () => {
   const ext = await harness();
   const repo = join(tmpRoot, "pm-private-broken-workflow");
   mkdirSync(join(repo, ".github", "workflows"), { recursive: true });

@@ -8,7 +8,7 @@
  * files actually on disk.
  *
  * That last step is the reason this script exists rather than a bare
- * bare `c8 --check-coverage` invocation. Coverage tools can omit files
+ * `c8 --check-coverage` invocation. Coverage tools can omit files
  * that were loaded during the run: a source module with no test at all is
  * omitted from the report entirely rather than reported at zero. The published
  * percentage is therefore computed over the tested subset, and a package can
@@ -105,9 +105,15 @@ export function runCoverageGate(options: CoverageGateOptions = {}): void {
   const repoRoot = options.repoRoot ?? defaultRepoRoot;
   const spawn = options.spawn ?? spawnSync;
   const exit = options.exit ?? process.exit;
-  const manifest = JSON.parse(
-    readFileSync(join(repoRoot, "package.json"), "utf8"),
-  ) as PackageManifest;
+  let manifest: PackageManifest;
+  try {
+    manifest = JSON.parse(
+      readFileSync(join(repoRoot, "package.json"), "utf8"),
+    ) as PackageManifest;
+  } catch (error) {
+    console.error(`coverage-gate: could not read package.json: ${String(error)}`);
+    return exit(1);
+  }
   const config = manifest.coverageGate;
 
   if (!config) {
@@ -139,10 +145,9 @@ export function runCoverageGate(options: CoverageGateOptions = {}): void {
    * run its own compiler has a problem worth stopping for.
    */
   function resolveEmitPaths(): { outDir: string; rootDir: string } {
-    const shown = spawn("npx", ["tsc", "--showConfig", "-p", "tsconfig.json"], {
+    const shown = spawn(process.platform === "win32" ? "npx.cmd" : "npx", ["tsc", "--showConfig", "-p", "tsconfig.json"], {
       cwd: repoRoot,
       encoding: "utf8",
-      shell: process.platform === "win32",
     });
     if (shown.status !== 0 || !shown.stdout) {
       console.error(
@@ -155,7 +160,13 @@ export function runCoverageGate(options: CoverageGateOptions = {}): void {
       );
       exit(1);
     }
-    const parsed = JSON.parse(shown.stdout) as TsConfig;
+    let parsed: TsConfig;
+    try {
+      parsed = JSON.parse(shown.stdout) as TsConfig;
+    } catch (error) {
+      console.error(`coverage-gate: tsc --showConfig returned invalid JSON: ${String(error)}`);
+      return exit(1);
+    }
     return {
       outDir: parsed.compilerOptions?.outDir ?? "dist",
       rootDir: parsed.compilerOptions?.rootDir ?? ".",
@@ -317,6 +328,7 @@ export function runCoverageGate(options: CoverageGateOptions = {}): void {
       // when the source root is the repository root.
       ...required.flatMap((file) => ["--include", file]),
       "--check-coverage",
+      "--per-file",
       "--statements",
       String(gateConfig.thresholds.statements),
       "--lines",

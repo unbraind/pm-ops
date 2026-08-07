@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { devNull, homedir } from "node:os";
-import { resolve, basename, dirname, isAbsolute, join, parse, relative, win32 } from "node:path";
+import { resolve, basename, dirname, isAbsolute, join, parse, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
   ParserOverrideContext,
@@ -641,9 +641,14 @@ function readAudit(repoPath: string): { critical: number | null; high: number | 
 
 const AUDIT_UNAVAILABLE_PREFIX = "audit unavailable:";
 
+/** Normalize unknown thrown values without allowing diagnostics to become undefined. */
+function errorMessage(error: unknown): string {
+  return String(error).replace(/^[A-Za-z]*Error:\s*/, "");
+}
+
 /** Reduce an unknown thrown value to a single human-readable diagnostic string. */
-function auditUnavailable(error: Error): string {
-  return `${AUDIT_UNAVAILABLE_PREFIX} ${error.message}`;
+function auditUnavailable(error: unknown): string {
+  return `${AUDIT_UNAVAILABLE_PREFIX} ${errorMessage(error)}`;
 }
 
 function passesAuditGate(critical: number | null, diagnostics: string[]): boolean {
@@ -751,7 +756,7 @@ function scanRepo(repoPath: string): RepoScan {
     audit_critical = a.critical;
     audit_high = a.high;
   } catch (err) {
-    errors.push(auditUnavailable(err as Error));
+    errors.push(auditUnavailable(err));
   }
 
   const open_prs = ghOpenCount(repoPath, "pr");
@@ -1133,7 +1138,7 @@ function summarizeNpmError(stdout: string, stderr: string, args: string[]): stri
 
 /** Execute one npm release step in a repo and time its pass or failure. */
 function runReleaseCheck(repoPath: string, name: string, args: string[], progress: (msg: string) => void): ReleaseCheck {
-  progress(`verify ${relative(process.cwd(), repoPath)}: ${name}`);
+  progress(`verify ${repoLabel(repoPath)}: ${name}`);
   const start = Date.now();
   const r = runSync("npm", args, {
     cwd: repoPath,
@@ -1147,6 +1152,11 @@ function runReleaseCheck(repoPath: string, name: string, args: string[], progres
   const pass = r.status === 0;
   const error = pass ? undefined : r.error?.message ?? summarizeNpmError(r.stdout, r.stderr, args);
   return { name, pass, duration_ms, error };
+}
+
+/** Return a stable release-check diagnostic, including for externally supplied sparse results. */
+function releaseCheckError(check: ReleaseCheck): string {
+  return String(check.error).replace(/^undefined$/, check.pass ? "" : "check failed without an error message");
 }
 
 /** Run the release gate steps for one repo, falling back to individual scripts. */
@@ -1204,7 +1214,7 @@ function renderVerifyReleaseMarkdown(result: VerifyReleaseResult): string {
         c.name,
         c.pass ? "yes" : "no",
         String(c.duration_ms),
-        (c.error ?? "").replace(/\s+/g, " ").replace(/\|/g, "\\|").slice(0, 200),
+        releaseCheckError(c).replace(/\s+/g, " ").replace(/\|/g, "\\|").slice(0, 200),
       ]));
     }
   }
@@ -1280,7 +1290,7 @@ async function collectStatus(repoPath: string): Promise<RepoStatus> {
     audit_critical = a.critical;
     audit_high = a.high;
   } catch (err) {
-    issues.push(auditUnavailable(err as Error));
+    issues.push(auditUnavailable(err));
   }
 
   // Critical vulnerabilities gate readiness (matching scanRepo's
@@ -2320,7 +2330,7 @@ const DOCSTRING_VIOLATIONS_PER_REPO = 50;
  */
 function collectDocstringsAll(repos: string[], progress: (msg: string) => void): DocstringsResult {
   const repoResults = repos.map((repoPath) => {
-    progress(`docstrings ${relative(process.cwd(), repoPath)}`);
+    progress(`docstrings ${repoLabel(repoPath)}`);
     try {
       const report = analyzeDocstringCoverage({ root: repoPath });
       return {
@@ -2339,7 +2349,7 @@ function collectDocstringsAll(repos: string[], progress: (msg: string) => void):
         declarations_checked: 0,
         violation_count: 0,
         violations: [],
-        error: (err as Error).message,
+        error: errorMessage(err),
       } satisfies DocstringsRepoResult;
     }
   });
@@ -2538,7 +2548,7 @@ export default defineExtension({
           // Log a concise summary of which repos failed and why
           for (const repo of result.repos) {
             if (repo.failed > 0) {
-              const failedChecks = repo.checks.filter((c) => !c.pass).map((c) => `${c.name}: ${c.error!.slice(0, 120)}`);
+              const failedChecks = repo.checks.filter((c) => !c.pass).map((c) => `${c.name}: ${releaseCheckError(c).slice(0, 120)}`);
               console.error(`  FAIL ${repo.name ?? basename(repo.path)}: ${failedChecks.join("; ")}`);
             }
           }

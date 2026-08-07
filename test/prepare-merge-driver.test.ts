@@ -16,6 +16,7 @@ import {
   isExecutableFile,
   pmOnPath,
   prepareMergeDriver,
+  prepareMergeDriverExitCode,
 } from "../scripts/prepare-merge-driver.ts";
 
 let root: string;
@@ -55,7 +56,7 @@ test("pmOnPath mirrors POSIX empty entries and Windows quoting plus PATHEXT", ()
   executable(join(posix, "pm"));
   assert.strictEqual(
     pmOnPath({
-      path: `${join(root, "missing")}${delimiter}${posix}`,
+      path: `${join(root, "missing")}:${posix}`,
       platform: "linux",
     }),
     true,
@@ -109,16 +110,43 @@ test("prepareMergeDriver skips an absent CLI and executes exactly one install fo
   const bin = join(root, "prepare-bin");
   mkdirSync(bin, { recursive: true });
   executable(join(bin, "pm"));
-  const calls: string[] = [];
-  const execute = ((command: string) => {
-    calls.push(command);
+  const calls: Array<{ command: string; path: string | undefined }> = [];
+  const execute = ((command: string, options?: { env?: NodeJS.ProcessEnv }) => {
+    calls.push({ command, path: options?.env?.PATH });
     return Buffer.alloc(0);
   }) as unknown as typeof execSync;
   assert.strictEqual(
     prepareMergeDriver({ path: bin, platform: "linux", execute }),
     true,
   );
-  assert.deepStrictEqual(calls, ["pm merge install"]);
+  const previousPath = process.env.PATH;
+  process.env.PATH = bin;
+  try {
+    assert.strictEqual(prepareMergeDriver({ platform: "linux", execute }), true);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+  }
+  assert.deepStrictEqual(calls, [
+    { command: "pm merge install", path: bin },
+    { command: "pm merge install", path: bin },
+  ]);
+});
+
+test("prepareMergeDriverExitCode preserves command statuses and normalizes other failures", (context) => {
+  context.mock.method(console, "error", () => undefined);
+  const bin = join(root, "exit-code-bin");
+  mkdirSync(bin, { recursive: true });
+  executable(join(bin, "pm"));
+  const statusFailure = (() => {
+    throw { status: 7 };
+  }) as unknown as typeof execSync;
+  const otherFailure = (() => {
+    throw new Error("launch failed");
+  }) as unknown as typeof execSync;
+  assert.strictEqual(prepareMergeDriverExitCode({ path: bin, platform: "linux", execute: statusFailure }), 7);
+  assert.strictEqual(prepareMergeDriverExitCode({ path: bin, platform: "linux", execute: otherFailure }), 1);
+  assert.strictEqual(prepareMergeDriverExitCode({ path: join(root, "absent-exit-code"), platform: "linux" }), 0);
 });
 
 test("prepare hook direct entrypoint skips absence and fails loudly for a broken present CLI", () => {
@@ -148,14 +176,16 @@ test("prepare hook direct entrypoint skips absence and fails loudly for a broken
   } else {
     executable(join(bin, "pm"), "exit 7");
   }
-  assert.throws(() =>
-    execSync(`${JSON.stringify(process.execPath)} ${JSON.stringify(script)}`, {
-      cwd,
-      stdio: "pipe",
-      env: {
-        ...process.env,
-        PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
-      },
-    })
+  assert.throws(
+    () =>
+      execSync(`${JSON.stringify(process.execPath)} ${JSON.stringify(script)}`, {
+        cwd,
+        stdio: "pipe",
+        env: {
+          ...process.env,
+          PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+        },
+      }),
+    (error: unknown) => (error as { status?: number }).status === 7,
   );
 });
