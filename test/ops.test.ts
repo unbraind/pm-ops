@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test, { before, after } from "node:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, chmodSync } from "node:fs";
-import { devNull, tmpdir } from "node:os";
-import { delimiter, join, resolve } from "node:path";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, chmodSync, symlinkSync } from "node:fs";
+import { devNull, homedir, tmpdir } from "node:os";
+import { basename, delimiter, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import type { GlobalOptions } from "@unbrained/pm-cli/sdk";
 import { listMergeReceipts, markMergeReceiptReconciled } from "@unbrained/pm-cli/sdk/merge";
-import { decode } from "@toon-format/toon";
+import { decode, encode } from "@toon-format/toon";
 
 import extension, { disambiguateRepoLabels } from "../index.ts";
 
@@ -42,8 +42,12 @@ interface ScanRepo {
   has_ci: boolean;
   has_pm_changelog: boolean;
   pm_workspace: boolean;
+  audit_critical: number | null;
+  outdated_count: number | null;
   ready: boolean;
   errors: string[];
+  open_prs: number | null;
+  open_issues: number | null;
 }
 interface ScanResult {
   repos: ScanRepo[];
@@ -55,6 +59,7 @@ interface PolicyCheck {
   id: string;
   pass: boolean;
   message: string;
+  details?: string[];
 }
 interface PolicyRepo {
   name: string;
@@ -63,7 +68,7 @@ interface PolicyRepo {
 }
 interface PolicyResult {
   repos: PolicyRepo[];
-  summary: { total: number; passed: number; failed: number; by_severity: { error: number } };
+  summary: { total: number; passed: number; failed: number; by_severity: { error: number; warning: number; info: number } };
 }
 
 // --- Verify-release ---
@@ -93,7 +98,7 @@ interface ReportResult {
 
 // --- Status ---
 interface StatusRepo {
-  name: string;
+  name: string | null;
   ready: boolean;
   issues: string[];
 }
@@ -104,13 +109,13 @@ interface StatusResult {
 
 // --- Outdated ---
 interface OutdatedResult {
-  repos: unknown[];
+  repos: Array<{ name: string | null; count: number | null; error?: string; outdated: Array<{ name: string; current: string; wanted: string; latest: string; type: string }> }>;
   summary: { total: number; total_outdated: number; repos_with_outdated: number };
 }
 
 // --- Audit ---
 interface AuditResult {
-  repos: unknown[];
+  repos: Array<{ path: string; name: string | null; critical: number | null; high: number | null; moderate: number | null; low: number | null; total: number | null; ok: boolean }>;
   summary: { total: number; clean: number; unknown: number; total_critical: number; total_high: number };
 }
 
@@ -119,7 +124,9 @@ interface MetricsRepo {
   path: string;
   available: boolean;
   repo: string;
-  status_counts: { open: number };
+  status_counts: Record<string, number>;
+  cycle_time_p50_seconds: number | null;
+  cycle_time_p90_seconds: number | null;
 }
 interface MetricsResult {
   repos: MetricsRepo[];
@@ -188,15 +195,57 @@ const REAL_REPOS_AVAILABLE = REAL_REPOS.length >= 2 && REAL_REPOS.every((p) => e
 // Fixture helpers
 // ---------------------------------------------------------------------------
 
-function createAuditFailureBin(name: string, includeGh = false, mode: "json" | "stderr" = "json"): string {
+function createAuditFailureBin(name: string, includeGh = false, mode: "json" | "stderr" | "success" = "json"): string {
   const bin = join(tmpRoot, name);
   mkdirSync(bin, { recursive: true });
   if (process.platform === "win32") {
     const auditFailure = mode === "json" ? 'echo {"error":{"code":"EAI_AGAIN","summary":"registry unavailable"}}' : "echo non-JSON audit failure 1>&2";
-    writeFileSync(join(bin, "npm.cmd"), `@echo off\nif "%~1"=="outdated" (echo {} & exit /b 0)\nif "%~1"=="audit" (${auditFailure} & exit /b 1)\nexit /b 1\n`);
-    if (includeGh) writeFileSync(join(bin, "gh.cmd"), "@echo off\necho []\n");
+    const npmBody = mode === "success"
+      ? `@echo off
+if "%~1"=="outdated" (
+  if "%PM_OPS_FAKE_SCENARIO%"=="outdated" (echo {"example":{"current":"1.0.0","wanted":"1.1.0","latest":"2.0.0","type":"dependencies"}} & exit /b 1)
+  if "%PM_OPS_FAKE_SCENARIO%"=="outdated-defaults" (echo {"example":{}} & exit /b 1)
+  if "%PM_OPS_FAKE_SCENARIO%"=="outdated-error" (echo npm error code EFAIL 1>&2 & echo npm error fleet unavailable 1>&2 & exit /b 2)
+  if "%PM_OPS_FAKE_SCENARIO%"=="outdated-code" (echo npm error code ECODE 1>&2 & exit /b 2)
+  if "%PM_OPS_FAKE_SCENARIO%"=="outdated-invalid-fail" (echo not-json & exit /b 1)
+  echo not-json & exit /b 0
+)
+  if "%~1"=="audit" (
+  if "%PM_OPS_FAKE_SCENARIO%"=="audit-vulns" (echo {"metadata":{"vulnerabilities":{"critical":1,"high":2,"moderate":3,"low":4,"total":10}}} & exit /b 1)
+  if "%PM_OPS_FAKE_SCENARIO%"=="audit-empty" (echo {"metadata":{"vulnerabilities":{}}} & exit /b 0)
+  if "%PM_OPS_FAKE_SCENARIO%"=="audit-string" (echo {"error":"registry unavailable"} & exit /b 1)
+  if "%PM_OPS_FAKE_SCENARIO%"=="audit-object-empty" (echo {"error":{}} & exit /b 1)
+  echo {} & exit /b 1
+)
+exit /b 1
+`
+      : `@echo off\nif "%~1"=="outdated" (echo {} & exit /b 0)\nif "%~1"=="audit" (${auditFailure} & exit /b 1)\nexit /b 1\n`;
+    writeFileSync(join(bin, "npm.cmd"), npmBody);
+    if (includeGh) writeFileSync(join(bin, "gh.cmd"), mode === "success"
+      ? `@echo off
+if "%~1"=="repo" (if "%PM_OPS_FAKE_SCENARIO%"=="gh-fail" exit /b 1)
+if "%~1"=="repo" (if "%PM_OPS_FAKE_SCENARIO%"=="gh-invalid" (echo maybe) else (if "%PM_OPS_FAKE_SCENARIO%"=="private" (echo true) else (echo false)))
+if "%~1"=="pr" (if "%PM_OPS_FAKE_SCENARIO%"=="gh-fail" (exit /b 1) else (if "%PM_OPS_FAKE_SCENARIO%"=="gh-lists-invalid" (echo {}) else (echo [{"number":1}])))
+if "%~1"=="issue" (if "%PM_OPS_FAKE_SCENARIO%"=="gh-fail" (exit /b 1) else (if "%PM_OPS_FAKE_SCENARIO%"=="gh-lists-invalid" (echo {}) else (echo [{"number":1},{"number":2}])))
+`
+      : "@echo off\necho []\n");
   } else {
-    writeFileSync(join(bin, "npm"), `#!/usr/bin/env sh
+    writeFileSync(join(bin, "npm"), mode === "success" ? `#!/usr/bin/env sh
+case "$1:$PM_OPS_FAKE_SCENARIO" in
+  outdated:outdated) printf '{"example":{"current":"1.0.0","wanted":"1.1.0","latest":"2.0.0","type":"dependencies"}}\\n'; exit 1 ;;
+  outdated:outdated-defaults) printf '{"example":{}}\\n'; exit 1 ;;
+  outdated:outdated-error) printf 'npm error code EFAIL\\nnpm error fleet unavailable\\n' >&2; exit 2 ;;
+  outdated:outdated-code) printf 'npm error code ECODE\\n' >&2; exit 2 ;;
+  outdated:outdated-invalid-fail) printf 'not-json\\n'; exit 1 ;;
+  outdated:*) printf 'not-json\\n'; exit 0 ;;
+  audit:audit-vulns) printf '{"metadata":{"vulnerabilities":{"critical":1,"high":2,"moderate":3,"low":4,"total":10}}}\\n'; exit 1 ;;
+  audit:audit-empty) printf '{"metadata":{"vulnerabilities":{}}}\\n'; exit 0 ;;
+  audit:audit-string) printf '{"error":"registry unavailable"}\\n'; exit 1 ;;
+  audit:audit-object-empty) printf '{"error":{}}\\n'; exit 1 ;;
+  audit:*) printf '{}\\n'; exit 1 ;;
+esac
+exit 1
+` : `#!/usr/bin/env sh
 case "$1" in
   outdated) printf '{}\\n'; exit 0 ;;
   audit) ${mode === "json" ? `printf '{"error":{"code":"EAI_AGAIN","summary":"registry unavailable"}}\\n'` : `printf 'non-JSON audit failure\\n' >&2`}; exit 1 ;;
@@ -205,7 +254,18 @@ exit 1
 `);
     chmodSync(join(bin, "npm"), 0o755);
     if (includeGh) {
-      writeFileSync(join(bin, "gh"), "#!/usr/bin/env sh\nprintf '[]\\n'\n");
+      writeFileSync(join(bin, "gh"), mode === "success" ? `#!/usr/bin/env sh
+case "$1:$PM_OPS_FAKE_SCENARIO" in
+  repo:gh-fail) exit 1 ;;
+  repo:gh-invalid) printf 'maybe\\n' ;;
+  pr:gh-fail|issue:gh-fail) exit 1 ;;
+  pr:gh-lists-invalid|issue:gh-lists-invalid) printf '{}\\n' ;;
+  repo:private) printf 'true\\n' ;;
+  repo:*) printf 'false\\n' ;;
+  pr:*) printf '[{"number":1}]\\n' ;;
+  issue:*) printf '[{"number":1},{"number":2}]\\n' ;;
+esac
+` : "#!/usr/bin/env sh\nprintf '[]\\n'\n");
       chmodSync(join(bin, "gh"), 0o755);
     }
   }
@@ -238,9 +298,11 @@ function buildFixture(root: string): string {
   writeFileSync(join(repo, "tsconfig.base.json"), JSON.stringify({ compilerOptions: { strict: true, target: "ES2022", module: "NodeNext" } }, null, 2) + "\n");
   writeFileSync(join(repo, "tsconfig.json"), `{
   // JSONC is valid for tsconfig files and must not disable strict detection.
+  /* Block comments and escaped string content must survive normalization. */
   "extends": ["./tsconfig.base.json"],
   "compilerOptions": {
   },
+  "fixtureLabel": "quoted \\\"value\\\"",
 }
 `);
   writeFileSync(join(repo, "CHANGELOG.md"), "# Changelog\n\n## 2026.7.5\n\n- fixture\n");
@@ -254,6 +316,30 @@ function buildFixture(root: string): string {
   const pmCreate = spawnSync(pmCmd, ["create", "--title", "Fixture task", "--type", "Task", "--pm-path", join(repo, ".agents", "pm")], { encoding: "utf-8", timeout: 30_000 });
   if (pmCreate.status !== 0) {
     throw new Error(`pm create failed: ${pmCreate.stderr}`);
+  }
+  const importedItems = [
+    { title: "Stale fixture task", type: "Task", status: "open", priority: 1, created_at: "2026-06-01T00:00:00.000Z", updated_at: "2026-06-02T00:00:00.000Z", tags: ["fixture", "stale"] },
+    { title: "Recently closed fixture", type: "Task", status: "closed", priority: 2, created_at: "2026-07-01T00:00:00.000Z", updated_at: "2026-08-03T00:00:00.000Z", closed_at: "2026-08-03T00:00:00.000Z", completed_at: "2026-08-03T00:00:00.000Z", close_reason: "Fixture completed" },
+    { title: "Older closed fixture", type: "Issue", status: "closed", priority: 3, created_at: "2026-05-01T00:00:00.000Z", updated_at: "2026-07-01T00:00:00.000Z", closed_at: "2026-07-01T00:00:00.000Z", completed_at: "2026-07-01T00:00:00.000Z", close_reason: "Fixture resolved" },
+  ];
+  for (const item of importedItems) {
+    const createArgs = ["create", "--stdin-json", "--status", item.status, "--json", "--pm-path", join(repo, ".agents", "pm")];
+    if (item.status === "closed" || item.status === "canceled") {
+      createArgs.push("--completed-at", item.completed_at!, "--close-reason", item.close_reason!);
+    }
+    const imported = spawnSync(pmCmd, createArgs, {
+      encoding: "utf-8",
+      input: JSON.stringify(item),
+      timeout: 30_000,
+    });
+    if (imported.status !== 0) throw new Error(`pm fixture import failed: ${imported.stderr}`);
+    const itemId = parseJson<{ id: string }>(imported.stdout).id;
+    const itemPath = join(repo, ".agents", "pm", `${item.type.toLowerCase()}s`, `${itemId}.toon`);
+    const stored = decode(readFileSync(itemPath, "utf8")) as Record<string, unknown>;
+    stored.created_at = item.created_at;
+    stored.updated_at = item.updated_at;
+    if ("closed_at" in item) stored.closed_at = item.closed_at;
+    writeFileSync(itemPath, `${encode(stored)}\n`);
   }
   return repo;
 }
@@ -398,6 +484,7 @@ let cleanMergeLab: MergeReceiptLab;
 let conflictingMergeLab: MergeReceiptLab;
 let reconciledLab: MergeReceiptLab;
 let driverMissingLab: MergeReceiptLab;
+let fenceMissingLab: MergeReceiptLab;
 
 before(() => {
   process.env.PM_OPS_OFFLINE = "1";
@@ -409,6 +496,8 @@ before(() => {
   conflictingMergeLab = buildMergeReceiptLab(tmpRoot, "pm-merge-conflict", true);
   reconciledLab = buildMergeReceiptLab(tmpRoot, "pm-merge-reconcile", true);
   driverMissingLab = buildMergeReceiptLab(tmpRoot, "pm-merge-no-driver", false);
+  fenceMissingLab = buildMergeReceiptLab(tmpRoot, "pm-merge-no-fence", false);
+  rmSync(join(fenceMissingLab.path, ".gitattributes"));
 });
 
 after(() => {
@@ -478,6 +567,51 @@ test("pm SDK preserves the typed repeatable --repos contract on every command", 
     "the CLI compatibility parser must leave structured SDK and MCP inputs unchanged",
   );
 
+  const originalArgv = process.argv;
+  try {
+    process.argv = ["node", "pm", "ops", "status", "--repos", "first", "--repos=second", "--repos=", "--", "--repos", "ignored"];
+    const restored = await ext.runParserOverride({
+      command: "ops status",
+      args: [],
+      options: { repos: ["second"] },
+      global: { json: true, quiet: true, noPager: true },
+      pm_root: "",
+    });
+    assert.deepStrictEqual(restored.context.options.repos, ["first", "second"]);
+
+    process.argv = ["node", "pm", "ops", "status", "--repos", "first", "--repos", "--json"];
+    const missingValue = await ext.runParserOverride({
+      command: "ops status",
+      args: [],
+      options: {},
+      global: { json: true, quiet: true, noPager: true },
+      pm_root: "",
+    });
+    assert.deepStrictEqual(missingValue.context.options.repos, ["first"]);
+
+    process.argv = ["node", "pm", "ops", "status", "--repos", "first"];
+    const alreadyComplete = await ext.runParserOverride({
+      command: "ops status",
+      args: [],
+      options: { repos: ["first"] },
+      global: { json: true, quiet: true, noPager: true },
+      pm_root: "",
+    });
+    assert.deepStrictEqual(alreadyComplete.context.options.repos, ["first"]);
+
+    process.argv = ["node", "pm", "ops", "scan", "--repos", "other"];
+    const differentCommand = await ext.runParserOverride({
+      command: "ops status",
+      args: [],
+      options: { repos: ["sdk-only"] },
+      global: { json: true, quiet: true, noPager: true },
+      pm_root: "",
+    });
+    assert.deepStrictEqual(differentCommand.context.options.repos, ["sdk-only"]);
+  } finally {
+    process.argv = originalArgv;
+  }
+
   await ext.deactivate();
 });
 
@@ -542,16 +676,37 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
   assert.strictEqual(installed.activation_status, "ok");
   assert.strictEqual(installed.runtime_active, true);
 
+  const noPmBin = join(root, "no-pm-bin");
+  mkdirSync(noPmBin);
+  const cliEntry = join(process.cwd(), "node_modules", "@unbrained", "pm-cli", "dist", "cli.js");
+  const hostedFallback = spawnSync(process.execPath, [cliEntry, "ops", "metrics", "--repos", project, "--json"], {
+    cwd: project,
+    encoding: "utf-8",
+    env: { ...env, PATH: noPmBin },
+    timeout: 30_000,
+  });
+  assertClean(hostedFallback, "active pm host fallback without a standalone pm executable");
+  const hostedMetrics = parseJson<MetricsResult>(hostedFallback.stdout);
+  assert.strictEqual(hostedMetrics.repos_scanned, 1);
+  assert.strictEqual(hostedMetrics.repos[0].available, true);
+
   writeFileSync(join(project, "undocumented.ts"), "export function undocumented() {}\n");
   const toonFailure = runPm(["ops", "docstrings", "--repos", project]);
   assert.strictEqual(toonFailure.error, undefined, "pm ops docstrings should launch");
   assert.strictEqual(toonFailure.status, 1, `pm ops docstrings should fail the dirty project: ${toonFailure.stderr}`);
-  const toonPayload = decode(toonFailure.stdout) as { summary?: { total_violations?: number } };
-  assert.strictEqual(toonPayload.summary?.total_violations, 1, "default failure output must remain valid TOON");
+  interface DocstringFailurePayload {
+    repos?: Array<{ violations?: Array<{ file?: string }> }>;
+    summary?: { total_violations?: number };
+  }
+  const toonPayload = decode(toonFailure.stdout) as DocstringFailurePayload;
+  assert.ok((toonPayload.summary?.total_violations ?? 0) >= 1, "default failure output must remain valid TOON");
+  assert.ok(toonPayload.repos?.[0]?.violations?.some(({ file }) => file === "undocumented.ts"), "the routed repo must report its undocumented source");
 
   const jsonFailure = runPm(["ops", "docstrings", "--repos", project, "--json"]);
   assert.strictEqual(jsonFailure.status, 1, `pm ops docstrings --json should fail the dirty project: ${jsonFailure.stderr}`);
-  assert.strictEqual(parseJson<{ summary?: { total_violations?: number } }>(jsonFailure.stdout).summary?.total_violations, 1);
+  const jsonPayload = parseJson<DocstringFailurePayload>(jsonFailure.stdout);
+  assert.ok((jsonPayload.summary?.total_violations ?? 0) >= 1);
+  assert.ok(jsonPayload.repos?.[0]?.violations?.some(({ file }) => file === "undocumented.ts"));
 
   interface RepoEntry { path?: string; repo?: string }
   interface CmdPayload { repos?: RepoEntry[]; scan?: { repos?: RepoEntry[] } }
@@ -624,6 +779,14 @@ test("ops scan produces a structured readiness snapshot for the fixture", async 
   assert.strictEqual(repo.has_pm_changelog, true);
   assert.strictEqual(repo.pm_workspace, true);
   assert.strictEqual(repo.ready, true, "fixture should be ready");
+  await ext.deactivate();
+});
+
+test("ops scan honors the host-owned global JSON format", async () => {
+  const ext = await harness();
+  const rendered = await runCmd<RenderedResult>(ext, "ops scan", { repos: [fixtureRepo] }, [], { json: true });
+  const result = parseJson<ScanResult>(rendered.output);
+  assert.strictEqual(result.repos[0].path, fixtureRepo);
   await ext.deactivate();
 });
 
@@ -713,6 +876,33 @@ test("ops scan respects later tsconfig array extends overrides", async () => {
   await ext.deactivate();
 });
 
+test("ops scan fails closed across malformed, cyclic, and package-style tsconfig inheritance", async () => {
+  const ext = await harness();
+  const repo = join(tmpRoot, "pm-tsconfig-errors");
+  mkdirSync(repo, { recursive: true });
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "pm-tsconfig-errors" }) + "\n");
+
+  writeFileSync(join(repo, "tsconfig.json"), "{ invalid jsonc\n");
+  assert.strictEqual((await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] })).repos[0].strict_ts, false);
+
+  writeFileSync(join(repo, "tsconfig.json"), JSON.stringify({ extends: "./tsconfig" }) + "\n");
+  assert.strictEqual((await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] })).repos[0].strict_ts, false);
+
+  writeFileSync(join(repo, "tsconfig.json"), JSON.stringify({ extends: "missing-package-config" }) + "\n");
+  assert.strictEqual((await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] })).repos[0].strict_ts, false);
+
+  writeFileSync(join(repo, "tsconfig.json"), "{}\n");
+  assert.strictEqual((await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] })).repos[0].strict_ts, false);
+
+  writeFileSync(join(repo, "tsconfig.json"), JSON.stringify({ extends: ["missing-package-config", 42] }) + "\n");
+  assert.strictEqual((await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] })).repos[0].strict_ts, false);
+
+  writeFileSync(join(repo, "strict.json"), JSON.stringify({ compilerOptions: { strict: true } }) + "\n");
+  writeFileSync(join(repo, "tsconfig.json"), JSON.stringify({ extends: ["./strict", "missing-package-config", 42] }) + "\n");
+  assert.strictEqual((await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] })).repos[0].strict_ts, true);
+  await ext.deactivate();
+});
+
 test("ops scan expands simple repo globs", async () => {
   const ext = await harness();
   const result = await runCmd<ScanResult>(ext, "ops scan", { repos: [join(tmpRoot, "pm-*")] });
@@ -733,6 +923,33 @@ test("ops scan expands bracket character-class globs", async () => {
   await ext.deactivate();
 });
 
+test("ops scan expands wildcard, home, default, and platform-absolute paths deterministically", async () => {
+  const ext = await harness();
+  const single = join(tmpRoot, "pm-c");
+  const punctuation = join(tmpRoot, "pm-(x)");
+  mkdirSync(single, { recursive: true });
+  mkdirSync(punctuation, { recursive: true });
+  writeFileSync(join(single, "package.json"), JSON.stringify({ name: "pm-c" }) + "\n");
+  writeFileSync(join(punctuation, "package.json"), JSON.stringify({ name: "pm-(x)" }) + "\n");
+
+  const question = await runCmd<ScanResult>(ext, "ops scan", { repos: [join(tmpRoot, "pm-?")] });
+  assert.ok(question.repos.some((repo) => repo.name === "pm-c"));
+  const escaped = await runCmd<ScanResult>(ext, "ops scan", { repos: [join(tmpRoot, "pm-(?)")] });
+  assert.deepStrictEqual(escaped.repos.map(({ name }) => name), ["pm-(x)"]);
+
+  const homePaths = await runCmd<ScanResult>(ext, "ops scan", { repos: ["~", "~\\definitely-missing"] });
+  assert.deepStrictEqual(homePaths.repos.map(({ path }) => path), [homedir(), join(homedir(), "definitely-missing")]);
+  const current = await runCmd<ScanResult>(ext, "ops scan");
+  assert.deepStrictEqual(current.repos.map(({ path }) => path), [process.cwd()]);
+  const windowsAbsolute = await runCmd<ScanResult>(ext, "ops scan", { repos: ["C:\\definitely-missing"] });
+  assert.deepStrictEqual(windowsAbsolute.repos.map(({ path }) => path), ["C:\\definitely-missing"]);
+  const windowsGlob = await runCmd<ScanResult>(ext, "ops scan", { repos: ["C:\\definitely-missing\\*"] });
+  assert.deepStrictEqual(windowsGlob.repos.map(({ path }) => path), ["C:\\definitely-missing\\*"]);
+  const relativeMissing = await runCmd<ScanResult>(ext, "ops scan", { repos: ["definitely-missing-relative"] });
+  assert.deepStrictEqual(relativeMissing.repos.map(({ path }) => path), [resolve("definitely-missing-relative")]);
+  await ext.deactivate();
+});
+
 test("ops scan handles malformed bracket globs without crashing", async () => {
   const ext = await harness();
   const result = await runCmd<ScanResult>(ext, "ops scan", { repos: [join(tmpRoot, "pm-[")] });
@@ -740,6 +957,54 @@ test("ops scan handles malformed bracket globs without crashing", async () => {
   assert.strictEqual(result.repos[0].ready, false);
   assert.deepStrictEqual(result.repos[0].errors, ["repository directory does not exist"]);
   await ext.deactivate();
+});
+
+test("ops scan selects Windows command shims when the host platform is win32", { skip: process.platform === "win32" }, async () => {
+  const ext = await harness();
+  const bin = join(tmpRoot, "bin-win32-command-selection");
+  const pmMarker = join(tmpRoot, "win32-pm-invoked");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "pm.cmd"), `#!/usr/bin/env sh
+: > '${pmMarker}'
+printf '{"items":[]}\\n'
+`);
+  writeFileSync(join(bin, "npm.cmd"), `#!/usr/bin/env sh
+if [ "$1" = audit ]; then
+  printf '{"metadata":{"vulnerabilities":{}}}\\n'
+else
+  printf '{}\\n'
+fi
+`);
+  writeFileSync(join(bin, "gh"), `#!/usr/bin/env sh
+case "$1" in
+  repo) printf 'false\\n' ;;
+  *) printf '[]\\n' ;;
+esac
+`);
+  for (const command of ["pm.cmd", "npm.cmd", "gh"]) chmodSync(join(bin, command), 0o755);
+  const repo = join(tmpRoot, "pm-win32-command-selection");
+  mkdirSync(join(repo, ".agents", "pm"), { recursive: true });
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "pm-win32-command-selection" }) + "\n");
+
+  const platform = Object.getOwnPropertyDescriptor(process, "platform");
+  const previousOffline = process.env.PM_OPS_OFFLINE;
+  const previousPath = process.env.PATH;
+  Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+  delete process.env.PM_OPS_OFFLINE;
+  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  try {
+    const result = await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] });
+    assert.strictEqual(existsSync(pmMarker), true);
+    assert.strictEqual(result.repos[0].audit_critical, 0);
+    assert.strictEqual(result.repos[0].outdated_count, 0);
+  } finally {
+    Object.defineProperty(process, "platform", platform!);
+    if (previousOffline === undefined) delete process.env.PM_OPS_OFFLINE;
+    else process.env.PM_OPS_OFFLINE = previousOffline;
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    await ext.deactivate();
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -769,6 +1034,14 @@ test("ops policy: naming passes for a valid pm-* repo and fails for pm-ext-foo",
   assert.ok(fakeNaming, "fake naming check should exist");
   assert.strictEqual(fakeNaming.pass, false, "pm-ext-foo naming should fail");
   assert.match(fakeNaming.message, /pm-ext-/);
+
+  const invalidNameDir = join(tmpRoot, "invalid-package-name");
+  mkdirSync(invalidNameDir, { recursive: true });
+  writeFileSync(join(invalidNameDir, "package.json"), JSON.stringify({ name: "not-a-pm-package" }) + "\n");
+  const invalidName = await runCmd<PolicyResult>(ext, "ops policy", { repos: [invalidNameDir] });
+  const invalidNaming = invalidName.repos[0].checks.find((check) => check.id === "naming");
+  assert.strictEqual(invalidNaming?.pass, false);
+  assert.match(invalidNaming?.message ?? "", /does not match/);
   assert.ok(result.summary.by_severity.error >= 1, "should record at least one error-severity failure");
   await ext.deactivate();
 });
@@ -931,8 +1204,19 @@ jobs:
     runs-on: { labels: [ubuntu-latest] }
     steps:
       - run: echo hi
+  grouped:
+    runs-on: { group: private-runners }
+    steps:
+      - run: echo grouped
+  scalar-label:
+    runs-on:
+
+      labels: ubuntu-latest
+    steps:
+      - run: echo scalar
 `);
   writeFileSync(join(repo, ".github", "workflows", "release.yml"), "name: Release\n");
+  writeFileSync(join(repo, ".github", "workflows", "README.txt"), "not a workflow\n");
   writeFileSync(join(bin, "gh"), "#!/usr/bin/env sh\nprintf 'true\\n'\n");
   chmodSync(join(bin, "gh"), 0o755);
 
@@ -1000,6 +1284,36 @@ jobs:
   await ext.deactivate();
 });
 
+test("ops policy reports unreadable private workflow entries", { skip: process.platform === "win32" }, async () => {
+  const ext = await harness();
+  const repo = join(tmpRoot, "pm-private-broken-workflow");
+  mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "pm-private-broken-workflow" }) + "\n");
+  symlinkSync(join(repo, "missing-workflow-target"), join(repo, ".github", "workflows", "broken.yml"));
+  const bin = createAuditFailureBin("bin-private-broken-workflow", true, "success");
+  const previousOffline = process.env.PM_OPS_OFFLINE;
+  const previousPath = process.env.PATH;
+  const previousScenario = process.env.PM_OPS_FAKE_SCENARIO;
+  delete process.env.PM_OPS_OFFLINE;
+  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  process.env.PM_OPS_FAKE_SCENARIO = "private";
+  try {
+    const result = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo] });
+    const runner = result.repos[0].checks.find(({ id }) => id === "private-no-runners");
+    assert.strictEqual(runner?.pass, false);
+    assert.match(runner?.message ?? "", /private repo uses GitHub-hosted runners/);
+    assert.match(runner?.details?.join("\n") ?? "", /broken\.yml: unable to read workflow/);
+  } finally {
+    if (previousOffline === undefined) delete process.env.PM_OPS_OFFLINE;
+    else process.env.PM_OPS_OFFLINE = previousOffline;
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousScenario === undefined) delete process.env.PM_OPS_FAKE_SCENARIO;
+    else process.env.PM_OPS_FAKE_SCENARIO = previousScenario;
+    await ext.deactivate();
+  }
+});
+
 test("ops policy accepts additional repo paths after --repos", async () => {
   const ext = await harness();
   const otherRepo = join(tmpRoot, "pm-other");
@@ -1037,6 +1351,41 @@ test("ops policy --strict exits non-zero on failures", async () => {
   await ext.deactivate();
 });
 
+test("ops policy validates custom bundles, filters, and strict output routes", async () => {
+  const ext = await harness();
+  const policyFile = join(tmpRoot, "custom-policy.json");
+  writeFileSync(policyFile, JSON.stringify({ checks: [
+    { id: "naming", severity: "error", repo_filter: "*" },
+    { id: "naming", severity: "warning", repo_filter: "pm-fixture" },
+    { id: "required-scripts", severity: "error", params: { scripts: ["release:check"] } },
+    { id: "required-workflows", severity: "error", params: { workflows: ["ci.yml"] } },
+    { id: "required-scripts", severity: "error" },
+    { id: "required-workflows", severity: "error" },
+    { id: "future-check", severity: "info", repo_filter: basename(fixtureRepo) },
+    { id: "naming", severity: "error", repo_filter: "different-repo" },
+  ] }) + "\n");
+  const result = await runCmd<PolicyResult>(ext, "ops policy", { repos: [fixtureRepo], policy: policyFile });
+  assert.strictEqual(result.repos[0].checks.length, 7);
+  assert.strictEqual(result.summary.failed, 1);
+  assert.strictEqual(result.summary.by_severity.info, 1);
+
+  const invalid = join(tmpRoot, "invalid-policy.json");
+  writeFileSync(invalid, "{not json}\n");
+  await assert.rejects(runCmd(ext, "ops policy", { repos: [fixtureRepo], policy: invalid }), /not a valid policy bundle/);
+
+  const outFile = join(tmpRoot, "strict-policy.md");
+  await assert.rejects(
+    runCmd(ext, "ops policy", { repos: [fixtureRepo], policy: policyFile, strict: true, format: "markdown", output: outFile }),
+    /strict mode/,
+  );
+  assert.match(readFileSync(outFile, "utf8"), /future-check/);
+  await assert.rejects(
+    runCmd(ext, "ops policy", { repos: [fixtureRepo], policy: policyFile, strict: true, format: "markdown" }),
+    /strict mode/,
+  );
+  await ext.deactivate();
+});
+
 // ---------------------------------------------------------------------------
 // ops verify-release
 // ---------------------------------------------------------------------------
@@ -1061,7 +1410,7 @@ test("ops verify-release runs the release gate matrix on the fixture", async () 
   await ext.deactivate();
 });
 
-test("ops verify-release strips NODE_TEST_CONTEXT from release gates", async () => {
+test("ops verify-release strips test and inherited npm configuration from release gates", async () => {
   const ext = await harness();
   const repo = join(tmpRoot, "pm-node-test-context");
   mkdirSync(repo, { recursive: true });
@@ -1069,11 +1418,13 @@ test("ops verify-release strips NODE_TEST_CONTEXT from release gates", async () 
     name: "pm-node-test-context",
     version: "2026.7.31",
     scripts: {
-      "release:check": "node -e \"if (process.env.NODE_TEST_CONTEXT) process.exit(9)\"",
+      "release:check": "node -e \"if (process.env.NODE_TEST_CONTEXT || Object.entries(process.env).some(([key, value]) => key.toLowerCase() === 'npm_config_allow_scripts' && value === 'pm-ops-inherited')) process.exit(9)\"",
     },
   }) + "\n");
   const originalContext = process.env.NODE_TEST_CONTEXT;
+  const originalAllowScripts = process.env.npm_config_allow_scripts;
   process.env.NODE_TEST_CONTEXT = "child-v8";
+  process.env.npm_config_allow_scripts = "pm-ops-inherited";
   try {
     const result = await runCmd<VerifyResult>(ext, "ops verify-release", { repos: [repo] });
     assert.strictEqual(result.repos[0].failed, 0);
@@ -1081,6 +1432,8 @@ test("ops verify-release strips NODE_TEST_CONTEXT from release gates", async () 
   } finally {
     if (originalContext === undefined) delete process.env.NODE_TEST_CONTEXT;
     else process.env.NODE_TEST_CONTEXT = originalContext;
+    if (originalAllowScripts === undefined) delete process.env.npm_config_allow_scripts;
+    else process.env.npm_config_allow_scripts = originalAllowScripts;
     await ext.deactivate();
   }
 });
@@ -1127,6 +1480,38 @@ test("ops verify-release --format json --output writes JSON and creates parent d
   const body = readFileSync(outFile, "utf-8");
   assert.doesNotThrow(() => JSON.parse(body));
   assert.match(body, /"summary"/);
+  await ext.deactivate();
+});
+
+test("ops verify-release exercises fallback checks and every stdout failure format", async () => {
+  const ext = await harness();
+  const repo = join(tmpRoot, "pm-fallback-release");
+  mkdirSync(repo, { recursive: true });
+  writeFileSync(join(repo, "package.json"), JSON.stringify({
+    name: "pm-fallback-release",
+    scripts: {
+      typecheck: "node -e \"process.exit(0)\"",
+      build: "node -e \"process.stderr.write('build failed\\n'); process.exit(1)\"",
+    },
+  }) + "\n");
+
+  for (const format of ["json", "markdown", "toon"] as const) {
+    await assert.rejects(
+      runCmd(ext, "ops verify-release", { repos: [repo], format }),
+      /verify-release: 1 repo\(s\) failed/,
+    );
+  }
+  const outFile = join(tmpRoot, "failed-release.md");
+  await assert.rejects(
+    runCmd(ext, "ops verify-release", { repos: [repo], format: "markdown", output: outFile }),
+    /verify-release: 1 repo\(s\) failed/,
+  );
+  assert.match(readFileSync(outFile, "utf8"), /build failed/);
+
+  const json = await runCmd<RenderedResult>(ext, "ops verify-release", { repos: [fixtureRepo], format: "json" });
+  assert.strictEqual(parseJson<{ summary: { passed: number } }>(json.output).summary.passed, 1);
+  const markdown = await runCmd<RenderedResult>(ext, "ops verify-release", { repos: [fixtureRepo], format: "markdown" });
+  assert.match(markdown.output, /pm-ops verify-release/);
   await ext.deactivate();
 });
 
@@ -1246,6 +1631,60 @@ test("ops status --format markdown emits a compact table", async () => {
   await ext.deactivate();
 });
 
+test("existing sparse repos retain explicit unknowns across status, policy, audit, and outdated reports", async () => {
+  const ext = await harness();
+  const repo = join(tmpRoot, "pm-sparse");
+  mkdirSync(repo, { recursive: true });
+
+  const status = await runCmd<StatusResult>(ext, "ops status", { repos: [repo] });
+  assert.strictEqual(status.repos[0].name, null);
+  assert.strictEqual(status.repos[0].ready, false);
+  assert.deepStrictEqual(status.repos[0].issues, [
+    "strict TS not enabled",
+    "no CHANGELOG.md",
+    "no release workflow",
+    "no CI workflow",
+    "pm-changelog not wired",
+  ]);
+  const statusMarkdown = await runCmd<RenderedResult>(ext, "ops status", { repos: [repo], format: "markdown" });
+  assert.match(statusMarkdown.output, /\| pm-sparse \| - \| no \| \? \|/);
+
+  const policy = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo] });
+  assert.match(policy.repos[0].checks.find(({ id }) => id === "naming")?.message ?? "", /has no name/);
+  assert.match(policy.repos[0].checks.find(({ id }) => id === "pm-duplicate-titles")?.message ?? "", /no pm workspace/);
+
+  const outdated = await runCmd<RenderedResult>(ext, "ops outdated", { repos: [repo], format: "markdown" });
+  assert.match(outdated.output, /## pm-sparse/);
+  const audit = await runCmd<RenderedResult>(ext, "ops audit", { repos: [repo], format: "markdown" });
+  assert.match(audit.output, /\| pm-sparse \| \? \| \? \| \? \| \? \| \? \| \? \|/);
+
+  await assert.rejects(runCmd(ext, "ops verify-release", { repos: [repo], format: "markdown" }), /1 repo\(s\) failed/);
+  await ext.deactivate();
+});
+
+test("markdown reports label an existing repo without package metadata by directory name", async () => {
+  const ext = await harness();
+  const repo = join(tmpRoot, "pm-unnamed");
+  mkdirSync(repo, { recursive: true });
+
+  const scan = await runCmd<RenderedResult>(ext, "ops scan", { repos: [repo], format: "markdown" });
+  assert.match(scan.output, /\| pm-unnamed \| - \|/);
+  const policy = await runCmd<RenderedResult>(ext, "ops policy", { repos: [repo], format: "markdown" });
+  assert.match(policy.output, /\| pm-unnamed \| naming \|/);
+  const outdated = await runCmd<RenderedResult>(ext, "ops outdated", { repos: [repo], format: "markdown" });
+  assert.match(outdated.output, /## pm-unnamed/);
+  const audit = await runCmd<RenderedResult>(ext, "ops audit", { repos: [repo], format: "markdown" });
+  assert.match(audit.output, /\| pm-unnamed \| \? \|/);
+  await ext.deactivate();
+});
+
+test("ops status surfaces pending merge receipts without making them the readiness gate", async () => {
+  const ext = await harness();
+  const result = await runCmd<StatusResult>(ext, "ops status", { repos: [conflictingMergeLab.path] });
+  assert.match(result.repos[0].issues.join("\n"), /1 pending merge receipt/);
+  await ext.deactivate();
+});
+
 // ---------------------------------------------------------------------------
 // ops audit
 // ---------------------------------------------------------------------------
@@ -1298,6 +1737,159 @@ test("ops outdated --format markdown emits a well-formed report", async () => {
   await ext.deactivate();
 });
 
+test("online audit and outdated reports preserve actionable npm and GitHub data", async () => {
+  const ext = await harness();
+  const bin = createAuditFailureBin("bin-fleet-success", true, "success");
+  const previousOffline = process.env.PM_OPS_OFFLINE;
+  const previousPath = process.env.PATH;
+  const previousScenario = process.env.PM_OPS_FAKE_SCENARIO;
+  delete process.env.PM_OPS_OFFLINE;
+  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  try {
+    process.env.PM_OPS_FAKE_SCENARIO = "outdated";
+    const outdated = await runCmd<OutdatedResult>(ext, "ops outdated", { repos: [fixtureRepo] });
+    assert.strictEqual(outdated.summary.total_outdated, 1);
+    assert.deepStrictEqual(outdated.repos[0].outdated[0], {
+      name: "example",
+      current: "1.0.0",
+      wanted: "1.1.0",
+      latest: "2.0.0",
+      type: "dependencies",
+    });
+    const outdatedMarkdown = await runCmd<RenderedResult>(ext, "ops outdated", { repos: [fixtureRepo], format: "markdown" });
+    assert.match(outdatedMarkdown.output, /\| example \| 1\.0\.0 \| 1\.1\.0 \| 2\.0\.0 \| dependencies \|/);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "outdated-error";
+    const failedOutdated = await runCmd<OutdatedResult>(ext, "ops outdated", { repos: [fixtureRepo] });
+    assert.strictEqual(failedOutdated.repos[0].count, null);
+    assert.match(failedOutdated.repos[0].error ?? "", /EFAIL.*fleet unavailable/);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "outdated-code";
+    const codeOnly = await runCmd<OutdatedResult>(ext, "ops outdated", { repos: [fixtureRepo] });
+    assert.match(codeOnly.repos[0].error ?? "", /npm error code ECODE/);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "outdated-invalid-fail";
+    const invalidFailure = await runCmd<ScanResult>(ext, "ops scan", { repos: [fixtureRepo] });
+    assert.strictEqual(invalidFailure.repos[0].outdated_count, null);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "outdated-defaults";
+    const defaults = await runCmd<OutdatedResult>(ext, "ops outdated", { repos: [fixtureRepo] });
+    assert.deepStrictEqual(defaults.repos[0].outdated[0], { name: "example", current: "-", wanted: "-", latest: "-", type: "-" });
+
+    process.env.PM_OPS_FAKE_SCENARIO = "up-to-date";
+    const upToDate = await runCmd<RenderedResult>(ext, "ops outdated", { repos: [fixtureRepo], format: "markdown" });
+    assert.match(upToDate.output, /All dependencies are up to date/);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "audit-vulns";
+    const audit = await runCmd<AuditResult>(ext, "ops audit", { repos: [fixtureRepo] });
+    assert.deepStrictEqual(audit.repos[0], {
+      path: fixtureRepo,
+      name: "pm-fixture",
+      critical: 1,
+      high: 2,
+      moderate: 3,
+      low: 4,
+      total: 10,
+      ok: false,
+    });
+    assert.strictEqual(audit.summary.total_critical, 1);
+    assert.strictEqual(audit.summary.total_high, 2);
+    const auditMarkdown = await runCmd<RenderedResult>(ext, "ops audit", { repos: [fixtureRepo], format: "markdown" });
+    assert.match(auditMarkdown.output, /\| vulns \|/);
+    const status = await runCmd<StatusResult>(ext, "ops status", { repos: [fixtureRepo] });
+    assert.match(status.repos[0].issues.join("\n"), /1 critical vuln\(s\).*2 high vuln\(s\)/s);
+    assert.strictEqual(status.repos[0].ready, false);
+    const scan = await runCmd<ScanResult>(ext, "ops scan", { repos: [fixtureRepo] });
+    assert.strictEqual(scan.repos[0].open_prs, 1);
+    assert.strictEqual(scan.repos[0].open_issues, 2);
+    assert.strictEqual(scan.repos[0].ready, false);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "audit-empty";
+    const clean = await runCmd<AuditResult>(ext, "ops audit", { repos: [fixtureRepo] });
+    assert.deepStrictEqual(clean.repos[0], {
+      path: fixtureRepo,
+      name: "pm-fixture",
+      critical: 0,
+      high: 0,
+      moderate: 0,
+      low: 0,
+      total: 0,
+      ok: true,
+    });
+
+    const unnamed = join(tmpRoot, "pm-online-unnamed");
+    mkdirSync(unnamed, { recursive: true });
+    const unnamedAudit = await runCmd<AuditResult>(ext, "ops audit", { repos: [unnamed] });
+    assert.strictEqual(unnamedAudit.repos[0].name, null);
+    const cleanMarkdown = await runCmd<RenderedResult>(ext, "ops audit", { repos: [unnamed], format: "markdown" });
+    assert.match(cleanMarkdown.output, /\| clean \|/);
+    process.env.PM_OPS_FAKE_SCENARIO = "outdated-defaults";
+    const unnamedOutdated = await runCmd<OutdatedResult>(ext, "ops outdated", { repos: [unnamed] });
+    assert.strictEqual(unnamedOutdated.repos[0].name, null);
+    const unnamedOutdatedMarkdown = await runCmd<RenderedResult>(ext, "ops outdated", { repos: [unnamed], format: "markdown" });
+    assert.match(unnamedOutdatedMarkdown.output, /## pm-online-unnamed/);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "audit-string";
+    assert.match((await runCmd<ScanResult>(ext, "ops scan", { repos: [fixtureRepo] })).repos[0].errors.join("\n"), /registry unavailable/);
+    process.env.PM_OPS_FAKE_SCENARIO = "audit-object-empty";
+    assert.match((await runCmd<ScanResult>(ext, "ops scan", { repos: [fixtureRepo] })).repos[0].errors.join("\n"), /\[unknown\] unknown error/);
+
+    for (const scenario of ["gh-fail", "gh-invalid"] as const) {
+      process.env.PM_OPS_FAKE_SCENARIO = scenario;
+      const ghUnavailable = await runCmd<ScanResult>(ext, "ops scan", { repos: [fixtureRepo] });
+      assert.strictEqual(ghUnavailable.repos[0].open_prs, scenario === "gh-fail" ? null : 1);
+      const policy = await runCmd<PolicyResult>(ext, "ops policy", { repos: [fixtureRepo] });
+      assert.strictEqual(policy.repos[0].checks.find(({ id }) => id === "private-no-runners")?.pass, true);
+    }
+
+    process.env.PM_OPS_FAKE_SCENARIO = "up-to-date";
+    const publicPolicy = await runCmd<PolicyResult>(ext, "ops policy", { repos: [fixtureRepo] });
+    assert.strictEqual(publicPolicy.repos[0].checks.find(({ id }) => id === "private-no-runners")?.pass, true);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "gh-lists-invalid";
+    const invalidLists = await runCmd<ScanResult>(ext, "ops scan", { repos: [fixtureRepo] });
+    assert.strictEqual(invalidLists.repos[0].open_prs, null);
+    assert.strictEqual(invalidLists.repos[0].open_issues, null);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "audit-missing";
+    const unknown = await runCmd<RenderedResult>(ext, "ops audit", { repos: [fixtureRepo], format: "markdown" });
+    assert.strictEqual(unknown.pmOpsRendered, true);
+    const unavailable = await runCmd<ScanResult>(ext, "ops scan", { repos: [fixtureRepo] });
+    assert.match(unavailable.repos[0].errors.join("\n"), /audit unavailable/);
+    const unnamedUnknownAudit = await runCmd<AuditResult>(ext, "ops audit", { repos: [unnamed] });
+    assert.strictEqual(unnamedUnknownAudit.repos[0].name, null);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "outdated-error";
+    const unnamedFailedOutdated = await runCmd<RenderedResult>(ext, "ops outdated", { repos: [unnamed], format: "markdown" });
+    assert.match(unnamedFailedOutdated.output, /## pm-online-unnamed/);
+
+    if (process.platform !== "win32") {
+      const brokenBin = join(tmpRoot, "bin-broken-npm");
+      mkdirSync(brokenBin, { recursive: true });
+      writeFileSync(join(brokenBin, "npm"), "#!/definitely/missing/interpreter\n");
+      chmodSync(join(brokenBin, "npm"), 0o755);
+      process.env.PATH = brokenBin;
+      const spawnFailure = await runCmd<OutdatedResult>(ext, "ops outdated", { repos: [fixtureRepo] });
+      assert.match(spawnFailure.repos[0].error ?? "", /ENOENT/);
+      assert.strictEqual((await runCmd<OutdatedResult>(ext, "ops outdated", { repos: [unnamed] })).repos[0].name, null);
+      const auditSpawnFailure = await runCmd<AuditResult>(ext, "ops audit", { repos: [fixtureRepo] });
+      assert.strictEqual(auditSpawnFailure.repos[0].total, null);
+      assert.strictEqual((await runCmd<AuditResult>(ext, "ops audit", { repos: [unnamed] })).repos[0].name, null);
+      const scanSpawnFailure = await runCmd<ScanResult>(ext, "ops scan", { repos: [fixtureRepo] });
+      assert.match(scanSpawnFailure.repos[0].errors.join("\n"), /npm audit failed:.*ENOENT/);
+      await assert.rejects(runCmd(ext, "ops verify-release", { repos: [fixtureRepo] }), /failed/);
+    }
+  } finally {
+    if (previousOffline === undefined) delete process.env.PM_OPS_OFFLINE;
+    else process.env.PM_OPS_OFFLINE = previousOffline;
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousScenario === undefined) delete process.env.PM_OPS_FAKE_SCENARIO;
+    else process.env.PM_OPS_FAKE_SCENARIO = previousScenario;
+    await ext.deactivate();
+  }
+});
+
 // ---------------------------------------------------------------------------
 // ops metrics
 // ---------------------------------------------------------------------------
@@ -1311,9 +1903,12 @@ test("ops metrics emits Prometheus exposition for the fixture pm workspace", asy
   for (const family of ["pm_items", "pm_active_items_by_type", "pm_stale_items", "pm_throughput_items", "pm_workspace_available", "pm_repos_scanned", "pm_scrape_duration_seconds"]) {
     assert.strictEqual((body.match(new RegExp(`^# TYPE ${family} `, "gm")) ?? []).length, 1, `${family} should declare TYPE once`);
   }
-  // The fixture has exactly one active Task.
-  assert.match(body, /pm_items\{repo="pm-fixture",status="open"\} 1/);
-  assert.match(body, /pm_active_items_by_type\{repo="pm-fixture",type="task"\} 1/);
+  // The fixture has two active Tasks: one current and one deliberately stale.
+  assert.match(body, /pm_items\{repo="pm-fixture",status="open"\} 2/);
+  assert.match(body, /pm_active_items_by_type\{repo="pm-fixture",type="task"\} 2/);
+  assert.match(body, /pm_stale_items\{repo="pm-fixture"\} 1/);
+  assert.match(body, /pm_throughput_items\{repo="pm-fixture",window="7d"\} 1/);
+  assert.match(body, /pm_cycle_time_seconds\{repo="pm-fixture",quantile="0\.5"\}/);
   assert.match(body, /pm_workspace_available\{repo="pm-fixture"\} 1/);
   assert.match(body, /^pm_repos_scanned 1$/m);
   // Sample lines must be valid exposition format (no NaN, well-formed labels).
@@ -1331,9 +1926,28 @@ test("ops metrics --json exposes the structured routing contract", async () => {
   assert.deepStrictEqual(payload.repos.map((r) => r.path), [fixtureRepo]);
   assert.strictEqual(payload.repos[0].available, true);
   assert.strictEqual(payload.repos[0].repo, "pm-fixture");
-  assert.strictEqual(payload.repos[0].status_counts.open, 1);
+  assert.strictEqual(payload.repos[0].status_counts.open, 2);
   assert.strictEqual(payload.repos_scanned, 1);
   assert.strictEqual(typeof payload.generated_at, "string");
+  await ext.deactivate();
+});
+
+test("ops metrics writes Prometheus and structured reports", async () => {
+  const ext = await harness();
+  const prometheusFile = join(tmpRoot, "reports", "pm.prom");
+  const prometheus = await runCmd<WrittenResult>(ext, "ops metrics", { repos: [fixtureRepo], output: prometheusFile, staleDays: "7" });
+  assert.strictEqual(prometheus.format, "prometheus");
+  assert.match(readFileSync(prometheusFile, "utf8"), /pm_repos_scanned 1/);
+
+  const jsonFile = join(tmpRoot, "reports", "metrics.json");
+  const json = await runCmd<WrittenResult>(ext, "ops metrics", { repos: [fixtureRepo], format: "json", output: jsonFile, "stale-days": "invalid" });
+  assert.strictEqual(json.format, "json");
+  assert.strictEqual(parseJson<{ repos_scanned: number }>(readFileSync(jsonFile, "utf8")).repos_scanned, 1);
+
+  const toonFile = join(tmpRoot, "reports", "metrics.toon");
+  const toon = await runCmd<WrittenResult>(ext, "ops metrics", { repos: [fixtureRepo], format: "toon", output: toonFile });
+  assert.strictEqual(toon.format, "toon");
+  assert.ok(readFileSync(toonFile, "utf8").length > 0);
   await ext.deactivate();
 });
 
@@ -1344,7 +1958,174 @@ test("ops metrics marks a missing workspace unavailable without failing", async 
   assert.deepStrictEqual(payload.repos.map((r) => r.path), [resolve(missingRepo)]);
   assert.strictEqual(payload.repos[0].available, false);
   assert.strictEqual(payload.repos_scanned, 0);
+  const prometheus = await runCmd<RenderedResult>(ext, "ops metrics", { repos: [missingRepo] });
+  assert.match(prometheus.output, /pm_workspace_available\{repo="pm-metrics-missing"\} 0/);
+
+  const nongit = join(tmpRoot, "pm-metrics-nongit");
+  mkdirSync(nongit, { recursive: true });
+  const pmCommand = process.platform === "win32" ? "pm.cmd" : "pm";
+  const initialized = spawnSync(pmCommand, ["init", "metrics nongit", "--pm-path", join(nongit, ".agents", "pm")], { cwd: nongit, encoding: "utf8" });
+  assert.strictEqual(initialized.status, 0, initialized.stderr);
+  rmSync(join(nongit, ".git"), { recursive: true, force: true });
+  const nongitMetrics = await runCmd<RenderedResult>(ext, "ops metrics", { repos: [nongit] });
+  assert.match(nongitMetrics.output, /pm_workspace_available\{repo="pm-metrics-nongit"\} 1/);
+  assert.match(nongitMetrics.output, /pm_merge_driver_installed\{repo="pm-metrics-nongit"\} 0/);
   await ext.deactivate();
+});
+
+test("ops metrics rejects a stale pm list envelope instead of treating it as item data", async () => {
+  const ext = await harness();
+  const bin = join(tmpRoot, "bin-stale-pm-envelope");
+  mkdirSync(bin, { recursive: true });
+  if (process.platform === "win32") {
+    writeFileSync(join(bin, "pm.cmd"), "@echo off\necho {\"results\":[]}\n");
+  } else {
+    writeFileSync(join(bin, "pm"), "#!/usr/bin/env sh\nprintf '{\"results\":[]}\\n'\n");
+    chmodSync(join(bin, "pm"), 0o755);
+  }
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  try {
+    const payload = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
+    assert.strictEqual(payload.repos[0].available, false);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    await ext.deactivate();
+  }
+});
+
+test("pm workspace readers use the installed host CLI when PATH has no pm executable", async () => {
+  const ext = await harness();
+  const emptyBin = join(tmpRoot, "bin-without-pm");
+  mkdirSync(emptyBin, { recursive: true });
+  const previousPath = process.env.PATH;
+  process.env.PATH = emptyBin;
+  try {
+    const payload = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
+    assert.strictEqual(payload.repos[0].available, true);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    await ext.deactivate();
+  }
+});
+
+test("pm workspace readers expose a present but non-executable PATH override", { skip: process.platform === "win32" }, async () => {
+  const ext = await harness();
+  const bin = join(tmpRoot, "bin-non-executable-pm");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "pm"), "#!/usr/bin/env sh\nexit 0\n", { mode: 0o644 });
+  const previousPath = process.env.PATH;
+  process.env.PATH = bin;
+  try {
+    const payload = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
+    assert.strictEqual(payload.repos[0].available, false);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    await ext.deactivate();
+  }
+});
+
+test("pm workspace readers fail closed on malformed CLI contracts and preserve sparse item semantics", async () => {
+  const ext = await harness();
+  const bin = join(tmpRoot, "bin-pm-contracts");
+  mkdirSync(bin, { recursive: true });
+  const richItems = JSON.stringify({ items: [
+    { id: "canceled", title: "Canceled", status: "cancelled", type: "Task", priority: 4 },
+    { id: "unknown", title: "Unknown", status: "", updated_at: "not-a-date", created_at: "not-a-date" },
+    { id: "closed", title: "Closed", status: "closed", closed_at: "not-a-date" },
+    { id: "draft", title: "Draft", status: "draft", type: "Idea" },
+    { id: "missing-status", title: "Missing status" },
+  ] });
+  const duplicateItems = JSON.stringify({ items: [
+    { id: "one", title: "Repeated title", status: "open" },
+    { id: "two", title: "Repeated title", status: "open" },
+    { id: "blank", status: "open" },
+  ] });
+  const singleLifecycleItem = JSON.stringify({ items: [
+    { id: "one-cycle", title: "One cycle", status: "closed", type: "Task", created_at: "2026-08-01T00:00:00.000Z", closed_at: "2026-08-02T00:00:00.000Z" },
+  ] });
+  if (process.platform === "win32") {
+    writeFileSync(join(bin, "pm.cmd"), `@echo off
+if "%PM_OPS_FAKE_SCENARIO%"=="pm-status-fail" exit /b 1
+if "%PM_OPS_FAKE_SCENARIO%"=="pm-invalid" (echo not-json & exit /b 0)
+if "%PM_OPS_FAKE_SCENARIO%"=="pm-scalar" (echo {"items":"invalid"} & exit /b 0)
+if "%PM_OPS_FAKE_SCENARIO%"=="pm-stale" (echo {"results":[]} & exit /b 0)
+if "%PM_OPS_FAKE_SCENARIO%"=="pm-duplicates" (echo ${duplicateItems} & exit /b 0)
+if "%PM_OPS_FAKE_SCENARIO%"=="pm-blocked-invalid" (if "%~1"=="list-blocked" (echo not-json & exit /b 0) else (echo ${richItems} & exit /b 0))
+if "%PM_OPS_FAKE_SCENARIO%"=="pm-single" (echo ${singleLifecycleItem} & exit /b 0)
+echo ${richItems}
+`);
+  } else {
+    writeFileSync(join(bin, "pm"), `#!/usr/bin/env sh
+case "$PM_OPS_FAKE_SCENARIO" in
+  pm-status-fail) exit 1 ;;
+  pm-invalid) printf 'not-json\\n' ;;
+  pm-scalar) printf '%s\\n' '{"items":"invalid"}' ;;
+  pm-stale) printf '%s\\n' '{"results":[]}' ;;
+  pm-duplicates) printf '%s\\n' '${duplicateItems}' ;;
+  pm-blocked-invalid) if [ "$1" = list-blocked ]; then printf 'not-json\\n'; else printf '%s\\n' '${richItems}'; fi ;;
+  pm-single) printf '%s\\n' '${singleLifecycleItem}' ;;
+  *) printf '%s\\n' '${richItems}' ;;
+esac
+`);
+    chmodSync(join(bin, "pm"), 0o755);
+  }
+  const previousPath = process.env.PATH;
+  const previousScenario = process.env.PM_OPS_FAKE_SCENARIO;
+  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  try {
+    for (const scenario of ["pm-status-fail", "pm-invalid", "pm-scalar"] as const) {
+      process.env.PM_OPS_FAKE_SCENARIO = scenario;
+      const payload = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
+      assert.strictEqual(payload.repos[0].available, false, `${scenario} must fail closed`);
+    }
+
+    process.env.PM_OPS_FAKE_SCENARIO = "pm-invalid";
+    const scan = await runCmd<RenderedResult>(ext, "ops scan", { repos: [fixtureRepo], format: "markdown" });
+    assert.match(scan.output, /\? \|/);
+    const status = await runCmd<RenderedResult>(ext, "ops status", { repos: [fixtureRepo], format: "markdown" });
+    assert.match(status.output, /\? \|/);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "pm-stale";
+    const stale = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
+    assert.strictEqual(stale.repos[0].available, false);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "pm-duplicates";
+    const policy = await runCmd<PolicyResult>(ext, "ops policy", { repos: [fixtureRepo] });
+    const duplicateCheck = policy.repos[0].checks.find(({ id }) => id === "pm-duplicate-titles");
+    assert.strictEqual(duplicateCheck?.pass, false);
+    assert.deepStrictEqual(duplicateCheck?.details, ["Repeated title (2)"]);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "pm-rich";
+    const metrics = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
+    assert.strictEqual(metrics.repos[0].status_counts.canceled, 1);
+    assert.strictEqual(metrics.repos[0].status_counts.unknown, 2);
+    assert.strictEqual(metrics.repos[0].status_counts.closed, 1);
+    const richScan = await runCmd<ScanResult>(ext, "ops scan", { repos: [fixtureRepo] });
+    assert.strictEqual(richScan.repos[0].pm_workspace, true);
+    const richStatus = await runCmd<StatusResult>(ext, "ops status", { repos: [fixtureRepo] });
+    assert.strictEqual(richStatus.repos[0].name, "pm-fixture");
+    const richPolicy = await runCmd<PolicyResult>(ext, "ops policy", { repos: [fixtureRepo] });
+    assert.strictEqual(richPolicy.repos[0].checks.find(({ id }) => id === "pm-duplicate-titles")?.pass, true);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "pm-blocked-invalid";
+    const unknownBlocked = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
+    assert.strictEqual(unknownBlocked.repos[0].available, true);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "pm-single";
+    const single = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
+    assert.strictEqual(single.repos[0].cycle_time_p50_seconds, 86_400);
+    assert.strictEqual(single.repos[0].cycle_time_p90_seconds, 86_400);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousScenario === undefined) delete process.env.PM_OPS_FAKE_SCENARIO;
+    else process.env.PM_OPS_FAKE_SCENARIO = previousScenario;
+    await ext.deactivate();
+  }
 });
 
 test("ops metrics disambiguates repo labels when package names collide", async () => {
@@ -1388,9 +2169,11 @@ test("disambiguateRepoLabels never generates a label that collides with an untou
   const dup = [
     { repo: "x", path: "/r/x" },
     { repo: "x", path: "/r/x" },
+    { repo: "x", path: "/r/x" },
   ] as unknown as Parameters<typeof disambiguateRepoLabels>[0];
   disambiguateRepoLabels(dup);
-  assert.notStrictEqual(dup[0].repo, dup[1].repo, "identical-path duplicates are still distinct series");
+  assert.strictEqual(new Set(dup.map(({ repo }) => repo)).size, 3, "identical-path duplicates are still distinct series");
+  assert.ok(dup.some(({ repo }) => repo.endsWith("#2")), "a numeric suffix resolves the final collision");
 });
 
 // ---------------------------------------------------------------------------
@@ -1443,7 +2226,7 @@ test("ops merge-receipts --warn-only returns the pending receipt and exits 0", a
   await ext.deactivate();
 });
 
-test("ops merge-receipts --format markdown renders the normalized #771 path and never the quoted raw value", async () => {
+test("ops merge-receipts --format markdown renders the current SDK receipt path", async () => {
   const ext = await harness();
   const result = await runCmd<RenderedResult>(ext, "ops merge-receipts", { repos: [conflictingMergeLab.path], "warn-only": true, format: "markdown" });
   assert.ok(result?.pmOpsRendered === true, "markdown result should be a rendered marker");
@@ -1453,10 +2236,29 @@ test("ops merge-receipts --format markdown renders the normalized #771 path and 
   // The summary line bolds counts with `**N**` markdown, so match the bolded form.
   assert.match(result.output, /Scanned \*\*1\*\* repo\(s\): \*\*1\*\* pending receipt\(s\)/);
   assert.match(result.output, new RegExp(`\\| ${conflictingMergeLab.itemId} \\|`), "the item_id column should appear");
-  assert.match(result.output, new RegExp(`\\| ${escapedPath} \\|`), "the normalized item_path should appear in the table");
+  assert.match(result.output, new RegExp(`\\| ${escapedPath} \\|`), "the SDK item_path should appear in the table");
   assert.match(result.output, /Agent B description/, "the retained decision value is rendered for review");
   // The raw quoted path from #771 must never reach a committed-history-safe report.
   assert.doesNotMatch(result.output, /'\.agents\/pm\/tasks\//, "the quoted raw item_path must not appear in markdown");
+  await ext.deactivate();
+});
+
+test("ops merge-receipts renders sparse and structured decision values without losing the receipt", async () => {
+  const lab = buildMergeReceiptLab(tmpRoot, "pm-merge-decision-rendering", true);
+  const receiptDirectory = join(lab.path, ".git", "pm-merge-receipts");
+  const receiptPath = join(receiptDirectory, readdirSync(receiptDirectory).find((file) => file.endsWith(".json"))!);
+  const receipt = parseJson<Record<string, unknown>>(readFileSync(receiptPath, "utf8"));
+  receipt.decisions = [{ field: "metadata", base: null, ours: null, theirs: { source: "peer" }, discarded: { source: "peer" } }];
+  writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+
+  const ext = await harness();
+  const sparse = await runCmd<RenderedResult>(ext, "ops merge-receipts", { repos: [lab.path], warnOnly: true, format: "markdown" });
+  assert.match(sparse.output, /\| metadata \| - \| \{"source":"peer"\} \|/);
+
+  receipt.decisions = [];
+  writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  const empty = await runCmd<RenderedResult>(ext, "ops merge-receipts", { repos: [lab.path], warnOnly: true, format: "markdown" });
+  assert.match(empty.output, /\| - \| - \| - \|/);
   await ext.deactivate();
 });
 
@@ -1485,6 +2287,25 @@ test("ops merge-receipts fails the gate when the clone-local merge driver is mis
     /merge-receipts: 1 missing driver\(s\)/,
     "a missing clone-local driver must fail the gate (unbraind/pm-cli#770)",
   );
+  const metrics = await runCmd<RenderedResult>(ext, "ops metrics", { repos: [driverMissingLab.path] });
+  assert.match(metrics.output, /pm_merge_driver_installed\{repo="pm-merge-no-driver"\} 0/);
+  await ext.deactivate();
+});
+
+test("ops merge-receipts emits failing markdown and file reports before throwing", async () => {
+  const ext = await harness();
+  await assert.rejects(
+    runCmd(ext, "ops merge-receipts", { repos: [conflictingMergeLab.path], format: "markdown" }),
+    /pending receipt/,
+  );
+  const outFile = join(tmpRoot, "failed-merge-receipts.md");
+  await assert.rejects(
+    runCmd(ext, "ops merge-receipts", { repos: [fenceMissingLab.path], format: "markdown", output: outFile }),
+    /missing fence/,
+  );
+  assert.match(readFileSync(outFile, "utf8"), /missing/);
+  const metrics = await runCmd<RenderedResult>(ext, "ops metrics", { repos: [fenceMissingLab.path] });
+  assert.match(metrics.output, /pm_merge_fence_installed\{repo="pm-merge-no-fence"\} 0/);
   await ext.deactivate();
 });
 
@@ -1657,6 +2478,15 @@ test("ops merge-receipts does not count a repo without a pm tracker as a missing
   assert.strictEqual(result.summary.missing_driver, 0, "a repo with no pm workspace has no driver obligation either");
   assert.strictEqual(result.repos[0].fence, null, "fence must be null (not-applicable), not a not_installed verdict");
   assert.strictEqual(result.repos[0].driver, null, "driver must be null (not-applicable) for a repo with no tracker");
+  const markdown = await runCmd<RenderedResult>(ext, "ops merge-receipts", { repos: [bare], format: "markdown" });
+  assert.match(markdown.output, /\| pm-no-tracker \| yes \| - \| - \|/);
+
+  const missing = join(tmpRoot, "pm-merge-unavailable");
+  const unavailable = await runCmd<RenderedResult>(ext, "ops merge-receipts", { repos: [missing], format: "markdown" });
+  assert.match(unavailable.output, /\| pm-merge-unavailable \| no \| - \| - \|/);
+  const metrics = await runCmd<RenderedResult>(ext, "ops metrics", { repos: [bare] });
+  assert.match(metrics.output, /pm_merge_driver_installed\{repo="pm-no-tracker"\} 0/);
+  assert.match(metrics.output, /pm_merge_fence_installed\{repo="pm-no-tracker"\} 0/);
 });
 
 test("ops merge-receipts discovers a tracker rooted at .pm, not just .agents/pm", async () => {

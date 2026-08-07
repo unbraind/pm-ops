@@ -2,12 +2,13 @@ id: ops-q6ki
 title: Raise pm-ops enforced source coverage to 100/100/100/100
 description: "The current fail-closed coverage gate is real but ratcheted only to 94% lines, 78% branches, and 95% functions; the verified full gate reports 94.32/78.45/95.04. Production readiness requires complete statement, branch, function, and line coverage without ignore directives, generated fixtures, or tests that merely execute code without asserting behavior."
 type: Feature
-status: open
+status: closed
 priority: 1
 tags: []
 created_at: "2026-07-31T10:20:09.627Z"
-updated_at: "2026-07-31T10:20:09.627Z"
-assignee: "harness:codex"
+updated_at: "2026-08-07T15:40:18.897Z"
+closed_at: "2026-08-07T14:46:33.567Z"
+completed_at: "2026-08-07T14:46:33.567Z"
 author: "harness:codex"
 estimated_minutes: 720
 acceptance_criteria: "Coverage configuration enforces 100% statements, branches, functions, and lines; All source reaches 100/100/100/100 through meaningful unit, integration, installed-CLI, and failure-path assertions; Negative controls prove each threshold cannot be bypassed by missing reports, omitted source files, ignore comments, or changed reporter output"
@@ -18,8 +19,21 @@ outcome: "The coverage gate fails below 100% for statements, branches, functions
 why_now: "The fleet-wide mandate is 100/100/100/100, while the current verified gate is materially below it and must not be represented as complete."
 risk: high
 confidence: medium
-files[1]{path,scope,note}:
+resolution: "Replaced the three-metric gate with c8 four-metric enforcement, included executable scripts in source discovery, converted the remaining JavaScript hook to TypeScript, and added behavior-driven positive and negative controls."
+expected_result: "Every executable source file is presence-checked and meets independently enforced 100% statement, branch, function, and line coverage."
+actual_result: "Five executable TypeScript files are reported at 100/100/100/100 across 162 tests, with no coverage ignores and fail-closed negative controls."
+notes[6]{created_at,author,text}:
+  "2026-08-07T13:40:50.697Z","harness:codex","2026-08-07 characterization on clean main 9f755d1 with Node v22.19.0: npm ci reported zero vulnerabilities; npm run coverage passed 121 tests with 2 opt-in real-data skips and measured only index.ts/docstrings.ts at 94.53% lines, 78.68% branches, and 95.44% functions. The current gate exposes only Node's three metrics and asserts that line coverage equals statement coverage; it also excludes scripts/ from the source walk. The implementation tranche must add an independently reported statements threshold, retain fail-closed all-source presence checks, cover real behavioral/error paths, and prove negative controls before this item can close."
+  "2026-08-07T14:46:33.183Z","harness:codex","2026-08-07 completion evidence: the fail-closed gate now measures index.ts,docstrings.ts,coverage-gate.ts,docstring-gate.ts,and prepare-merge-driver.ts. The suite runs 162 tests (160 pass and 2 explicitly opt-in real-fleet skips) and c8 reports exact 100% statements,branches,functions,and lines for every required source. Behavioral negative controls prove missing config,invalid source declarations,absent or incomplete lcov,non-zero or unlaunchable runners,all four independent thresholds,and executable ignore entries fail closed."
+  "2026-08-07T15:07:02.779Z","harness:codex","Exact-head PR #39 CI exposed a Node 22-only uncovered branch because inherited npm_config_allow_scripts was absent on that runner, while local and Node 26 environments supplied it. Added a deterministic behavioral sentinel proving verify-release removes inherited npm configuration, merged daily-release main v2026.08.07, regenerated CHANGELOG.md as Unreleased, and reran release:check: 162 tests, 160 pass, 2 opt-in skips, 0 fail, exact 100/100/100/100."
+  "2026-08-07T15:28:26.621Z","harness:codex",PR #39 exact-head review fix
+  "2026-08-07T15:28:36.518Z","harness:codex","Greptile exact-head fix: restored cached PATH-first pm resolution with installed @unbrained/pm-cli fallback only for ENOENT; present-but-broken overrides remain visible. Added installed-CLI, direct missing-PATH, and non-executable-PATH acceptance coverage. Exact gate passes 162 tests plus 2 opt-in skips at 100/100/100/100."
+  "2026-08-07T15:40:18.897Z","harness:codex","CodeRabbit review tranche: audited all 19 inline threads via thread-level GraphQL. Implemented every current finding, including per-file exact c8 thresholds, fail-closed manifest/tsconfig diagnostics, consistent npx launchers, host-independent PATH parsing, execution PATH propagation, prepare-hook exit status preservation, unknown-error normalization, stable default repo labels, sparse release-error reporting, isolated lcov fixtures, per-fixture diagnostics, Windows guards, and stronger threshold/exit assertions. Coverage now runs 166 tests: 164 pass, 2 opt-in skips, exact 100/100/100/100."
+files[3]{path,scope,note}:
   scripts/coverage-gate.ts,project,Fail-closed four-metric coverage enforcement
+  test/coverage-gate.test.ts,project,Coverage gate positive and negative controls
+  scripts/prepare-merge-driver.ts,project,Typed cross-platform install hook
 tests[1]{command,path,scope,timeout_seconds}:
   npm run coverage,package.json,project,600
+close_reason: Exact all-source coverage and anti-bypass acceptance criteria are verified.
 body: ""

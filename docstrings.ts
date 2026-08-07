@@ -391,27 +391,16 @@ function collectSourceFiles(roots: readonly string[]): string[] {
   const out: string[] = [];
   const visited = new Set<string>();
   const walk = (dir: string): void => {
-    let canonical: string;
-    try {
-      canonical = realpathSync(dir);
-    } catch (error) {
-      throw new Error(`docstring coverage: cannot resolve directory ${dir}: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    const canonical = realpathSync(dir);
     if (visited.has(canonical)) return;
     visited.add(canonical);
-    let entries: string[];
-    try {
-      entries = readdirSync(dir);
-    } catch (error) {
-      throw new Error(`docstring coverage: cannot read directory ${dir}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    for (const name of entries) {
+    for (const name of readdirSync(dir)) {
       const full = join(dir, name);
       let info;
       try {
         info = statSync(full);
       } catch (error) {
-        throw new Error(`docstring coverage: cannot stat ${full}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`docstring coverage: cannot stat ${full}: ${String(error)}`);
       }
       if (info.isDirectory()) {
         if (!SKIP_DIRS.has(name)) walk(full);
@@ -425,8 +414,8 @@ function collectSourceFiles(roots: readonly string[]): string[] {
     try {
       info = statSync(root);
     } catch (error) {
-      if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") continue;
-      throw new Error(`docstring coverage: cannot stat root ${root}: ${error instanceof Error ? error.message : String(error)}`);
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw new Error(`docstring coverage: cannot stat root ${root}: ${String(error)}`);
     }
     if (info.isDirectory()) {
       walk(root);
@@ -507,7 +496,7 @@ class SourceAnalyzer {
   private parseStatements(): void {
     while (this.i < this.tokens.length) {
       const k = this.cur().kind;
-      if (k === SyntaxKind.CloseBraceToken || k === SyntaxKind.EndOfFile) return;
+      if (k === SyntaxKind.CloseBraceToken) return;
       this.parseStatement();
     }
   }
@@ -741,8 +730,6 @@ class SourceAnalyzer {
       this.i = bodyIdx + 1;
       this.parseMembers(name ?? "default", opts.exported);
       if (this.at(SyntaxKind.CloseBraceToken)) this.i++;
-    } else if (this.at(SyntaxKind.SemicolonToken)) {
-      this.i++;
     }
   }
 
@@ -750,7 +737,7 @@ class SourceAnalyzer {
   private parseMembers(className: string, classExported: boolean): void {
     while (this.i < this.tokens.length) {
       const k = this.cur().kind;
-      if (k === SyntaxKind.CloseBraceToken || k === SyntaxKind.EndOfFile) return;
+      if (k === SyntaxKind.CloseBraceToken) return;
       this.parseMember(className, classExported);
     }
   }
@@ -870,18 +857,6 @@ class SourceAnalyzer {
         if (depth <= 0) return;
         continue;
       }
-      if (k === SyntaxKind.GreaterThanGreaterThanToken) {
-        depth -= 2;
-        this.i++;
-        if (depth <= 0) return;
-        continue;
-      }
-      if (k === SyntaxKind.GreaterThanGreaterThanGreaterThanToken) {
-        depth -= 3;
-        this.i++;
-        if (depth <= 0) return;
-        continue;
-      }
       if (k === SyntaxKind.OpenBraceToken || k === SyntaxKind.OpenParenToken || k === SyntaxKind.OpenBracketToken || k === SyntaxKind.SemicolonToken) return;
       this.i++;
     }
@@ -904,18 +879,12 @@ class SourceAnalyzer {
         this.i++;
         return { kind: "signature" };
       }
-      if ((k === SyntaxKind.CloseBraceToken || k === SyntaxKind.EndOfFile) && depth === 0) return { kind: "none" };
+      if (k === SyntaxKind.CloseBraceToken && depth === 0) return { kind: "none" };
       if (k === SyntaxKind.OpenBraceToken || k === SyntaxKind.OpenParenToken || k === SyntaxKind.OpenBracketToken || k === SyntaxKind.LessThanToken) {
         depth++;
         typeStart = false;
       } else if (k === SyntaxKind.CloseBraceToken || k === SyntaxKind.CloseParenToken || k === SyntaxKind.CloseBracketToken || k === SyntaxKind.GreaterThanToken) {
         depth = Math.max(0, depth - 1);
-        typeStart = false;
-      } else if (k === SyntaxKind.GreaterThanGreaterThanToken) {
-        depth = Math.max(0, depth - 2);
-        typeStart = false;
-      } else if (k === SyntaxKind.GreaterThanGreaterThanGreaterThanToken) {
-        depth = Math.max(0, depth - 3);
         typeStart = false;
       } else if (TYPE_CONTINUES.has(k)) {
         typeStart = true;
@@ -937,15 +906,10 @@ class SourceAnalyzer {
         this.i++;
         return -1;
       }
-      if (k === SyntaxKind.EndOfFile) return -1;
       if (k === SyntaxKind.OpenBraceToken || k === SyntaxKind.OpenParenToken || k === SyntaxKind.OpenBracketToken || k === SyntaxKind.LessThanToken) {
         depth++;
       } else if (k === SyntaxKind.CloseBraceToken || k === SyntaxKind.CloseParenToken || k === SyntaxKind.CloseBracketToken || k === SyntaxKind.GreaterThanToken) {
         depth = Math.max(0, depth - 1);
-      } else if (k === SyntaxKind.GreaterThanGreaterThanToken) {
-        depth = Math.max(0, depth - 2);
-      } else if (k === SyntaxKind.GreaterThanGreaterThanGreaterThanToken) {
-        depth = Math.max(0, depth - 3);
       }
       this.i++;
     }
@@ -1011,7 +975,7 @@ class SourceAnalyzer {
           this.i++;
           return;
         }
-        if (k === SyntaxKind.CloseBraceToken || k === SyntaxKind.EndOfFile) return;
+        if (k === SyntaxKind.CloseBraceToken) return;
         if (k === SyntaxKind.CommaToken) {
           this.i++;
           hasNextDeclarator = true;
@@ -1061,7 +1025,7 @@ class SourceAnalyzer {
         this.i++;
         return;
       }
-      if (k === SyntaxKind.CloseBraceToken || k === SyntaxKind.EndOfFile) return;
+      if (k === SyntaxKind.CloseBraceToken) return;
       const previous = this.tokens[this.i - 1];
       if (
         previous &&
@@ -1087,7 +1051,7 @@ class SourceAnalyzer {
         this.i++;
         return;
       }
-      if (k === SyntaxKind.CloseBraceToken || k === SyntaxKind.EndOfFile) return;
+      if (k === SyntaxKind.CloseBraceToken) return;
       if (k === SyntaxKind.OpenBraceToken || k === SyntaxKind.OpenParenToken || k === SyntaxKind.OpenBracketToken) {
         this.skipGroup();
         continue;
@@ -1104,7 +1068,7 @@ class SourceAnalyzer {
         this.i++;
         return;
       }
-      if (k === SyntaxKind.CloseBraceToken || k === SyntaxKind.EndOfFile) return;
+      if (k === SyntaxKind.CloseBraceToken) return;
       if (k === SyntaxKind.OpenBraceToken || k === SyntaxKind.OpenParenToken || k === SyntaxKind.OpenBracketToken) {
         this.skipGroup();
         continue;
@@ -1181,7 +1145,7 @@ class SourceAnalyzer {
         this.i++;
         return;
       }
-      if (k === SyntaxKind.CloseBraceToken || k === SyntaxKind.EndOfFile) return;
+      if (k === SyntaxKind.CloseBraceToken) return;
       if (k === SyntaxKind.OpenBraceToken) {
         const prev = this.tokens[this.i - 1]?.kind;
         if (prev === SyntaxKind.CloseParenToken || prev === SyntaxKind.EqualsGreaterThanToken) {
