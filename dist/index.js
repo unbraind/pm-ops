@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { devNull, homedir } from "node:os";
-import { resolve, basename, dirname, join, relative } from "node:path";
+import { resolve, basename, dirname, isAbsolute, join, parse, relative, win32 } from "node:path";
 import { encode } from "@toon-format/toon";
 import { listMergeReceipts, auditMergeDriverConfiguration, auditMergeAttributeFence, findGitWorkspaceRoot, } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage } from "./docstrings.js";
@@ -24,7 +24,7 @@ class CommandError extends Error {
     }
 }
 function renderedCommandResult(output) {
-    return { pmOpsRendered: true, output: output.endsWith("\n") ? output : `${output}\n` };
+    return { pmOpsRendered: true, output };
 }
 /** Determine whether an unknown command result carries valid pre-rendered pm-ops output. */
 function isRenderedCommandResult(value) {
@@ -35,8 +35,12 @@ function isRenderedCommandResult(value) {
         "output" in value &&
         typeof value.output === "string");
 }
+/** Unwrap output after the host-owned discriminator accepted the marker. */
 function renderCommandResult(context) {
-    return isRenderedCommandResult(context.result) ? context.result.output : null;
+    // The host invokes this renderer only after the registered discriminator has
+    // accepted the same result. Keeping that ownership check in one place avoids
+    // a second, unreachable rejection path inside the renderer itself.
+    return context.result.output;
 }
 // ---------------------------------------------------------------------------
 // Option helpers
@@ -182,15 +186,11 @@ function globSegmentToRegex(segment) {
 /** Expand a glob pattern against the filesystem into a sorted list of paths. */
 function expandSimpleGlob(pattern) {
     const expanded = expandHome(pattern);
-    const absolute = /^[A-Za-z]:[\\/]/.test(expanded) ? expanded : resolve(expanded);
+    const absolute = isAbsolute(expanded) || win32.isAbsolute(expanded) ? expanded : resolve(expanded);
     if (!hasGlob(absolute))
         return [absolute];
-    const driveRoot = /^[A-Za-z]:[\\/]/.exec(absolute)?.[0];
-    const root = absolute.startsWith("/") ? "/" : driveRoot ? driveRoot.slice(0, 3) : process.cwd();
-    let segments = absolute.split(/[\\/]+/).filter(Boolean);
-    if (driveRoot && segments[0]?.toLowerCase() === driveRoot.slice(0, 2).toLowerCase()) {
-        segments = segments.slice(1);
-    }
+    const root = isAbsolute(absolute) ? parse(absolute).root : win32.parse(absolute).root;
+    const segments = absolute.slice(root.length).split(/[\\/]+/).filter(Boolean);
     let candidates = [root];
     for (const segment of segments) {
         const next = [];
@@ -225,7 +225,7 @@ function resolveRepos(options, args = []) {
 function resolveFormat(options, global) {
     // `--json` is a host-owned global flag: extensions must not redeclare it
     // (the host rejects the registration) and must read it from ctx.global.
-    if (global?.json === true)
+    if (global.json === true)
         return "json";
     const raw = readString(options, "format")?.toLowerCase();
     if (raw === "json" || raw === "markdown" || raw === "toon")
@@ -283,20 +283,9 @@ function runSync(cmd, args, opts = {}) {
     });
     return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error: r.error };
 }
-let pmInvocationCache = null;
-/** Resolve and cache the pm command, falling back to this process when pm is absent. */
+/** Resolve the platform-specific pm executable used for workspace reads. */
 function resolvePmInvocation() {
-    if (pmInvocationCache)
-        return pmInvocationCache;
-    const command = process.platform === "win32" ? "pm.cmd" : "pm";
-    const probe = spawnSync(command, ["--version"], { encoding: "utf-8", timeout: 5_000 });
-    if (!probe.error && probe.status === 0) {
-        pmInvocationCache = { cmd: "pm", args: [] };
-        return pmInvocationCache;
-    }
-    const script = process.argv[1];
-    pmInvocationCache = script ? { cmd: process.execPath, args: [script] } : { cmd: "pm", args: [] };
-    return pmInvocationCache;
+    return { cmd: process.platform === "win32" ? "pm.cmd" : "pm", args: [] };
 }
 /** Parse JSON, returning undefined on any syntax error instead of throwing. */
 function parseJsonSafe(text) {
@@ -437,21 +426,17 @@ const pmBlockedCache = new Map();
 const PM_READ_CACHES = [pmItemsCache, pmAllItemsCache, pmBlockedCache];
 /**
  * Narrow the `pm <subcommand> --json` payload to its item array without an `any`
- * cast. The CLI returns either a bare array or an envelope object (`{ items: [...] }`
- * / `{ results: [...] }`); both shapes are accepted, everything else falls back to
- * an empty array so a malformed envelope never reaches the item filter.
+ * cast. The current CLI returns an envelope object (`{ items: [...] }`);
+ * everything else falls back to an empty array so a malformed or stale
+ * contract never reaches the item filter.
  */
 function extractPmListBody(parsed) {
-    if (Array.isArray(parsed))
-        return parsed;
     if (parsed && typeof parsed === "object") {
         const obj = parsed;
         if (Array.isArray(obj.items))
             return obj.items;
-        if (Array.isArray(obj.results))
-            return obj.results;
     }
-    return [];
+    return null;
 }
 /**
  * Read pm items for a repo via one `pm <subcommand> --json` invocation, extract
@@ -479,7 +464,7 @@ function readPmItemList(repoPath, subcommand, cache) {
     if (!parsed)
         return set(null);
     const items = extractPmListBody(parsed);
-    if (!Array.isArray(items))
+    if (!items)
         return set(null);
     return set(items.filter((it) => Boolean(it) && typeof it === "object" && typeof it.id === "string"));
 }
@@ -543,21 +528,8 @@ function readAudit(repoPath) {
 }
 const AUDIT_UNAVAILABLE_PREFIX = "audit unavailable:";
 /** Reduce an unknown thrown value to a single human-readable diagnostic string. */
-function describeUnknownError(error) {
-    if (error instanceof Error)
-        return error.message;
-    if (typeof error === "string")
-        return error;
-    if (error && typeof error === "object") {
-        const value = error;
-        const code = typeof value.code === "string" ? `[${value.code}] ` : "";
-        const message = typeof value.summary === "string" ? value.summary : typeof value.message === "string" ? value.message : "unknown error object";
-        return `${code}${message}`;
-    }
-    return String(error);
-}
 function auditUnavailable(error) {
-    return `${AUDIT_UNAVAILABLE_PREFIX} ${describeUnknownError(error)}`;
+    return `${AUDIT_UNAVAILABLE_PREFIX} ${error.message}`;
 }
 function passesAuditGate(critical, diagnostics) {
     return isOffline() || (critical === 0 && !diagnostics.some((entry) => entry.startsWith(AUDIT_UNAVAILABLE_PREFIX)));
@@ -625,13 +597,7 @@ function scanRepo(repoPath) {
     const pm_workspace = items !== null;
     const pm_open_items = items ? items.filter((i) => (i.status ?? "").toLowerCase() === "open").length : null;
     const pm_inprogress_items = items ? items.filter((i) => (i.status ?? "").toLowerCase() === "in_progress").length : null;
-    let outdated_count = null;
-    try {
-        outdated_count = countOutdated(repoPath);
-    }
-    catch (err) {
-        errors.push(`outdated: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    const outdated_count = countOutdated(repoPath);
     let audit_critical = null;
     let audit_high = null;
     try {
@@ -693,7 +659,7 @@ const NAME_PATTERN = /^pm-[a-z][a-z0-9-]*$/;
 const FORBIDDEN_PREFIXES = ["pm-ext-", "pm-preset-"];
 const GITHUB_HOSTED_RUNNER_PATTERN = /^(?:github-hosted|macos-[A-Za-z0-9._-]+|windows-[A-Za-z0-9._-]+|ubuntu-[A-Za-z0-9._-]+)$/;
 function leadingSpaces(value) {
-    return value.match(/^\s*/)?.[0].length ?? 0;
+    return value.length - value.trimStart().length;
 }
 /** Strip comments, quotes, and trailing commas from a YAML scalar value. */
 function normalizeYamlScalar(value) {
@@ -798,7 +764,7 @@ function checkPrivateNoRunners(repoPath) {
                 content = readFileSync(join(wfDir, file), "utf-8");
             }
             catch (err) {
-                violations.push(`${file}: unable to read workflow (${err instanceof Error ? err.message : String(err)})`);
+                violations.push(`${file}: unable to read workflow (${String(err)})`);
                 continue;
             }
             const lines = content.split("\n");
@@ -954,7 +920,7 @@ function summarizeNpmError(stdout, stderr, args) {
 }
 /** Execute one npm release step in a repo and time its pass or failure. */
 function runReleaseCheck(repoPath, name, args, progress) {
-    progress(`verify ${relative(process.cwd(), repoPath) || repoPath}: ${name}`);
+    progress(`verify ${relative(process.cwd(), repoPath)}: ${name}`);
     const start = Date.now();
     const r = runSync("npm", args, {
         cwd: repoPath,
@@ -1065,11 +1031,7 @@ async function collectStatus(repoPath) {
     const has_pm_changelog = hasPmChangelogDep(pkg);
     if (!has_pm_changelog)
         issues.push("pm-changelog not wired");
-    let outdated_count = null;
-    try {
-        outdated_count = countOutdated(repoPath);
-    }
-    catch { /* ignore */ }
+    const outdated_count = countOutdated(repoPath);
     let audit_critical = null;
     let audit_high = null;
     try {
@@ -1160,12 +1122,13 @@ function collectOutdatedRepo(repoPath) {
     if (parsed && typeof parsed === "object") {
         for (const [name, info] of Object.entries(parsed)) {
             if (info && typeof info === "object") {
+                const fields = info;
                 entries.push({
                     name,
-                    current: String(info.current ?? "-"),
-                    wanted: String(info.wanted ?? "-"),
-                    latest: String(info.latest ?? "-"),
-                    type: String(info.type ?? "-"),
+                    current: String(fields.current ?? "-"),
+                    wanted: String(fields.wanted ?? "-"),
+                    latest: String(fields.latest ?? "-"),
+                    type: String(fields.type ?? "-"),
                 });
             }
         }
@@ -1193,7 +1156,7 @@ function renderOutdatedMarkdown(result) {
         if (repo.count === null) {
             lines.push(`## ${repo.name ?? basename(repo.path)}`);
             lines.push("");
-            lines.push(repo.error ? `Unable to check outdated dependencies: ${repo.error}` : "Unable to check outdated dependencies.");
+            lines.push(`Unable to check outdated dependencies: ${repo.error}`);
             lines.push("");
             continue;
         }
@@ -1288,23 +1251,6 @@ function renderAuditMarkdown(result) {
  * `drift` on every healthy `pm init` + `pm merge install` clone. */
 const MERGE_FENCE_EXCLUDED_DIRS = new Set(["schema", "history", "runtime", "locks", "extensions", "search"]);
 /**
- * Strip one matched layer of surrounding single or double quotes from a merge
- * receipt `item_path`. Upstream pm-cli records the Git `%P` placeholder value
- * verbatim, and Git passes item paths wrapped in literal `'` quotes (see
- * unbraind/pm-cli#771), so the raw receipt value is `'.agents/pm/tasks/x.toon'`
- * rather than `.agents/pm/tasks/x.toon`. The normalization is intentionally a
- * single layer (not a loop) so a path genuinely containing a leading/trailing
- * quote character is not over-stripped; the raw value is always preserved
- * alongside the normalized one so nothing is hidden. Removable once #771 lands.
- */
-function normalizeItemPath(raw) {
-    const len = raw.length;
-    if (len >= 2 && ((raw[0] === "'" && raw[len - 1] === "'") || (raw[0] === '"' && raw[len - 1] === '"'))) {
-        return raw.slice(1, -1);
-    }
-    return raw;
-}
-/**
  * Enumerate the tracker item-type folders under a pm root so the merge-fence
  * audit compares the committed `.gitattributes` block against the types the
  * workspace actually uses. Type folders are the directories that hold item
@@ -1312,8 +1258,6 @@ function normalizeItemPath(raw) {
  * infrastructure rather than item types and are excluded.
  */
 function discoverTypeFolders(pmRoot) {
-    if (!existsSync(pmRoot))
-        return [];
     return readdirSync(pmRoot, { withFileTypes: true })
         .filter((entry) => entry.isDirectory() && !MERGE_FENCE_EXCLUDED_DIRS.has(entry.name))
         .map((entry) => entry.name)
@@ -1321,14 +1265,13 @@ function discoverTypeFolders(pmRoot) {
 }
 /**
  * Project a clone-local {@link MergeDecisionReceipt} into the fleet report view,
- * normalizing the quoted `item_path` (unbraind/pm-cli#771) while preserving the
- * raw value so the unmodified Git record is never hidden.
+ * preserving the current SDK path as both the display and raw audit value.
  */
 function toReceiptView(receipt) {
     return {
         id: receipt.id,
         item_id: receipt.item_id,
-        item_path: normalizeItemPath(receipt.item_path),
+        item_path: receipt.item_path,
         item_path_raw: receipt.item_path,
         state: receipt.state,
         preferred: receipt.preferred,
@@ -1445,7 +1388,7 @@ function describeDecisionValue(value) {
 /**
  * Render the merge-receipt report as a GitHub-flavoured markdown document: a
  * fleet summary table, a per-repo driver/fence status line, and one row per
- * receipt with its state, item id, normalized path, preferred side, and the
+ * receipt with its state, item id, repository-relative path, preferred side, and the
  * retained/discarded values for every scalar conflict decision.
  */
 function renderMergeReceiptsMarkdown(result) {
@@ -1524,7 +1467,7 @@ function renderScanMarkdown(result) {
     lines.push(renderMarkdownRow(["repo", "version", "strict", "changelog", "release", "ci", "pm-changelog", "open items", "outdated", "critical", "high", "prs", "issues", "ready", "diagnostics"]));
     lines.push(renderMarkdownRow(["---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---", "---"]));
     for (const r of result.repos) {
-        const openItems = r.pm_open_items === null ? "?" : `${r.pm_open_items}/${r.pm_inprogress_items ?? 0}`;
+        const openItems = r.pm_open_items === null ? "?" : `${r.pm_open_items}/${r.pm_inprogress_items}`;
         lines.push(renderMarkdownRow([
             r.name ?? basename(r.path),
             r.version ?? "-",
@@ -1773,11 +1716,11 @@ export function disambiguateRepoLabels(repoMetrics) {
     // re-emitting duplicate Prometheus series.
     const used = new Set();
     for (const r of repoMetrics) {
-        if ((labelCounts.get(r.repo) ?? 0) <= 1)
+        if (labelCounts.get(r.repo) <= 1)
             used.add(r.repo);
     }
     for (const r of repoMetrics) {
-        if ((labelCounts.get(r.repo) ?? 0) <= 1)
+        if (labelCounts.get(r.repo) <= 1)
             continue;
         // Prefer the directory basename, then the full path; both are checked
         // against every already-claimed label (reserved originals + prior
@@ -1897,7 +1840,7 @@ const DOCSTRING_VIOLATIONS_PER_REPO = 50;
  */
 function collectDocstringsAll(repos, progress) {
     const repoResults = repos.map((repoPath) => {
-        progress(`docstrings ${relative(process.cwd(), repoPath) || repoPath}`);
+        progress(`docstrings ${relative(process.cwd(), repoPath)}`);
         try {
             const report = analyzeDocstringCoverage({ root: repoPath });
             return {
@@ -1917,7 +1860,7 @@ function collectDocstringsAll(repos, progress) {
                 declarations_checked: 0,
                 violation_count: 0,
                 violations: [],
-                error: err instanceof Error ? err.message : String(err),
+                error: err.message,
             };
         }
     });
@@ -2065,7 +2008,7 @@ export default defineExtension({
                     }
                     else if (format === "markdown") {
                         const md = renderPolicyMarkdown(result);
-                        process.stdout.write(md.endsWith("\n") ? md : `${md}\n`);
+                        process.stdout.write(md);
                     }
                     else {
                         process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -2107,7 +2050,7 @@ export default defineExtension({
                     // Log a concise summary of which repos failed and why
                     for (const repo of result.repos) {
                         if (repo.failed > 0) {
-                            const failedChecks = repo.checks.filter((c) => !c.pass).map((c) => `${c.name}: ${(c.error ?? "unknown").slice(0, 120)}`);
+                            const failedChecks = repo.checks.filter((c) => !c.pass).map((c) => `${c.name}: ${c.error.slice(0, 120)}`);
                             console.error(`  FAIL ${repo.name ?? basename(repo.path)}: ${failedChecks.join("; ")}`);
                         }
                     }
@@ -2131,7 +2074,7 @@ export default defineExtension({
                 if (format === "markdown") {
                     const md = renderVerifyReleaseMarkdown(result);
                     if (failed) {
-                        process.stdout.write(md.endsWith("\n") ? md : `${md}\n`);
+                        process.stdout.write(md);
                         throw new CommandError(`verify-release: ${result.summary.failed} repo(s) failed`, EXIT_CODE.GENERIC_FAILURE);
                     }
                     return renderedCommandResult(md);
@@ -2341,8 +2284,8 @@ export default defineExtension({
                 "For each repo reports the field-aware merge-driver configuration audit, the committed " +
                 ".gitattributes merge-fence audit, and every receipt the driver wrote under " +
                 ".git/pm-merge-receipts/ with its state, item_id, conflicting fields, and the retained/" +
-                "discarded values. Normalizes the quoted item_path (unbraind/pm-cli#771) while preserving " +
-                "the raw value. Exits non-zero when any receipt is still pending (a peer scalar edit was " +
+                "discarded values. Preserves the current pm SDK item_path as an auditable raw value. " +
+                "Exits non-zero when any receipt is still pending (a peer scalar edit was " +
                 "silently dropped and exists nowhere in committed history) or when the merge driver / fence " +
                 "is missing in a scanned repo — the gate pm validate cannot (unbraind/pm-cli#770). " +
                 "--warn-only reports identically but always exits 0.",
@@ -2391,7 +2334,7 @@ export default defineExtension({
                     }
                     else if (format === "markdown") {
                         const md = renderMergeReceiptsMarkdown(result);
-                        process.stdout.write(md.endsWith("\n") ? md : `${md}\n`);
+                        process.stdout.write(md);
                     }
                     else {
                         if (format === "toon") {

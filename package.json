@@ -45,7 +45,7 @@
     "release:check": "npm run check && npm run docstring && npm run coverage && npm run audit:prod && npm run pack:dry-run && npm run changelog:check",
     "prepublishOnly": "npm run release:check",
     "release:notes": "pm-changelog --pm-root .agents/pm --stdout --since-previous-tag --until-release-tag --release-version-from-package --item-url-base https://github.com/unbraind/pm-ops/blob/main/.agents/pm --respect-item-release --pm-bin ./node_modules/.bin/pm --github-step-summary",
-    "prepare": "node scripts/prepare-merge-driver.mjs",
+    "prepare": "node scripts/prepare-merge-driver.ts",
     "merge:install": "pm merge install",
     "coverage": "npm run build && npm run build:test && node scripts/coverage-gate.ts"
   },
@@ -58,8 +58,9 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
-    "@unbrained/pm-cli": "^2026.7.31",
-    "pm-changelog": "^2026.7.29-1"
+    "@unbrained/pm-cli": "^2026.8.7",
+    "c8": "^12.0.0",
+    "pm-changelog": "^2026.8.7"
   },
   "keywords": [
     "pm-cli",
@@ -118,9 +119,10 @@
       "test/*.test.ts"
     ],
     "thresholds": {
-      "lines": 94,
-      "branches": 78,
-      "functions": 95
+      "statements": 100,
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
     },
     "ignore": []
   }

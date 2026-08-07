@@ -645,6 +645,7 @@ test("analyzeDocstringCoverage traverses each canonical directory once across a 
 
 test("analyzeDocstringCoverage fails on a missing root just like an empty tree", () => {
   assert.throws(() => analyzeDocstringCoverage({ root: "/does/not/exist/docstrings-missing" }), /cannot pass vacuously/);
+  assert.throws(() => analyzeDocstringCoverage({ root: "\0invalid-root" }), /cannot stat root/);
 });
 
 // ===========================================================================
@@ -710,6 +711,136 @@ test("covers an anonymous default export declaration", () => {
   assert.equal(v.reason, "no docstring");
 });
 
+test("recognizes keyword-named members and every class-body boundary", () => {
+  assert.deepEqual(violationsOf([
+    `/** Public container for syntax-boundary examples. */`,
+    `export class SyntaxBoundaries {`,
+    `  ;`,
+    `  /** Keyword-named method retained for JavaScript interoperability. */`,
+    `  default(): void {}`,
+    `}`,
+    `class ForwardDeclaration;`,
+  ].join("\n")), []);
+
+  const malformed = analyzeSource([
+    `/** Public container whose malformed token must fail closed. */`,
+    `export class Malformed {`,
+    `  +`,
+    `  missing: string;`,
+    `}`,
+  ].join("\n"), "malformed-member.ts");
+  assert.deepEqual(malformed.violations.map(({ symbol }) => symbol), ["Malformed.missing"]);
+});
+
+test("recovers conservatively from incomplete declarations", () => {
+  const anonymousFunction = analyzeSource([
+    `function () {`,
+    `  const first = 1;`,
+    `  const second = 2;`,
+    `  const third = 3;`,
+    `  const fourth = 4;`,
+    `  const fifth = 5;`,
+    `}`,
+  ].join("\n"), "anonymous-function.ts");
+  assert.deepEqual(anonymousFunction.violations.map(({ symbol }) => symbol), ["(anonymous)"]);
+
+  const malformed = analyzeSource([
+    `export interface;`,
+    `export const = 1;`,
+    `export const { unfinished`,
+  ].join("\n"), "incomplete.ts");
+  assert.equal(malformed.declarations, 3);
+  assert.deepEqual(malformed.violations.map(({ symbol }) => symbol), [
+    "(anonymous)",
+    "=",
+    "{ unfinished",
+  ]);
+});
+
+test("handles deeply nested generic closers in declarations and return types", () => {
+  assert.deepEqual(violationsOf([
+    `/** Build a four-level generic return value for consumers. */`,
+    `export function four<T>(): A<B<C<D<T>>>> { return null as A<B<C<D<T>>>>; }`,
+    `/** Build a five-level generic return value for consumers. */`,
+    `export function five<T>(): A<B<C<D<E<T>>>>> { return null as A<B<C<D<E<T>>>>>; }`,
+    `/** Container with deeply nested generic type parameters. */`,
+    `export class Deep<T extends A<B<C<D<string>>>>> {}`,
+    `interface A<T> { value: T; }`,
+    `interface B<T> { value: T; }`,
+    `interface C<T> { value: T; }`,
+    `interface D<T> { value: T; }`,
+    `interface E<T> { value: T; }`,
+  ].join("\n")), []);
+});
+
+test("handles local async functions, abstract classes, and incomplete bodies", () => {
+  assert.deepEqual(violationsOf([
+    `async function localTask(): Promise<void> {}`,
+    `abstract class LocalBase {}`,
+    `function overload(value: string): void;`,
+    `function incomplete()`,
+    `class Incomplete`,
+  ].join("\n")), []);
+  assert.deepEqual(violationsOf(`class Incomplete`), []);
+});
+
+test("accepts generic variable annotations and keyword decorator segments", () => {
+  assert.deepEqual(violationsOf([
+    `@decorator.default class Local {}`,
+    `/** Generic value exposed with its declared type parameter. */`,
+    `export const value<T>: T;`,
+    `const template = \`first \${one} middle \${two} tail\`;`,
+  ].join("\n")), []);
+});
+
+test("parses generic interfaces, aliases, and private callables", () => {
+  assert.deepEqual(violationsOf([
+    `interface Local<T> { value: T; };`,
+    `type LocalAlias<T> = T;`,
+    `/** Generic alias exposing a wrapped consumer value. */`,
+    `export type PublicAlias<T> = { value: T };`,
+    `class PrivateGeneric { #method<T>(value: T): T { return value; } }`,
+  ].join("\n")), []);
+});
+
+test("malformed groups stop at structural boundaries without swallowing siblings", () => {
+  const result = analyzeSource([
+    `function *localGenerator() {}`,
+    `type BrokenGeneric<T;`,
+    `function outer() {`,
+    `  function missingBody() }`,
+    `function exportedBinding() {`,
+    `  export const value = 1`,
+    `}`,
+    `/** Public container retaining an unterminated field. */`,
+    `export class Boundary {`,
+    `  /** Field whose implicit end is the class boundary. */`,
+    `  value`,
+    `}`,
+    `switch (kind) { case choose(value) }`,
+    `function expressionBoundary() { expression }`,
+    `function declarationBoundary() { declare const value: number }`,
+  ].join("\n"), "structural-boundaries.ts");
+  assert.deepEqual(result.violations.map(({ symbol }) => symbol), ["value"]);
+});
+
+test("finds declarations in single-statement and grouped control-flow bodies", () => {
+  const body = Array.from({ length: INTERNAL_BODY_LINES + 2 }, (_, index) => `    const value${index} = ${index};`).join("\n");
+  const result = analyzeSource([
+    `function driver() {`,
+    `  if (ready) function nestedIf() { ${body} }`,
+    `  for await (const entry of stream) function nestedFor() { ${body} }`,
+    `  switch (kind) { case choose(value): function nestedCase() { ${body} } }`,
+    `}`,
+  ].join("\n"), "single-statements.ts");
+  assert.deepEqual(result.violations.map(({ symbol }) => symbol), [
+    "driver",
+    "nestedIf",
+    "nestedFor",
+    "nestedCase",
+  ]);
+});
+
 // ===========================================================================
 // Command wiring — pm ops docstrings via the real dispatch engine
 // ===========================================================================
@@ -722,6 +853,7 @@ let emptyRepo: string;
 before(() => {
   tmpRoot = mkdtempSync(join(tmpdir(), "pm-ops-docstrings-test-"));
   cleanRepo = mkdtempSync(join(tmpRoot, "clean"));
+  writeFileSync(join(cleanRepo, "package.json"), `${JSON.stringify({ name: "pm-docstrings-clean" })}\n`);
   writeFileSync(join(cleanRepo, "index.ts"), `/** Documented exported entry point for the suite. */\nexport function main() {}\n`);
   dirtyRepo = mkdtempSync(join(tmpRoot, "dirty"));
   writeFileSync(join(dirtyRepo, "index.ts"), `export function main() {}\n`);
@@ -804,6 +936,7 @@ test("pm ops docstrings writes format-correct structured reports before failing"
 test("pm ops docstrings reports a repo with no source as an error and fails", async () => {
   const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser"] });
   await assert.rejects(() => runCmd(ext, "ops docstrings", { repos: emptyRepo }), /repo\(s\) with violations/);
+  await assert.rejects(() => runCmd(ext, "ops docstrings", { repos: emptyRepo, format: "markdown" }), /repo\(s\) with violations/);
 });
 
 test("pm ops docstrings renders a clean repo as markdown and as a written file", async () => {

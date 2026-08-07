@@ -1,0 +1,37 @@
+id: ops-8wyb
+title: Adopt pm CLI 2026.8.7 merge fences and release tooling
+description: "Update pm-ops development tooling to @unbrained/pm-cli and pm-changelog 2026.8.7, install the latest merge-driver attribute fence including extension state, and validate npm/bun-compatible release gates without publishing."
+type: Feature
+status: closed
+priority: 1
+tags: []
+created_at: "2026-08-07T13:52:28.334Z"
+updated_at: "2026-08-07T14:54:46.431Z"
+closed_at: "2026-08-07T14:49:02.678Z"
+completed_at: "2026-08-07T14:49:02.678Z"
+author: "harness:codex"
+estimated_minutes: 120
+acceptance_criteria: "Development dependencies resolve to @unbrained/pm-cli 2026.8.7 and pm-changelog 2026.8.7 with zero audit findings; pm merge install commits the 2026.8.7 extension-state fence and pm validate remains clean; release checks, installed-CLI acceptance, npm pack, and bun invocation pass without publishing"
+definition_of_ready: Keep the historical privacy blocker ops-xhbt independent and do not publish; coordinate with the exact-coverage gate work rather than duplicating it.
+value: Keep fleet operations compatible with the authoritative current pm SDK and merge-safe multi-agent state.
+impact: Prevents extension registry conflicts and stale release tooling from undermining concurrent agent workflows.
+outcome: pm-ops installs and validates under pm CLI 2026.8.7 with the complete managed extension merge fence.
+why_now: The ecosystem compatibility audit found pm-ops pinned to 2026.7.x and missing the 2026.8.7 extension fence.
+risk: medium
+confidence: high
+resolution: "Upgraded the pm CLI and changelog development toolchain to 2026.8.7, installed the complete managed-extension fence, and validated release and fresh Bun installed-extension workflows without publishing."
+expected_result: "The package uses pm CLI and pm-changelog 2026.8.7, preserves all managed extension state in merges, and passes npm and Bun release acceptance."
+actual_result: "All release checks pass, pm validate reports the driver and fence healthy, and a fresh Bun project activates pm-ops and executes an ops scan through bunx."
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  ops-q6ki,related,"2026-08-07T13:52:57.344Z","harness:codex",manual,detected
+notes[2]{created_at,author,text}:
+  "2026-08-07T14:49:02.115Z","harness:codex","2026-08-07 verification: @unbrained/pm-cli and pm-changelog resolve at 2026.8.7; npm ci and npm audit report zero vulnerabilities; pm validate reports merge fence and driver configuration ok; npm run release:check passes exact coverage,docstrings,audit,pack,and changelog gates; a fresh isolated Bun project installed pm CLI 2026.8.7,installed this worktree as a project extension,reported activation_status ok/runtime_active true,and executed pm ops scan through bunx."
+  "2026-08-07T14:54:46.415Z","harness:codex","Additional package artifact acceptance: npm pack produced the intended 13-file tarball with no repository tooling or PM data,and fresh npm and Bun projects both installed the tarball and imported the pm-ops extension entrypoint successfully."
+files[2]{path,scope,note}:
+  package.json,project,2026.8.7 toolchain and coverage dependency versions
+  .gitattributes,project,Managed extension merge fence
+tests[2]{command,path,scope,timeout_seconds}:
+  bunx pm package doctor --project --json --detail deep,package.json,project,120
+  "npm run release:check",package.json,project,900
+close_reason: "pm CLI 2026.8.7 compatibility, merge fences, npm release gates, and fresh Bun acceptance are verified."
+body: ""

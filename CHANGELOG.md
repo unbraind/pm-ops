@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- Adopt pm CLI 2026.8.7 merge fences and release tooling ([ops-8wyb](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-8wyb.toon))
+- Raise pm-ops enforced source coverage to 100/100/100/100 ([ops-q6ki](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-q6ki.toon))
+
 ### Fixed
 
 - Gate durable PM project health in CI on pm CLI 2026.8.6 ([ops-54ed](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-54ed.toon))
