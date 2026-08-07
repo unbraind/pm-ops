@@ -1,11 +1,13 @@
 # Changelog
 
-## 2026.8.7 - 2026-08-07
+## Unreleased
 
 ### Added
 
 - Adopt pm CLI 2026.8.7 merge fences and release tooling ([ops-8wyb](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-8wyb.toon))
 - Raise pm-ops enforced source coverage to 100/100/100/100 ([ops-q6ki](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-q6ki.toon))
+
+## 2026.8.7 - 2026-08-07
 
 ### Fixed
 

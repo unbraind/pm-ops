@@ -1396,7 +1396,7 @@ test("ops verify-release runs the release gate matrix on the fixture", async () 
   await ext.deactivate();
 });
 
-test("ops verify-release strips NODE_TEST_CONTEXT from release gates", async () => {
+test("ops verify-release strips test and inherited npm configuration from release gates", async () => {
   const ext = await harness();
   const repo = join(tmpRoot, "pm-node-test-context");
   mkdirSync(repo, { recursive: true });
@@ -1404,11 +1404,13 @@ test("ops verify-release strips NODE_TEST_CONTEXT from release gates", async () 
     name: "pm-node-test-context",
     version: "2026.7.31",
     scripts: {
-      "release:check": "node -e \"if (process.env.NODE_TEST_CONTEXT) process.exit(9)\"",
+      "release:check": "node -e \"if (process.env.NODE_TEST_CONTEXT || Object.entries(process.env).some(([key, value]) => key.toLowerCase() === 'npm_config_allow_scripts' && value === 'pm-ops-inherited')) process.exit(9)\"",
     },
   }) + "\n");
   const originalContext = process.env.NODE_TEST_CONTEXT;
+  const originalAllowScripts = process.env.npm_config_allow_scripts;
   process.env.NODE_TEST_CONTEXT = "child-v8";
+  process.env.npm_config_allow_scripts = "pm-ops-inherited";
   try {
     const result = await runCmd<VerifyResult>(ext, "ops verify-release", { repos: [repo] });
     assert.strictEqual(result.repos[0].failed, 0);
@@ -1416,6 +1418,8 @@ test("ops verify-release strips NODE_TEST_CONTEXT from release gates", async () 
   } finally {
     if (originalContext === undefined) delete process.env.NODE_TEST_CONTEXT;
     else process.env.NODE_TEST_CONTEXT = originalContext;
+    if (originalAllowScripts === undefined) delete process.env.npm_config_allow_scripts;
+    else process.env.npm_config_allow_scripts = originalAllowScripts;
     await ext.deactivate();
   }
 });
