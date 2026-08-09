@@ -168,9 +168,23 @@ const FILLER = new Set<string>([
  * - `node_modules` / `dist` / `dist-test` / `coverage` are installed or built
  *   output, not authored source;
  * - `test` holds the gate's own fixtures, which intentionally lack docstrings;
- * - `.git` is version-control metadata.
+ * - `.git` is version-control metadata;
+ * - `.agents` holds the pm tracker, including extension artifacts installed
+ *   under `.agents/pm/extensions/`. Those are installed output like
+ *   `node_modules`, and they are gitignored, so scanning them makes the gate
+ *   depend on whether a developer happens to have extensions installed: the
+ *   same commit fails `release:check` locally and passes in a clean CI
+ *   checkout. A release gate must not disagree with itself across machines.
  */
-const SKIP_DIRS = new Set<string>(["node_modules", "dist", "dist-test", "coverage", "test", ".git"]);
+const SKIP_DIRS = new Set<string>([
+  "node_modules",
+  "dist",
+  "dist-test",
+  "coverage",
+  "test",
+  ".git",
+  ".agents",
+]);
 
 /**
  * Tokens after which a `/` is a regex rather than division, per the heuristic

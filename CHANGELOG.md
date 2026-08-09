@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- The docstring gate scanned installed extension artifacts, so it disagreed with itself across machines ([ops-x8fk](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-x8fk.toon))
+
 ## 2026.8.8 - 2026-08-08
 
 ### Added
