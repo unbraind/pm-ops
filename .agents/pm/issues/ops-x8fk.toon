@@ -1,0 +1,17 @@
+id: ops-x8fk
+title: "The docstring gate scanned installed extension artifacts, so it disagreed with itself across machines"
+description: "analyzeDocstringCoverage walked the package root without skipping .agents, so it descended into .agents/pm/extensions/ where the pm CLI installs extension artifacts. Those files are gitignored installed output, so the same commit could fail release:check on a developer machine that had an extension installed and pass in a clean CI checkout. Added .agents to the structural skip list, alongside node_modules and dist, with a regression test that fails when the entry is removed."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-09T13:35:02.048Z"
+updated_at: "2026-08-09T13:35:02.438Z"
+closed_at: "2026-08-09T13:35:02.428Z"
+completed_at: "2026-08-09T13:35:02.428Z"
+author: claude
+resolution: fixed
+expected_result: The docstring gate reports the same result for a given commit whether or not extensions are installed locally.
+actual_result: Extension artifacts under .agents are skipped; a regression test covers it and fails when .agents is removed from SKIP_DIRS. 164 tests pass.
+close_reason: Added .agents to SKIP_DIRS as a structural exclusion so installed extension artifacts are never scanned.
+body: ""

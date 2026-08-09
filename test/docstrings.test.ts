@@ -478,6 +478,15 @@ test("walks a tree, skipping test/, dist/, and .d.ts files", () => {
     writeFileSync(join(root, "dist", "built.js"), `export function built() {}\n`);
     // Skipped: ambient declarations.
     writeFileSync(join(root, "types.d.ts"), `declare function ambient(): void;\n`);
+    // Skipped: the pm tracker, including extension artifacts installed under
+    // .agents/pm/extensions/. Those are gitignored installed output, so scanning
+    // them would make the gate pass in a clean CI checkout and fail on a
+    // developer machine that happens to have the extension installed.
+    mkdirSync(join(root, ".agents", "pm", "extensions", "pm-thing"), { recursive: true });
+    writeFileSync(
+      join(root, ".agents", "pm", "extensions", "pm-thing", "index.ts"),
+      `export function installedArtifact() {}\n`,
+    );
     const report = analyzeDocstringCoverage({ root });
     assert.equal(report.files_scanned, 2);
     assert.equal(report.violations.length, 0);
