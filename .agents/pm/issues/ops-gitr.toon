@@ -1,0 +1,13 @@
+id: ops-gitr
+title: Fix release publish-before-protected-main-push ordering
+description: "The daily release workflow published to npm before pushing the version bump to protected main. The push was rejected with GH006 and set -e killed the job before the tag push, leaving npm ahead of git. Port the pm-beads fix: merge release metadata through a protected PR before publishing, then push only the tag."
+type: Issue
+status: open
+priority: 2
+tags: []
+created_at: "2026-08-10T15:02:19.464Z"
+updated_at: "2026-08-10T15:02:37.405Z"
+author: pi-agent
+notes[1]{created_at,author,text}:
+  "2026-08-10T15:02:37.405Z",pi-agent,"Ported the pm-beads release.yml transformation: added pull-requests:write permission, base_sha decide output, Check release ref step, Merge release metadata through protected PR step with merge-loop, Verify merged release step, and replaced Publish+Push-tag-and-main with Publish+Push-tag-only. dist/ is tracked in pm-ops so it is included in the verify diff list. The old Publish npm package and Push release tag and main steps were replaced with the four-step protected-PR flow."
+body: ""
