@@ -317,10 +317,24 @@ function buildFixture(root: string): string {
   if (pmCreate.status !== 0) {
     throw new Error(`pm create failed: ${pmCreate.stderr}`);
   }
+  // Fixture ages are relative to the run, not hardcoded calendar dates.
+  //
+  // These items exist to place one closed item inside the 7-day throughput
+  // window and one outside the 30-day window, so both sides of both
+  // comparisons in the metrics collector are exercised. A literal date cannot
+  // hold that shape: "2026-08-03" sat inside the 7-day window when it was
+  // written and silently left it on 2026-08-10, at which point no fixture
+  // satisfied `now - closed <= 7d`, the true branch became unreachable, and
+  // the release failed on a 0.11% branch-coverage miss with no code change.
+  // The gate was right and the fixture had rotted.
+  //
+  // Expressing the ages as offsets keeps the property the test is asserting —
+  // "recently closed" and "closed long ago" — true on every future run.
+  const daysAgo = (days: number): string => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   const importedItems = [
-    { title: "Stale fixture task", type: "Task", status: "open", priority: 1, created_at: "2026-06-01T00:00:00.000Z", updated_at: "2026-06-02T00:00:00.000Z", tags: ["fixture", "stale"] },
-    { title: "Recently closed fixture", type: "Task", status: "closed", priority: 2, created_at: "2026-07-01T00:00:00.000Z", updated_at: "2026-08-03T00:00:00.000Z", closed_at: "2026-08-03T00:00:00.000Z", completed_at: "2026-08-03T00:00:00.000Z", close_reason: "Fixture completed" },
-    { title: "Older closed fixture", type: "Issue", status: "closed", priority: 3, created_at: "2026-05-01T00:00:00.000Z", updated_at: "2026-07-01T00:00:00.000Z", closed_at: "2026-07-01T00:00:00.000Z", completed_at: "2026-07-01T00:00:00.000Z", close_reason: "Fixture resolved" },
+    { title: "Stale fixture task", type: "Task", status: "open", priority: 1, created_at: daysAgo(70), updated_at: daysAgo(69), tags: ["fixture", "stale"] },
+    { title: "Recently closed fixture", type: "Task", status: "closed", priority: 2, created_at: daysAgo(40), updated_at: daysAgo(1), closed_at: daysAgo(1), completed_at: daysAgo(1), close_reason: "Fixture completed" },
+    { title: "Older closed fixture", type: "Issue", status: "closed", priority: 3, created_at: daysAgo(101), updated_at: daysAgo(40), closed_at: daysAgo(40), completed_at: daysAgo(40), close_reason: "Fixture resolved" },
   ];
   for (const item of importedItems) {
     const createArgs = ["create", "--stdin-json", "--status", item.status, "--json", "--pm-path", join(repo, ".agents", "pm")];
