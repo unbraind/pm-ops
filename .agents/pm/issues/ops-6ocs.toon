@@ -1,0 +1,16 @@
+id: ops-6ocs
+title: "The release published to npm and then failed to tag, because it pushes the version bump straight to a protected main"
+description: "The release job publishes first and then runs git push origin HEAD:main. Branch protection rejects that with GH006, and set -e stops the job before the tag push, so npm carries a version that git has no tag or manifest for."
+type: Issue
+status: open
+priority: 0
+tags[3]: branch-protection,fleet,release
+created_at: "2026-08-10T07:00:44.435Z"
+updated_at: "2026-08-10T07:01:14.922Z"
+author: claude
+notes[4]{created_at,author,text}:
+  "2026-08-10T07:01:13.628Z",claude,"Sequence observed on run 31363761113. The gate passed, npm publish succeeded and pm-ops 2026.8.10 became the latest tag on the registry, then the step named Push release tag and main failed with remote: error: GH006: Protected branch update failed for refs/heads/main and remote rejected HEAD to main protected branch hook declined. Because the step runs under set -euo pipefail the subsequent git push of the tag never executed, so no v2026.08.10 tag exists."
+  "2026-08-10T07:01:14.097Z",claude,"The failure mode is worse than a clean failure because it is partial. A red run that published nothing is recoverable by rerunning. This one left npm ahead of git, so a rerun would try to publish a version that already exists while main still declares 2026.8.8, and anything deriving a changelog or a release window from tags cannot see the release at all."
+  "2026-08-10T07:01:14.534Z",claude,"Measured across the fleet rather than assumed: sixteen of twenty one repositories run git push to main directly in release.yml while main has required status checks configured, so each will fail the same way on its next release that actually publishes. The five that already create a release pull request instead are pm-changelog, pm-context, pm-csv and pm-linear. This did not surface earlier because pm-ops last published 2026.8.8; the 2026-08-09 run correctly skipped for having no changes, so today was the first publish since protection was enabled."
+  "2026-08-10T07:01:14.922Z",claude,"pm-changelog already carries the correct pattern and its ordering is the important part: it creates a release branch and pull request, waits on mergeStateStatus for GitHub own merge decision, and publishes to npm only after that pull request merges. Publishing after the protected merge rather than before it makes a rejected push a no-op instead of a partial release."
+body: ""
