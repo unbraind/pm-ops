@@ -9,7 +9,8 @@
     "commands",
     "renderers",
     "schema",
-    "parser"
+    "parser",
+    "services"
   ],
   "pm": {
     "compatibility": "v2"

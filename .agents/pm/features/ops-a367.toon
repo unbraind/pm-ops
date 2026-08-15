@@ -1,0 +1,18 @@
+id: ops-a367
+title: Measure the fleet's coverage and docstring quality as audited assurance bounds via a pm-ops quality measurement provider
+description: ""
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-08-15T09:56:50.258Z"
+updated_at: "2026-08-15T10:46:12.963Z"
+assignee: pi-agent
+claim_principal: pi-agent
+author: pi-agent
+comments[1]{created_at,author,text}:
+  "2026-08-15T10:46:11.861Z",pi-agent,"Verification of the assurance measurement provider (all numbers from a real run on this repo, 2026-08-15):\n\n1) STALENESS REFUSAL (real files, no mocks): with coverage/lcov.info at mtime 1786790255 (2026-08-15T10:37:35Z) and a real edit to index.ts at mtime 1786790534 (10:42:14Z), every coverage key REFUSES with 'refusing a stale coverage report' naming index.ts and both timestamps. After regenerating the report via npm run coverage (lcov.info mtime 1786790734, now newer than every covered source), the same keys resolve. The unit test test/assurance.test.ts 'refuses a stale report after a real source edit' additionally proves edit -> refusal -> regenerate -> resolve on real temp files (values move 60% -> 66.67% because the report, not the edit, drives the numbers).\n\n2) FOUR MEASUREMENT KEYS vs INDEPENDENT TOOLS on the real repo: provider said coverage-percent lines=100 pop=5522, branches=100 pop=1570, functions=100 pop=188, statements=100 pop=5522; an independent awk over lcov.info computed 5522/5522, 1570/1570, 188/188, 5522/5522 (all 100%) and c8's own table printed 100/100/100/100. uncovered-files=[] pop=6 (6 lcov records, none deficient). docstring-percent=100 pop=104 and undocumented-symbols=[] pop=104 vs the docstring gate's own '6 file(s), 104 declaration(s) documented'. Populations match the tools' denominators exactly, not just the percentages.\n\n3) REGISTRATION vs REAL HOST: test 'the extension registers the provider through the real host activation engine' uses createExtensionTestHarness (pm's real registration validation + activation engine) with the manifest's declared capabilities, asserts activation.failed is empty, exactly one provider id pm-ops-quality with the four keys under registrations.assurance_providers, and invokes the host-cloned runtime_definition.resolve against a real temp workspace (returns 60 over population 5). No hand-rolled api double anywhere.\n\nAlso fixed while verifying: test/coverage-gate.test.ts frozen source lists needed assurance.ts; test/ops.test.ts merge-receipts expectations updated to the SDK 2026.8.13 stable_value_order contract (retained value is the lexicographically stable one); index.ts now reads requested_preference (new SDK key) via exported receiptPreferredSide mirroring the SDK summarizer chain. Coverage gate: 100/100/100/100, docstrings 104/104."
+tests[2]{command,scope}:
+  npm run coverage,project
+  npm run docstring,project
+body: ""

@@ -7,7 +7,7 @@ import type { RendererOverrideContext } from "@unbrained/pm-cli/sdk/authoring";
 import extension from "../index.ts";
 
 /** Manifest capabilities the harness must grant for registration to be permitted. */
-const CAPABILITIES = ["commands", "renderers", "schema", "parser"] as const;
+const CAPABILITIES = ["commands", "renderers", "schema", "parser", "services"] as const;
 
 /**
  * Command paths whose results pm-ops's renderer is meant to render.

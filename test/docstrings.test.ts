@@ -904,7 +904,7 @@ interface DocstringsCommandResult {
 }
 
 test("pm ops docstrings reports a clean repo with zero violations", async () => {
-  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser"] });
+  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser", "services"] });
   assert.deepEqual(ext.activation.failed, [], "activation must not fail (a host-flag collision would drop sibling commands)");
   const result = await runCmd<DocstringsCommandResult>(ext, "ops docstrings", { repos: cleanRepo });
   assert.equal(result.summary.total_violations, 0);
@@ -912,17 +912,17 @@ test("pm ops docstrings reports a clean repo with zero violations", async () => 
 });
 
 test("pm ops docstrings exits non-zero when a repo has violations", async () => {
-  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser"] });
+  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser", "services"] });
   await assert.rejects(() => runCmd(ext, "ops docstrings", { repos: dirtyRepo }), /repo\(s\) with violations/);
 });
 
 test("pm ops docstrings renders markdown and still fails on violations", async () => {
-  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser"] });
+  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser", "services"] });
   await assert.rejects(() => runCmd(ext, "ops docstrings", { repos: dirtyRepo, format: "markdown" }), /repo\(s\) with violations/);
 });
 
 test("pm ops docstrings writes the report to a file before failing", async () => {
-  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser"] });
+  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser", "services"] });
   const out = join(tmpRoot, "dirty-report.md");
   await assert.rejects(() => runCmd(ext, "ops docstrings", { repos: dirtyRepo, format: "markdown", output: out }), /repo\(s\) with violations/);
   const written = readFileSyncSafe(out);
@@ -930,7 +930,7 @@ test("pm ops docstrings writes the report to a file before failing", async () =>
 });
 
 test("pm ops docstrings writes format-correct structured reports before failing", async () => {
-  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser"] });
+  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser", "services"] });
   const toonOut = join(tmpRoot, "dirty-report.toon");
   await assert.rejects(() => runCmd(ext, "ops docstrings", { repos: dirtyRepo, format: "toon", output: toonOut }), /repo\(s\) with violations/);
   const toon = decode(readFileSync(toonOut, "utf8"));
@@ -943,13 +943,13 @@ test("pm ops docstrings writes format-correct structured reports before failing"
 });
 
 test("pm ops docstrings reports a repo with no source as an error and fails", async () => {
-  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser"] });
+  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser", "services"] });
   await assert.rejects(() => runCmd(ext, "ops docstrings", { repos: emptyRepo }), /repo\(s\) with violations/);
   await assert.rejects(() => runCmd(ext, "ops docstrings", { repos: emptyRepo, format: "markdown" }), /repo\(s\) with violations/);
 });
 
 test("pm ops docstrings renders a clean repo as markdown and as a written file", async () => {
-  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser"] });
+  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser", "services"] });
   const md = await runCmd<{ pmOpsRendered: true; output: string }>(ext, "ops docstrings", { repos: cleanRepo, format: "markdown" });
   assert.ok(md.output.includes("pm-ops docstrings"));
   const out = join(tmpRoot, "clean-report.md");
