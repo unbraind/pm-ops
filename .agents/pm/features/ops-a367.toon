@@ -2,17 +2,22 @@ id: ops-a367
 title: Measure the fleet's coverage and docstring quality as audited assurance bounds via a pm-ops quality measurement provider
 description: ""
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-08-15T09:56:50.258Z"
-updated_at: "2026-08-15T10:46:12.963Z"
-assignee: pi-agent
+updated_at: "2026-08-15T11:07:03.052Z"
+closed_at: "2026-08-15T11:06:54.746Z"
+completed_at: "2026-08-15T11:06:54.746Z"
 claim_principal: pi-agent
 author: pi-agent
+resolution: "Shipped the pm-ops-quality assurance measurement provider (four keys over lcov + canonical docstring analyzer, with a staleness refusal) registered through the services capability; carried the pm-cli 2026.8.13 peer-bump compatibility fixes."
+expected_result: Provider measures coverage-percent/uncovered-files/docstring-percent/undocumented-symbols matching independent tool numbers; refuses stale reports; registers through the real host; all gates green.
+actual_result: PR unbraind/pm-ops#45 open and green (test matrix + Greptile pass); coverage 100/100/100/100; docstrings 104/104; staleness refusal and real-host registration proven with real data.
 comments[1]{created_at,author,text}:
   "2026-08-15T10:46:11.861Z",pi-agent,"Verification of the assurance measurement provider (all numbers from a real run on this repo, 2026-08-15):\n\n1) STALENESS REFUSAL (real files, no mocks): with coverage/lcov.info at mtime 1786790255 (2026-08-15T10:37:35Z) and a real edit to index.ts at mtime 1786790534 (10:42:14Z), every coverage key REFUSES with 'refusing a stale coverage report' naming index.ts and both timestamps. After regenerating the report via npm run coverage (lcov.info mtime 1786790734, now newer than every covered source), the same keys resolve. The unit test test/assurance.test.ts 'refuses a stale report after a real source edit' additionally proves edit -> refusal -> regenerate -> resolve on real temp files (values move 60% -> 66.67% because the report, not the edit, drives the numbers).\n\n2) FOUR MEASUREMENT KEYS vs INDEPENDENT TOOLS on the real repo: provider said coverage-percent lines=100 pop=5522, branches=100 pop=1570, functions=100 pop=188, statements=100 pop=5522; an independent awk over lcov.info computed 5522/5522, 1570/1570, 188/188, 5522/5522 (all 100%) and c8's own table printed 100/100/100/100. uncovered-files=[] pop=6 (6 lcov records, none deficient). docstring-percent=100 pop=104 and undocumented-symbols=[] pop=104 vs the docstring gate's own '6 file(s), 104 declaration(s) documented'. Populations match the tools' denominators exactly, not just the percentages.\n\n3) REGISTRATION vs REAL HOST: test 'the extension registers the provider through the real host activation engine' uses createExtensionTestHarness (pm's real registration validation + activation engine) with the manifest's declared capabilities, asserts activation.failed is empty, exactly one provider id pm-ops-quality with the four keys under registrations.assurance_providers, and invokes the host-cloned runtime_definition.resolve against a real temp workspace (returns 60 over population 5). No hand-rolled api double anywhere.\n\nAlso fixed while verifying: test/coverage-gate.test.ts frozen source lists needed assurance.ts; test/ops.test.ts merge-receipts expectations updated to the SDK 2026.8.13 stable_value_order contract (retained value is the lexicographically stable one); index.ts now reads requested_preference (new SDK key) via exported receiptPreferredSide mirroring the SDK summarizer chain. Coverage gate: 100/100/100/100, docstrings 104/104."
 tests[2]{command,scope}:
   npm run coverage,project
   npm run docstring,project
+close_reason: "Provider shipped in PR unbraind/pm-ops#45 (commit 8512df0) with CI green (test matrix 22/26 pass, Greptile pass). Proofs recorded in the verification comment: (1) staleness refusal refuses on a real edit (lcov mtime 1786790255 vs index.ts 1786790534 -> refusal; regenerated report 1786790734 -> resolves) and is unit-tested edit->refuse->regenerate->resolve on real files; (2) all four measurement keys equal the independent tool numbers on the real repo report (100/100/100/100; populations 5522/1570/188/5522 lines/branches/functions/statements, 6 files, docstrings 104/104, uncovered-files and undocumented-symbols empty); (3) registration proven through createExtensionTestHarness (real activation engine) including a runtime_definition.resolve invocation; (4) renderer-ownership suite confirms no renderer/command collision. Gates: coverage 100/100/100/100, docstrings 100%, typecheck, audit:prod 0 vulnerabilities, pack dry-run, changelog check. No thresholds lowered."
 body: ""
