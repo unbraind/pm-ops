@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Measure the fleet's coverage and docstring quality as audited assurance bounds via a pm-ops quality measurement provider ([ops-a367](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-a367.toon))
+
 ## 2026.8.10 - 2026-08-10
 
 ### Fixed

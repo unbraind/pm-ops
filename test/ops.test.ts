@@ -10,7 +10,7 @@ import type { GlobalOptions } from "@unbrained/pm-cli/sdk";
 import { listMergeReceipts, markMergeReceiptReconciled } from "@unbrained/pm-cli/sdk/merge";
 import { decode, encode } from "@toon-format/toon";
 
-import extension, { disambiguateRepoLabels } from "../index.ts";
+import extension, { disambiguateRepoLabels, receiptPreferredSide } from "../index.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -426,8 +426,8 @@ function buildMergeReceiptLab(root: string, name: string, withConflict: boolean,
     assertOk(git(["commit", "-qm", "b"]), "git commit agent-b");
 
     const merge = git(["merge", "agent-a", "-m", "merge"]);
-    // The field-aware driver resolves the scalar conflict toward `preferred`
-    // (ours), records a pending receipt, and reports `ok: false` — so git marks
+    // The field-aware driver records a pending receipt for the scalar conflict
+    // (resolved by the stable-value-order contract) and reports `ok: false` — so git marks
     // the item path unmerged and exits 1. A different exit means the fixture no
     // longer reproduces the conflict the gate is built around.
     if (merge.status !== 1) {
@@ -2199,6 +2199,21 @@ test("disambiguateRepoLabels never generates a label that collides with an untou
 // under `.git/pm-merge-receipts/` and `pm ops merge-receipts` gates on it.
 // ---------------------------------------------------------------------------
 
+test("receiptPreferredSide folds the legacy preferred key and defaults to ours like the SDK summarizer", () => {
+  // Mirrors the exact chain the SDK's `summarizeMergeReceipt` applies when it
+  // builds committed-history summaries, so the fleet view and those summaries
+  // can never disagree about which side a merge requested.
+  assert.strictEqual(receiptPreferredSide({ requested_preference: "theirs" }), "theirs");
+  assert.strictEqual(receiptPreferredSide({ requested_preference: "ours" }), "ours");
+  // Legacy schema-v1 receipts carried only `preferred`; the reader folds it
+  // into `requested_preference`, and so does this projection.
+  assert.strictEqual(receiptPreferredSide({ preferred: "theirs" }), "theirs");
+  assert.strictEqual(receiptPreferredSide({ preferred: "ours" }), "ours");
+  // A receipt recording neither side defaults to "ours" — the same default
+  // the SDK reader applies when normalizing on-disk receipts.
+  assert.strictEqual(receiptPreferredSide({}), "ours");
+});
+
 test("ops merge-receipts fails the gate when a pending receipt exists (non-zero)", async () => {
   const ext = await harness();
   await assert.rejects(
@@ -2227,7 +2242,7 @@ test("ops merge-receipts --warn-only returns the pending receipt and exits 0", a
   const receipt = repo.receipts[0];
   assert.strictEqual(receipt.state, "pending");
   assert.strictEqual(receipt.item_id, conflictingMergeLab.itemId);
-  assert.strictEqual(receipt.preferred, "ours");
+  assert.strictEqual(receipt.preferred, "ours", "the requested preference the driver recorded for the merge");
   // #771 was fixed in pm-cli 2026.7.28: the raw item_path no longer carries
   // the extra single-quote layer Git used to wrap around %P paths.
   const expectedPath = `.agents/pm/tasks/${conflictingMergeLab.itemId}.toon`;
@@ -2235,8 +2250,15 @@ test("ops merge-receipts --warn-only returns the pending receipt and exits 0", a
   assert.strictEqual(receipt.item_path_raw, expectedPath, "item_path_raw matches the normalized path after the #771 fix");
   assert.strictEqual(receipt.decisions.length, 1);
   assert.strictEqual(receipt.decisions[0].field, "description");
-  assert.strictEqual(receipt.decisions[0].retained, "Agent B description", "ours=branch-b won the preferred-side scalar conflict");
-  assert.strictEqual(receipt.decisions[0].discarded, "Agent A description");
+  // Since pm-cli 2026.8.13 the item merge driver resolves scalar conflicts with
+  // the direction-independent `stable_value_order` contract: it retains the
+  // lexicographically first value regardless of the requested preference, so
+  // this merge of agent-a into agent-b retains "Agent A description" even
+  // though `requested_preference` is "ours" (agent-b). `preferred` in the view
+  // reports the requested side; the retained/discarded pair below reports the
+  // actual stable-order outcome.
+  assert.strictEqual(receipt.decisions[0].retained, "Agent A description", "the stable_value_order contract retained the lexicographically first scalar");
+  assert.strictEqual(receipt.decisions[0].discarded, "Agent B description");
   await ext.deactivate();
 });
 
@@ -2251,7 +2273,7 @@ test("ops merge-receipts --format markdown renders the current SDK receipt path"
   assert.match(result.output, /Scanned \*\*1\*\* repo\(s\): \*\*1\*\* pending receipt\(s\)/);
   assert.match(result.output, new RegExp(`\\| ${conflictingMergeLab.itemId} \\|`), "the item_id column should appear");
   assert.match(result.output, new RegExp(`\\| ${escapedPath} \\|`), "the SDK item_path should appear in the table");
-  assert.match(result.output, /Agent B description/, "the retained decision value is rendered for review");
+  assert.match(result.output, /Agent A description/, "the retained decision value is rendered for review");
   // The raw quoted path from #771 must never reach a committed-history-safe report.
   assert.doesNotMatch(result.output, /'\.agents\/pm\/tasks\//, "the quoted raw item_path must not appear in markdown");
   await ext.deactivate();

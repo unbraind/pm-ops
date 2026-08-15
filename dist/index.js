@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { encode } from "@toon-format/toon";
 import { listMergeReceipts, auditMergeDriverConfiguration, auditMergeAttributeFence, findGitWorkspaceRoot, } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage } from "./docstrings.js";
+import { qualityMeasurementProvider } from "./assurance.js";
 // ---------------------------------------------------------------------------
 // Error contract — mirror pm-cli SDK EXIT_CODE so the host treats thrown
 // CommandError as a clean non-zero exit instead of re-invoking the handler.
@@ -1279,8 +1280,13 @@ function renderAuditMarkdown(result) {
  * infrastructure directories `pm init` creates (extension-installed item
  * storage and the search index) that `pm merge install` deliberately does NOT
  * fence, so leaving them in would make the fence audit report perpetual
- * `drift` on every healthy `pm init` + `pm merge install` clone. */
-const MERGE_FENCE_EXCLUDED_DIRS = new Set(["schema", "history", "runtime", "locks", "extensions", "search"]);
+ * `drift` on every healthy `pm init` + `pm merge install` clone. `merge-receipts`
+ * is clone-local merge provenance the field-aware driver writes into the
+ * tracker after a conflicted merge; it is not an item type, and `pm merge
+ * install` does not fence it, so treating it as a type folder would flip a
+ * freshly-installed fence to `drift` the moment any real merge records a
+ * receipt. */
+const MERGE_FENCE_EXCLUDED_DIRS = new Set(["schema", "history", "runtime", "locks", "extensions", "search", "merge-receipts"]);
 /**
  * Enumerate the tracker item-type folders under a pm root so the merge-fence
  * audit compares the committed `.gitattributes` block against the types the
@@ -1295,6 +1301,19 @@ function discoverTypeFolders(pmRoot) {
         .sort();
 }
 /**
+ * Project a receipt's requested preference side for the fleet view.
+ *
+ * The SDK's receipt reader normalizes every receipt it returns to carry
+ * `requested_preference`, folding the legacy schema-v1 `preferred` key and
+ * defaulting to `"ours"` when a receipt records neither — the exact chain
+ * `summarizeMergeReceipt` applies for committed-history summaries. Centralizing
+ * it here keeps the fleet view's field consistent with those summaries and
+ * gives the legacy/default arms a directly testable home.
+ */
+export function receiptPreferredSide(receipt) {
+    return receipt.requested_preference ?? receipt.preferred ?? "ours";
+}
+/**
  * Project a clone-local {@link MergeDecisionReceipt} into the fleet report view,
  * preserving the current SDK path as both the display and raw audit value.
  */
@@ -1305,7 +1324,7 @@ function toReceiptView(receipt) {
         item_path: receipt.item_path,
         item_path_raw: receipt.item_path,
         state: receipt.state,
-        preferred: receipt.preferred,
+        preferred: receiptPreferredSide(receipt),
         fields_from_theirs: receipt.fields_from_theirs,
         union_fields: receipt.union_fields,
         decisions: receipt.decisions.map((d) => ({
@@ -1962,6 +1981,13 @@ export default defineExtension({
             api.registerRenderer("toon", renderCommandResult, rendererOwnership);
             api.registerRenderer("json", renderCommandResult, rendererOwnership);
         }
+        // Expose the fleet's pinned code-quality thresholds as audited assurance
+        // measurements so a bound can no longer move in an ordinary diff. The
+        // provider reads a local lcov report and the canonical docstring analyzer;
+        // it refuses a stale report, so weakening a coverage floor now requires the
+        // same `authorization_decision` as any other bound regression. See
+        // `./assurance.ts` for the key contract and the staleness refusal.
+        api.registerAssuranceMeasurementProvider(qualityMeasurementProvider);
         api.registerCommand({
             name: "ops scan",
             description: "Scan a set of pm repositories and produce a per-repo release-readiness snapshot " +

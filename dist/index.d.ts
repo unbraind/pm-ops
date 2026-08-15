@@ -1,4 +1,16 @@
 import type { ExtensionApi } from "@unbrained/pm-cli/sdk/authoring";
+import { type MergeDecisionReceipt } from "@unbrained/pm-cli/sdk/merge";
+/**
+ * Project a receipt's requested preference side for the fleet view.
+ *
+ * The SDK's receipt reader normalizes every receipt it returns to carry
+ * `requested_preference`, folding the legacy schema-v1 `preferred` key and
+ * defaulting to `"ours"` when a receipt records neither — the exact chain
+ * `summarizeMergeReceipt` applies for committed-history summaries. Centralizing
+ * it here keeps the fleet view's field consistent with those summaries and
+ * gives the legacy/default arms a directly testable home.
+ */
+export declare function receiptPreferredSide(receipt: Readonly<Pick<MergeDecisionReceipt, "requested_preference" | "preferred">>): "ours" | "theirs";
 interface RepoMetrics {
     path: string;
     repo: string;

@@ -20,6 +20,7 @@ import {
   type MergeFenceAuditResult,
 } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage, type DocstringViolation } from "./docstrings.ts";
+import { qualityMeasurementProvider } from "./assurance.ts";
 
 
 // ---------------------------------------------------------------------------
@@ -1554,8 +1555,13 @@ function renderAuditMarkdown(result: AuditResult): string {
  * infrastructure directories `pm init` creates (extension-installed item
  * storage and the search index) that `pm merge install` deliberately does NOT
  * fence, so leaving them in would make the fence audit report perpetual
- * `drift` on every healthy `pm init` + `pm merge install` clone. */
-const MERGE_FENCE_EXCLUDED_DIRS = new Set(["schema", "history", "runtime", "locks", "extensions", "search"]);
+ * `drift` on every healthy `pm init` + `pm merge install` clone. `merge-receipts`
+ * is clone-local merge provenance the field-aware driver writes into the
+ * tracker after a conflicted merge; it is not an item type, and `pm merge
+ * install` does not fence it, so treating it as a type folder would flip a
+ * freshly-installed fence to `drift` the moment any real merge records a
+ * receipt. */
+const MERGE_FENCE_EXCLUDED_DIRS = new Set(["schema", "history", "runtime", "locks", "extensions", "search", "merge-receipts"]);
 
 /**
  * Enumerate the tracker item-type folders under a pm root so the merge-fence
@@ -1599,7 +1605,13 @@ interface MergeReceiptView {
   item_path_raw: string;
   /** Whether a merge reconciliation history event consumed this receipt. */
   state: "pending" | "reconciled";
-  /** Side that won unresolvable scalar conflicts. */
+  /**
+   * Side the merge requested for unresolvable scalar conflicts (the SDK's
+   * `requested_preference`, folding the legacy `preferred` key). Under the
+   * SDK's `stable_value_order` contract the *retained* value is the
+   * direction-independent stable one, so this field reports the requested
+   * side while `decisions[].retained` reports what actually won.
+   */
   preferred: "ours" | "theirs";
   /** Fields selected cleanly from the other branch. */
   fields_from_theirs: string[];
@@ -1663,6 +1675,22 @@ interface MergeReceiptsResult {
 }
 
 /**
+ * Project a receipt's requested preference side for the fleet view.
+ *
+ * The SDK's receipt reader normalizes every receipt it returns to carry
+ * `requested_preference`, folding the legacy schema-v1 `preferred` key and
+ * defaulting to `"ours"` when a receipt records neither — the exact chain
+ * `summarizeMergeReceipt` applies for committed-history summaries. Centralizing
+ * it here keeps the fleet view's field consistent with those summaries and
+ * gives the legacy/default arms a directly testable home.
+ */
+export function receiptPreferredSide(
+  receipt: Readonly<Pick<MergeDecisionReceipt, "requested_preference" | "preferred">>,
+): "ours" | "theirs" {
+  return receipt.requested_preference ?? receipt.preferred ?? "ours";
+}
+
+/**
  * Project a clone-local {@link MergeDecisionReceipt} into the fleet report view,
  * preserving the current SDK path as both the display and raw audit value.
  */
@@ -1673,7 +1701,7 @@ function toReceiptView(receipt: MergeDecisionReceipt): MergeReceiptView {
     item_path: receipt.item_path,
     item_path_raw: receipt.item_path,
     state: receipt.state,
-    preferred: receipt.preferred,
+    preferred: receiptPreferredSide(receipt),
     fields_from_theirs: receipt.fields_from_theirs,
     union_fields: receipt.union_fields,
     decisions: receipt.decisions.map((d) => ({
@@ -2425,6 +2453,14 @@ export default defineExtension({
       api.registerRenderer("toon", renderCommandResult, rendererOwnership);
       api.registerRenderer("json", renderCommandResult, rendererOwnership);
     }
+
+    // Expose the fleet's pinned code-quality thresholds as audited assurance
+    // measurements so a bound can no longer move in an ordinary diff. The
+    // provider reads a local lcov report and the canonical docstring analyzer;
+    // it refuses a stale report, so weakening a coverage floor now requires the
+    // same `authorization_decision` as any other bound regression. See
+    // `./assurance.ts` for the key contract and the staleness refusal.
+    api.registerAssuranceMeasurementProvider(qualityMeasurementProvider);
 
     api.registerCommand({
       name: "ops scan",
