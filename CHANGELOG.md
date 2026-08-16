@@ -8,7 +8,7 @@
 
 ### Fixed
 
-- The pm CLI compatibility floor is declared where npm enforces it and absent from the field the CLI actually reads ([ops-zl7a](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-zl7a.toon))
+- The pm CLI compatibility floor was declared only where npm enforces it, and absent from the field the CLI actually reads ([ops-zl7a](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-zl7a.toon))
 
 ## 2026.8.10 - 2026-08-10
 
