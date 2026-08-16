@@ -6,6 +6,10 @@
 
 - Measure the fleet's coverage and docstring quality as audited assurance bounds via a pm-ops quality measurement provider ([ops-a367](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-a367.toon))
 
+### Fixed
+
+- The pm CLI compatibility floor was declared only in peerDependencies, which only npm enforces, and not in manifest.json pm_min_version, which is the field the CLI enforces ([ops-zl7a](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-zl7a.toon))
+
 ## 2026.8.10 - 2026-08-10
 
 ### Fixed

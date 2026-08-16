@@ -62,7 +62,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
-    "@unbrained/pm-cli": "2026.8.13",
+    "@unbrained/pm-cli": "2026.8.15",
     "c8": "^12.0.0",
     "pm-changelog": "^2026.8.7"
   },
