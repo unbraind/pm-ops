@@ -125,6 +125,7 @@ interface MetricsRepo {
   available: boolean;
   repo: string;
   status_counts: Record<string, number>;
+  blocked: number | null;
   cycle_time_p50_seconds: number | null;
   cycle_time_p90_seconds: number | null;
 }
@@ -2009,7 +2010,7 @@ test("ops metrics rejects a stale pm list envelope instead of treating it as ite
   }
 });
 
-test("ops metrics accepts only a complete real list-all envelope and requests an unbounded output budget", async () => {
+test("ops metrics accepts only complete real item-list envelopes and requests full unbounded output", async () => {
   const localPm = fileURLToPath(
     new URL(process.platform === "win32" ? "../node_modules/.bin/pm.cmd" : "../node_modules/.bin/pm", import.meta.url),
   );
@@ -2046,10 +2047,6 @@ test("ops metrics accepts only a complete real list-all envelope and requests an
   const previousPath = process.env.PATH;
   const previousPayloadPath = process.env.PM_OPS_ENVELOPE_PATH;
   const previousArgvPath = process.env.PM_OPS_ARGV_PATH;
-  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
-  process.env.PM_OPS_ENVELOPE_PATH = payloadPath;
-  process.env.PM_OPS_ARGV_PATH = argvPath;
-  writeFileSync(argvPath, "");
   const runEnvelope = async (envelope: Record<string, unknown>): Promise<MetricsResult> => {
     writeFileSync(payloadPath, `${JSON.stringify(envelope)}\n`);
     const ext = await harness();
@@ -2061,12 +2058,17 @@ test("ops metrics accepts only a complete real list-all envelope and requests an
   };
 
   try {
+    process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+    process.env.PM_OPS_ENVELOPE_PATH = payloadPath;
+    process.env.PM_OPS_ARGV_PATH = argvPath;
+    writeFileSync(argvPath, "");
     assert.strictEqual((await runEnvelope(realEnvelope)).repos[0].available, true, "the unmodified real envelope must be accepted");
     assert.match(
       readFileSync(argvPath, "utf-8"),
       /(?:^|\s)--output-budget\s+unbounded(?:\s|$)/,
       "the child read must disable the host output budget explicitly",
     );
+    assert.match(readFileSync(argvPath, "utf-8"), /(?:^|\s)--full(?:\s|$)/, "the child read must request complete item fields");
 
     const mutations: Array<readonly [string, (envelope: Record<string, unknown>) => void]> = [
       ["truncated=true", (envelope) => { envelope.truncated = true; }],
@@ -2075,6 +2077,7 @@ test("ops metrics accepts only a complete real list-all envelope and requests an
       ["completeness partial", (envelope) => {
         envelope.completeness = { ...(envelope.completeness as Record<string, unknown>), status: "partial" };
       }],
+      ["completeness missing status", (envelope) => { envelope.completeness = {}; }],
       ["completeness missing", (envelope) => { delete envelope.completeness; }],
       ["completeness scalar", (envelope) => { envelope.completeness = "complete"; }],
       ["omission receipt reports omissions", (envelope) => {
@@ -2085,10 +2088,13 @@ test("ops metrics accepts only a complete real list-all envelope and requests an
           omitted_field_groups: [{ name: "items", restore_with: "--output-budget unbounded" }],
         };
       }],
+      ["omission receipt missing has_omissions", (envelope) => { envelope.omission_receipt = {}; }],
       ["omission receipt missing", (envelope) => { delete envelope.omission_receipt; }],
       ["omission receipt scalar", (envelope) => { envelope.omission_receipt = false; }],
       ["count understates rows", (envelope) => { envelope.count = (realEnvelope.items as unknown[]).length - 1; }],
+      ["count is a numeric string", (envelope) => { envelope.count = String((realEnvelope.items as unknown[]).length); }],
       ["total exceeds rows", (envelope) => { envelope.total = (realEnvelope.items as unknown[]).length + 1; }],
+      ["total is a numeric string", (envelope) => { envelope.total = String((realEnvelope.items as unknown[]).length); }],
       ["one row has no usable id", (envelope) => {
         const items = [...(realEnvelope.items as unknown[]), null];
         envelope.items = items;
@@ -2189,6 +2195,16 @@ test("pm workspace readers fail closed on malformed CLI contracts and preserve s
   const singleLifecycleItem = listEnvelope([
     { id: "one-cycle", title: "One cycle", status: "closed", type: "Task", created_at: "2026-08-01T00:00:00.000Z", closed_at: "2026-08-02T00:00:00.000Z" },
   ]);
+  const partialItems = JSON.stringify({
+    items: [],
+    count: 0,
+    total: 0,
+    has_more: false,
+    truncated: false,
+    next_cursor: null,
+    completeness: { status: "partial", unreadable_item_count: 1, unreadable_directory_count: 0 },
+    omission_receipt: { has_omissions: false, omitted_field_group_count: 0, omitted_field_groups: [] },
+  });
   if (process.platform === "win32") {
     writeFileSync(join(bin, "pm.cmd"), `@echo off
 if "%PM_OPS_FAKE_SCENARIO%"=="pm-status-fail" exit /b 1
@@ -2196,7 +2212,8 @@ if "%PM_OPS_FAKE_SCENARIO%"=="pm-invalid" (echo not-json & exit /b 0)
 if "%PM_OPS_FAKE_SCENARIO%"=="pm-scalar" (echo {"items":"invalid"} & exit /b 0)
 if "%PM_OPS_FAKE_SCENARIO%"=="pm-stale" (echo {"results":[]} & exit /b 0)
 if "%PM_OPS_FAKE_SCENARIO%"=="pm-duplicates" (echo ${duplicateItems} & exit /b 0)
-if "%PM_OPS_FAKE_SCENARIO%"=="pm-blocked-invalid" (if "%~1"=="list-blocked" (echo not-json & exit /b 0) else (echo ${richItems} & exit /b 0))
+if "%PM_OPS_FAKE_SCENARIO%"=="pm-list-incomplete" (if "%~1"=="list" (echo ${partialItems} & exit /b 0) else (echo ${richItems} & exit /b 0))
+if "%PM_OPS_FAKE_SCENARIO%"=="pm-blocked-incomplete" (if "%~1"=="list-blocked" (echo ${partialItems} & exit /b 0) else (echo ${richItems} & exit /b 0))
 if "%PM_OPS_FAKE_SCENARIO%"=="pm-single" (echo ${singleLifecycleItem} & exit /b 0)
 echo ${richItems}
 `);
@@ -2208,7 +2225,8 @@ case "$PM_OPS_FAKE_SCENARIO" in
   pm-scalar) printf '%s\\n' '{"items":"invalid"}' ;;
   pm-stale) printf '%s\\n' '{"results":[]}' ;;
   pm-duplicates) printf '%s\\n' '${duplicateItems}' ;;
-  pm-blocked-invalid) if [ "$1" = list-blocked ]; then printf 'not-json\\n'; else printf '%s\\n' '${richItems}'; fi ;;
+  pm-list-incomplete) if [ "$1" = list ]; then printf '%s\\n' '${partialItems}'; else printf '%s\\n' '${richItems}'; fi ;;
+  pm-blocked-incomplete) if [ "$1" = list-blocked ]; then printf '%s\\n' '${partialItems}'; else printf '%s\\n' '${richItems}'; fi ;;
   pm-single) printf '%s\\n' '${singleLifecycleItem}' ;;
   *) printf '%s\\n' '${richItems}' ;;
 esac
@@ -2253,9 +2271,15 @@ esac
     const richPolicy = await runCmd<PolicyResult>(ext, "ops policy", { repos: [fixtureRepo] });
     assert.strictEqual(richPolicy.repos[0].checks.find(({ id }) => id === "pm-duplicate-titles")?.pass, true);
 
-    process.env.PM_OPS_FAKE_SCENARIO = "pm-blocked-invalid";
+    process.env.PM_OPS_FAKE_SCENARIO = "pm-list-incomplete";
+    await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
+    const incompleteScan = await runCmd<ScanResult>(ext, "ops scan", { repos: [fixtureRepo] });
+    assert.strictEqual(incompleteScan.repos[0].pm_workspace, false);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "pm-blocked-incomplete";
     const unknownBlocked = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
     assert.strictEqual(unknownBlocked.repos[0].available, true);
+    assert.strictEqual(unknownBlocked.repos[0].blocked, null);
 
     process.env.PM_OPS_FAKE_SCENARIO = "pm-single";
     const single = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });

@@ -457,7 +457,7 @@ function extractPmListBody(parsed) {
     return null;
 }
 /**
- * Prove that one `pm list-all --json` envelope represents the whole workspace.
+ * Prove that one `pm list`, `list-all`, or `list-blocked` envelope is complete.
  *
  * The returned rows are authoritative input to throughput, cycle-time, and
  * backlog metrics, so absence of a negative signal is not sufficient: both
@@ -471,7 +471,7 @@ function extractPmListBody(parsed) {
  * @param items - The exact `items` array extracted from that envelope.
  * @returns `true` only when every independent completeness signal agrees.
  */
-function isCompletePmListAllEnvelope(envelope, items) {
+function isCompletePmListEnvelope(envelope, items) {
     const completeness = envelope.completeness;
     const omissionReceipt = envelope.omission_receipt;
     if (!completeness || typeof completeness !== "object")
@@ -484,7 +484,9 @@ function isCompletePmListAllEnvelope(envelope, items) {
         return false;
     if (envelope.truncated !== false || envelope.has_more !== false || envelope.next_cursor !== null)
         return false;
-    if (envelope.count !== items.length || envelope.total !== items.length)
+    if (typeof envelope.count !== "number" || !Number.isSafeInteger(envelope.count) || envelope.count !== items.length)
+        return false;
+    if (typeof envelope.total !== "number" || !Number.isSafeInteger(envelope.total) || envelope.total !== items.length)
         return false;
     return items.every((item) => item !== null && typeof item === "object" && typeof item.id === "string");
 }
@@ -507,7 +509,7 @@ function readPmItemList(repoPath, subcommand, cache) {
     if (!existsSync(pmRoot))
         return set(null);
     const pm = resolvePmInvocation();
-    const r = runSync(pm.cmd, [...pm.args, subcommand, "--json", "--pm-path", pmRoot, "--output-budget", "unbounded"], {
+    const r = runSync(pm.cmd, [...pm.args, subcommand, "--json", "--pm-path", pmRoot, "--output-budget", "unbounded", "--full"], {
         timeoutMs: 30_000,
         // The package source is already instrumented in the host process. Do not
         // merge coverage from the compiled extension loaded by a nested CLI read,
@@ -522,9 +524,9 @@ function readPmItemList(repoPath, subcommand, cache) {
     const items = extractPmListBody(parsed);
     if (!items)
         return set(null);
-    if (subcommand === "list-all" && !isCompletePmListAllEnvelope(parsed, items))
+    if (!isCompletePmListEnvelope(parsed, items))
         return set(null);
-    return set(items.filter((it) => Boolean(it) && typeof it === "object" && typeof it.id === "string"));
+    return set(items);
 }
 /** Active pm items via `pm list --json`. */
 function readPmItems(repoPath) {

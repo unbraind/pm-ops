@@ -218,7 +218,7 @@ pm ops audit --format markdown
 
 Export pm workspace health as **Prometheus** text-format gauges so a Prometheus/Grafana stack can scrape fleet project-management signals — turning `project management = context management` into a dashboard. Reads each repo's items via the pm CLI (`pm list-all`, `pm list-blocked`) and derives counts, throughput, and cycle-time in-process (the same `closed_at` methodology `pm-brief` momentum uses).
 
-The all-item read explicitly uses `--output-budget unbounded` and is accepted only when the CLI's pagination, completeness, omission, and row-count receipts all prove that every item was returned. If any signal disagrees, pm-ops marks that repository unavailable (`pm_workspace_available 0`) instead of publishing plausible but incomplete throughput or cycle-time data.
+Every pm item-list read explicitly uses `--full --output-budget unbounded` and is accepted only when the CLI's pagination, completeness, omission, and row-count receipts all prove that every item was returned. If any signal disagrees, pm-ops marks that repository as unavailable (`pm_workspace_available 0`) instead of publishing plausible but incomplete throughput, cycle-time, status-count, or blocked-item data.
 
 ```bash
 pm ops metrics                                   # Prometheus exposition for the current repo
