@@ -540,6 +540,33 @@ function extractPmListBody(parsed: unknown): unknown[] | null {
 }
 
 /**
+ * Prove that one `pm list-all --json` envelope represents the whole workspace.
+ *
+ * The returned rows are authoritative input to throughput, cycle-time, and
+ * backlog metrics, so absence of a negative signal is not sufficient: both
+ * completeness receipts must be present and affirmative, pagination must be
+ * exhausted, and the two declared counts must agree with the physical row
+ * count. Every row must also carry a usable id; filtering malformed rows would
+ * turn a complete envelope into a shorter data set while preserving a green
+ * availability gauge.
+ *
+ * @param envelope - The decoded CLI response envelope.
+ * @param items - The exact `items` array extracted from that envelope.
+ * @returns `true` only when every independent completeness signal agrees.
+ */
+function isCompletePmListAllEnvelope(envelope: Record<string, unknown>, items: unknown[]): boolean {
+  const completeness = envelope.completeness;
+  const omissionReceipt = envelope.omission_receipt;
+  if (!completeness || typeof completeness !== "object") return false;
+  if (!omissionReceipt || typeof omissionReceipt !== "object") return false;
+  if ((completeness as Record<string, unknown>).status !== "complete") return false;
+  if ((omissionReceipt as Record<string, unknown>).has_omissions !== false) return false;
+  if (envelope.truncated !== false || envelope.has_more !== false || envelope.next_cursor !== null) return false;
+  if (envelope.count !== items.length || envelope.total !== items.length) return false;
+  return items.every((item) => item !== null && typeof item === "object" && typeof (item as Record<string, unknown>).id === "string");
+}
+
+/**
  * Read pm items for a repo via one `pm <subcommand> --json` invocation, extract
  * the item array, and memoize the result per repo in the supplied cache. Single
  * implementation shared by the active-list, full-list, and blocked-list readers
@@ -556,7 +583,7 @@ function readPmItemList<T extends PmItem>(repoPath: string, subcommand: string, 
   const pmRoot = join(repoPath, ".agents", "pm");
   if (!existsSync(pmRoot)) return set(null);
   const pm = resolvePmInvocation();
-  const r = runSync(pm.cmd, [...pm.args, subcommand, "--json", "--pm-path", pmRoot], {
+  const r = runSync(pm.cmd, [...pm.args, subcommand, "--json", "--pm-path", pmRoot, "--output-budget", "unbounded"], {
     timeoutMs: 30_000,
     // The package source is already instrumented in the host process. Do not
     // merge coverage from the compiled extension loaded by a nested CLI read,
@@ -568,6 +595,7 @@ function readPmItemList<T extends PmItem>(repoPath: string, subcommand: string, 
   if (!parsed) return set(null);
   const items = extractPmListBody(parsed);
   if (!items) return set(null);
+  if (subcommand === "list-all" && !isCompletePmListAllEnvelope(parsed as Record<string, unknown>, items)) return set(null);
   return set(items.filter((it: unknown): it is T => Boolean(it) && typeof it === "object" && typeof (it as PmItem).id === "string"));
 }
 

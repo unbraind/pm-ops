@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A truncated list-all answer corrupts fleet throughput and cycle-time metrics ([ops-x3wc](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-x3wc.toon))
+
 ## 2026.8.16 - 2026-08-16
 
 ### Added

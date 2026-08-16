@@ -58,13 +58,13 @@
     "typescript": "7.0.2"
   },
   "peerDependencies": {
-    "@unbrained/pm-cli": ">=2026.8.13"
+    "@unbrained/pm-cli": ">=2026.8.15"
   },
   "devDependencies": {
-    "@types/node": "^26.1.2",
-    "@unbrained/pm-cli": "2026.8.15",
+    "@types/node": "^26.2.0",
+    "@unbrained/pm-cli": "2026.8.16",
     "c8": "^12.0.0",
-    "pm-changelog": "^2026.8.7"
+    "pm-changelog": "^2026.8.16"
   },
   "keywords": [
     "pm-cli",
