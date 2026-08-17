@@ -1,0 +1,36 @@
+id: ops-x3wc
+title: A truncated list-all answer corrupts fleet throughput and cycle-time metrics
+description: "readAllPmItems consumes the items array from pm list-all without verifying the response completeness receipt. A host-side output budget or future regression can therefore make pm ops metrics report a smaller project as a valid result. The same generic reader also converts malformed envelopes and pm failures to null, which is legitimate for a missing/unreadable repository but must not let a successful incomplete list-all read look authoritative. Companion tracking: pm-cli-website-tv05 in unbraind/pm-cli-companion."
+type: Issue
+status: closed
+priority: 1
+tags[4]: correctness,metrics,multi-agent,pm-cli
+created_at: "2026-08-16T23:26:48.906Z"
+updated_at: "2026-08-16T23:53:02.495Z"
+closed_at: "2026-08-16T23:36:06.096Z"
+completed_at: "2026-08-16T23:36:06.096Z"
+claim_principal: "harness:codex#c7606cd48ad166324f36f308"
+author: "harness:codex"
+estimated_minutes: 120
+acceptance_criteria: A real pm list-all envelope is accepted only when every completeness signal proves a whole-workspace read; Mutating each independent completeness signal makes the metrics reader refuse the row set; The package uses the latest released pm CLI/SDK for development while keeping its consumer compatibility declaration as a lower-bound floor
+risk: high
+confidence: high
+severity: high
+resolution: "Every pm item-list reader now requests --full with an unbounded output budget. The shared envelope gate accepts list, list-all, and list-blocked rows only when typed counts, completeness, omission, pagination, and item identity signals all agree; otherwise the relevant workspace surface fails closed before caching or aggregation. The development CLI/SDK remains exact-pinned to 2026.8.16 with a >=2026.8.15 consumer floor matching manifest pm_min_version."
+expected_result: Every list-all metrics read either proves the envelope is complete before caching rows or returns an explicitly unavailable metric source; no partial row set may be reported as complete.
+actual_result: "Installed pm 2026.8.16 produced complete real envelopes for list, list-all, and list-blocked under --full --output-budget unbounded. Targeted tests prove malformed object receipts, numeric-string counts, partial active and blocked lists, pagination mismatches, omissions, and malformed rows fail closed; exact all-source validation is rerun after every review-fix commit."
+affected_version: 2026.8.16
+component: metrics
+comments[2]{created_at,author,text}:
+  "2026-08-16T23:34:29.553Z","harness:codex","Implementation uses one receipt gate before metrics cache insertion. The gate requires affirmative completeness and omission receipts, exhausted pagination, count=total=physical rows, and a string id on every row. npm run coverage passed 191 tests (189 passed, 2 explicitly skipped real-data opt-ins) with exact 100/100/100/100 across all 6 production TypeScript files; docstring gate reports 105/105 declarations."
+  "2026-08-16T23:53:01.967Z","harness:codex","Review round 1: Sourcery requested object-shaped missing-key receipt cases, explicit numeric receipt types, removal of the redundant post-validation filter, and a README grammar fix. CodeRabbit requested applying completeness validation to list and list-blocked as well as moving test environment mutation inside its restoring try/finally. All findings were verified against real pm 2026.8.16 envelopes and implemented; list/list-blocked require --full because their default projection intentionally reports omissions."
+notes[1]{created_at,author,text}:
+  "2026-08-16T23:34:29.553Z","harness:codex","The regression test captures an unmodified list-all envelope from the package-local pm CLI 2026.8.16, accepts it, then mutates truncated, has_more, next_cursor, completeness, omission, count, total, and row identity one signal at a time. Each mutation makes the repository unavailable; the baseline also records the child argv and proves --output-budget unbounded is present."
+files[1]{path,scope,note}:
+  index.ts,project,metrics pm reader and completeness gate
+tests[1]{command,path,scope,timeout_seconds}:
+  npm run coverage,test/ops.test.ts,project,300
+docs[1]{path,scope,note}:
+  README.md,project,documents fail-closed completeness semantics for workspace availability
+close_reason: "All completeness, dependency, documentation, installed-CLI, and exact coverage acceptance criteria are satisfied."
+body: ""

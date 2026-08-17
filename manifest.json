@@ -4,7 +4,7 @@
   "description": "Multi-repo fleet operations for pm-cli",
   "author": "@unbraind",
   "entry": "./dist/index.js",
-  "pm_min_version": "2026.8.13",
+  "pm_min_version": "2026.8.15",
   "priority": 50,
   "capabilities": [
     "commands",

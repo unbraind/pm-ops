@@ -125,6 +125,7 @@ interface MetricsRepo {
   available: boolean;
   repo: string;
   status_counts: Record<string, number>;
+  blocked: number | null;
   cycle_time_p50_seconds: number | null;
   cycle_time_p90_seconds: number | null;
 }
@@ -2009,6 +2010,129 @@ test("ops metrics rejects a stale pm list envelope instead of treating it as ite
   }
 });
 
+test("ops metrics accepts only complete real item-list envelopes and requests full unbounded output", async () => {
+  const localPm = fileURLToPath(
+    new URL(process.platform === "win32" ? "../node_modules/.bin/pm.cmd" : "../node_modules/.bin/pm", import.meta.url),
+  );
+  const captured = spawnSync(
+    localPm,
+    ["--pm-path", join(fixtureRepo, ".agents", "pm"), "--json", "--output-budget", "unbounded", "list-all"],
+    { encoding: "utf-8", timeout: 30_000 },
+  );
+  assert.strictEqual(captured.status, 0, `capturing the real list-all envelope failed: ${captured.stderr}`);
+  const realEnvelope = parseJson<Record<string, unknown>>(captured.stdout);
+  assert.ok(Array.isArray(realEnvelope.items) && realEnvelope.items.length > 0, "the real envelope must carry item rows");
+  assert.strictEqual(realEnvelope.truncated, false);
+  assert.strictEqual(realEnvelope.has_more, false);
+  assert.strictEqual(realEnvelope.next_cursor, null);
+
+  const bin = join(tmpRoot, "bin-pm-completeness");
+  const payloadPath = join(tmpRoot, "pm-completeness-envelope.json");
+  const argvPath = join(tmpRoot, "pm-completeness-argv.txt");
+  mkdirSync(bin, { recursive: true });
+  if (process.platform === "win32") {
+    writeFileSync(
+      join(bin, "pm.cmd"),
+      "@echo off\r\n>> \"%PM_OPS_ARGV_PATH%\" echo %*\r\ntype \"%PM_OPS_ENVELOPE_PATH%\"\r\n",
+    );
+  } else {
+    writeFileSync(
+      join(bin, "pm"),
+      "#!/usr/bin/env sh\nprintf '%s\\n' \"$*\" >> \"$PM_OPS_ARGV_PATH\"\ncat \"$PM_OPS_ENVELOPE_PATH\"\n",
+      { mode: 0o755 },
+    );
+    chmodSync(join(bin, "pm"), 0o755);
+  }
+
+  const previousPath = process.env.PATH;
+  const previousPayloadPath = process.env.PM_OPS_ENVELOPE_PATH;
+  const previousArgvPath = process.env.PM_OPS_ARGV_PATH;
+  const runEnvelope = async (envelope: Record<string, unknown>): Promise<MetricsResult> => {
+    writeFileSync(payloadPath, `${JSON.stringify(envelope)}\n`);
+    const ext = await harness();
+    try {
+      return await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
+    } finally {
+      await ext.deactivate();
+    }
+  };
+
+  try {
+    process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+    process.env.PM_OPS_ENVELOPE_PATH = payloadPath;
+    process.env.PM_OPS_ARGV_PATH = argvPath;
+    writeFileSync(argvPath, "");
+    assert.strictEqual((await runEnvelope(realEnvelope)).repos[0].available, true, "the unmodified real envelope must be accepted");
+    assert.match(
+      readFileSync(argvPath, "utf-8"),
+      /(?:^|\s)--output-budget\s+unbounded(?:\s|$)/,
+      "the child read must disable the host output budget explicitly",
+    );
+    assert.match(readFileSync(argvPath, "utf-8"), /(?:^|\s)--full(?:\s|$)/, "the child read must request complete item fields");
+
+    const mutations: Array<readonly [string, (envelope: Record<string, unknown>) => void]> = [
+      ["truncated=true", (envelope) => { envelope.truncated = true; }],
+      ["has_more=true", (envelope) => { envelope.has_more = true; }],
+      ["next_cursor present", (envelope) => { envelope.next_cursor = "next-page"; }],
+      ["completeness partial", (envelope) => {
+        envelope.completeness = { ...(envelope.completeness as Record<string, unknown>), status: "partial" };
+      }],
+      ["completeness missing status", (envelope) => { envelope.completeness = {}; }],
+      ["completeness missing", (envelope) => { delete envelope.completeness; }],
+      ["completeness scalar", (envelope) => { envelope.completeness = "complete"; }],
+      ["omission receipt reports omissions", (envelope) => {
+        envelope.omission_receipt = {
+          ...(envelope.omission_receipt as Record<string, unknown>),
+          has_omissions: true,
+          omitted_field_group_count: 1,
+          omitted_field_groups: [{ name: "items", restore_with: "--output-budget unbounded" }],
+        };
+      }],
+      ["omission receipt missing has_omissions", (envelope) => { envelope.omission_receipt = {}; }],
+      ["omission receipt missing", (envelope) => { delete envelope.omission_receipt; }],
+      ["omission receipt scalar", (envelope) => { envelope.omission_receipt = false; }],
+      ["count understates rows", (envelope) => { envelope.count = (realEnvelope.items as unknown[]).length - 1; }],
+      ["count is a numeric string", (envelope) => { envelope.count = String((realEnvelope.items as unknown[]).length); }],
+      ["total exceeds rows", (envelope) => { envelope.total = (realEnvelope.items as unknown[]).length + 1; }],
+      ["total is a numeric string", (envelope) => { envelope.total = String((realEnvelope.items as unknown[]).length); }],
+      ["one row has no usable id", (envelope) => {
+        const items = [...(realEnvelope.items as unknown[]), null];
+        envelope.items = items;
+        envelope.count = items.length;
+        envelope.total = items.length;
+      }],
+      ["one row is a scalar", (envelope) => {
+        const items = [...(realEnvelope.items as unknown[]), "not-an-item"];
+        envelope.items = items;
+        envelope.count = items.length;
+        envelope.total = items.length;
+      }],
+      ["one object row has no id", (envelope) => {
+        const items = [...(realEnvelope.items as unknown[]), { title: "missing id" }];
+        envelope.items = items;
+        envelope.count = items.length;
+        envelope.total = items.length;
+      }],
+    ];
+    for (const [signal, mutate] of mutations) {
+      const envelope = structuredClone(realEnvelope);
+      mutate(envelope);
+      assert.strictEqual(
+        (await runEnvelope(envelope)).repos[0].available,
+        false,
+        `${signal} must make the metrics source unavailable`,
+      );
+    }
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousPayloadPath === undefined) delete process.env.PM_OPS_ENVELOPE_PATH;
+    else process.env.PM_OPS_ENVELOPE_PATH = previousPayloadPath;
+    if (previousArgvPath === undefined) delete process.env.PM_OPS_ARGV_PATH;
+    else process.env.PM_OPS_ARGV_PATH = previousArgvPath;
+  }
+});
+
 test("pm workspace readers use the installed host CLI when PATH has no pm executable", async () => {
   const ext = await harness();
   const emptyBin = join(tmpRoot, "bin-without-pm");
@@ -2046,21 +2170,41 @@ test("pm workspace readers fail closed on malformed CLI contracts and preserve s
   const ext = await harness();
   const bin = join(tmpRoot, "bin-pm-contracts");
   mkdirSync(bin, { recursive: true });
-  const richItems = JSON.stringify({ items: [
+  const listEnvelope = (items: readonly Record<string, unknown>[]): string => JSON.stringify({
+    items,
+    count: items.length,
+    total: items.length,
+    has_more: false,
+    truncated: false,
+    next_cursor: null,
+    completeness: { status: "complete", unreadable_item_count: 0, unreadable_directory_count: 0 },
+    omission_receipt: { has_omissions: false, omitted_field_group_count: 0, omitted_field_groups: [] },
+  });
+  const richItems = listEnvelope([
     { id: "canceled", title: "Canceled", status: "cancelled", type: "Task", priority: 4 },
     { id: "unknown", title: "Unknown", status: "", updated_at: "not-a-date", created_at: "not-a-date" },
     { id: "closed", title: "Closed", status: "closed", closed_at: "not-a-date" },
     { id: "draft", title: "Draft", status: "draft", type: "Idea" },
     { id: "missing-status", title: "Missing status" },
-  ] });
-  const duplicateItems = JSON.stringify({ items: [
+  ]);
+  const duplicateItems = listEnvelope([
     { id: "one", title: "Repeated title", status: "open" },
     { id: "two", title: "Repeated title", status: "open" },
     { id: "blank", status: "open" },
-  ] });
-  const singleLifecycleItem = JSON.stringify({ items: [
+  ]);
+  const singleLifecycleItem = listEnvelope([
     { id: "one-cycle", title: "One cycle", status: "closed", type: "Task", created_at: "2026-08-01T00:00:00.000Z", closed_at: "2026-08-02T00:00:00.000Z" },
-  ] });
+  ]);
+  const partialItems = JSON.stringify({
+    items: [],
+    count: 0,
+    total: 0,
+    has_more: false,
+    truncated: false,
+    next_cursor: null,
+    completeness: { status: "partial", unreadable_item_count: 1, unreadable_directory_count: 0 },
+    omission_receipt: { has_omissions: false, omitted_field_group_count: 0, omitted_field_groups: [] },
+  });
   if (process.platform === "win32") {
     writeFileSync(join(bin, "pm.cmd"), `@echo off
 if "%PM_OPS_FAKE_SCENARIO%"=="pm-status-fail" exit /b 1
@@ -2068,7 +2212,8 @@ if "%PM_OPS_FAKE_SCENARIO%"=="pm-invalid" (echo not-json & exit /b 0)
 if "%PM_OPS_FAKE_SCENARIO%"=="pm-scalar" (echo {"items":"invalid"} & exit /b 0)
 if "%PM_OPS_FAKE_SCENARIO%"=="pm-stale" (echo {"results":[]} & exit /b 0)
 if "%PM_OPS_FAKE_SCENARIO%"=="pm-duplicates" (echo ${duplicateItems} & exit /b 0)
-if "%PM_OPS_FAKE_SCENARIO%"=="pm-blocked-invalid" (if "%~1"=="list-blocked" (echo not-json & exit /b 0) else (echo ${richItems} & exit /b 0))
+if "%PM_OPS_FAKE_SCENARIO%"=="pm-list-incomplete" (if "%~1"=="list" (echo ${partialItems} & exit /b 0) else (echo ${richItems} & exit /b 0))
+if "%PM_OPS_FAKE_SCENARIO%"=="pm-blocked-incomplete" (if "%~1"=="list-blocked" (echo ${partialItems} & exit /b 0) else (echo ${richItems} & exit /b 0))
 if "%PM_OPS_FAKE_SCENARIO%"=="pm-single" (echo ${singleLifecycleItem} & exit /b 0)
 echo ${richItems}
 `);
@@ -2080,7 +2225,8 @@ case "$PM_OPS_FAKE_SCENARIO" in
   pm-scalar) printf '%s\\n' '{"items":"invalid"}' ;;
   pm-stale) printf '%s\\n' '{"results":[]}' ;;
   pm-duplicates) printf '%s\\n' '${duplicateItems}' ;;
-  pm-blocked-invalid) if [ "$1" = list-blocked ]; then printf 'not-json\\n'; else printf '%s\\n' '${richItems}'; fi ;;
+  pm-list-incomplete) if [ "$1" = list ]; then printf '%s\\n' '${partialItems}'; else printf '%s\\n' '${richItems}'; fi ;;
+  pm-blocked-incomplete) if [ "$1" = list-blocked ]; then printf '%s\\n' '${partialItems}'; else printf '%s\\n' '${richItems}'; fi ;;
   pm-single) printf '%s\\n' '${singleLifecycleItem}' ;;
   *) printf '%s\\n' '${richItems}' ;;
 esac
@@ -2125,9 +2271,15 @@ esac
     const richPolicy = await runCmd<PolicyResult>(ext, "ops policy", { repos: [fixtureRepo] });
     assert.strictEqual(richPolicy.repos[0].checks.find(({ id }) => id === "pm-duplicate-titles")?.pass, true);
 
-    process.env.PM_OPS_FAKE_SCENARIO = "pm-blocked-invalid";
+    process.env.PM_OPS_FAKE_SCENARIO = "pm-list-incomplete";
+    await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
+    const incompleteScan = await runCmd<ScanResult>(ext, "ops scan", { repos: [fixtureRepo] });
+    assert.strictEqual(incompleteScan.repos[0].pm_workspace, false);
+
+    process.env.PM_OPS_FAKE_SCENARIO = "pm-blocked-incomplete";
     const unknownBlocked = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
     assert.strictEqual(unknownBlocked.repos[0].available, true);
+    assert.strictEqual(unknownBlocked.repos[0].blocked, null);
 
     process.env.PM_OPS_FAKE_SCENARIO = "pm-single";
     const single = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
