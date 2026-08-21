@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Canonicalize fleet metric reads and enforce the pm 2026.8.20 host contract ([ops-3w9m](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3w9m.toon))
+
 ## 2026.8.17 - 2026-08-17
 
 ### Fixed

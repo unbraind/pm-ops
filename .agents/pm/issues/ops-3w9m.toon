@@ -1,0 +1,58 @@
+id: ops-3w9m
+title: Canonicalize fleet metric reads and enforce the pm 2026.8.20 host contract
+description: "pm-ops still invokes deprecated list-all and list-blocked aliases, its complete raw extension manifest retains an ignored pm.compatibility object, and its development CLI/SDK is 2026.8.16 while the installed and latest published host is 2026.8.20. Migrate internal reads to canonical list forms without weakening complete-corpus refusal, remove only unsupported manifest metadata, and prove npm/Bun installed behavior."
+type: Issue
+status: closed
+priority: 1
+tags[5]: agent-ux,compatibility,completeness,latest-cli,tdd
+created_at: "2026-08-21T03:57:14.993Z"
+updated_at: "2026-08-21T04:30:56.711Z"
+closed_at: "2026-08-21T04:15:11.560Z"
+completed_at: "2026-08-21T04:15:11.560Z"
+claim_principal: codex
+author: "harness:codex"
+estimated_minutes: 240
+acceptance_criteria: Production argv uses pm list --all and pm list --status blocked with explicit unbounded full output; malformed or incomplete active/all/blocked envelopes still fail closed; raw manifest compatibility against SDK 2026.8.20 is compatible with zero findings; development CLI is exact-pinned to 2026.8.20 and the peer/manifest floor matches the behavior actually required; full release gate passes exact 100/100/100/100 coverage and docstrings; packed npm and Bun acceptance against a fresh real tracker emit no alias deprecation diagnostics; tracked files and the proposed diff contain no secrets private data or absolute host paths; merge and publication remain independently gated by the existing full-history privacy item ops-xhbt
+definition_of_ready: Canonical checkout is clean and current; installed and npm-latest pm CLI are both 2026.8.20; companion migration issue pm-cli-website-cbyb and manifest issue pm-cli-website-rz49 identify pm-ops as affected.
+risk: medium
+confidence: high
+reporter: codex
+severity: high
+environment: pm-ops main 2332a64 with installed pm 2026.8.20
+repro_steps: Run pm health --strict-exit in the package and observe manifest/host-version failures; scan index.ts for list-all and list-blocked argv; execute either alias with pm 2026.8.20 and observe deprecation diagnostics.
+resolution: Implemented and verified canonical current-host reads and release plumbing. The code tranche is complete while merge and publication remain independently blocked by ops-xhbt.
+expected_result: Canonical list forms exact current host compatibility complete receipts exact quality gates and npm plus Bun acceptance.
+actual_result: All implementation acceptance and release gates passed. Full-history privacy remediation remains tracked separately and deliberately prevents merge or publication.
+affected_version: 2026.8.17
+fixed_version: next release after 2026.8.17
+component: pm CLI integration and manifest
+customer_impact: Deprecation noise can confuse agents and strict wrappers; ignored metadata and host skew keep strict project health red and weaken confidence that fleet metrics use the current contract.
+notes[7]{created_at,author,text}:
+  "2026-08-21T04:15:11.055Z","harness:codex",Fresh package acceptance exposed upstream pm CLI issues 1072 and 1073. Both were reported without changing pm-cli source. Acceptance used an isolated npm config and a non-whitespace prefix.
+  "2026-08-21T04:15:11.055Z","harness:codex",Merge and publication remain blocked independently by ops-xhbt until its coordinated full-history privacy rewrite is complete.
+  "2026-08-21T04:15:11.055Z","harness:codex",TDD first produced three expected failures for the old host version old canonical argv support and blocked-list alias before implementation.
+  "2026-08-21T04:15:11.055Z","harness:codex",The first complete release gate correctly refused a bounded pm-changelog read after receiving only 6 of 53 items. Regression coverage now enforces unbounded budget and limit forwarding in all package scripts and release workflow calls.
+  "2026-08-21T04:16:46.286Z","harness:codex",Refreshing the ignored managed project extension with pm install dot project made strict health pass but copied a 252 MB development tree including nested Git metadata. The nested Git directory was moved to trash after exact path validation. The cache remains regenerable and untracked.
+  "2026-08-21T04:24:08.920Z","harness:codex","CodeRabbit exact-head review generated no inline findings but its summary exposed README flag drift: the prose still named legacy --full and omitted --output-limit unbounded. The documentation now names all three canonical runtime controls. Greptile found no actionable defect; Sourcery's three maintainability suggestions were reviewed and dispositioned without weakening independent sentinels or ordered argv assertions."
+  "2026-08-21T04:30:56.659Z","harness:codex",The registry published pm CLI and SDK 2026.8.21 while this PR was under exact-head review. A red independent-version sentinel first proved the 2026.8.20 development pin stale. The global installed host and package development SDK are now exact 2026.8.21; the peer and manifest minimum remain 2026.8.20 because that is the behavior contract actually required.
+files[7]{path,scope,note}:
+  index.ts,project,Canonical complete-corpus runtime reads
+  manifest.json,project,Current raw extension manifest contract
+  package.json,project,Current host floors and bounded-read-safe changelog scripts
+  .github/workflows/release.yml,project,Release-note reads through project host with unbounded output
+  test/compatibility-floor.test.ts,project,Manifest host and changelog wiring contracts
+  test/ops.test.ts,project,Canonical runtime argv and completeness behavior
+  README.md,project,Canonical command documentation
+tests[3]{command,path,scope,timeout_seconds,pm_context_mode}:
+  "npm run release:check",package.json,project,900,tracker
+  npm and Bun packed fresh-tracker acceptance,package.json,project,300,tracker
+  npm and Bun packed import acceptance,package.json,project,300,schema
+docs[6]{path,scope,note}:
+  "https://github.com/unbraind/pm-cli-companion/blob/docs/record-pm-rl-pm-csv-cli-2026-8-20/.agents/pm/issues/pm-cli-website-cbyb.toon",global,Companion canonical list migration
+  "https://github.com/unbraind/pm-cli-companion/blob/docs/record-pm-rl-pm-csv-cli-2026-8-20/.agents/pm/issues/pm-cli-website-rz49.toon",global,Companion manifest compatibility programme
+  "https://github.com/unbraind/pm-cli/issues/1072",global,Isolated install leaks user allow-scripts configuration
+  "https://github.com/unbraind/pm-cli/issues/1073",global,Whitespace item prefix accepted during init
+  "https://github.com/unbraind/pm-cli/issues/827#issuecomment-5365128279",global,Current 2026.8.20 evidence for unresolved local install pruning
+  .agents/pm/issues/ops-xhbt.toon,project,Independent history privacy blocker
+close_reason: Implemented and verified canonical current-host reads and release plumbing. The code tranche is complete while merge and publication remain independently blocked by ops-xhbt.
+body: ""

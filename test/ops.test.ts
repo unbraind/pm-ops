@@ -2016,10 +2016,23 @@ test("ops metrics accepts only complete real item-list envelopes and requests fu
   );
   const captured = spawnSync(
     localPm,
-    ["--pm-path", join(fixtureRepo, ".agents", "pm"), "--json", "--output-budget", "unbounded", "list-all"],
+    [
+      "--pm-path",
+      join(fixtureRepo, ".agents", "pm"),
+      "list",
+      "--all",
+      "--json",
+      "--output-budget",
+      "unbounded",
+      "--output-limit",
+      "unbounded",
+      "--output-include",
+      "full",
+    ],
     { encoding: "utf-8", timeout: 30_000 },
   );
-  assert.strictEqual(captured.status, 0, `capturing the real list-all envelope failed: ${captured.stderr}`);
+  assert.strictEqual(captured.status, 0, `capturing the real canonical list envelope failed: ${captured.stderr}`);
+  assert.strictEqual(captured.stderr, "", "the canonical installed-CLI read must not emit deprecation diagnostics");
   const realEnvelope = parseJson<Record<string, unknown>>(captured.stdout);
   assert.ok(Array.isArray(realEnvelope.items) && realEnvelope.items.length > 0, "the real envelope must carry item rows");
   assert.strictEqual(realEnvelope.truncated, false);
@@ -2063,12 +2076,29 @@ test("ops metrics accepts only complete real item-list envelopes and requests fu
     process.env.PM_OPS_ARGV_PATH = argvPath;
     writeFileSync(argvPath, "");
     assert.strictEqual((await runEnvelope(realEnvelope)).repos[0].available, true, "the unmodified real envelope must be accepted");
+    const recordedArgv = readFileSync(argvPath, "utf-8");
     assert.match(
-      readFileSync(argvPath, "utf-8"),
+      recordedArgv,
       /(?:^|\s)--output-budget\s+unbounded(?:\s|$)/,
       "the child read must disable the host output budget explicitly",
     );
-    assert.match(readFileSync(argvPath, "utf-8"), /(?:^|\s)--full(?:\s|$)/, "the child read must request complete item fields");
+    assert.match(
+      recordedArgv,
+      /(?:^|\s)--output-limit\s+unbounded(?:\s|$)/,
+      "the child read must disable the host row limit explicitly",
+    );
+    assert.match(
+      recordedArgv,
+      /(?:^|\s)--output-include\s+full(?:\s|$)/,
+      "the child read must request complete item fields canonically",
+    );
+    assert.match(recordedArgv, /(?:^|\s)list\s+--all(?:\s|$)/, "the whole-workspace read must use pm list --all");
+    assert.match(
+      recordedArgv,
+      /(?:^|\s)list\s+--status\s+blocked(?:\s|$)/,
+      "the blocked-item read must use pm list --status blocked",
+    );
+    assert.doesNotMatch(recordedArgv, /(?:^|\s)(?:list-all|list-blocked|--full)(?:\s|$)/, "runtime reads must not use deprecated aliases");
 
     const mutations: Array<readonly [string, (envelope: Record<string, unknown>) => void]> = [
       ["truncated=true", (envelope) => { envelope.truncated = true; }],
@@ -2213,7 +2243,15 @@ if "%PM_OPS_FAKE_SCENARIO%"=="pm-scalar" (echo {"items":"invalid"} & exit /b 0)
 if "%PM_OPS_FAKE_SCENARIO%"=="pm-stale" (echo {"results":[]} & exit /b 0)
 if "%PM_OPS_FAKE_SCENARIO%"=="pm-duplicates" (echo ${duplicateItems} & exit /b 0)
 if "%PM_OPS_FAKE_SCENARIO%"=="pm-list-incomplete" (if "%~1"=="list" (echo ${partialItems} & exit /b 0) else (echo ${richItems} & exit /b 0))
-if "%PM_OPS_FAKE_SCENARIO%"=="pm-blocked-incomplete" (if "%~1"=="list-blocked" (echo ${partialItems} & exit /b 0) else (echo ${richItems} & exit /b 0))
+if "%PM_OPS_FAKE_SCENARIO%"=="pm-blocked-incomplete" (
+  if "%~1"=="list" if "%~2"=="--status" if "%~3"=="blocked" (
+    echo ${partialItems}
+    exit /b 0
+  ) else (
+    echo ${richItems}
+    exit /b 0
+  )
+)
 if "%PM_OPS_FAKE_SCENARIO%"=="pm-single" (echo ${singleLifecycleItem} & exit /b 0)
 echo ${richItems}
 `);
@@ -2226,7 +2264,7 @@ case "$PM_OPS_FAKE_SCENARIO" in
   pm-stale) printf '%s\\n' '{"results":[]}' ;;
   pm-duplicates) printf '%s\\n' '${duplicateItems}' ;;
   pm-list-incomplete) if [ "$1" = list ]; then printf '%s\\n' '${partialItems}'; else printf '%s\\n' '${richItems}'; fi ;;
-  pm-blocked-incomplete) if [ "$1" = list-blocked ]; then printf '%s\\n' '${partialItems}'; else printf '%s\\n' '${richItems}'; fi ;;
+  pm-blocked-incomplete) if [ "$1" = list ] && [ "$2" = --status ] && [ "$3" = blocked ]; then printf '%s\\n' '${partialItems}'; else printf '%s\\n' '${richItems}'; fi ;;
   pm-single) printf '%s\\n' '${singleLifecycleItem}' ;;
   *) printf '%s\\n' '${richItems}' ;;
 esac
