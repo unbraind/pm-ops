@@ -216,7 +216,7 @@ pm ops audit --format markdown
 
 ### `pm ops metrics`
 
-Export pm workspace health as **Prometheus** text-format gauges so a Prometheus/Grafana stack can scrape fleet project-management signals — turning `project management = context management` into a dashboard. Reads each repo's items via the pm CLI (`pm list-all`, `pm list-blocked`) and derives counts, throughput, and cycle-time in-process (the same `closed_at` methodology `pm-brief` momentum uses).
+Export pm workspace health as **Prometheus** text-format gauges so a Prometheus/Grafana stack can scrape fleet project-management signals — turning `project management = context management` into a dashboard. Reads each repo's items via the canonical pm CLI forms (`pm list --all`, `pm list --status blocked`) and derives counts, throughput, and cycle-time in-process (the same `closed_at` methodology `pm-brief` momentum uses).
 
 Every pm item-list read explicitly uses `--full --output-budget unbounded` and is accepted only when the CLI's pagination, completeness, omission, and row-count receipts all prove that every item was returned. If any signal disagrees, pm-ops marks that repository as unavailable (`pm_workspace_available 0`) instead of publishing plausible but incomplete throughput, cycle-time, status-count, or blocked-item data.
 
@@ -234,7 +234,7 @@ pm ops metrics --stale-days 7 --format json       # structured payload instead o
 | `pm_items` | `status` | Item count by lifecycle status |
 | `pm_active_items_by_type` | `type` | Active (non-closed/canceled/draft) items by type |
 | `pm_active_items_by_priority` | `priority` | Active items by priority (`0`..`4`, or `none`) |
-| `pm_blocked_items` | — | Open items blocked by unresolved dependencies (`pm list-blocked`) |
+| `pm_blocked_items` | — | Open items blocked by unresolved dependencies (`pm list --status blocked`) |
 | `pm_stale_items` | — | Active items not updated within `--stale-days` (default 14) |
 | `pm_throughput_items` | `window` (`7d`,`30d`) | Items closed within the trailing window |
 | `pm_cycle_time_seconds` | `quantile` (`0.5`,`0.9`) | `closed_at − created_at` of closed items |

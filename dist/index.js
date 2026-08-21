@@ -457,7 +457,7 @@ function extractPmListBody(parsed) {
     return null;
 }
 /**
- * Prove that one `pm list`, `list-all`, or `list-blocked` envelope is complete.
+ * Prove that one canonical `pm list` envelope is complete.
  *
  * The returned rows are authoritative input to throughput, cycle-time, and
  * backlog metrics, so absence of a negative signal is not sufficient: both
@@ -491,14 +491,14 @@ function isCompletePmListEnvelope(envelope, items) {
     return items.every((item) => item !== null && typeof item === "object" && typeof item.id === "string");
 }
 /**
- * Read pm items for a repo via one `pm <subcommand> --json` invocation, extract
+ * Read pm items for a repo via one canonical `pm list` invocation, extract
  * the item array, and memoize the result per repo in the supplied cache. Single
  * implementation shared by the active-list, full-list, and blocked-list readers
  * so their guard / invocation / JSON-extraction / caching logic can't drift
  * (e.g. the cross-scrape cache-clear must cover all of them). Returns null when
  * the workspace is absent or the CLI call fails.
  */
-function readPmItemList(repoPath, subcommand, cache) {
+function readPmItemList(repoPath, queryArgs, cache) {
     if (cache.has(repoPath))
         return cache.get(repoPath) ?? null;
     const set = (value) => {
@@ -509,7 +509,19 @@ function readPmItemList(repoPath, subcommand, cache) {
     if (!existsSync(pmRoot))
         return set(null);
     const pm = resolvePmInvocation();
-    const r = runSync(pm.cmd, [...pm.args, subcommand, "--json", "--pm-path", pmRoot, "--output-budget", "unbounded", "--full"], {
+    const r = runSync(pm.cmd, [
+        ...pm.args,
+        ...queryArgs,
+        "--json",
+        "--pm-path",
+        pmRoot,
+        "--output-budget",
+        "unbounded",
+        "--output-limit",
+        "unbounded",
+        "--output-include",
+        "full",
+    ], {
         timeoutMs: 30_000,
         // The package source is already instrumented in the host process. Do not
         // merge coverage from the compiled extension loaded by a nested CLI read,
@@ -530,23 +542,23 @@ function readPmItemList(repoPath, subcommand, cache) {
 }
 /** Active pm items via `pm list --json`. */
 function readPmItems(repoPath) {
-    return readPmItemList(repoPath, "list", pmItemsCache);
+    return readPmItemList(repoPath, ["list"], pmItemsCache);
 }
 /**
- * Every pm item (including closed/canceled) via `pm list-all --json`. Metrics
+ * Every pm item (including closed/canceled) via `pm list --all --json`. Metrics
  * need the closed items for throughput and cycle-time, so this is distinct from
  * readPmItems, which only returns active items.
  */
 function readAllPmItems(repoPath) {
-    return readPmItemList(repoPath, "list-all", pmAllItemsCache);
+    return readPmItemList(repoPath, ["list", "--all"], pmAllItemsCache);
 }
 /**
  * Count items the pm CLI itself considers blocked (open with unresolved
- * blocked_by edges). Delegating to `pm list-blocked` reuses the CLI's own
+ * blocked_by edges). Delegating to `pm list --status blocked` reuses the CLI's own
  * dependency-resolution logic rather than re-deriving it from the flat list.
  */
 function readBlockedCount(repoPath) {
-    const items = readPmItemList(repoPath, "list-blocked", pmBlockedCache);
+    const items = readPmItemList(repoPath, ["list", "--status", "blocked"], pmBlockedCache);
     return items === null ? null : items.length;
 }
 function isOffline() {
@@ -1880,7 +1892,7 @@ function renderMetricsPrometheus(result) {
     push("pm_items", "Number of pm items by lifecycle status.", "gauge", itemSamples);
     push("pm_active_items_by_type", "Active (non-closed/canceled/draft) pm items by item type.", "gauge", typeSamples);
     push("pm_active_items_by_priority", "Active pm items by priority (0..4, or none).", "gauge", prioritySamples);
-    push("pm_blocked_items", "Open pm items blocked by unresolved dependencies (per pm list-blocked).", "gauge", blockedSamples);
+    push("pm_blocked_items", "Open pm items blocked by unresolved dependencies (per pm list --status blocked).", "gauge", blockedSamples);
     push("pm_stale_items", `Active pm items not updated within the stale threshold (${result.stale_threshold_days}d).`, "gauge", staleSamples);
     push("pm_throughput_items", "Items closed within the trailing window.", "gauge", throughputSamples);
     push("pm_cycle_time_seconds", "Cycle time (closed_at - created_at) of closed items, by quantile.", "gauge", cycleSamples);
