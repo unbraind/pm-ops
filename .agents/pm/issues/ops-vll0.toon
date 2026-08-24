@@ -6,17 +6,20 @@ status: closed
 priority: 1
 tags[3]: changelog,gates,release
 created_at: "2026-08-24T09:39:30.862Z"
-updated_at: "2026-08-24T09:45:23.572Z"
+updated_at: "2026-08-24T10:03:16.963Z"
 closed_at: "2026-08-24T09:45:23.525Z"
 completed_at: "2026-08-24T09:45:23.525Z"
 claim_principal: pi-agent
 author: "harness:claude-code"
-files[4]{path,scope,note}:
+comments[1]{created_at,author,text}:
+  "2026-08-24T10:03:16.963Z","harness:claude-code","CodeRabbit was right that the linked test only covered the package.json invocation and never reached the direct pm-changelog commands in the release workflow. Added an executable check that does both halves. The static half enumerates every tracked file containing a generator invocation and asserts each file's flagged count is not below its site count, which fails when any single site loses the flag; verified by removing the flag from one of two release.yml sites and watching it report one of two and exit non-zero. The behavioural half runs the generator twice on the same probe version 2026.1.2, deliberately chosen so its calendar date cannot coincide with today, and asserts the heading is 2026.1.2 - 2026-01-02 with the flag and 2026.1.2 - 2026-08-24 without it, so the test states the defect rather than merely asserting the fix."
+files[5]{path,scope,note}:
   package.json,project,every pm-changelog invocation here now derives the no-tag release date from the calendar version
   .github/workflows/release.yml,project,every pm-changelog invocation here now derives the no-tag release date from the calendar version
   package-lock.json,project,lockfile moved for pm-changelog 2026.8.17 which ships date-from-version
   CHANGELOG.md,project,regenerated pending heading now derives from the calendar version
-tests[5]:
+  scripts/verify-release-changelog-date.sh,project,"executable proof for the release workflow invocations, which the package.json changelog check never reaches"
+tests[6]:
   - command: "npm run changelog:check"
     path: package.json
     scope: project
@@ -33,5 +36,9 @@ tests[5]:
   - command: ./node_modules/.bin/pm health --strict-exit
     scope: project
     note: pinned pm health exit 0
+  - command: bash scripts/verify-release-changelog-date.sh
+    path: scripts/verify-release-changelog-date.sh
+    scope: project
+    note: "exercises the release workflow path that npm run changelog:check does not: asserts every generator invocation in every tracked file carries the flag, and shows the same probe version yielding its own calendar date with the flag and today's date without it"
 close_reason: "Changelog gate stabilised: date-from-version flag applied to all pm-changelog invocation sites (package.json x4, release.yml x3); proof at untagged 2026.8.25: without-flag heading 2026.8.25 - 2026-08-24 (clock) vs with-flag 2026.8.25 - 2026-08-25 (version). Gates: changelog:check ok, health=0, 193 tests pass, coverage met. Corrected the proof version leftover in b5a8f2a back to 2026.8.24 with changelog regenerated."
 body: ""
