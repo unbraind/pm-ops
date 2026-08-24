@@ -2,15 +2,36 @@ id: ops-vll0
 title: "The changelog gate stamps an untagged version with the current date, so its verdict flips every midnight with no commit"
 description: "pm-changelog synthesises a pending release window for a version that has no matching git tag and stamps it with the current UTC date rather than anything derived from the input. The release workflow tags only after npm publish succeeds, and publish has been failing fleet wide since 2026-08-21, so this package currently carries an untagged version and is on that clock dependent path. The exposure is masked today only by a coincidence, because the package version and today's date are the same calendar day, and it fails on any later day with no commit having changed. Verified on pm-ops where the version date and today's date differ, which makes the comparison decisive: an untagged 2026.8.22 generates heading 2026.8.22 - 2026-08-24 without the flag and 2026.8.22 - 2026-08-22 with it. The remedy needs no new code because pm-changelog 2026.8.17 already ships --date-from-version, and zero of twenty packages passed it. Applied to every invocation of the generator in this package rather than only to the scripts whose names begin with changelog, because the release workflow invokes it directly and generation and check must not disagree. Site audit: package.json sites 4 flagged 4; .github/workflows/release.yml sites 3 flagged 3;"
 type: Issue
-status: open
+status: closed
 priority: 1
 tags[3]: changelog,gates,release
 created_at: "2026-08-24T09:39:30.862Z"
-updated_at: "2026-08-24T09:39:34.202Z"
+updated_at: "2026-08-24T09:45:23.572Z"
+closed_at: "2026-08-24T09:45:23.525Z"
+completed_at: "2026-08-24T09:45:23.525Z"
+claim_principal: pi-agent
 author: "harness:claude-code"
-files[2]{path,scope,note}:
+files[4]{path,scope,note}:
   package.json,project,every pm-changelog invocation here now derives the no-tag release date from the calendar version
   .github/workflows/release.yml,project,every pm-changelog invocation here now derives the no-tag release date from the calendar version
-tests[1]{command,path,scope,note}:
-  "npm run changelog:check",package.json,project,regenerates the changelog and compares it; without the flag the heading date is stamped from the clock and the comparison fails on any day after generation
+  package-lock.json,project,lockfile moved for pm-changelog 2026.8.17 which ships date-from-version
+  CHANGELOG.md,project,regenerated pending heading now derives from the calendar version
+tests[5]:
+  - command: "npm run changelog:check"
+    path: package.json
+    scope: project
+    note: regenerates the changelog and compares it; without the flag the heading date is stamped from the clock and the comparison fails on any day after generation
+  - command: "npm run changelog:check"
+    scope: project
+    note: changelog gate green with flag
+  - command: npm test
+    scope: project
+    note: 193 tests pass
+  - command: npm run coverage
+    scope: project
+    note: coverage thresholds met
+  - command: ./node_modules/.bin/pm health --strict-exit
+    scope: project
+    note: pinned pm health exit 0
+close_reason: "Changelog gate stabilised: date-from-version flag applied to all pm-changelog invocation sites (package.json x4, release.yml x3); proof at untagged 2026.8.25: without-flag heading 2026.8.25 - 2026-08-24 (clock) vs with-flag 2026.8.25 - 2026-08-25 (version). Gates: changelog:check ok, health=0, 193 tests pass, coverage met. Corrected the proof version leftover in b5a8f2a back to 2026.8.24 with changelog regenerated."
 body: ""
