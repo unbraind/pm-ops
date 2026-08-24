@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- The changelog gate stamps an untagged version with the current date, so its verdict flips every midnight with no commit ([ops-vll0](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-vll0.toon))
+
 ## 2026.8.24 - 2026-08-24
 
 ### Fixed
