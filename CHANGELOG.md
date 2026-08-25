@@ -1,15 +1,10 @@
 # Changelog
 
-## Unreleased
+## 2026.8.25 - 2026-08-25
 
 ### Fixed
 
 - The changelog gate stamps an untagged version with the current date, so its verdict flips every midnight with no commit ([ops-vll0](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-vll0.toon))
-
-## 2026.8.24 - 2026-08-24
-
-### Fixed
-
 - Canonicalize fleet metric reads and enforce the pm 2026.8.20 host contract ([ops-3w9m](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3w9m.toon))
 
 ## 2026.8.17 - 2026-08-17
