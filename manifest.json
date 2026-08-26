@@ -1,6 +1,6 @@
 {
   "name": "pm-ops",
-  "version": "2026.8.25",
+  "version": "2026.8.26",
   "description": "Multi-repo fleet operations for pm-cli",
   "author": "@unbraind",
   "entry": "./dist/index.js",
