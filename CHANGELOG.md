@@ -1,12 +1,6 @@
 # Changelog
 
-## Unreleased
-
-### Security
-
-- The identity gate deadlocks the one remediation its own failure message prescribes ([ops-wsi9](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-wsi9.toon))
-
-## 2026.8.26 - 2026-08-26
+## 2026.8.27 - 2026-08-27
 
 ### Fixed
 
