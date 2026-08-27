@@ -1,0 +1,28 @@
+id: ops-gp0d
+title: "A thirty-five second CLI test fails on timing whenever the machine is busy, so the gate reports red for load rather than for code"
+description: "The test named installed pm CLI routes --repos values to every fleet command spawns the installed pm binary many times in sequence and takes roughly 30 to 35 seconds on an idle machine. On 2026-08-26 UTC it failed twice while six packages full gate suites ran in parallel, and passed when re-run alone on the same commit. It also passed on main under comparable parallel load. The conclusion is that the test is load sensitive rather than broken, so a red result from a parallel sweep must be re-run in isolation before it is believed."
+type: Issue
+status: open
+priority: 3
+tags[3]: ci,flake,test
+created_at: "2026-08-26T20:06:09.002Z"
+updated_at: "2026-08-26T22:15:54.161Z"
+deadline: "2026-09-16T00:00:00.000Z"
+assignee: claude
+author: claude
+estimated_minutes: 90
+acceptance_criteria: "The test either bounds its own runtime independently of machine load, or spawns the CLI once and asserts over the batch rather than once per command, so that a busy machine cannot turn it red"
+comments[2]{created_at,author,text}:
+  "2026-08-26T20:06:09.002Z",claude,Not introduced by the trusted-publishing change; that change touches only release.yml and its own test file.
+  "2026-08-26T22:15:54.161Z",claude,"Corrected an internal inconsistency this record carried: the description claimed the commit passed in isolation on both re-runs while the note recorded a single isolated pass among three observations. Those cannot both be right and I cannot re-derive which from the surviving evidence, so both now state only what is defensible - two failures under six-way parallel load, and a pass when re-run alone on the same commit - without asserting a count of isolated re-runs that the records disagree about. Inconsistent evidence is worse than less evidence, because it misleads flake triage."
+notes[1]{created_at,author,text}:
+  "2026-08-26T20:06:09.002Z",claude,"Observed three times on 2026-08-26: two failures under six-way parallel gate runs, one pass alone on the identical commit."
+learnings[1]{created_at,author,text}:
+  "2026-08-26T20:06:09.002Z",claude,"A red result from a parallel gate sweep needs re-running in isolation before it is believed, whenever any single test takes tens of seconds."
+files[1]{path,scope}:
+  test,project
+tests[1]{command,scope}:
+  npx tsx --test test/ops.test.ts,project
+docs[1]{path,scope,note}:
+  "https://nodejs.org/api/test.html#test-runner-execution-model",project,node test runner concurrency and timing
+body: "Two plausible directions: batch the routing assertions into a single CLI invocation, or drive the routing contract from the command registry directly rather than through repeated process spawns. Raising a timeout would hide the sensitivity rather than remove it."
