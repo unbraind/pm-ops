@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags[3]: "area:release","area:supply-chain","type:defect"
 created_at: "2026-08-28T05:28:44.066Z"
-updated_at: "2026-08-28T05:59:54.405Z"
+updated_at: "2026-08-28T06:11:11.650Z"
 deadline: "2026-08-29T00:00:00.000Z"
 closed_at: "2026-08-28T05:39:56.527Z"
 completed_at: "2026-08-28T05:39:56.527Z"
@@ -16,9 +16,10 @@ acceptance_criteria: The release step has no publish path that omits --provenanc
 resolution: "The publish step drops the unattested fallback and converges on pm-changelog's contract: three attested attempts, a reconcile read for a version that landed despite a reported error, then a failing job. A new verify:release-publish-attestation gate finds every npm publish this repository can run and requires --provenance on each; it is wired into release:check and into CI as its own step."
 expected_result: "No publish path omits --provenance, and a regression that reintroduces one fails a gate rather than shipping an unattested artifact."
 actual_result: "Restoring the fallback makes the gate exit 1 naming the command; removing it again exits 0. Gates: typecheck 0, docstring 0 (8 files, 110 declarations), coverage 100/100/100/100 across 8 files, verify:release-changelog-date 0, verify:release-publish-attestation 0, 18 new tests pass."
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-08-28T05:28:44.066Z",claude,"Reached only after three failed provenance attempts,which is precisely the state the fleet has been in since 2026-08-17. The first successful publish after the outage would have been the unattested one."
   "2026-08-28T05:59:54.405Z",claude,"Greptile round 1, both findings accepted and fixed. P2 (security): the gate tested for the --provenance SUBSTRING, so --provenance=false and --no-provenance both read as attested - the exact regression it exists to catch. attestationEnabled now tokenises and resolves last-flag-wins the way npm does. P1: with no sleep after the final attempt, the single reconcile read raced registry propagation and could fail a release npm had already accepted, skipping the tag and the GitHub release; it now polls three times with a 15s gap."
+  "2026-08-28T06:11:11.650Z",claude,"Greptile round 2: the reconcile window I added was 30s, but this same workflow's bun verification step documents that the npm registry can take ~60s to propagate and gives itself 5 attempts at 30s. A shorter window here would fail a release that the very next step would then find. Widened to the same 5 attempts at 30s, deliberately matching that step's shape and numbers since it reads the same registry for the same version. Paid only on the path where npm already reported an error."
 notes[1]{created_at,author,text}:
   "2026-08-28T05:28:44.066Z",claude,"Audited across the fleet: 17 of 18 published packages carried the identical fallback; only pm-changelog refused. The block was byte-identical in 16 of them."
 learnings[1]{created_at,author,text}:

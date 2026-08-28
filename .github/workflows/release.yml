@@ -693,15 +693,24 @@ jobs:
           # attempts; the final attempt has no sleep after it, so a single
           # immediate read here would race propagation and fail a release npm
           # had already accepted -- skipping the tag and the GitHub release for a
-          # version that is on the registry. Poll instead.
-          for reconcile_attempt in 1 2 3; do
+          # version that is on the registry, which is the "npm ahead of git"
+          # split the release ordering exists to prevent. Poll instead.
+          #
+          # 5 attempts, 30s apart, deliberately the same shape and numbers as the
+          # bun verification step below: it reads the same registry for the same
+          # version and already documents that propagation can take ~60s. A
+          # shorter window here would fail a release the very next step would
+          # then find. The cost is paid only on the path where npm has already
+          # reported an error, never on a successful publish.
+          reconcile_attempts=5
+          for reconcile_attempt in $(seq 1 "${reconcile_attempts}"); do
             if npm view "${pkg_name}@${NPM_VERSION}" version --json >/dev/null 2>&1; then
               echo "::notice::Version landed after the final reported error; treating as success."
               exit 0
             fi
-            if (( reconcile_attempt < 3 )); then
-              echo "Not yet visible on the registry; re-reading in 15s (${reconcile_attempt}/3)..."
-              sleep 15
+            if (( reconcile_attempt < reconcile_attempts )); then
+              echo "Not yet visible on the registry; re-reading in 30s (${reconcile_attempt}/${reconcile_attempts})..."
+              sleep 30
             fi
           done
           echo "::error::Publish with provenance failed after ${max_attempts} attempts. Refusing to downgrade supply-chain attestations; retry the release transaction."
