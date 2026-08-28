@@ -1,0 +1,11 @@
+id: ops-cl0o
+title: "Adding a source file breaks the coverage gate in three places, and none of them says so"
+description: "The coverage gate enumerates every source file so that a file added without tests cannot pass by being absent from the report. That enumeration is duplicated by hand in three fixture lists inside test/coverage-gate.test.ts (a POSIX stub, a Windows stub, and an explicit array) plus the include list in the package coverage script. Adding one source file therefore requires four coordinated edits, and omitting any of them fails the gate with a coverage threshold error that names a percentage rather than the missing file. Two source files added in this session each hit it."
+type: Issue
+status: open
+priority: 2
+tags[3]: "area:release","area:testing","type:defect"
+created_at: "2026-08-28T14:25:04.891Z"
+updated_at: "2026-08-28T14:25:04.891Z"
+author: claude
+body: ""

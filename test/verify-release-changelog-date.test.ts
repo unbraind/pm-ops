@@ -17,19 +17,21 @@ import {
   VERSION_INPUTS,
   auditHeadings,
   auditInvocations,
-  bashArrays,
   stripComment,
-  expandArrays,
   invocationsIn,
-  joinContinuations,
   generateHeading,
-  isMainInvocation,
   main,
   runIfMain,
   report,
   resolveGenerator,
   verify,
 } from "../scripts/verify-release-changelog-date.ts";
+import {
+  bashArrays,
+  expandArrays,
+  joinContinuations,
+} from "../scripts/shell-command-scan.ts";
+import { isMainInvocation } from "../scripts/main-invocation.ts";
 
 const FLAGGED = `pm-changelog --pm-root .agents/pm --release-version-from-package ${DATE_FLAG}`;
 

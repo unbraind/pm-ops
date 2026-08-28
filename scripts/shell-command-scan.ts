@@ -31,6 +31,9 @@
  * @packageDocumentation
  */
 
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
 /** One word of a command, after quote resolution. */
 export interface ShellToken {
   /** The word's text with its quoting removed. */
@@ -348,3 +351,68 @@ export function commandName(command: ShellCommand): string | undefined {
 export function commandArguments(command: ShellCommand): ShellToken[] {
   return command.slice(skipCommandPrefix(command) + 1);
 }
+
+/** A tracked file's path and contents. */
+export interface SourceFile {
+  /** Repository-relative path. */
+  file: string;
+  /** File contents. */
+  text: string;
+}
+
+/**
+ * Collapse shell and YAML line continuations so one logical command is one string.
+ *
+ * A backslash at end of line joins the next line; without this every multi-line
+ * invocation looks like a set of fragments, none of which carries both the
+ * version input and the date flag.
+ *
+ * @param text - Raw file contents.
+ * @returns The same text with continuations joined.
+ */
+export function joinContinuations(text: string): string {
+  return text.replace(/\\\r?\n\s*/g, " ");
+}
+
+/**
+ * Index bash array assignments so a shared options array can be expanded.
+ *
+ * The release workflows declare `common=( ... )` once and pass `"${common[@]}"`
+ * to each invocation, precisely so the invocations cannot drift. A scan that
+ * reads only the invocation line therefore sees none of the shared flags.
+ *
+ * @param text - File contents with continuations already joined.
+ * @returns Array name mapped to the flag text it holds.
+ */
+export function bashArrays(text: string): Map<string, string> {
+  const arrays = new Map<string, string>();
+  for (const match of text.matchAll(/(?:^|\s)([A-Za-z_][A-Za-z0-9_]*)=\(([\s\S]*?)\)/g)) {
+    arrays.set(match[1], match[2].replace(/\s+/g, " ").trim());
+  }
+  return arrays;
+}
+
+/**
+ * Expand `"${name[@]}"` references against the file's array declarations.
+ *
+ * An unknown name is left untouched rather than erased: silently dropping it
+ * would turn "this scan does not understand the command" into "this command has
+ * no flags", which reads as a pass.
+ *
+ * @param line - One logical command.
+ * @param arrays - Array declarations from the same file.
+ * @returns The command with referenced array contents inlined.
+ */
+export function expandArrays(line: string, arrays: Map<string, string>): string {
+  return line.replace(/"?\$\{([A-Za-z_][A-Za-z0-9_]*)\[@\]\}"?/g, (whole, name: string) =>
+    arrays.get(name) ?? whole);
+}
+
+/** The outcome of one verifier run. */
+export interface VerifierResult {
+  /** Reasons the run failed; empty means it passed. */
+  failures: string[];
+  /** Lines describing what was checked, for the operator. */
+  notes: string[];
+}
+

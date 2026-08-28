@@ -22,20 +22,17 @@ import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
+  bashArrays,
   commandArguments,
   commandName,
-  tokenizeCommands,
-  type ShellCommand,
-} from "./shell-command-scan.ts";
-
-import {
-  bashArrays,
   expandArrays,
-  isMainInvocation,
   joinContinuations,
+  type ShellCommand,
   type SourceFile,
+  tokenizeCommands,
   type VerifierResult,
-} from "./verify-release-changelog-date.ts";
+} from "./shell-command-scan.ts";
+import { isMainInvocation } from "./main-invocation.ts";
 
 /** The flag that attaches a build attestation to the published tarball. */
 export const ATTESTATION_FLAG = "--provenance";
