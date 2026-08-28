@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- A failed provenance publish silently falls back to an unattested one ([ops-w3ke](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-w3ke.toon))
+- Prevent a failed provenance publish from silently falling back to an unattested publish ([ops-w3ke](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-w3ke.toon))
 - The changelog gate stamps an untagged version with the current date, so its verdict flips every midnight with no commit ([ops-vll0](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-vll0.toon))
 - Canonicalize fleet metric reads and enforce the pm 2026.8.20 host contract ([ops-3w9m](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3w9m.toon))
 

@@ -1867,11 +1867,14 @@ async function collectMergeReceiptsAll(repos: string[], includeReconciled: boole
  * @returns A single-line, pipe-safe cell value.
  */
 function markdownCell(text: string, limit: number): string {
-  return text
+  const escaped = text
     .replace(/\\/g, "\\\\")
     .replace(/\|/g, "\\|")
-    .replace(/\s+/g, " ")
-    .slice(0, limit);
+    .replace(/\s+/g, " ");
+  const truncated = escaped.slice(0, limit);
+  return truncated.replace(/\\+$/, (slashes) =>
+    slashes.length % 2 === 0 ? slashes : slashes.slice(0, -1),
+  );
 }
 
 /** Render an unknown retained/discarded value as a short, single-line markdown cell. */
