@@ -87,6 +87,18 @@ const COMMAND_PREFIXES = new Set([
   "npx",
   "bunx",
   "pnpx",
+  // Shell keywords introduce a command rather than being one. `if npm publish`
+  // runs npm; a scan that reads `if` as the program audits nothing.
+  "if",
+  "then",
+  "else",
+  "elif",
+  "while",
+  "until",
+  "do",
+  "!",
+  "{",
+  "(",
 ]);
 
 /**
@@ -98,6 +110,7 @@ const COMMAND_PREFIXES = new Set([
  * first argument, so the pair is only consumed when the second word matches.
  */
 const TWO_WORD_PREFIXES = new Map([
+  ["npm", new Set(["exec", "x"])],
   ["pnpm", new Set(["dlx", "exec"])],
   ["yarn", new Set(["dlx", "exec"])],
   ["bun", new Set(["x", "run"])],
@@ -274,6 +287,14 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
       continue;
     }
     if (isOperatorStart(character)) {
+      // `2>&1` is one redirection, not a command ended by a backgrounding `&`.
+      // The `&` belongs to the word only while that word is still an operator
+      // awaiting its target.
+      if (character === "&" && /^[0-9]*[<>]>?$/.test(value)) {
+        value += character;
+        started = true;
+        continue;
+      }
       endCommand();
       continue;
     }
@@ -287,12 +308,59 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
   for (const found of [...commands]) {
     const name = commandName(found);
     if (name === undefined || !SHELL_EVALUATORS.has(name)) continue;
-    for (const argument of found.slice(1)) {
-      if (argument.value.startsWith("-")) continue;
-      commands.push(...tokenizeCommands(argument.value, depth + 1));
+    // The shell joins an evaluator's words with a space and evaluates the
+    // result, so `eval "npm pub" "lish"` runs a publish that scanning each
+    // argument on its own never sees.
+    const payload = found.slice(1)
+      .filter((argument) => !argument.value.startsWith("-"))
+      .map((argument) => argument.value);
+    for (const body of new Set([...payload, payload.join(" ")])) {
+      commands.push(...tokenizeCommands(body, depth + 1));
     }
   }
   return commands;
+}
+
+/**
+ * True when an unquoted word is a redirection operator rather than a command word.
+ *
+ * A redirection and its target are not part of the command the shell runs, so
+ * `> /dev/null npm publish` runs npm. A scan that reads words in order sees `>`
+ * as the program and audits nothing. The forms accepted here are the ones a
+ * workflow actually writes: the plain operators, a file-descriptor prefix
+ * (`2>`, `2>>`), and the duplicating forms (`>&`, `2>&1`, `&>`).
+ *
+ * @param token - One command word.
+ * @returns True when the word is a redirection operator.
+ */
+function isRedirection(token: ShellToken): boolean {
+  if (token.startsQuoted) return false;
+  return /^(?:[0-9]*(?:>>?|<<?<?)&?[0-9-]*|&>>?)$/.test(token.value);
+}
+
+/**
+ * Drop a command's redirections, so only the words it runs remain.
+ *
+ * An operator written apart from its target (`> file`) consumes the word after
+ * it; one written joined to it (`>file`, `2>&1`) consumes nothing further.
+ *
+ * @param command - One simple command's tokens.
+ * @returns The command without its redirections.
+ */
+function withoutRedirections(command: ShellCommand): ShellCommand {
+  const kept: ShellCommand = [];
+  for (let index = 0; index < command.length; index += 1) {
+    const token = command[index]!;
+    if (!isRedirection(token)) {
+      // A joined form such as `>file` or `2>&1` is one word and takes no target.
+      if (!token.startsQuoted && /^(?:[0-9]*>>?|[0-9]*<<?<?|&>>?)[^\s]/.test(token.value)) continue;
+      kept.push(token);
+      continue;
+    }
+    // A bare operator takes the next word as its target.
+    if (!/&[0-9-]$/.test(token.value)) index += 1;
+  }
+  return kept;
 }
 
 /**
@@ -333,7 +401,7 @@ function skipCommandPrefix(command: ShellCommand): number {
       index += 2;
       continue;
     }
-    if (sawPrefix && !token.quoted && token.value.startsWith("-")) {
+    if (sawPrefix && !token.startsQuoted && token.value.startsWith("-")) {
       index += 1;
       continue;
     }
@@ -354,7 +422,8 @@ function skipCommandPrefix(command: ShellCommand): number {
  * @param command - One simple command's tokens.
  * @returns The program's basename, or undefined for an empty or assignment-only command.
  */
-export function commandName(command: ShellCommand): string | undefined {
+export function commandName(input: ShellCommand): string | undefined {
+  const command = withoutRedirections(input);
   const token = command[skipCommandPrefix(command)];
   return token === undefined ? undefined : basename(token.value);
 }
@@ -385,7 +454,8 @@ export function commandName(command: ShellCommand): string | undefined {
  * @param command - One simple command's tokens.
  * @returns Each candidate reading, the command's own first.
  */
-export function commandCandidates(command: ShellCommand): ShellCommand[] {
+export function commandCandidates(input: ShellCommand): ShellCommand[] {
+  const command = withoutRedirections(input);
   const start = skipCommandPrefix(command);
   const candidates: ShellCommand[] = [];
   if (start < command.length) candidates.push(command.slice(start));
@@ -404,7 +474,8 @@ export function commandCandidates(command: ShellCommand): ShellCommand[] {
  * @param command - One simple command's tokens.
  * @returns The argument tokens, in order.
  */
-export function commandArguments(command: ShellCommand): ShellToken[] {
+export function commandArguments(input: ShellCommand): ShellToken[] {
+  const command = withoutRedirections(input);
   return command.slice(skipCommandPrefix(command) + 1);
 }
 
@@ -446,6 +517,48 @@ export function bashArrays(text: string): Map<string, string> {
     arrays.set(match[1], match[2].replace(/\s+/g, " ").trim());
   }
   return arrays;
+}
+
+/**
+ * Index scalar assignments so a command held in a variable can be audited.
+ *
+ * `CMD="npm publish"` followed by `$CMD` runs a publish that no scan of the
+ * invocation line can see, because the invocation line contains no publish. The
+ * assignment is where the command actually is.
+ *
+ * Only literal single- or double-quoted values are indexed. An unquoted value
+ * cannot hold a space and so cannot hold a command, and a value built from
+ * other variables is not resolvable without evaluating the script, which this
+ * module deliberately does not do.
+ *
+ * @param text - File contents with continuations already joined.
+ * @returns Variable name mapped to the literal text it holds.
+ */
+export function shellScalars(text: string): Map<string, string> {
+  const scalars = new Map<string, string>();
+  for (const match of text.matchAll(/(?:^|[\s;&|])([A-Za-z_][A-Za-z0-9_]*)=(?:"([^"\n]*)"|'([^'\n]*)')/g)) {
+    // The alternation guarantees exactly one of the two value groups matched,
+    // so there is no third case to fall back to.
+    scalars.set(match[1]!, match[2] ?? match[3]!);
+  }
+  return scalars;
+}
+
+/**
+ * Expand `$name` and `${name}` references against the file's scalar assignments.
+ *
+ * An unknown name is left in place for the same reason an unknown array is:
+ * erasing it would turn "not understood" into "carries no flags", which reads
+ * as a pass.
+ *
+ * @param line - One logical command.
+ * @param scalars - Scalar assignments from the same file.
+ * @returns The command with known scalar references inlined.
+ */
+export function expandScalars(line: string, scalars: Map<string, string>): string {
+  // One of the two alternatives always captures the name, so there is no
+  // nameless match to guard against.
+  return line.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (whole, braced?: string, bare?: string) => scalars.get(braced ?? bare!) ?? whole);
 }
 
 /**

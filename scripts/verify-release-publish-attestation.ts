@@ -27,7 +27,9 @@ import {
   commandCandidates,
   commandName,
   expandArrays,
+  expandScalars,
   joinContinuations,
+  shellScalars,
   type ShellCommand,
   type SourceFile,
   tokenizeCommands,
@@ -194,9 +196,10 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
   const raw = source.file.endsWith("package.json") ? manifestCommandLines(source.text) : source.text;
   const text = joinContinuations(raw);
   const arrays = bashArrays(text);
+  const scalars = shellScalars(text);
   const expanded = text
     .split("\n")
-    .map((line) => expandArrays(line, arrays))
+    .map((line) => expandScalars(expandArrays(line, arrays), scalars))
     .join("\n");
   const found: PublishInvocation[] = [];
   for (const command of tokenizeCommands(expanded)) {

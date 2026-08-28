@@ -30,7 +30,7 @@ import {
   trackedPublishSources,
   verify,
 } from "../scripts/verify-release-publish-attestation.ts";
-import { commandArguments, commandCandidates, commandName, tokenizeCommands } from "../scripts/shell-command-scan.ts";
+import { commandArguments, commandCandidates, commandName, expandScalars, shellScalars, tokenizeCommands } from "../scripts/shell-command-scan.ts";
 
 /** Tokenises one command and returns it, asserting the text held exactly one. */
 function onlyCommand(text: string): ReturnType<typeof tokenizeCommands>[number] {
@@ -596,4 +596,60 @@ test("an option in first position names the command it is written on, not one of
   assert.deepEqual(commandArguments(onlyCommand("npx")), []);
   // A quoted option after a wrapper is a literal argument, not the wrapper's flag.
   assert.equal(commandName(onlyCommand(`npx "--yes"`)), "--yes");
+});
+
+test("a redirection and its target are not command words", () => {
+  // Greptile: `> /dev/null npm publish` runs npm, but a scan reading words in
+  // order sees `>` as the program and audits nothing.
+  const cases = [
+    "> /dev/null npm publish",
+    ">/dev/null npm publish",
+    "2>/dev/null npm publish",
+    "2> /dev/null npm publish",
+    "&> /dev/null npm publish",
+    "npm publish > /dev/null",
+    "npm publish 2>&1",
+  ];
+  for (const text of cases) {
+    assert.equal(commandName(onlyCommand(text)), "npm", text);
+  }
+  // The publish is still audited beside an attested sibling, which is the shape
+  // that made this a bypass rather than a curiosity.
+  const withSibling = {
+    file: "release.yml",
+    text: "          npm publish --provenance\n          > /dev/null npm publish\n",
+  };
+  assert.equal(auditPublishAttestation([withSibling]).failures.length, 1);
+});
+
+test("a shell keyword introduces a command rather than being one", () => {
+  for (const text of ["if npm publish", "while npm publish", "until npm publish", "! npm publish"]) {
+    assert.equal(commandName(onlyCommand(text)), "npm", text);
+  }
+  // `npm exec` is a runner like `pnpm dlx`, with or without the `--` separator.
+  assert.equal(commandName(onlyCommand("npm exec -- npm publish")), "npm");
+  assert.equal(
+    auditPublishAttestation([{
+      file: "release.yml",
+      text: "          npm publish --provenance\n          if npm publish; then echo ok; fi\n",
+    }]).failures.length,
+    1,
+  );
+});
+
+test("a command held in a scalar is expanded, so the assignment is where the publish is found", () => {
+  const scalars = shellScalars('CMD="npm publish"\nOTHER=\'npm publish --provenance\'\nBARE=npm\n');
+  assert.equal(scalars.get("CMD"), "npm publish");
+  assert.equal(scalars.get("OTHER"), "npm publish --provenance");
+  assert.equal(scalars.get("BARE"), undefined, "an unquoted value cannot hold a command");
+  assert.equal(expandScalars("$CMD", scalars), "npm publish");
+  assert.equal(expandScalars("${CMD}", scalars), "npm publish");
+  assert.equal(expandScalars("$UNKNOWN", scalars), "$UNKNOWN", "an unknown name is left in place, not erased");
+  assert.equal(
+    auditPublishAttestation([{
+      file: "release.yml",
+      text: '          npm publish --provenance\n          CMD="npm publish"\n          $CMD\n',
+    }]).failures.length,
+    1,
+  );
 });
