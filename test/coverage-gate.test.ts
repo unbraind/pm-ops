@@ -135,6 +135,7 @@ test("coverage gate defaults to its package root and native process boundaries",
       "scripts/docstring-gate.ts",
       "scripts/prepare-merge-driver.ts",
       "scripts/verify-release-changelog-date.ts",
+      "scripts/verify-release-publish-attestation.ts",
     ]);
     return spawnResult();
   }) as unknown as typeof spawnSync;

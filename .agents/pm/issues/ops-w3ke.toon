@@ -1,0 +1,30 @@
+id: ops-w3ke
+title: A failed provenance publish silently falls back to an unattested one
+description: "After three failed provenance publish attempts the release step called npm publish without --provenance and reported success. The only signal was a GitHub warning annotation. A transient registry failure therefore downgrades the package's supply-chain attestation permanently for that version, and consumers cannot tell an unattested publish caused by a 404 storm apart from one that never had provenance at all."
+type: Issue
+status: closed
+priority: 1
+tags[3]: "area:release","area:supply-chain","type:defect"
+created_at: "2026-08-28T05:28:44.066Z"
+updated_at: "2026-08-28T05:39:56.540Z"
+deadline: "2026-08-29T00:00:00.000Z"
+closed_at: "2026-08-28T05:39:56.527Z"
+completed_at: "2026-08-28T05:39:56.527Z"
+author: claude
+estimated_minutes: 30
+acceptance_criteria: The release step has no publish path that omits --provenance; three provenance attempts are made; a version that landed despite a reported error is reconciled instead of republished; exhausting the attempts fails the job rather than publishing unattested; the workflow YAML parses and every bash run script passes bash -n.
+resolution: "The publish step drops the unattested fallback and converges on pm-changelog's contract: three attested attempts, a reconcile read for a version that landed despite a reported error, then a failing job. A new verify:release-publish-attestation gate finds every npm publish this repository can run and requires --provenance on each; it is wired into release:check and into CI as its own step."
+expected_result: "No publish path omits --provenance, and a regression that reintroduces one fails a gate rather than shipping an unattested artifact."
+actual_result: "Restoring the fallback makes the gate exit 1 naming the command; removing it again exits 0. Gates: typecheck 0, docstring 0 (8 files, 110 declarations), coverage 100/100/100/100 across 8 files, verify:release-changelog-date 0, verify:release-publish-attestation 0, 18 new tests pass."
+comments[1]{created_at,author,text}:
+  "2026-08-28T05:28:44.066Z",claude,"Reached only after three failed provenance attempts,which is precisely the state the fleet has been in since 2026-08-17. The first successful publish after the outage would have been the unattested one."
+notes[1]{created_at,author,text}:
+  "2026-08-28T05:28:44.066Z",claude,"Audited across the fleet: 17 of 18 published packages carried the identical fallback; only pm-changelog refused. The block was byte-identical in 16 of them."
+learnings[1]{created_at,author,text}:
+  "2026-08-28T05:28:44.066Z",claude,"A fallback that weakens a security property is not a resilience measure. When the strong path fails,the correct outcome is no artifact,not a weaker artifact that looks the same to consumers."
+files[1]{path,scope,note}:
+  .github/workflows/release.yml,project,publish step refuses to downgrade attestation and reconciles a late-landing version
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  python3 scripts/verify-release-publish-attestation.ts,project,120,claude,"2026-08-28T05:28:44.066Z",local_mutation,fix/refuse-unattested-publish-fallback
+close_reason: fixed
+body: "The fallback was added while the registry was returning 404s, to get a release out. That trade is wrong for a supply-chain artifact: an unattested publish is not a degraded success, it is a different artifact. Failing the job leaves main holding the prepared version so the next run resumes the same release rather than inventing another one, which is exactly what the surrounding transaction was designed to do. pm-changelog already refuses; this converges the rest of the fleet onto that contract."

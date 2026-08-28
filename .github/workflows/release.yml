@@ -670,10 +670,6 @@ jobs:
           publish_with_provenance() {
             npm publish --access public --provenance --ignore-scripts
           }
-          publish_without_provenance() {
-            echo "::warning::Falling back to publish WITHOUT --provenance after repeated 404 from npm registry."
-            npm publish --access public --ignore-scripts
-          }
           attempt=0
           max_attempts=3
           while (( attempt < max_attempts )); do
@@ -686,19 +682,16 @@ jobs:
               echo "::notice::Version landed despite reported error; treating as success."
               exit 0
             fi
-            echo "Publish attempt ${attempt}/${max_attempts} failed; sleeping 30s before retry..."
-            sleep 30
+            if (( attempt < max_attempts )); then
+              echo "Publish attempt ${attempt}/${max_attempts} failed; sleeping 30s before retry..."
+              sleep 30
+            fi
           done
-          echo "::warning::All ${max_attempts} provenance publish attempts failed; trying once without provenance."
-          if publish_without_provenance; then
-            echo "Published without provenance."
-            exit 0
-          fi
           if npm view "${pkg_name}@${NPM_VERSION}" version --json >/dev/null 2>&1; then
-            echo "::notice::Version landed during fallback; treating as success."
+            echo "::notice::Version landed after the final reported error; treating as success."
             exit 0
           fi
-          echo "::error::Publish failed after retries and provenance fallback."
+          echo "::error::Publish with provenance failed after ${max_attempts} attempts. Refusing to downgrade supply-chain attestations; retry the release transaction."
           exit 1
 
       # Tag the exact merged/verified main commit AFTER a successful publish.
