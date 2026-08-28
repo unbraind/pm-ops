@@ -2474,12 +2474,21 @@ test("ops merge-receipts renders sparse and structured decision values without l
   const receiptDirectory = join(lab.path, ".git", "pm-merge-receipts");
   const receiptPath = join(receiptDirectory, readdirSync(receiptDirectory).find((file) => file.endsWith(".json"))!);
   const receipt = parseJson<Record<string, unknown>>(readFileSync(receiptPath, "utf8"));
-  receipt.decisions = [{ field: "metadata", base: null, ours: null, theirs: { source: "peer" }, discarded: { source: "peer" } }];
+  const oddTail = `${"x".repeat(119)}\\`;
+  const evenTail = `${"y".repeat(118)}\\`;
+  receipt.decisions = [
+    { field: "metadata", base: null, ours: null, theirs: { source: "peer" }, discarded: { source: "peer" } },
+    { field: "long", retained: oddTail, discarded: evenTail },
+  ];
   writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
 
   const ext = await harness();
   const sparse = await runCmd<RenderedResult>(ext, "ops merge-receipts", { repos: [lab.path], warnOnly: true, format: "markdown" });
   assert.match(sparse.output, /\| metadata \| - \| \{"source":"peer"\} \|/);
+  assert.ok(
+    sparse.output.includes(`| long | ${"x".repeat(119)} | ${"y".repeat(118)}\\\\ |`),
+    "a truncated markdown cell must not leave an odd escape before the next column",
+  );
 
   receipt.decisions = [];
   writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
