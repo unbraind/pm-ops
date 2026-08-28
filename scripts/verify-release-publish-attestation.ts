@@ -24,6 +24,7 @@ import { resolve } from "node:path";
 import {
   bashArrays,
   commandArguments,
+  commandCandidates,
   commandName,
   expandArrays,
   joinContinuations,
@@ -199,14 +200,18 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
     .join("\n");
   const found: PublishInvocation[] = [];
   for (const command of tokenizeCommands(expanded)) {
-    const program = commandName(command);
-    if (program === undefined) continue;
-    if (program === "npm") {
-      if (isPublishCommand(command)) found.push({ file: source.file, program, command });
-      continue;
-    }
-    if (FOREIGN_PUBLISHERS.has(program) && isPublishCommand(command)) {
-      found.push({ file: source.file, program, command });
+    // Every reading, not just the command's own: a wrapper option that takes a
+    // value (`sudo -u root npm publish`) moves the program past where naming it
+    // once would look. Missing a publish is a failed audit; offering one that no
+    // shell would run is noise an operator dismisses.
+    for (const candidate of commandCandidates(command)) {
+      const program = commandName(candidate);
+      if (program === undefined) continue;
+      if (program !== "npm" && !FOREIGN_PUBLISHERS.has(program)) continue;
+      if (!isPublishCommand(candidate)) continue;
+      // Not de-duplicated: two identical publish lines are two invocations, and
+      // collapsing them would report one of them as if the other did not exist.
+      found.push({ file: source.file, program, command: candidate });
     }
   }
   return found;

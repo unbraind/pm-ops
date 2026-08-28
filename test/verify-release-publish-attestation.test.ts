@@ -30,7 +30,7 @@ import {
   trackedPublishSources,
   verify,
 } from "../scripts/verify-release-publish-attestation.ts";
-import { commandArguments, commandName, tokenizeCommands } from "../scripts/shell-command-scan.ts";
+import { commandArguments, commandCandidates, commandName, tokenizeCommands } from "../scripts/shell-command-scan.ts";
 
 /** Tokenises one command and returns it, asserting the text held exactly one. */
 function onlyCommand(text: string): ReturnType<typeof tokenizeCommands>[number] {
@@ -290,13 +290,55 @@ test("tokenizeCommands resolves quoting, comments and escapes the way a shell do
   assert.deepEqual(onlyCommand('x "a\\"b"').map((token) => token.value), ["x", 'a"b'], "an escaped quote stays in the word");
   assert.deepEqual(tokenizeCommands("# only a comment"), []);
   assert.deepEqual(onlyCommand("npm ci # trailing comment").map((token) => token.value), ["npm", "ci"]);
-  assert.deepEqual(tokenizeCommands("a\\"), [[{ value: "a", quoted: false }]], "a trailing backslash does not read past the end");
+  assert.deepEqual(tokenizeCommands("a\\"), [[{ value: "a", quoted: false, startsQuoted: false }]], "a trailing backslash does not read past the end");
   assert.deepEqual(tokenizeCommands("echo 'unterminated").map((c) => c.map((t) => t.value)), [["echo", "unterminated"]]);
   assert.equal(onlyCommand('cmd "unterminated')[1]!.quoted, true);
   assert.deepEqual(commandArguments(onlyCommand("env A=1 npm publish")).map((token) => token.value), ["publish"]);
   assert.equal(commandName([]), undefined);
   assert.equal(commandName(onlyCommand("A=1 B=2")), undefined, "assignments alone run no command");
   assert.equal(commandName(onlyCommand("'npm' publish")), "npm", "a quoted program name still runs it");
+  // startsQuoted, not quoted, is what separates an assignment from a literal
+  // that merely looks like one: the shell assigns for the first and not the
+  // second, and only the second begins inside quotes.
+  assert.equal(onlyCommand('A="b c" npm')[0]!.startsQuoted, false, "a quoted VALUE still starts unquoted");
+  assert.equal(onlyCommand('"A=b" npm')[0]!.startsQuoted, true, "a wholly quoted word starts quoted");
+  assert.equal(onlyCommand("'A=b' npm")[0]!.startsQuoted, true);
+  assert.equal(onlyCommand("\\A=b npm")[0]!.startsQuoted, false, "an escape is not a quote");
+  assert.equal(commandName(onlyCommand('NPM_CONFIG_REGISTRY="https://r.example" npm publish')), "npm");
+  assert.equal(commandName(onlyCommand('"A=b" publish')), "A=b", "a quoted literal is the program, not an assignment");
+});
+
+test("every reading of a wrapper-led command is offered, so an unknown option value cannot hide a program", () => {
+  // commandName answers once and is right to; an auditor cannot afford that,
+  // because `-u` takes a value and nothing here enumerates which options do.
+  const values = (command: ReturnType<typeof onlyCommand>) =>
+    commandCandidates(command).map((candidate) => commandName(candidate));
+  assert.deepEqual(values(onlyCommand("sudo -u root npm publish")), ["root", "npm", "publish"]);
+  assert.deepEqual(values(onlyCommand("nice -n 10 npm publish")), ["10", "npm", "publish"]);
+  // No wrapper means exactly one reading, so ordinary commands are untouched.
+  assert.deepEqual(values(onlyCommand("npm publish --provenance")), ["npm"]);
+  assert.deepEqual(values(onlyCommand("echo npm publish")), ["echo"]);
+  // A command that is nothing but a wrapper offers no reading at all.
+  assert.deepEqual(commandCandidates(onlyCommand("sudo")), []);
+  assert.deepEqual(commandCandidates([]), []);
+  // A reading that is only assignments names no program, and is skipped rather
+  // than audited as one.
+  // A trailing reading that is only assignments names no program, so it is
+  // skipped rather than audited as one.
+  assert.deepEqual(values(onlyCommand("sudo -u root npm publish A=1")), ["root", "npm", "publish", undefined]);
+  assert.deepEqual(
+    publishInvocationsIn({ file: "release.yml", text: "          sudo -u root npm publish --provenance A=1\n" }).length,
+    1,
+  );
+});
+
+test("two identical publish lines are two findings, not one", () => {
+  // Collapsing them would report one invocation as if the other did not exist,
+  // and an operator reading "1 unattested publish" would fix half the file.
+  const result = auditPublishAttestation([
+    { file: "release.yml", text: "          npm publish\n          npm publish\n" },
+  ]);
+  assert.equal(result.failures.length, 2);
 });
 
 test("a substitution inside double quotes is scanned, because the shell runs it before the quotes matter", () => {

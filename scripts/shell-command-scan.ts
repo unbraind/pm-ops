@@ -40,6 +40,16 @@ export interface ShellToken {
   value: string;
   /** True when any part of the word came from inside quotes. */
   quoted: boolean;
+  /**
+   * True when the word's FIRST character came from inside quotes.
+   *
+   * `quoted` alone cannot tell an assignment apart from a literal that merely
+   * looks like one. `NPM_CONFIG_REGISTRY="https://example"` is a real
+   * assignment whose value happens to be quoted, while `"FOO=bar"` is a single
+   * quoted word that the shell does not treat as an assignment at all. Both set
+   * `quoted`; only the second starts inside quotes.
+   */
+  startsQuoted: boolean;
 }
 
 /** One simple command: the words it would run, in order. */
@@ -178,13 +188,15 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
   let command: ShellCommand = [];
   let value = "";
   let quoted = false;
+  let startsQuoted = false;
   let started = false;
 
   const endWord = (): void => {
     if (!started) return;
-    command.push({ value, quoted });
+    command.push({ value, quoted, startsQuoted });
     value = "";
     quoted = false;
+    startsQuoted = false;
     started = false;
   };
   const endCommand = (): void => {
@@ -207,6 +219,7 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
       if (next === undefined) break;
       if (next === "\n") continue;
       value += next;
+      if (!started) startsQuoted = false;
       started = true;
       continue;
     }
@@ -215,6 +228,7 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
       const end = close === -1 ? text.length : close;
       value += text.slice(index + 1, end);
       quoted = true;
+      if (!started) startsQuoted = true;
       started = true;
       index = end;
       continue;
@@ -243,6 +257,7 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
         index += 1;
       }
       quoted = true;
+      if (!started) startsQuoted = true;
       started = true;
       continue;
     }
@@ -250,6 +265,7 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
       const { inner, end } = readSubstitution(text, index);
       nested.push(inner);
       index = end - 1;
+      if (!started) startsQuoted = false;
       started = true;
       continue;
     }
@@ -262,6 +278,7 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
       continue;
     }
     value += character;
+    if (!started) startsQuoted = false;
     started = true;
   }
   endCommand();
@@ -300,7 +317,7 @@ function skipCommandPrefix(command: ShellCommand): number {
   let sawPrefix = false;
   while (index < command.length) {
     const token = command[index]!;
-    if (!token.quoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(token.value)) {
+    if (!token.startsQuoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(token.value)) {
       index += 1;
       continue;
     }
@@ -340,6 +357,45 @@ function skipCommandPrefix(command: ShellCommand): number {
 export function commandName(command: ShellCommand): string | undefined {
   const token = command[skipCommandPrefix(command)];
   return token === undefined ? undefined : basename(token.value);
+}
+
+/**
+ * Enumerate every reading of a command that could name a program.
+ *
+ * `commandName` answers "what does this command run" and answers it once. That
+ * is right for reporting and wrong for auditing, because a wrapper's options
+ * are not all known: `sudo -u root npm publish` stops at `root`, since `-u`
+ * takes a value and nothing here knows that. Enumerating the value-taking
+ * options of every wrapper would be a list that silently goes stale, and each
+ * omission is a publish that disappears from the audit.
+ *
+ * So once a wrapper has been consumed, every later word is also offered as a
+ * possible program, with the words after it as its arguments. An auditor asking
+ * "does any publish here lack an attestation" then cannot miss one behind a
+ * wrapper option it has never heard of.
+ *
+ * The cost is noise, never a miss: `sudo -u npm publish` -- a user actually
+ * named `npm` -- is offered as a publish that no shell would run. For a gate
+ * whose failure mode is an unattested release, a spurious finding an operator
+ * dismisses is the cheaper error.
+ *
+ * A command with no wrapper yields exactly one reading, so ordinary commands
+ * are unaffected.
+ *
+ * @param command - One simple command's tokens.
+ * @returns Each candidate reading, the command's own first.
+ */
+export function commandCandidates(command: ShellCommand): ShellCommand[] {
+  const start = skipCommandPrefix(command);
+  const candidates: ShellCommand[] = [];
+  if (start < command.length) candidates.push(command.slice(start));
+  if (start === 0) return candidates;
+  for (let index = start + 1; index < command.length; index += 1) {
+    const token = command[index]!;
+    if (token.value.startsWith("-")) continue;
+    candidates.push(command.slice(index));
+  }
+  return candidates;
 }
 
 /**
