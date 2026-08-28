@@ -28,8 +28,11 @@ test("bashArrays collapses whitespace so a multi-line declaration is one flag st
 });
 
 test("the main-invocation guard answers both ways", () => {
-  const self = fileURLToPath(import.meta.resolve("../scripts/verify-release-changelog-date.ts"));
-  const url = import.meta.resolve("../scripts/verify-release-changelog-date.ts");
+  // Name the module under test, not a gate: not every package carries the same
+  // gates, and a path that resolves nowhere makes realpathSync throw rather
+  // than answer.
+  const self = fileURLToPath(import.meta.resolve("../scripts/main-invocation.ts"));
+  const url = import.meta.resolve("../scripts/main-invocation.ts");
   assert.equal(isMainInvocation(["node", self], url), true);
   assert.equal(isMainInvocation(["node", fileURLToPath(import.meta.url)], url), false);
   assert.equal(isMainInvocation(["node"], url), false);
