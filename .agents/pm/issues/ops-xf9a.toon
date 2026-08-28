@@ -1,0 +1,25 @@
+id: ops-xf9a
+title: Signed npm provenance names the workflow trigger SHA instead of the release commit it publishes
+description: "The daily release workflow creates and merges release metadata during a workflow run, checks out that new merged SHA, and publishes from it. GitHub OIDC provenance remains bound to the workflow run trigger SHA. The last real pm-ops attestation for 2026.8.17 names gitCommit 06b10d67169d17b2669c46becd33b9cb292c3bda, exactly the run head SHA, even though the same run created and merged release metadata before publishing. Presence of dist.attestations therefore cannot prove the artifact corresponds to the commit the workflow tags."
+type: Issue
+status: open
+priority: 0
+tags[3]: "area:release","area:supply-chain","type:defect"
+created_at: "2026-08-28T08:23:51.410Z"
+updated_at: "2026-08-28T08:23:51.410Z"
+author: "harness:codex"
+estimated_minutes: 240
+acceptance_criteria: "A release that changes metadata stops after merging and dispatches a fresh main-branch release run; publication occurs only when github.sha equals the merged release SHA; npm audit signatures cryptographically verifies the downloaded exact package and returns the SLSA bundle; the verified statement subject matches the package coordinate and tarball digest; repository, workflow path, ref, and resolved gitCommit exactly match the intended release; missing, invalid, ambiguous, or mismatched evidence fails closed; red-first fixtures cover wrong commit, repository, workflow, ref, coordinate, digest, missing bundle, and invalid audit results; the corrected contract is propagated per-package without copying foreign workflow content"
+risk: critical
+severity: critical
+repro_steps: "Inspect GitHub Actions run 31993362652: headSha is 06b10d67169d17b2669c46becd33b9cb292c3bda and the run merges release metadata before publishing. Fetch https://registry.npmjs.org/-/npm/v1/attestations/pm-ops@2026.8.17, select the SLSA provenance v1 bundle, base64-decode dsseEnvelope.payload, and inspect resolvedDependencies[0].digest.gitCommit; it is the run head SHA."
+expected_result: The signed provenance names the exact merged source commit whose tested bytes were published and later tagged.
+actual_result: "The signed provenance names the workflow trigger SHA, while the job publishes after checking out a different merged release SHA; current reconciliation only checks that an attestation object exists."
+affected_version: pm-ops daily release through 2026.8.28
+component: .github/workflows/release.yml
+customer_impact: "A package can display valid npm provenance while its Source Commit link identifies code other than the bytes published, defeating exact-source auditability and allowing the release workflow to tag the wrong commit during reconciliation."
+files[1]{path,scope,note}:
+  .github/workflows/release.yml,project,release preparation and publication must be split across run identities
+docs[1]{path,scope,note}:
+  "https://docs.npmjs.com/cli/v11/commands/npm-audit/",project,official cryptographic signature and provenance verification contract
+body: ""
