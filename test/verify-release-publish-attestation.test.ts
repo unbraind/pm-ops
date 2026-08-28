@@ -653,3 +653,125 @@ test("a command held in a scalar is expanded, so the assignment is where the pub
     1,
   );
 });
+
+test("a workflow key carries the command as its value, and is not the command", () => {
+  // Workflow files are scanned as raw text, so a YAML key is a word like any
+  // other: `run: npm publish` read `run:` as the program and audited nothing.
+  assert.equal(commandName(onlyCommand("run: npm publish")), "npm");
+  assert.equal(commandName(onlyCommand("- run: npm publish")), "npm");
+  // Only a LEADING key is consumed, so an argument that ends in a colon is not.
+  assert.equal(commandName(onlyCommand("echo label:")), "echo");
+  assert.deepEqual(
+    commandArguments(onlyCommand("echo label: value")).map((token) => token.value),
+    ["label:", "value"],
+  );
+  assert.equal(
+    auditPublishAttestation([{
+      file: "release.yml",
+      text: "          npm publish --provenance\n          - run: npm publish\n",
+    }]).failures.length,
+    1,
+  );
+});
+
+test("a quoted parenthesis inside a substitution is a literal, not its delimiter", () => {
+  // Counting it closed the substitution early and truncated the body, so the
+  // publish after it was never scanned at all.
+  const result = auditPublishAttestation([{
+    file: "release.yml",
+    text: '          npm publish --provenance\n          x=$(echo ")" && npm publish)\n',
+  }]);
+  assert.equal(result.failures.length, 1);
+});
+
+test("one package script cannot continue into the next", () => {
+  // A body ending in a backslash was joined to the following script, so a
+  // script beginning `--provenance` lent its flag to the unattested publish
+  // that ended the script before it.
+  const manifest = JSON.stringify({ scripts: { a: "npm publish \\", b: "--provenance echo done" } });
+  assert.equal(manifestCommandLines(manifest), "npm publish \n--provenance echo done");
+  assert.equal(auditPublishAttestation([{ file: "package.json", text: manifest }]).failures.length, 1);
+});
+
+test("npm selects a workspace with a flag, so a word after it does not excuse a publish", () => {
+  // `workspace` was listed as a runner subcommand, which meant a `publish`
+  // written after it was never audited. npm has no such subcommand.
+  assert.equal(
+    auditPublishAttestation([{
+      file: "release.yml",
+      text: "          npm publish --provenance\n          npm workspace pkg publish\n",
+    }]).failures.length,
+    1,
+  );
+  // A real runner subcommand still short-circuits: `npm run publish` runs a
+  // script named publish and publishes nothing.
+  assert.deepEqual(
+    publishInvocationsIn({ file: "release.yml", text: "          npm run publish\n" }),
+    [],
+  );
+});
+
+test("a substitution tracks both quote kinds and an escape while finding its close", () => {
+  // Each arm of the quote tracking has to be exercised or a later edit can
+  // remove one without the suite noticing.
+  const single = auditPublishAttestation([{
+    file: "release.yml",
+    text: "          npm publish --provenance\n          x=$(echo ')' && npm publish)\n",
+  }]);
+  assert.equal(single.failures.length, 1, "a single-quoted paren is a literal");
+  const escaped = auditPublishAttestation([{
+    file: "release.yml",
+    text: "          npm publish --provenance\n          x=$(echo \\) && npm publish)\n",
+  }]);
+  assert.equal(escaped.failures.length, 1, "an escaped paren is a literal");
+  // A double quote inside single quotes is literal, and vice versa.
+  assert.deepEqual(
+    tokenizeCommands(`x=$(echo '"' && npm publish --provenance)`).some(
+      (command) => commandName(command) === "npm",
+    ),
+    true,
+  );
+});
+
+test("a scalar carrying a substitution or a quote of its own is never inlined", () => {
+  // This is a regression test for a defect this gate introduced in itself.
+  // Inlining every quoted assignment put values like `x="$(node -p …)"` into
+  // unrelated commands, which injected an unbalanced parenthesis, and the scan
+  // then reported a publish that was not there while losing the one that was --
+  // a false verdict in both directions. Every package's release gate failed.
+  const scalars = shellScalars([
+    'CMD="npm publish"',
+    'SUBST="$(node -p 1)"',
+    'TICK="`date`"',
+    'QUOTED="he said \'hi\'"',
+    'PAREN="a (b)"',
+  ].join("\n"));
+  assert.equal(scalars.get("CMD"), "npm publish", "a plain literal is still resolved");
+  for (const name of ["SUBST", "TICK", "QUOTED", "PAREN"]) {
+    assert.equal(scalars.get(name), undefined, `${name} must not be inlined`);
+  }
+  // The shape that actually broke: an attested publish elsewhere in the file
+  // must still be found, and no phantom invented.
+  const text = [
+    '          pkg_name="$(node -p "require(\'./package.json\').name")"',
+    "          # `npm publish` - mentioned in a comment",
+    "          npm publish --access public --provenance --ignore-scripts",
+  ].join("\n");
+  const found = publishInvocationsIn({ file: "release.yml", text }).map((i) => renderCommand(i.command));
+  assert.deepEqual(found, ["npm publish --access public --provenance --ignore-scripts"]);
+});
+
+test("a substitution's quote state does not leak across its lines", () => {
+  // Workflow prose carries apostrophes inside double-quoted messages. If an
+  // unbalanced one persisted past the newline, every later parenthesis would
+  // look quoted and the substitution would run on past its real close,
+  // swallowing unrelated commands into it.
+  const text = [
+    "          x=$(echo \"GitHub's endpoint\"",
+    "             npm publish)",
+    "          npm publish --provenance",
+  ].join("\n");
+  const found = publishInvocationsIn({ file: "release.yml", text }).map((i) => renderCommand(i.command));
+  assert.ok(found.includes("npm publish"), "the publish inside the substitution is still found");
+  assert.ok(found.includes("npm publish --provenance"), "and the one after it is not swallowed");
+});

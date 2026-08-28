@@ -163,15 +163,30 @@ function readSubstitution(text: string, start: number): { inner: string; end: nu
     if (close === -1) return { inner: text.slice(start + 1), end: text.length };
     return { inner: text.slice(start + 1, close), end: close + 1 };
   }
+  // A parenthesis inside quotes is a literal, not a delimiter. Counting it
+  // closes the substitution early and truncates the body, so
+  // `$(echo ")" && npm publish)` loses the publish entirely.
   let depth = 1;
   let index = start + 2;
+  let single = false;
+  let double = false;
   while (index < text.length && depth > 0) {
     const character = text[index]!;
-    if (character === "\\") index += 1;
-    else if (character === "(") depth += 1;
-    else if (character === ")") depth -= 1;
-    if (depth === 0) break;
-    index += 1;
+    if (character === "\\") index += 2;
+    else {
+      // Quote state is bounded to one line. A workflow's prose carries
+      // apostrophes -- "GitHub's", "workflow's" -- inside double-quoted
+      // messages, and letting an unbalanced one persist across lines makes
+      // every later parenthesis look quoted, so the substitution runs on and
+      // swallows unrelated commands.
+      if (character === "\n") { single = false; double = false; }
+      else if (character === "'" && !double) single = !single;
+      else if (character === '"' && !single) double = !double;
+      else if (!single && !double && character === "(") depth += 1;
+      else if (!single && !double && character === ")") depth -= 1;
+      if (depth === 0) break;
+      index += 1;
+    }
   }
   return { inner: text.slice(start + 2, index), end: index + 1 };
 }
@@ -405,6 +420,22 @@ function skipCommandPrefix(command: ShellCommand): number {
       index += 1;
       continue;
     }
+    // A YAML key carries the command as its value: `run: npm publish` runs npm,
+    // and reading `run:` as the program audits nothing. Workflow files are
+    // scanned as raw text, so the key is a word like any other. Only a leading
+    // key is consumed, and only one, so an argument that merely ends in a colon
+    // is untouched.
+    // A YAML list marker precedes the key on the same line: `- run: npm publish`.
+    if (index === 0 && !token.startsQuoted && token.value === "-") {
+      sawPrefix = true;
+      index += 1;
+      continue;
+    }
+    if (index <= 1 && !token.startsQuoted && /^[A-Za-z_][A-Za-z0-9_-]*:$/.test(token.value)) {
+      sawPrefix = true;
+      index += 1;
+      continue;
+    }
     return index;
   }
   return index;
@@ -539,7 +570,15 @@ export function shellScalars(text: string): Map<string, string> {
   for (const match of text.matchAll(/(?:^|[\s;&|])([A-Za-z_][A-Za-z0-9_]*)=(?:"([^"\n]*)"|'([^'\n]*)')/g)) {
     // The alternation guarantees exactly one of the two value groups matched,
     // so there is no third case to fall back to.
-    scalars.set(match[1]!, match[2] ?? match[3]!);
+    const value = match[2] ?? match[3]!;
+    // Only a plain literal is inlined. A value carrying a substitution, a
+    // backtick, or a quote of its own changes how the line it lands in parses:
+    // inlining `pkg_name="$(node -p …)"` injects an unbalanced parenthesis into
+    // an unrelated command, and the scan then reports invocations that are not
+    // there while losing the one that is. That is a false verdict in both
+    // directions, which is worse than not resolving the variable at all.
+    if (/[$`"'()]/.test(value)) continue;
+    scalars.set(match[1]!, value);
   }
   return scalars;
 }

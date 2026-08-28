@@ -94,13 +94,23 @@ export function manifestCommandLines(text: string): string {
   if (typeof parsed !== "object" || parsed === null) return "";
   const scripts = (parsed as { scripts?: unknown }).scripts;
   if (typeof scripts !== "object" || scripts === null) return "";
+  // Each script is its own command list, so one cannot continue into the next.
+  // A body ending in a backslash would otherwise be joined to the following
+  // script by continuation collapsing, and a script beginning `--provenance`
+  // would lend its flag to the unattested publish that ended the script before
+  // it -- turning two commands into one attested-looking command.
   return Object.values(scripts as Record<string, unknown>)
     .filter((value): value is string => typeof value === "string")
+    .map((value) => value.replace(/\\+$/, ""))
     .join("\n");
 }
 
 /** Subcommands that run something else, so a later `publish` word is its argument. */
-const RUNNER_SUBCOMMANDS = new Set(["run", "run-script", "exec", "explore", "x", "workspace"]);
+// npm's runner subcommands, which take a script or package name rather than
+// publishing. `workspace` is deliberately absent: it is not a subcommand at all
+// -- npm selects a workspace with the `-w`/`--workspace` FLAG -- and listing it
+// here only meant that a `publish` written after the word was never audited.
+const RUNNER_SUBCOMMANDS = new Set(["run", "run-script", "exec", "explore", "x"]);
 
 /**
  * Decide whether one command is a direct `npm publish`.
