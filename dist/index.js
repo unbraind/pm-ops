@@ -1069,7 +1069,7 @@ function renderVerifyReleaseMarkdown(result) {
                 c.name,
                 c.pass ? "yes" : "no",
                 String(c.duration_ms),
-                releaseCheckError(c).replace(/\s+/g, " ").replace(/\|/g, "\\|").slice(0, 200),
+                markdownCell(releaseCheckError(c), 200),
             ]));
         }
     }
@@ -1177,7 +1177,7 @@ function renderStatusMarkdown(result) {
             formatCount(r.audit_critical),
             formatCount(r.audit_high),
             formatCount(r.pending_receipts),
-            r.issues.length === 0 ? "-" : r.issues.join("; ").replace(/\|/g, "\\|").slice(0, 200),
+            r.issues.length === 0 ? "-" : markdownCell(r.issues.join("; "), 200),
         ]));
     }
     lines.push("");
@@ -1476,12 +1476,34 @@ async function collectMergeReceiptsAll(repos, includeReconciled, progress) {
         summary: { total, with_pending, total_pending, total_reconciled, missing_driver, missing_fence, drifted_driver, drifted_fence, unprotected_fence },
     };
 }
+/**
+ * Render arbitrary text as one markdown table cell.
+ *
+ * Escaping the pipe alone is incomplete in both directions. A backslash already
+ * in the text consumes the escape that follows it, so a value ending in one
+ * turns the next cell boundary back into a separator and shifts every remaining
+ * column; and an embedded newline ends the row outright, so the rest of the
+ * value is read as a new row with the wrong number of cells. Backslashes are
+ * therefore escaped before pipes, and all whitespace is collapsed to spaces,
+ * before the value is truncated to keep a report line readable.
+ *
+ * @param text - The value to place in a cell.
+ * @param limit - Maximum rendered length; longer values are truncated.
+ * @returns A single-line, pipe-safe cell value.
+ */
+function markdownCell(text, limit) {
+    return text
+        .replace(/\\/g, "\\\\")
+        .replace(/\|/g, "\\|")
+        .replace(/\s+/g, " ")
+        .slice(0, limit);
+}
 /** Render an unknown retained/discarded value as a short, single-line markdown cell. */
 function describeDecisionValue(value) {
     if (value === undefined)
         return "-";
     const text = typeof value === "string" ? value : JSON.stringify(value);
-    return text.replace(/\|/g, "\\|").replace(/\s+/g, " ").slice(0, 120);
+    return markdownCell(text, 120);
 }
 /**
  * Render the merge-receipt report as a GitHub-flavoured markdown document: a
@@ -1581,7 +1603,7 @@ function renderScanMarkdown(result) {
             formatCount(r.open_prs),
             formatCount(r.open_issues),
             r.ready ? "yes" : "no",
-            r.errors.length === 0 ? "-" : r.errors.join("; ").replace(/\|/g, "\\|").slice(0, 300),
+            r.errors.length === 0 ? "-" : markdownCell(r.errors.join("; "), 300),
         ]));
     }
     lines.push("");
@@ -1603,7 +1625,7 @@ function renderPolicyMarkdown(result) {
                 c.id,
                 c.severity,
                 c.pass ? "yes" : "no",
-                c.message.replace(/\|/g, "\\|"),
+                markdownCell(c.message, 2000),
             ]));
         }
     }
@@ -1991,7 +2013,7 @@ function renderDocstringsMarkdown(result) {
             String(repo.files_scanned),
             String(repo.declarations_checked),
             repo.error ? "error" : String(repo.violation_count),
-            sample.replace(/\s+/g, " ").replace(/\|/g, "\\|").slice(0, 120),
+            markdownCell(sample, 120),
         ]));
     }
     lines.push("");

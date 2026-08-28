@@ -1,0 +1,11 @@
+id: ops-pzjp
+title: Escaping a markdown cell's pipes without its backslashes shifts every column after it
+description: "Six report renderers escaped the pipe character to place arbitrary text in a markdown table cell, and none escaped the backslash first. A value ending in a backslash therefore consumes the escape written after it, the cell boundary becomes a separator again, and every remaining column in that row shifts by one. An embedded newline ended the row outright, so the remainder was read as a new row with the wrong cell count. The same incomplete escaping appeared in a test that nests eval payloads, where it meant the nesting asserted on was not the nesting built. One markdownCell helper now escapes backslashes before pipes, collapses whitespace, then truncates, and every renderer uses it. Surfaced by CodeQL js/incomplete-sanitization once code scanning was enabled on this repository."
+type: Issue
+status: open
+priority: 2
+tags[2]: "area:reporting","type:defect"
+created_at: "2026-08-28T15:20:55.388Z"
+updated_at: "2026-08-28T15:20:55.388Z"
+author: claude
+body: ""
