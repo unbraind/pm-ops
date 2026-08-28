@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags[3]: "area:release","area:supply-chain","type:defect"
 created_at: "2026-08-28T05:28:44.066Z"
-updated_at: "2026-08-28T06:27:06.678Z"
+updated_at: "2026-08-28T06:43:55.191Z"
 deadline: "2026-08-29T00:00:00.000Z"
 closed_at: "2026-08-28T05:39:56.527Z"
 completed_at: "2026-08-28T05:39:56.527Z"
@@ -16,18 +16,20 @@ acceptance_criteria: The release step has no publish path that omits --provenanc
 resolution: "The publish step drops the unattested fallback and converges on pm-changelog's contract: three attested attempts, a reconcile read for a version that landed despite a reported error, then a failing job. A new verify:release-publish-attestation gate finds every npm publish this repository can run and requires --provenance on each; it is wired into release:check and into CI as its own step."
 expected_result: "No publish path omits --provenance, and a regression that reintroduces one fails a gate rather than shipping an unattested artifact."
 actual_result: "Restoring the fallback makes the gate exit 1 naming the command; removing it again exits 0. Gates: typecheck 0, docstring 0 (8 files, 110 declarations), coverage 100/100/100/100 across 8 files, verify:release-changelog-date 0, verify:release-publish-attestation 0, 18 new tests pass."
-comments[4]{created_at,author,text}:
+comments[5]{created_at,author,text}:
   "2026-08-28T05:28:44.066Z",claude,"Reached only after three failed provenance attempts,which is precisely the state the fleet has been in since 2026-08-17. The first successful publish after the outage would have been the unattested one."
   "2026-08-28T05:59:54.405Z",claude,"Greptile round 1, both findings accepted and fixed. P2 (security): the gate tested for the --provenance SUBSTRING, so --provenance=false and --no-provenance both read as attested - the exact regression it exists to catch. attestationEnabled now tokenises and resolves last-flag-wins the way npm does. P1: with no sleep after the final attempt, the single reconcile read raced registry propagation and could fail a release npm had already accepted, skipping the tag and the GitHub release; it now polls three times with a 15s gap."
   "2026-08-28T06:11:11.650Z",claude,"Greptile round 2: the reconcile window I added was 30s, but this same workflow's bun verification step documents that the npm registry can take ~60s to propagate and gives itself 5 attempts at 30s. A shorter window here would fail a release that the very next step would then find. Widened to the same 5 attempts at 30s, deliberately matching that step's shape and numbers since it reads the same registry for the same version. Paid only on the path where npm already reported an error."
   "2026-08-28T06:27:06.678Z",claude,"CI caught a maintenance point the local run had half-hidden: the coverage-gate meta-tests enumerate this package's source files by hand in THREE places - one lcov fixture in 'defaults to its package root', and two more inside the fake npx script in 'direct entrypoint', one per platform. Adding a source file requires editing all three or the gate correctly reports it as never loaded. Updated all three."
+  "2026-08-28T06:43:55.191Z",claude,"CodeRabbit full-review round: four findings, all acted on. (1) The recorded verification command was 'python3 scripts/verify-release-publish-attestation.ts' - the file is TypeScript run by node, so the receipt could never have run the gate. Replaced with the two commands that do run, and confirmed both exit 0 as recorded. (2) Major: every reconcile read tested 'npm view <pkg>@<ver> version', which proves only that the coordinate is occupied - not that the artifact is attested or came from this commit. All three reconcile points now require dist.attestations and refuse an unattested coordinate loudly rather than tagging around it. (3) The reconciliation window was already widened to 5 attempts at 30s in an earlier push. (4) stripQuotedSpans erased package.json script bodies, so a publish moved into an npm script was invisible to the gate; manifests are now expanded to their script command lines first."
 notes[1]{created_at,author,text}:
   "2026-08-28T05:28:44.066Z",claude,"Audited across the fleet: 17 of 18 published packages carried the identical fallback; only pm-changelog refused. The block was byte-identical in 16 of them."
 learnings[1]{created_at,author,text}:
   "2026-08-28T05:28:44.066Z",claude,"A fallback that weakens a security property is not a resilience measure. When the strong path fails,the correct outcome is no artifact,not a weaker artifact that looks the same to consumers."
 files[1]{path,scope,note}:
   .github/workflows/release.yml,project,publish step refuses to downgrade attestation and reconciles a late-landing version
-tests[1]{command,scope,timeout_seconds}:
-  python3 scripts/verify-release-publish-attestation.ts,project,120
+tests[2]{command,path,scope,timeout_seconds,note}:
+  "npm run verify:release-publish-attestation",scripts/verify-release-publish-attestation.ts,project,120,"the gate itself, run the way release:check and CI run it"
+  PM_PATH=/tmp/pm-ops-attestation-test PM_GLOBAL_PATH=/tmp/pm-ops-attestation-test-global node --test test/verify-release-publish-attestation.test.ts,test/verify-release-publish-attestation.test.ts,project,300,"the gate's own fixtures, including the disabled-attestation spellings and the manifest-script path"
 close_reason: fixed
 body: "The fallback was added while the registry was returning 404s, to get a release out. That trade is wrong for a supply-chain artifact: an unattested publish is not a degraded success, it is a different artifact. Failing the job leaves main holding the prepared version so the next run resumes the same release rather than inventing another one, which is exactly what the surrounding transaction was designed to do. pm-changelog already refuses; this converges the rest of the fleet onto that contract."
