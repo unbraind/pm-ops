@@ -687,10 +687,23 @@ jobs:
               sleep 30
             fi
           done
-          if npm view "${pkg_name}@${NPM_VERSION}" version --json >/dev/null 2>&1; then
-            echo "::notice::Version landed after the final reported error; treating as success."
-            exit 0
-          fi
+          # npm can accept a publish and still report an error, and the registry
+          # needs a moment to propagate before `npm view` can see it. The retry
+          # loop gave that grace incidentally, through the sleep between
+          # attempts; the final attempt has no sleep after it, so a single
+          # immediate read here would race propagation and fail a release npm
+          # had already accepted -- skipping the tag and the GitHub release for a
+          # version that is on the registry. Poll instead.
+          for reconcile_attempt in 1 2 3; do
+            if npm view "${pkg_name}@${NPM_VERSION}" version --json >/dev/null 2>&1; then
+              echo "::notice::Version landed after the final reported error; treating as success."
+              exit 0
+            fi
+            if (( reconcile_attempt < 3 )); then
+              echo "Not yet visible on the registry; re-reading in 15s (${reconcile_attempt}/3)..."
+              sleep 15
+            fi
+          done
           echo "::error::Publish with provenance failed after ${max_attempts} attempts. Refusing to downgrade supply-chain attestations; retry the release transaction."
           exit 1
 

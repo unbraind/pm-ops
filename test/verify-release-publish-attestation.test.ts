@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 
 import {
   ATTESTATION_FLAG,
+  attestationEnabled,
   auditPublishAttestation,
   publishInvocationsIn,
   report,
@@ -45,7 +46,7 @@ function trackedFixture(files: Record<string, string>): string {
 test("an unattested publish fails, naming the command that would run", () => {
   const result = auditPublishAttestation([{ file: "release.yml", text: `          ${UNATTESTED}` }]);
   assert.equal(result.failures.length, 1);
-  assert.match(result.failures[0]!, /omits --provenance/);
+  assert.match(result.failures[0]!, /does not enable --provenance/);
   assert.match(result.failures[0]!, /npm publish --access public --ignore-scripts/);
 });
 
@@ -108,6 +109,27 @@ test("a trailing unquoted comment cannot supply the flag the command lacks", () 
     { file: "release.yml", text: `          ${UNATTESTED}  # ${ATTESTATION_FLAG}` },
   ]);
   assert.equal(result.failures.length, 1);
+});
+
+test("a disabled attestation is not an attestation, in every spelling npm accepts", () => {
+  // Greptile P2: a containment check accepts `--provenance=false`, which is
+  // precisely the regression this gate exists to catch, and reports the file
+  // as attested while doing it.
+  for (const disabled of ["--provenance=false", "--no-provenance", "--provenance --no-provenance", "--provenance=0"]) {
+    assert.equal(attestationEnabled(`npm publish --access public ${disabled}`), false, disabled);
+    assert.equal(
+      auditPublishAttestation([{ file: "release.yml", text: `          npm publish --access public ${disabled}` }]).failures.length,
+      1,
+      disabled,
+    );
+  }
+  for (const enabled of ["--provenance", "--provenance=true", "--no-provenance --provenance"]) {
+    assert.equal(attestationEnabled(`npm publish --access public ${enabled}`), true, enabled);
+  }
+});
+
+test("a flag that merely starts with the attestation spelling does not enable it", () => {
+  assert.equal(attestationEnabled("npm publish --provenance-file x"), false);
 });
 
 test("finding no publish at all fails, because an empty scan and a clean tree look identical", () => {

@@ -115,6 +115,33 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
 }
 
 /**
+ * Decide whether one publish command actually enables the attestation.
+ *
+ * A substring test is not enough. `--provenance=false` and `--no-provenance`
+ * both contain the flag's spelling and both turn the attestation off, so a
+ * containment check accepts precisely the regression this gate exists to catch
+ * -- and it would do so while reporting the file as attested.
+ *
+ * Tokens are judged in order and the last one wins, which is how npm resolves a
+ * flag given more than once: `--provenance --no-provenance` publishes without an
+ * attestation, so this must answer false for it.
+ *
+ * @param command - One logical publish command.
+ * @returns True when the command publishes with an attestation.
+ */
+export function attestationEnabled(command: string): boolean {
+  let enabled = false;
+  for (const token of command.trim().split(/\s+/)) {
+    if (token === `--no-${ATTESTATION_FLAG.slice(2)}`) enabled = false;
+    else if (token === ATTESTATION_FLAG) enabled = true;
+    else if (token.startsWith(`${ATTESTATION_FLAG}=`)) {
+      enabled = token.slice(ATTESTATION_FLAG.length + 1) === "true";
+    }
+  }
+  return enabled;
+}
+
+/**
  * Audit every publish invocation across the given files.
  *
  * An absent invocation is a failure rather than a pass: a scan that finds
@@ -131,11 +158,11 @@ export function auditPublishAttestation(sources: SourceFile[]): VerifierResult {
   for (const invocation of invocations) {
     const tally = counted.get(invocation.file) ?? { total: 0, unflagged: 0 };
     tally.total += 1;
-    if (!invocation.command.includes(ATTESTATION_FLAG)) {
+    if (!attestationEnabled(invocation.command)) {
       tally.unflagged += 1;
       failures.push(
-        `${invocation.file}: a publish invocation omits ${ATTESTATION_FLAG}, so a failure on the`
-        + ` attested path would publish an unattested artifact instead: ${invocation.command.trim().slice(0, 160)}`,
+        `${invocation.file}: a publish invocation does not enable ${ATTESTATION_FLAG}, so it would`
+        + ` publish an unattested artifact: ${invocation.command.trim().slice(0, 160)}`,
       );
     }
     counted.set(invocation.file, tally);
