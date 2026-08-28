@@ -1,17 +1,15 @@
 # Changelog
 
-## Unreleased
-
-### Security
-
-- The identity gate deadlocks the one remediation its own failure message prescribes ([ops-wsi9](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-wsi9.toon))
-
-## 2026.8.27 - 2026-08-27
+## 2026.8.28 - 2026-08-28
 
 ### Fixed
 
 - The changelog gate stamps an untagged version with the current date, so its verdict flips every midnight with no commit ([ops-vll0](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-vll0.toon))
 - Canonicalize fleet metric reads and enforce the pm 2026.8.20 host contract ([ops-3w9m](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3w9m.toon))
+
+### Security
+
+- The identity gate deadlocks the one remediation its own failure message prescribes ([ops-wsi9](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-wsi9.toon))
 
 ## 2026.8.17 - 2026-08-17
 
