@@ -106,7 +106,13 @@ test("a quoted closing parenthesis cannot hide a later disabling array flag", ()
     `          npm publish --access public ${ATTESTATION_FLAG}`,
     `          flags=( ${ATTESTATION_FLAG} "package)" --provenance=false )`,
     '          npm publish "${flags[@]}"',
-  ].join("\\n");
+  ].join("\n");
+  // The three lines are the point of this case: the array is declared on its
+  // own line, away from the invocation that expands it. Joining with a literal
+  // backslash-n instead collapses the fixture to a single line, and the audit
+  // still returns one failure -- so the case would keep passing while no longer
+  // exercising the shape it names.
+  assert.equal(text.split("\n").length, 3, "the fixture must stay three separate lines");
   const result = auditPublishAttestation([{ file: "release.yml", text }]);
   assert.equal(result.failures.length, 1, "the disabling flag after the quoted parenthesis must be audited");
   assert.match(result.failures[0]!, /does not enable --provenance/);

@@ -1,0 +1,16 @@
+id: ops-xmb6
+title: A multi-line fixture joined with a literal backslash-n made the array-flag case pass without exercising it
+description: ""
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-28T22:17:06.625Z"
+updated_at: "2026-08-28T22:17:21.671Z"
+closed_at: "2026-08-28T22:17:21.509Z"
+completed_at: "2026-08-28T22:17:21.509Z"
+author: claude
+notes[1]{created_at,author,text}:
+  "2026-08-28T22:17:10.550Z",claude,"The case named 'a quoted closing parenthesis cannot hide a later disabling array flag' built its fixture from three strings joined with a literal backslash-n rather than a newline, so the array declaration and the invocation that expands it landed on one line. Every sibling case in the same file joins with a real newline. The audit returns exactly one failure either way, so the case passed against both spellings and could not report that it had stopped exercising the shape it names. Fixed the join, and added an assertion on the fixture itself that it is three separate lines, so the case now fails if the spelling regresses. Proven by reverting the join and observing the failure 'the fixture must stay three separate lines', then restoring it. This was the fleet's reference implementation for the attested-publish change, so the same fixture was checked in every other package that received the propagation: only pm-ops main carried it."
+close_reason: "Fixed the join and added a fixture-shape assertion so the case cannot silently stop exercising the multi-line shape. Revert-proof observed: restoring the literal backslash-n fails the case with 'the fixture must stay three separate lines'. 54 tests pass. Verified the same fixture in every other package that received this propagation; only pm-ops main carried the defect."
+body: ""
