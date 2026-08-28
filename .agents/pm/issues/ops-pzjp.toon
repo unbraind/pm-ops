@@ -6,11 +6,12 @@ status: closed
 priority: 2
 tags[2]: "area:reporting","type:defect"
 created_at: "2026-08-28T15:20:55.388Z"
-updated_at: "2026-08-28T20:15:29.683Z"
+updated_at: "2026-08-28T20:19:17.142Z"
 closed_at: "2026-08-28T20:15:22.258Z"
 completed_at: "2026-08-28T20:15:22.258Z"
 claim_principal: pi-agent
 author: claude
+release: 2026.8.28
 resolution: Markdown cells are escaped before truncation and never leave an odd trailing escape before the next table separator.
 expected_result: "Every rendered markdown cell remains safe at every truncation boundary, including escaped backslash tails."
 actual_result: A truncation boundary could leave a trailing escape that consumed the next markdown column; the renderer regression covers odd and even escape tails.

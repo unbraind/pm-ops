@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Escaping a markdown cell's pipes without its backslashes shifts every column after it ([ops-pzjp](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-pzjp.toon))
+- The publish-attestation scan judged shell text with a regular expression, so real unattested publishes scanned clean ([ops-jhc8](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-jhc8.toon))
 - Prevent a failed provenance publish from silently falling back to an unattested publish ([ops-w3ke](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-w3ke.toon))
 - The changelog gate stamps an untagged version with the current date, so its verdict flips every midnight with no commit ([ops-vll0](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-vll0.toon))
 - Canonicalize fleet metric reads and enforce the pm 2026.8.20 host contract ([ops-3w9m](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3w9m.toon))

@@ -6,11 +6,12 @@ status: closed
 priority: 1
 tags[3]: "area:release","area:supply-chain","type:defect"
 created_at: "2026-08-28T13:17:05.003Z"
-updated_at: "2026-08-28T20:15:28.982Z"
+updated_at: "2026-08-28T20:19:15.892Z"
 closed_at: "2026-08-28T20:15:21.409Z"
 completed_at: "2026-08-28T20:15:21.409Z"
 claim_principal: pi-agent
 author: claude
+release: 2026.8.28
 resolution: The scanner recognizes timeout wrappers and parses quoted Bash array members without dropping later attestation settings.
 expected_result: "Every executable publish path is discovered, including timeout wrappers and supported Bash arrays, and any unflagged path fails the audit."
 actual_result: The prior scanner could miss a publish behind timeout or truncate an array at a quoted closing parenthesis; both regression fixtures now fail without the fixes.
