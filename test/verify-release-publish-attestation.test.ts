@@ -485,3 +485,66 @@ test("runIfMain runs only as the entry point, and reports when it does", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a package runner is a wrapper, so the publish behind its own options is still audited", () => {
+  // Greptile raised the wrapper class generally: a publish reached through an
+  // interpreter or a runner escapes a scan that reads only the first word. The
+  // runners differ from `env` and `sudo` in that they carry their own options
+  // before the program, so skipping the wrapper word alone is not enough.
+  for (const wrapped of [
+    "npx npm publish --provenance",
+    "npx --yes npm publish --provenance",
+    "bunx --bun npm publish --provenance",
+    "pnpx -y npm publish --provenance",
+  ]) {
+    assert.equal(
+      publishInvocationsIn({ file: "release.yml", text: `          ${wrapped}\n` }).length,
+      1,
+      wrapped,
+    );
+  }
+  // The same shape without the flag must fail, or the pass above proves nothing.
+  assert.equal(
+    auditPublishAttestation([{ file: "release.yml", text: "          npx --yes npm publish\n" }])
+      .failures.length,
+    1,
+  );
+});
+
+test("a runner spelled as two words is consumed only when its second word completes it", () => {
+  for (const wrapped of ["pnpm dlx npm publish --provenance", "yarn exec npm publish --provenance", "bun x npm publish --provenance"]) {
+    assert.equal(
+      publishInvocationsIn({ file: "release.yml", text: `          ${wrapped}\n` }).length,
+      1,
+      wrapped,
+    );
+  }
+  // Consuming the head word unconditionally would re-point an unrelated command
+  // at its first argument, so a non-matching second word leaves it alone.
+  assert.equal(commandName(onlyCommand("pnpm install npm publish")), "pnpm");
+  assert.equal(commandName(onlyCommand("pnpm")), "pnpm");
+  assert.equal(commandName(onlyCommand("bun run build")), "build");
+  // And the unflagged two-word form must still fail.
+  assert.equal(
+    auditPublishAttestation([{ file: "release.yml", text: "          pnpm dlx npm publish\n" }])
+      .failures.length,
+    1,
+  );
+});
+
+test("an option in first position names the command it is written on, not one of its arguments", () => {
+  // Skipping option words is bounded to wrappers on purpose. Were it
+  // unconditional, a command whose own first word is an option would be
+  // re-pointed at an argument, and `--flag npm publish` would read as a publish
+  // that nothing in the tree actually runs.
+  assert.equal(commandName(onlyCommand("--yes npm publish")), "--yes");
+  assert.deepEqual(
+    commandArguments(onlyCommand("--yes npm publish")).map((token) => token.value),
+    ["npm", "publish"],
+  );
+  // A wrapper with nothing after it names no program rather than throwing.
+  assert.equal(commandName(onlyCommand("npx")), undefined);
+  assert.deepEqual(commandArguments(onlyCommand("npx")), []);
+  // A quoted option after a wrapper is a literal argument, not the wrapper's flag.
+  assert.equal(commandName(onlyCommand(`npx "--yes"`)), "--yes");
+});

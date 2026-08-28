@@ -6,10 +6,24 @@ status: open
 priority: 1
 tags[3]: "area:release","area:supply-chain","type:defect"
 created_at: "2026-08-28T13:17:05.003Z"
-updated_at: "2026-08-28T13:17:33.201Z"
+updated_at: "2026-08-28T13:57:17.289Z"
 author: claude
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-08-28T13:17:14.415Z",claude,"Extracted scripts/shell-command-scan.ts: a tokeniser that tracks single, double and backslash quoting per character while keeping the quoted text in the token, splits on the full operator set (semicolon, ampersand, double-ampersand, pipe, double-pipe, newline) regardless of surrounding whitespace, and unwraps interpreter shells so that eval and bash dash-c bodies are re-scanned as commands rather than swallowed as string arguments. The attestation guard now asks the tokeniser for command name and arguments instead of pattern-matching text. Covered to 100/100/100/100; test/coverage-gate.test.ts stub updated to enumerate the new source file, which the gate requires."
+  "2026-08-28T13:56:48.261Z",claude,"Adversarially measured, not reasoned about. Fourteen bypass shapes drawn from the Greptile findings raised across the fleet were run against the tokeniser: global options before the subcommand, a quoted subcommand, a quoted flag, eval, bash -c, a combined short-option cluster (bash -ec), sh -c, a pipe without surrounding spaces, a single backgrounding ampersand, command substitution, backticks, an env prefix, a subshell, and a package runner. Thirteen were already caught; npx was not, so package runners and their own option words are now consumed as wrappers. A second round found the two-word runners (pnpm dlx, yarn exec, bun x) still escaping, and those are consumed only when the second word completes the pair, so an unrelated pnpm install is not re-pointed at its first argument. Both new rules were revert-checked: removing either drops the suite from 40 passing to a failure."
+tests[3]:
+  - command: "PM_PATH=/tmp/pm-ops-jhc8 PM_GLOBAL_PATH=/tmp/pm-ops-jhc8-g node --test --test-name-pattern \"a package runner is a wrapper\" test/verify-release-publish-attestation.test.ts"
+    scope: project
+    assert_stdout_regex[1]: pass 1
+    note: npx and its own option words are consumed as a wrapper
+  - command: "PM_PATH=/tmp/pm-ops-jhc8 PM_GLOBAL_PATH=/tmp/pm-ops-jhc8-g node --test --test-name-pattern \"an option in first position names the command\" test/verify-release-publish-attestation.test.ts"
+    scope: project
+    assert_stdout_regex[1]: pass 1
+    note: option-skipping stays bounded to wrappers
+  - command: "PM_PATH=/tmp/pm-ops-jhc8 PM_GLOBAL_PATH=/tmp/pm-ops-jhc8-g node --test --test-name-pattern \"a runner spelled as two words\" test/verify-release-publish-attestation.test.ts"
+    scope: project
+    assert_stdout_regex[1]: pass 1
+    note: "pnpm dlx, yarn exec, bun x"
 docs[2]{path,scope,note}:
   scripts/shell-command-scan.ts,project,the tokeniser
   test/verify-release-publish-attestation.test.ts,project,exercises the tokeniser

@@ -48,6 +48,14 @@ export type ShellCommand = ShellToken[];
  * `env FOO=bar npm publish` runs npm, not env, so a scan that reads the first
  * word as the command name would classify it as an `env` invocation and let the
  * publish through unaudited.
+ *
+ * The package runners (`npx`, `bunx`, `pnpx`) belong here for the same reason,
+ * and they bring their own options: `npx --yes npm publish` runs npm behind two
+ * words, not one. Option words following a prefix are therefore skipped too --
+ * see `skipCommandPrefix`, which is where that rule is applied and bounded.
+ *
+ * Runners spelled as two words live in `TWO_WORD_PREFIXES` instead, because
+ * their head word is only a wrapper in combination with the word after it.
  */
 const COMMAND_PREFIXES = new Set([
   "env",
@@ -63,6 +71,23 @@ const COMMAND_PREFIXES = new Set([
   "stdbuf",
   "setsid",
   "xargs",
+  "npx",
+  "bunx",
+  "pnpx",
+]);
+
+/**
+ * Wrappers spelled as two words, mapped to the second word that completes them.
+ *
+ * `pnpm dlx npm publish` runs npm, but `pnpm publish` runs pnpm's own publish
+ * and `pnpm install` runs no wrapper at all. Consuming the head word
+ * unconditionally would therefore re-point an unrelated `pnpm` command at its
+ * first argument, so the pair is only consumed when the second word matches.
+ */
+const TWO_WORD_PREFIXES = new Map([
+  ["pnpm", new Set(["dlx", "exec"])],
+  ["yarn", new Set(["dlx", "exec"])],
+  ["bun", new Set(["x", "run"])],
 ]);
 
 /**
@@ -251,6 +276,53 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
 }
 
 /**
+ * Walk past the words that precede the program a command runs.
+ *
+ * Three kinds of word are not the program: a leading `NAME=value` assignment, a
+ * wrapper listed in `COMMAND_PREFIXES`, and -- only once a wrapper has been
+ * seen -- that wrapper's own options. The last rule is what reaches the publish
+ * in `npx --yes npm publish`; it stays behind the wrapper condition so that a
+ * command whose own first word is an option is still reported as written rather
+ * than silently re-pointed at one of its arguments.
+ *
+ * An option's separate value (`sudo -u root npm publish`) is not skipped,
+ * because which options take a value differs per wrapper, and guessing wrong
+ * would move the reported program rather than merely widen the search.
+ *
+ * @param command - One simple command's tokens.
+ * @returns The index of the program word, or the command's length when there is none.
+ */
+function skipCommandPrefix(command: ShellCommand): number {
+  let index = 0;
+  let sawPrefix = false;
+  while (index < command.length) {
+    const token = command[index]!;
+    if (!token.quoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(token.value)) {
+      index += 1;
+      continue;
+    }
+    const base = basename(token.value);
+    if (COMMAND_PREFIXES.has(base)) {
+      sawPrefix = true;
+      index += 1;
+      continue;
+    }
+    const second = command[index + 1];
+    if (second !== undefined && TWO_WORD_PREFIXES.get(base)?.has(second.value) === true) {
+      sawPrefix = true;
+      index += 2;
+      continue;
+    }
+    if (sawPrefix && !token.quoted && token.value.startsWith("-")) {
+      index += 1;
+      continue;
+    }
+    return index;
+  }
+  return index;
+}
+
+/**
  * Name the program a command runs, or nothing when it runs none.
  *
  * Leading `NAME=value` assignments and wrapper words are skipped, and a path is
@@ -263,13 +335,8 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
  * @returns The program's basename, or undefined for an empty or assignment-only command.
  */
 export function commandName(command: ShellCommand): string | undefined {
-  for (const token of command) {
-    if (!token.quoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(token.value)) continue;
-    const base = basename(token.value);
-    if (COMMAND_PREFIXES.has(base)) continue;
-    return base;
-  }
-  return undefined;
+  const token = command[skipCommandPrefix(command)];
+  return token === undefined ? undefined : basename(token.value);
 }
 
 /**
@@ -279,14 +346,5 @@ export function commandName(command: ShellCommand): string | undefined {
  * @returns The argument tokens, in order.
  */
 export function commandArguments(command: ShellCommand): ShellToken[] {
-  let index = 0;
-  while (index < command.length) {
-    const token = command[index]!;
-    index += 1;
-    if (!token.quoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(token.value)) continue;
-    const base = basename(token.value);
-    if (COMMAND_PREFIXES.has(base)) continue;
-    break;
-  }
-  return command.slice(index);
+  return command.slice(skipCommandPrefix(command) + 1);
 }
