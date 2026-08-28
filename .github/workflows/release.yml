@@ -696,10 +696,11 @@ jobs:
           # version that is on the registry, which is the "npm ahead of git"
           # split the release ordering exists to prevent. Poll instead.
           #
-          # 5 attempts, 30s apart, deliberately the same shape and numbers as the
-          # bun verification step below: it reads the same registry for the same
-          # version and already documents that propagation can take ~60s. A
-          # shorter window here would fail a release the very next step would
+          # 5 attempts, 30s apart. The bun verification step further down this
+          # file already retries the same registry on the same 30s schedule,
+          # because a version the registry has just accepted is not immediately
+          # visible; the npm read here needs the same grace for the same reason.
+          # A shorter window would fail a release that the very next step would
           # then find. The cost is paid only on the path where npm has already
           # reported an error, never on a successful publish.
           reconcile_attempts=5
