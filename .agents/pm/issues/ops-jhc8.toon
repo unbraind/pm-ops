@@ -1,0 +1,16 @@
+id: ops-jhc8
+title: "The publish-attestation scan judged shell text with a regular expression, so real unattested publishes scanned clean"
+description: "The guard decided whether any publish omits provenance by blanking quoted spans and splitting the remainder on three operators. Blanking deletes the very argument under audit, so a publish carrying an attestation reads as one without it, and the reverse is worse: an eval or a bash dash-c wrapping a publish disappears from the scan entirely, leaving an attested sibling elsewhere in the file to carry the audit to green. The operator split also misses a backgrounding ampersand, a pipe written without surrounding spaces, and command substitution. Replaced by a real tokeniser that resolves what each command actually runs."
+type: Issue
+status: open
+priority: 1
+tags[3]: "area:release","area:supply-chain","type:defect"
+created_at: "2026-08-28T13:17:05.003Z"
+updated_at: "2026-08-28T13:17:33.201Z"
+author: claude
+comments[1]{created_at,author,text}:
+  "2026-08-28T13:17:14.415Z",claude,"Extracted scripts/shell-command-scan.ts: a tokeniser that tracks single, double and backslash quoting per character while keeping the quoted text in the token, splits on the full operator set (semicolon, ampersand, double-ampersand, pipe, double-pipe, newline) regardless of surrounding whitespace, and unwraps interpreter shells so that eval and bash dash-c bodies are re-scanned as commands rather than swallowed as string arguments. The attestation guard now asks the tokeniser for command name and arguments instead of pattern-matching text. Covered to 100/100/100/100; test/coverage-gate.test.ts stub updated to enumerate the new source file, which the gate requires."
+docs[2]{path,scope,note}:
+  scripts/shell-command-scan.ts,project,the tokeniser
+  test/verify-release-publish-attestation.test.ts,project,exercises the tokeniser
+body: ""
