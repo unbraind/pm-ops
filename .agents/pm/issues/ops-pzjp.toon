@@ -2,14 +2,18 @@ id: ops-pzjp
 title: Escaping a markdown cell's pipes without its backslashes shifts every column after it
 description: "Six report renderers escaped the pipe character to place arbitrary text in a markdown table cell, and none escaped the backslash first. A value ending in a backslash therefore consumes the escape written after it, the cell boundary becomes a separator again, and every remaining column in that row shifts by one. An embedded newline ended the row outright, so the remainder was read as a new row with the wrong cell count. The same incomplete escaping appeared in a test that nests eval payloads, where it meant the nesting asserted on was not the nesting built. One markdownCell helper now escapes backslashes before pipes, collapses whitespace, then truncates, and every renderer uses it. Surfaced by CodeQL js/incomplete-sanitization once code scanning was enabled on this repository."
 type: Issue
-status: in_progress
+status: closed
 priority: 2
 tags[2]: "area:reporting","type:defect"
 created_at: "2026-08-28T15:20:55.388Z"
-updated_at: "2026-08-28T19:59:21.832Z"
-assignee: pi-agent
+updated_at: "2026-08-28T20:15:29.683Z"
+closed_at: "2026-08-28T20:15:22.258Z"
+completed_at: "2026-08-28T20:15:22.258Z"
 claim_principal: pi-agent
 author: claude
+resolution: Markdown cells are escaped before truncation and never leave an odd trailing escape before the next table separator.
+expected_result: "Every rendered markdown cell remains safe at every truncation boundary, including escaped backslash tails."
+actual_result: A truncation boundary could leave a trailing escape that consumed the next markdown column; the renderer regression covers odd and even escape tails.
 comments[1]{created_at,author,text}:
   "2026-08-28T19:59:07.356Z",pi-agent,"PR 65 review disposition: the truncated markdown-cell finding is valid. Sanitization now truncates only after escaping and removes an unmatched trailing escape; the renderer test covers both odd and even escape tails."
 files[2]{path,scope,note}:
@@ -17,4 +21,5 @@ files[2]{path,scope,note}:
   test/ops.test.ts,project,renderer regression for truncated escape boundaries
 tests[1]{command,path,scope,timeout_seconds,note}:
   npm test,test/ops.test.ts,project,1200,full package suite covers markdown truncation escape regression
+close_reason: "Fixed in commit ab6d548: markdown report truncation removes unmatched trailing escapes. Evidence: the focused merge-receipts renderer test passes and PR 65 GitHub CI test jobs pass."
 body: ""
