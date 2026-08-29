@@ -360,14 +360,18 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
  * `> /dev/null npm publish` runs npm. A scan that reads words in order sees `>`
  * as the program and audits nothing. The forms accepted here are the ones a
  * workflow actually writes: the plain operators, a file-descriptor prefix
- * (`2>`, `2>>`), and the duplicating forms (`>&`, `2>&1`, `&>`).
+ * (`2>`, `2>>`), the duplicating forms (`>&`, `2>&1`, `&>`), and the read-write
+ * form `<>`. `<>` has to be named explicitly: it is not `<` followed by `>`, so
+ * without it the operator was read as a joined redirection that consumes no
+ * target, its target `/dev/null` became the command word, and the real
+ * `npm publish` after it was never audited.
  *
  * @param token - One command word.
  * @returns True when the word is a redirection operator.
  */
 function isRedirection(token: ShellToken): boolean {
   if (token.startsQuoted) return false;
-  return /^(?:[0-9]*(?:>>?|<<?<?)&?[0-9-]*|&>>?)$/.test(token.value);
+  return /^(?:[0-9]*(?:>>?|<>|<<?<?)&?[0-9-]*|&>>?)$/.test(token.value);
 }
 
 /**
@@ -579,35 +583,131 @@ export function bashArrays(text: string): Map<string, string> {
   return arrays;
 }
 
+/** Parse a line opening with one assignment of a fully literal shell word. */
+function literalAssignment(line: string): [string, string] | undefined {
+  const head = /^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=/.exec(line);
+  if (head === null) return undefined;
+  let index = head[0].length;
+  const start = index;
+  let single = false;
+  let double = false;
+  for (; index < line.length; index += 1) {
+    const char = line[index]!;
+    if (char === "\\" && !single) {
+      index += 1;
+      continue;
+    }
+    if (char === "'" && !double) {
+      single = !single;
+      continue;
+    }
+    if (char === '"' && !single) {
+      double = !double;
+      continue;
+    }
+    if (!single && !double && (/\s/.test(char) || char === ";")) break;
+    if (!single && /[$`()]/.test(char)) return undefined;
+  }
+  if (single || double) return undefined;
+  const raw = line.slice(start, index);
+  const rest = line.slice(index).replace(/^[ \t]*/, "");
+  if (!/^(?:[;#]|\r?$)/.test(rest)) return undefined;
+  return [head[1]!, literalShellWord(raw)];
+}
+
+/** Resolve the quote and escape rules of one substitution-free shell word. */
+function literalShellWord(raw: string): string {
+  let value = "";
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index]!;
+    if (char === "'") {
+      const close = raw.indexOf("'", index + 1);
+      value += raw.slice(index + 1, close);
+      index = close;
+      continue;
+    }
+    if (char === '"') {
+      index += 1;
+      while (index < raw.length && raw[index] !== '"') {
+        if (raw[index] === "\\" && /[$`"\\]/.test(raw[index + 1]!)) index += 1;
+        value += raw[index]!;
+        index += 1;
+      }
+      continue;
+    }
+    if (char === "\\") {
+      value += raw[index + 1]!;
+      index += 1;
+      continue;
+    }
+    value += char;
+  }
+  return value;
+}
+
 /**
  * Index scalar assignments so a command held in a variable can be audited.
  *
  * `CMD="npm publish"` followed by `$CMD` runs a publish that no scan of the
  * invocation line can see, because the invocation line contains no publish. The
- * assignment is where the command actually is.
+ * assignment is where the command actually is. `NPM=npm` followed by
+ * `$NPM publish` hides one the same way, so unquoted values are indexed too.
  *
- * Plain literal values are indexed. Quoted values can hold a multi-word command;
- * an unquoted value can still hold one command word, while a value built from
- * other variables is not resolvable without evaluating the script, which this
- * module deliberately does not do.
+ * A name is taken only where a line OPENS with one assignment carrying a fully
+ * literal value and holds nothing else before its end or a `;`. `NPM=npm; cmd`
+ * therefore binds, because the semicolon ends the assignment and the shell keeps
+ * it afterwards, while `NPM=npm cmd` does not, because that binding lasts only
+ * for the command it precedes. Requiring the line to OPEN with the assignment is
+ * what keeps a `;` inside a comment from exposing one. That single rule keeps
+ * the scan from inventing
+ * bindings the shell never makes, each of which let an unattested publish
+ * borrow a flag and pass the gate:
+ *
+ * - `# FLAG=--provenance` is a comment, and a comment is not a line that is
+ *   only an assignment.
+ * - `echo "config NPM=npm"` is a command with an argument, not an assignment.
+ * - `FLAG=--provenance some-command` binds only for that one command; the shell
+ *   does not keep it afterwards, so neither does this map.
+ * - `$(FLAG=--provenance)` binds inside a subshell that the outer shell never
+ *   sees.
+ * - `NPM=npm$SUFFIX` and `NPM=npm$(printf foo)` are not literal. The value must
+ *   match to the end of the line, so a prefix is never mistaken for the whole
+ *   value -- the mistake that let a scan analyse a different command from the
+ *   one the shell runs.
+ *
+ * `export NPM=npm`, a trailing `# comment` and a CRLF line ending are all still
+ * assignments: refusing them left `$NPM` unresolved, and an attested publish
+ * elsewhere in the file then satisfied the non-vacuity guard, so being too
+ * strict here passes an unattested publish just as being too loose does.
+ *
+ * Escapes are honoured outside single quotes, so `NPM=npm\\ publish` is one word
+ * holding a command while `CMD='"'"'a\\b'"'"' keeps its backslash as the shell does.
+ * A value that still carries a substitution, backtick, quote or parenthesis
+ * after unescaping is refused: inlining `pkg_name="$(node -p …)"` injects an
+ * unbalanced parenthesis into an unrelated command, and the scan then reports
+ * invocations that are not there while losing the one that is -- a false
+ * verdict in both directions, which is worse than not resolving the variable.
+ * Shell metacharacters (`;`, `&`, `|`, `<`, `>`, `{`, `}`) are also refused
+ * after unescaping: an escaped `\;` would become `;`, and the tokeniser would
+ * split on it, so `FLAG=--provenance\;` would let an unattested publish borrow
+ * a flag the shell passes as a literal `--provenance;` argument.
  *
  * @param text - File contents with continuations already joined.
  * @returns Variable name mapped to the literal text it holds.
  */
 export function shellScalars(text: string): Map<string, string> {
   const scalars = new Map<string, string>();
-  for (const match of text.matchAll(/(?:^|[\s;&|])([A-Za-z_][A-Za-z0-9_]*)=(?:"([^"\n]*)"|'([^'\n]*)'|([^\s"'\n;&|]+))/g)) {
-    // The alternation guarantees exactly one value group matched, so there is
-    // no fourth case to fall back to.
-    const value = match[2] ?? match[3] ?? match[4]!;
-    // Only a plain literal is inlined. A value carrying a substitution, a
-    // backtick, or a quote of its own changes how the line it lands in parses:
-    // inlining `pkg_name="$(node -p …)"` injects an unbalanced parenthesis into
-    // an unrelated command, and the scan then reports invocations that are not
-    // there while losing the one that is. That is a false verdict in both
-    // directions, which is worse than not resolving the variable at all.
-    if (/[$`"'()]/.test(value)) continue;
-    scalars.set(match[1]!, value);
+  for (const line of text.split("\n")) {
+    const assignment = literalAssignment(line);
+    if (assignment === undefined) continue;
+    const value = assignment[1];
+    // Shell metacharacters that survive unescaping must not be inlined: an
+    // escaped `\;` becomes `;` here, and tokenizeCommands would split on it,
+    // so `FLAG=--provenance\;` would let an unattested publish borrow a flag
+    // the shell passes as a literal argument. Reject the same characters
+    // tokenizeCommands treats as operators or structural delimiters.
+    if (/[\$`"'(){};&|<>#]/.test(value)) continue;
+    scalars.set(assignment[0], value);
   }
   return scalars;
 }
@@ -626,7 +726,13 @@ export function shellScalars(text: string): Map<string, string> {
 export function expandScalars(line: string, scalars: Map<string, string>): string {
   // One of the two alternatives always captures the name, so there is no
   // nameless match to guard against.
-  return line.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (whole, braced?: string, bare?: string) => scalars.get(braced ?? bare!) ?? whole);
+  return line.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (whole, braced?: string, bare?: string) => {
+    const value = scalars.get(braced ?? bare!);
+    // The decoded value is inserted back into shell source. Double literal
+    // backslashes so tokenisation preserves them as argument characters rather
+    // than consuming them as fresh source-level escapes.
+    return value?.replace(/\\/g, "\\\\") ?? whole;
+  });
 }
 
 /**
