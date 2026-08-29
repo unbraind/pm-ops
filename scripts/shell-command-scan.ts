@@ -629,6 +629,10 @@ const STANDALONE_ASSIGNMENT =
  * unbalanced parenthesis into an unrelated command, and the scan then reports
  * invocations that are not there while losing the one that is -- a false
  * verdict in both directions, which is worse than not resolving the variable.
+ * Shell metacharacters (`;`, `&`, `|`, `<`, `>`, `{`, `}`) are also refused
+ * after unescaping: an escaped `\;` would become `;`, and the tokeniser would
+ * split on it, so `FLAG=--provenance\;` would let an unattested publish borrow
+ * a flag the shell passes as a literal `--provenance;` argument.
  *
  * @param text - File contents with continuations already joined.
  * @returns Variable name mapped to the literal text it holds.
@@ -645,7 +649,12 @@ export function shellScalars(text: string): Map<string, string> {
     // unescaped. Unescaping a single-quoted value turned `'npm publish
     // \\--provenance'` into an attested-looking command the shell never runs.
     const value = assignment[3] === undefined ? raw.replace(/\\(.)/g, "$1") : raw;
-    if (/[$`"'()]/.test(value)) continue;
+    // Shell metacharacters that survive unescaping must not be inlined: an
+    // escaped `\;` becomes `;` here, and tokenizeCommands would split on it,
+    // so `FLAG=--provenance\;` would let an unattested publish borrow a flag
+    // the shell passes as a literal argument. Reject the same characters
+    // tokenizeCommands treats as operators or structural delimiters.
+    if (/[\$`"'(){};&|<>]/.test(value)) continue;
     scalars.set(assignment[1]!, value);
   }
   return scalars;

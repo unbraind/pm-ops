@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Escaped shell metacharacter in scalar value bypasses the attestation gate ([ops-5mv7](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-5mv7.toon))
+- Shell scalar assignments are read from raw text, so a comment can flag an unattested publish ([ops-q6wi](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-q6wi.toon))
 - A multi-line fixture joined with a literal backslash-n made the array-flag case pass without exercising it ([ops-xmb6](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-xmb6.toon))
 
 ## 2026.8.28 - 2026-08-28

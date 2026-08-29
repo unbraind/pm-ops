@@ -891,6 +891,34 @@ test("a scalar is taken only from a line that is exactly one literal assignment"
     assert.match(result.failures[0]!, /does not enable --provenance/);
   }
 });
+test("an escaped shell metacharacter in a scalar value is not inlined", () => {
+  // An escaped `\;` unescapes to `;` inside shellScalars. Without rejecting
+  // it, `FLAG=--provenance\;` would be stored as `--provenance;`, and
+  // tokenizeCommands would split on the `;`, so the scan would see
+  // `--provenance` as a flag while the shell passes `--provenance;` as a
+  // literal argument -- an unattested publish passing the gate.
+  assert.equal(shellScalars("FLAG=--provenance\\;\n").get("FLAG"), undefined,
+    "an escaped semicolon in the value is rejected after unescaping");
+  assert.equal(shellScalars("FLAG=--provenance\\&\n").get("FLAG"), undefined,
+    "an escaped ampersand in the value is rejected after unescaping");
+  assert.equal(shellScalars("FLAG=--provenance\\|\n").get("FLAG"), undefined,
+    "an escaped pipe in the value is rejected after unescaping");
+  assert.equal(shellScalars("FLAG=--provenance\\>\n").get("FLAG"), undefined,
+    "an escaped redirection in the value is rejected after unescaping");
+  assert.equal(shellScalars("FLAG=--provenance\\{\n").get("FLAG"), undefined,
+    "an escaped brace in the value is rejected after unescaping");
+
+  // The bypass, end to end: without the fix this audit returns no failures.
+  const result = auditPublishAttestation([{
+    file: "release.yml",
+    text: [
+      "          FLAG=--provenance\\;",
+      "          npm publish --access public $FLAG",
+    ].join("\n"),
+  }]);
+  assert.equal(result.failures.length, 1, "a publish flagged by an escaped-metacharacter scalar is unattested");
+  assert.match(result.failures[0]!, /does not enable --provenance/);
+});
 test("a read-write redirection does not turn its target into the command", () => {
   // `<>` is one operator, not `<` followed by `>`. Unnamed, it was read as a
   // joined redirection that consumes no target, so `/dev/null` became the
