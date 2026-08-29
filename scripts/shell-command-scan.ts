@@ -583,9 +583,37 @@ export function bashArrays(text: string): Map<string, string> {
   return arrays;
 }
 
-/** A line opening with one assignment of a fully literal shell word. */
-const STANDALONE_ASSIGNMENT =
-  /^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=((?:"(?:\\.|[^"\\$`])*"|'[^']*'|(?:\\.|[^\s;&|"'`$()\\])+)*?)[ \t]*(?:[;#]|\r?$)/;
+/** Parse a line opening with one assignment of a fully literal shell word. */
+function literalAssignment(line: string): [string, string] | undefined {
+  const head = /^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=/.exec(line);
+  if (head === null) return undefined;
+  let index = head[0].length;
+  const start = index;
+  let single = false;
+  let double = false;
+  for (; index < line.length; index += 1) {
+    const char = line[index]!;
+    if (char === "\\" && !single) {
+      index += 1;
+      continue;
+    }
+    if (char === "'" && !double) {
+      single = !single;
+      continue;
+    }
+    if (char === '"' && !single) {
+      double = !double;
+      continue;
+    }
+    if (!single && !double && (/\s/.test(char) || char === ";" || char === "#")) break;
+    if (!single && /[$`()]/.test(char)) return undefined;
+  }
+  if (single || double) return undefined;
+  const raw = line.slice(start, index);
+  const rest = line.slice(index).replace(/^[ \t]*/, "");
+  if (!/^(?:[;#]|\r?$)/.test(rest)) return undefined;
+  return [head[1]!, literalShellWord(raw)];
+}
 
 /** Resolve the quote and escape rules of one substitution-free shell word. */
 function literalShellWord(raw: string): string {
@@ -670,16 +698,16 @@ function literalShellWord(raw: string): string {
 export function shellScalars(text: string): Map<string, string> {
   const scalars = new Map<string, string>();
   for (const line of text.split("\n")) {
-    const assignment = STANDALONE_ASSIGNMENT.exec(line);
-    if (assignment === null) continue;
-    const value = literalShellWord(assignment[2]!);
+    const assignment = literalAssignment(line);
+    if (assignment === undefined) continue;
+    const value = assignment[1];
     // Shell metacharacters that survive unescaping must not be inlined: an
     // escaped `\;` becomes `;` here, and tokenizeCommands would split on it,
     // so `FLAG=--provenance\;` would let an unattested publish borrow a flag
     // the shell passes as a literal argument. Reject the same characters
     // tokenizeCommands treats as operators or structural delimiters.
     if (/[\$`"'(){};&|<>]/.test(value)) continue;
-    scalars.set(assignment[1]!, value);
+    scalars.set(assignment[0], value);
   }
   return scalars;
 }

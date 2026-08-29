@@ -863,6 +863,8 @@ test("a scalar is taken only from a line that is exactly one literal assignment"
     "double quotes preserve a backslash before a non-special dash");
   assert.equal(shellScalars('VALUE="a\\\\b"\n').get("VALUE"), "a\\b",
     "double quotes consume a backslash before another backslash");
+  assert.equal(shellScalars("VALUE='unterminated\n").get("VALUE"), undefined);
+  assert.equal(shellScalars('VALUE="unterminated\n').get("VALUE"), undefined);
   assert.equal(shellScalars('NPM=npm; "$NPM" publish\n').get("NPM"), "npm",
     "a semicolon ends the assignment, and the shell keeps the binding after it");
   assert.equal(shellScalars("export NPM=npm\n").get("NPM"), "npm",
