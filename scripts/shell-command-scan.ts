@@ -706,7 +706,7 @@ export function shellScalars(text: string): Map<string, string> {
     // so `FLAG=--provenance\;` would let an unattested publish borrow a flag
     // the shell passes as a literal argument. Reject the same characters
     // tokenizeCommands treats as operators or structural delimiters.
-    if (/[\$`"'(){};&|<>]/.test(value)) continue;
+    if (/[\$`"'(){};&|<>#]/.test(value)) continue;
     scalars.set(assignment[0], value);
   }
   return scalars;

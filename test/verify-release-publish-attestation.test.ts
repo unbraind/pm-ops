@@ -925,12 +925,14 @@ test("an escaped shell metacharacter in a scalar value is not inlined", () => {
     "an escaped redirection in the value is rejected after unescaping");
   assert.equal(shellScalars("FLAG=--provenance\\{\n").get("FLAG"), undefined,
     "an escaped brace in the value is rejected after unescaping");
+  assert.equal(shellScalars("FLAG=--provenance\\ \\#\\ --no-provenance\n").get("FLAG"), undefined,
+    "an escaped hash cannot turn the disabling suffix into a scanner comment");
 
   // The bypass, end to end: without the fix this audit returns no failures.
   const result = auditPublishAttestation([{
     file: "release.yml",
     text: [
-      "          FLAG=--provenance\\;",
+      "          FLAG=--provenance\\ \\#\\ --no-provenance",
       "          npm publish --access public $FLAG",
     ].join("\n"),
   }]);
