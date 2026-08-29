@@ -1,0 +1,16 @@
+id: ops-mjnd
+title: Harden literal scalar assignment parsing
+description: "Track PR #67 review fixes for double-quoted backslashes, empty values, and concatenated literal shell words."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-29T05:36:25.340Z"
+updated_at: "2026-08-29T05:40:07.531Z"
+closed_at: "2026-08-29T05:40:06.806Z"
+completed_at: "2026-08-29T05:40:06.806Z"
+author: pi-agent
+comments[1]{created_at,author,text}:
+  "2026-08-29T05:40:05.976Z",pi-agent,"Implemented literal shell-word decoding with correct quote-specific escapes, empty and concatenated fragments, and backslash-preserving expansion. Full 100% coverage, changelog, and strict health pass."
+close_reason: PR #67 review findings fixed with end-to-end regressions.
+body: ""

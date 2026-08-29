@@ -583,9 +583,39 @@ export function bashArrays(text: string): Map<string, string> {
   return arrays;
 }
 
-/** A line opening with one assignment of a fully literal value, ending there or at a `;`. */
+/** A line opening with one assignment of a fully literal shell word. */
 const STANDALONE_ASSIGNMENT =
-  /^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=(?:"((?:\\.|[^"\\$`])*)"|'([^']*)'|((?:\\.|[^\s;&|"'`$()\\])+))[ \t]*(?:[;#]|\r?$)/;
+  /^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=((?:"(?:\\.|[^"\\$`])*"|'[^']*'|(?:\\.|[^\s;&|"'`$()\\])+)*?)[ \t]*(?:[;#]|\r?$)/;
+
+/** Resolve the quote and escape rules of one substitution-free shell word. */
+function literalShellWord(raw: string): string {
+  let value = "";
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index]!;
+    if (char === "'") {
+      const close = raw.indexOf("'", index + 1);
+      value += raw.slice(index + 1, close);
+      index = close;
+      continue;
+    }
+    if (char === '"') {
+      index += 1;
+      while (index < raw.length && raw[index] !== '"') {
+        if (raw[index] === "\\" && /[$`"\\]/.test(raw[index + 1]!)) index += 1;
+        value += raw[index]!;
+        index += 1;
+      }
+      continue;
+    }
+    if (char === "\\") {
+      value += raw[index + 1]!;
+      index += 1;
+      continue;
+    }
+    value += char;
+  }
+  return value;
+}
 
 /**
  * Index scalar assignments so a command held in a variable can be audited.
@@ -642,13 +672,7 @@ export function shellScalars(text: string): Map<string, string> {
   for (const line of text.split("\n")) {
     const assignment = STANDALONE_ASSIGNMENT.exec(line);
     if (assignment === null) continue;
-    // Exactly one of the three value alternatives matches, so the last is the
-    // only case left rather than a fallback that could be undefined.
-    const raw = assignment[2] ?? assignment[3] ?? assignment[4]!;
-    // Single quotes make a backslash literal, so only the other two forms are
-    // unescaped. Unescaping a single-quoted value turned `'npm publish
-    // \\--provenance'` into an attested-looking command the shell never runs.
-    const value = assignment[3] === undefined ? raw.replace(/\\(.)/g, "$1") : raw;
+    const value = literalShellWord(assignment[2]!);
     // Shell metacharacters that survive unescaping must not be inlined: an
     // escaped `\;` becomes `;` here, and tokenizeCommands would split on it,
     // so `FLAG=--provenance\;` would let an unattested publish borrow a flag
@@ -674,7 +698,13 @@ export function shellScalars(text: string): Map<string, string> {
 export function expandScalars(line: string, scalars: Map<string, string>): string {
   // One of the two alternatives always captures the name, so there is no
   // nameless match to guard against.
-  return line.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (whole, braced?: string, bare?: string) => scalars.get(braced ?? bare!) ?? whole);
+  return line.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (whole, braced?: string, bare?: string) => {
+    const value = scalars.get(braced ?? bare!);
+    // The decoded value is inserted back into shell source. Double literal
+    // backslashes so tokenisation preserves them as argument characters rather
+    // than consuming them as fresh source-level escapes.
+    return value?.replace(/\\/g, "\\\\") ?? whole;
+  });
 }
 
 /**

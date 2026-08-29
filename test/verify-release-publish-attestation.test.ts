@@ -855,6 +855,14 @@ test("a scalar is taken only from a line that is exactly one literal assignment"
   assert.equal(shellScalars("OTHER='npm publish --provenance'\n").get("OTHER"), "npm publish --provenance");
   assert.equal(shellScalars("NPM=npm\\ publish\n").get("NPM"), "npm publish",
     "an escape is honoured, so one word can still hold a command");
+  assert.equal(shellScalars("FLAG=--provenance\nFLAG=\n").get("FLAG"), "",
+    "an empty assignment clears a stale binding");
+  assert.equal(shellScalars("CMD=npm' publish --access public'\n").get("CMD"), "npm publish --access public",
+    "adjacent literal fragments form one shell word");
+  assert.equal(shellScalars('CMD="npm publish \\--provenance"\n').get("CMD"), "npm publish \\--provenance",
+    "double quotes preserve a backslash before a non-special dash");
+  assert.equal(shellScalars('VALUE="a\\\\b"\n').get("VALUE"), "a\\b",
+    "double quotes consume a backslash before another backslash");
   assert.equal(shellScalars('NPM=npm; "$NPM" publish\n').get("NPM"), "npm",
     "a semicolon ends the assignment, and the shell keeps the binding after it");
   assert.equal(shellScalars("export NPM=npm\n").get("NPM"), "npm",
@@ -880,6 +888,14 @@ test("a scalar is taken only from a line that is exactly one literal assignment"
     "a binding made inside a subshell is not visible to the outer shell");
   assert.equal(shellScalars("NPM=npm$(printf foo)\n").get("NPM"), undefined,
     "a literal prefix in front of a substitution is not the value");
+
+  for (const text of [
+    ["          FLAG=--provenance", "          FLAG=", "          npm publish $FLAG", "          npm publish --provenance"],
+    ["          CMD=npm' publish --access public'", "          $CMD", "          npm publish --provenance"],
+    ['          CMD="npm publish \\--provenance"', "          $CMD", "          npm publish --provenance"],
+  ]) {
+    assert.equal(auditPublishAttestation([{ file: "release.yml", text: text.join("\n") }]).failures.length, 1);
+  }
 
   // Both leaks were false passes end to end, not merely wrong map entries.
   for (const text of [
