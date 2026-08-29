@@ -605,7 +605,7 @@ function literalAssignment(line: string): [string, string] | undefined {
       double = !double;
       continue;
     }
-    if (!single && !double && (/\s/.test(char) || char === ";" || char === "#")) break;
+    if (!single && !double && (/\s/.test(char) || char === ";")) break;
     if (!single && /[$`()]/.test(char)) return undefined;
   }
   if (single || double) return undefined;
