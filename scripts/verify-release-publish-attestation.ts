@@ -29,7 +29,7 @@ import {
   expandArrays,
   expandScalars,
   joinContinuations,
-  shellScalars,
+  shellScalarsByLine,
   type ShellCommand,
   type SourceFile,
   tokenizeCommands,
@@ -229,10 +229,12 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
   const raw = source.file.endsWith("package.json") ? manifestCommandLines(source.text) : source.text;
   const text = joinContinuations(raw);
   const arrays = bashArrays(text);
-  const scalars = shellScalars(text);
+  // Per line, not per file: `unset` gives a binding a lifetime, so an
+  // invocation must be expanded against the bindings standing where it runs.
+  const scalars = shellScalarsByLine(text);
   const expanded = text
     .split("\n")
-    .map((line) => expandScalars(expandArrays(line, arrays), scalars))
+    .map((line, index) => expandScalars(expandArrays(line, arrays), scalars[index]!))
     .join("\n");
   const found: PublishInvocation[] = [];
   for (const command of tokenizeCommands(expanded)) {
