@@ -269,8 +269,13 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
         return segment;
       }
       const resolved = expandScalars(expandArrays(segment, arrays), scalars);
-      if (assignmentEligible) {
-        for (const [name, binding] of shellScalars(`${segment};`)) scalars.set(name, binding);
+      const assignments = shellScalars(`${segment};`);
+      for (const [name, binding] of assignments) {
+        // After a conditional separator the assignment may or may not execute.
+        // Keeping the previous value can lend stale provenance to a later
+        // publish, so ambiguous writes clear evidence instead of guessing.
+        if (assignmentEligible) scalars.set(name, binding);
+        else scalars.delete(name);
       }
       for (const command of tokenizeCommands(segment)) {
         if (command[0]?.value !== "unset") continue;

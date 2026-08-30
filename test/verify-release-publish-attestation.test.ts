@@ -1145,6 +1145,17 @@ test("a heredoc written in a comment or a quoted word opens no body", () => {
   assert.deepEqual(heredocBodyLines(["cat x#y <<EOF", "FLAG=1", "EOF"]), [false, true, true],
     "a hash inside a word does not open a comment");
 });
+test("an ambiguous conditional assignment cannot preserve stale attestation", () => {
+  for (const conditional of ["true && FLAG=", "false || FLAG=--no-provenance"]) {
+    const result = auditPublishAttestation([{
+      file: "release.yml",
+      text: `FLAG=--provenance; ${conditional}; npm publish --access public $FLAG`,
+    }]);
+    assert.equal(result.failures.length, 1, conditional);
+    assert.match(result.failures[0]!, /does not enable --provenance/);
+  }
+});
+
 test("an unset later on the same line does not retroactively unbind an earlier use", () => {
   // Expansion and mutation are ordered by shell segment: a use before `unset`
   // sees the binding, while a use after it cannot borrow the discarded value.
