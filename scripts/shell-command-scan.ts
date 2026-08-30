@@ -668,8 +668,8 @@ function literalShellWord(raw: string): string {
  * @param line - One source line, with continuations already joined.
  * @returns The heredocs opened, in the order bash will read their bodies.
  */
-function heredocOpenersIn(line: string): Array<{ delimiter: string; stripTabs: boolean }> {
-  const openers: Array<{ delimiter: string; stripTabs: boolean }> = [];
+function heredocOpenersIn(line: string): Array<{ delimiter: string; stripTabs: boolean; expand: boolean }> {
+  const openers: Array<{ delimiter: string; stripTabs: boolean; expand: boolean }> = [];
   let single = false;
   let double = false;
   let arithmeticDepth = 0;
@@ -720,6 +720,7 @@ function heredocOpenersIn(line: string): Array<{ delimiter: string; stripTabs: b
     let delimiter = "";
     let delimiterQuote: "'" | '"' | undefined;
     let consumed = false;
+    let quoted = false;
     for (; cursor < line.length; cursor += 1) {
       const part = line[cursor]!;
       if (part === "\\" && delimiterQuote !== "'") {
@@ -727,12 +728,14 @@ function heredocOpenersIn(line: string): Array<{ delimiter: string; stripTabs: b
         if (escaped === undefined) break;
         delimiter += escaped;
         consumed = true;
+        quoted = true;
         cursor += 1;
         continue;
       }
       if (part === "'" || part === '"') {
         delimiterQuote = delimiterQuote === undefined ? part : delimiterQuote === part ? undefined : delimiterQuote;
         consumed = true;
+        quoted = true;
         continue;
       }
       if (delimiterQuote === undefined && (/\s/.test(part) || /[;&|<>]/.test(part))) break;
@@ -740,7 +743,7 @@ function heredocOpenersIn(line: string): Array<{ delimiter: string; stripTabs: b
       consumed = true;
     }
     if (!consumed || delimiterQuote !== undefined) continue;
-    openers.push({ delimiter, stripTabs });
+    openers.push({ delimiter, stripTabs, expand: !quoted });
     index = cursor - 1;
   }
   return openers;
@@ -772,23 +775,53 @@ function heredocOpenersIn(line: string): Array<{ delimiter: string; stripTabs: b
  * @param lines - The file's lines, with continuations already joined.
  * @returns One flag per line, true where that line is heredoc body.
  */
-export function heredocBodyLines(lines: string[]): boolean[] {
-  const isBody = lines.map(() => false);
+interface HeredocLineState {
+  /** The line is body data or a terminator, not parent-shell source. */
+  body: boolean;
+  /** The shell expands substitutions on this body-data line. */
+  expand: boolean;
+}
+
+/** Classify heredoc body lines while retaining delimiter quote behavior. */
+function heredocLineStates(lines: string[]): HeredocLineState[] {
+  const states = lines.map(() => ({ body: false, expand: false }));
   /** Delimiters still awaiting their terminator, in the order bash closes them. */
-  let pending: Array<{ delimiter: string; stripTabs: boolean }> = [];
+  let pending: Array<{ delimiter: string; stripTabs: boolean; expand: boolean }> = [];
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]!;
     if (pending.length > 0) {
-      // The terminator is punctuation rather than data, but it is not shell
-      // source either, so it is marked with the body it closes.
-      isBody[index] = true;
       const candidate = (pending[0]!.stripTabs ? line.replace(/^\t+/, "") : line).replace(/\r$/, "");
-      if (candidate === pending[0]!.delimiter) pending = pending.slice(1);
+      const terminator = candidate === pending[0]!.delimiter;
+      states[index] = { body: true, expand: pending[0]!.expand && !terminator };
+      if (terminator) pending = pending.slice(1);
       continue;
     }
     pending.push(...heredocOpenersIn(line));
   }
-  return isBody;
+  return states;
+}
+
+/**
+ * Mark heredoc body data and terminators so neither mutates parent bindings.
+ *
+ * @param lines - The file's lines, with continuations already joined.
+ * @returns One flag per line, true where that line is not parent-shell source.
+ */
+export function heredocBodyLines(lines: string[]): boolean[] {
+  return heredocLineStates(lines).map((state) => state.body);
+}
+
+/**
+ * Report body-data lines on which Bash performs parameter expansion.
+ *
+ * Quote removal still applies to every delimiter, but quoting any part of that
+ * delimiter suppresses expansion in its body. Terminator lines never expand.
+ *
+ * @param lines - The file's lines, with continuations already joined.
+ * @returns One flag per line, true only for expandable heredoc body data.
+ */
+export function heredocExpansionLines(lines: string[]): boolean[] {
+  return heredocLineStates(lines).map((state) => state.expand);
 }
 
 /**

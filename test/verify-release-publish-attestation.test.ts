@@ -30,7 +30,16 @@ import {
   trackedPublishSources,
   verify,
 } from "../scripts/verify-release-publish-attestation.ts";
-import { commandArguments, commandCandidates, commandName, expandScalars, heredocBodyLines, shellScalars, tokenizeCommands } from "../scripts/shell-command-scan.ts";
+import {
+  commandArguments,
+  commandCandidates,
+  commandName,
+  expandScalars,
+  heredocBodyLines,
+  heredocExpansionLines,
+  shellScalars,
+  tokenizeCommands,
+} from "../scripts/shell-command-scan.ts";
 
 /** Tokenises one command and returns it, asserting the text held exactly one. */
 function onlyCommand(text: string): ReturnType<typeof tokenizeCommands>[number] {
@@ -1161,6 +1170,23 @@ test("a heredoc written in a comment or a quoted word opens no body", () => {
   assert.deepEqual(heredocBodyLines(["cat x#y <<EOF", "FLAG=1", "EOF"]), [false, true, true],
     "a hash inside a word does not open a comment");
 });
+test("a quoted heredoc cannot borrow parent provenance", () => {
+  const source = {
+    file: "release.yml",
+    text: [
+      "FLAG=--provenance",
+      "cat >publish.sh <<'EOF'",
+      "npm publish --access public $FLAG",
+      "EOF",
+      "npm publish --access public --provenance",
+    ].join("\n"),
+  };
+  assert.deepEqual(heredocExpansionLines(source.text.split("\n")), [false, false, false, false, false]);
+  const result = auditPublishAttestation([source]);
+  assert.equal(result.failures.length, 1);
+  assert.match(result.failures[0]!, /does not enable --provenance/);
+});
+
 test("a generated heredoc script exposes scalar-carried publishes", () => {
   const source = {
     file: "release.yml",
@@ -1173,6 +1199,7 @@ test("a generated heredoc script exposes scalar-carried publishes", () => {
     ].join("\n"),
   };
   const result = auditPublishAttestation([source]);
+  assert.deepEqual(heredocExpansionLines(source.text.split("\n")), [false, false, true, false, false]);
   assert.equal(publishInvocationsIn(source).length, 2);
   assert.equal(result.failures.length, 1);
   assert.match(result.failures[0]!, /does not enable --provenance/);

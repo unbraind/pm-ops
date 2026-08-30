@@ -29,6 +29,7 @@ import {
   expandArrays,
   expandScalars,
   heredocBodyLines,
+  heredocExpansionLines,
   joinContinuations,
   shellScalars,
   type ShellCommand,
@@ -233,12 +234,15 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
   const arrays = bashArrays(text);
   const lines = text.split("\n");
   const bodies = heredocBodyLines(lines);
+  const bodyExpansion = heredocExpansionLines(lines);
   const scalars = new Map<string, string>();
   const expanded = lines.map((line, lineIndex) => {
-    // Heredoc bodies cannot mutate the parent binding state, but unquoted
-    // bodies do expand variables before being written to a generated script.
-    // Expand known values for publish discovery without indexing assignments.
-    if (bodies[lineIndex]!) return expandScalars(expandArrays(line, arrays), scalars);
+    // Heredoc bodies cannot mutate the parent binding state. Unquoted bodies
+    // expand variables before being written; quoted bodies retain references,
+    // which fail closed if a generated script later executes them.
+    if (bodies[lineIndex]!) {
+      return bodyExpansion[lineIndex]! ? expandScalars(expandArrays(line, arrays), scalars) : line;
+    }
     const segments: string[] = [];
     let value = "";
     let quote: "'" | '"' | undefined;
