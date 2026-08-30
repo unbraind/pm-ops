@@ -984,6 +984,9 @@ test("a heredoc body is data and binds no variable the shell would pass", () => 
     ["single quoted delimiter", ["cat <<'EOF'", "FLAG=--provenance", "EOF"]],
     ["double quoted delimiter", ['cat <<"EOF"', "FLAG=--provenance", "EOF"]],
     ["backslash quoted delimiter", ["cat <<\\EOF", "FLAG=--provenance", "EOF"]],
+    ["numeric delimiter", ["cat <<1", "FLAG=--provenance", "1"]],
+    ["punctuation delimiter", ["cat <<END-1", "FLAG=--provenance", "END-1"]],
+    ["concatenated quoted delimiter", ['cat <<E"O"F', "FLAG=--provenance", "EOF"]],
     ["tab stripping", ["cat <<-EOF", "\tFLAG=--provenance", "\tEOF"]],
     ["after another redirection", ["cat > out.txt <<EOF", "FLAG=--provenance", "EOF"]],
   ];
@@ -1021,6 +1024,10 @@ test("a heredoc suppresses binding without hiding a publish written inside it", 
 test("heredoc bodies are tracked per redirection, in the order bash closes them", () => {
   assert.deepEqual(heredocBodyLines(["cat <<", "FLAG=1"]), [false, false],
     "an incomplete redirection opens no body");
+  assert.deepEqual(heredocBodyLines(["cat <<\\", "FLAG=1"]), [false, false],
+    "a trailing delimiter escape opens no body");
+  assert.deepEqual(heredocBodyLines(['cat <<"E\'OF"', "x=1", "E'OF"]), [false, true, true],
+    "the other quote kind remains literal inside a quoted delimiter");
   // Two heredocs may open on one line; bash reads their bodies in the order the
   // redirections appear. Tracking only the last would end the first body at the
   // wrong delimiter and expose the rest of the second as source.
@@ -1058,6 +1065,9 @@ test("unset discards a binding the shell no longer passes", () => {
     ["after another command", ["FLAG=--provenance", "echo ready; unset FLAG"]],
     ["with the -v selector", ["FLAG=--provenance", "unset -v FLAG"]],
     ["with a quoted builtin name", ["FLAG=--provenance", "'unset' FLAG"]],
+    ["through command", ["FLAG=--provenance", "command unset FLAG"]],
+    ["through command with an option", ["FLAG=--provenance", "command -p unset FLAG"]],
+    ["through builtin", ["FLAG=--provenance", "builtin unset FLAG"]],
     ["naming several variables", ["FLAG=--provenance", "unset OTHER FLAG"]],
   ];
   for (const [name, body] of spellings) {

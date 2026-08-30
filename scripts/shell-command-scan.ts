@@ -646,19 +646,6 @@ function literalShellWord(raw: string): string {
 }
 
 /**
- * Match one heredoc redirection: the operator, an optional `-`, optional
- * whitespace, then the delimiter word.
- *
- * Anchored, because {@link heredocOpenersIn} applies it only at a position it
- * has already established is unquoted shell source and is not part of a `<<<`
- * herestring. A delimiter may
- * be quoted (`<<'EOF'`) to suppress expansion inside the body, which changes
- * nothing about where that body ends, so single-, double-, backslash-, and
- * unquoted spellings are captured alike.
- */
-const HEREDOC_REDIRECTION = /^<<(-)?[ \t]*(?:'([^']*)'|"([^"]*)"|\\([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*))/;
-
-/**
  * Find the heredocs one line opens, reading only positions the shell would
  * treat as source.
  *
@@ -670,9 +657,9 @@ const HEREDOC_REDIRECTION = /^<<(-)?[ \t]*(?:'([^']*)'|"([^"]*)"|\\([A-Za-z_][A-
  * a heredoc. Quote state and the start of a comment are therefore tracked
  * before the operator is looked for.
  *
- * The delimiter itself may be quoted (`<<'EOF'`), which is why quotes are
- * skipped over rather than stripped: the scan resumes past the whole
- * redirection once one is recognised.
+ * The delimiter itself may be any shell word, including numeric, punctuation,
+ * concatenated quoted fragments, or backslash quoting. It is parsed through the
+ * end of that word and quote removal produces the terminator Bash compares.
  *
  * `<<<` is a herestring and opens no body. It is rejected by refusing a match
  * whose operator is followed by a third `<`; the scan then steps past all three,
@@ -710,10 +697,35 @@ function heredocOpenersIn(line: string): Array<{ delimiter: string; stripTabs: b
       index += 2;
       continue;
     }
-    const match = HEREDOC_REDIRECTION.exec(line.slice(index));
-    if (match === null) continue;
-    openers.push({ delimiter: match[2] ?? match[3] ?? match[4] ?? match[5]!, stripTabs: match[1] === "-" });
-    index += match[0].length - 1;
+    let cursor = index + 2;
+    const stripTabs = line[cursor] === "-";
+    if (stripTabs) cursor += 1;
+    while (line[cursor] === " " || line[cursor] === "\t") cursor += 1;
+    let delimiter = "";
+    let delimiterQuote: "'" | '"' | undefined;
+    let consumed = false;
+    for (; cursor < line.length; cursor += 1) {
+      const part = line[cursor]!;
+      if (part === "\\" && delimiterQuote !== "'") {
+        const escaped = line[cursor + 1];
+        if (escaped === undefined) break;
+        delimiter += escaped;
+        consumed = true;
+        cursor += 1;
+        continue;
+      }
+      if (part === "'" || part === '"') {
+        delimiterQuote = delimiterQuote === undefined ? part : delimiterQuote === part ? undefined : delimiterQuote;
+        consumed = true;
+        continue;
+      }
+      if (delimiterQuote === undefined && (/\s/.test(part) || /[;&|<>]/.test(part))) break;
+      delimiter += part;
+      consumed = true;
+    }
+    if (!consumed || delimiterQuote !== undefined) continue;
+    openers.push({ delimiter, stripTabs });
+    index = cursor - 1;
   }
   return openers;
 }
@@ -780,6 +792,9 @@ export function heredocBodyLines(lines: string[]): boolean[] {
  * pass. Erring toward the false alarm is the only direction that cannot ship an
  * unattested artifact.
  *
+ * Direct invocation and the `command unset` / `builtin unset` wrapper forms
+ * all reach the same builtin and therefore remove the same bindings.
+ *
  * `-v` selects the variable namespace, which is what this map models. `-f`
  * unsets a shell function and touches no variable, so such a command is left to
  * bind nothing.
@@ -787,11 +802,18 @@ export function heredocBodyLines(lines: string[]): boolean[] {
  * @param command - One tokenised command.
  * @returns The scalar names unset, empty when the command unsets none.
  */
-function unsetNames(command: ShellCommand): string[] {
+export function unsetNames(command: ShellCommand): string[] {
   const words = withoutRedirections(command);
-  if (words[0]?.value !== "unset") return [];
+  let commandIndex = 0;
+  if (words[0]?.value === "command") {
+    commandIndex = 1;
+    while (words[commandIndex]?.value.startsWith("-")) commandIndex += 1;
+  } else if (words[0]?.value === "builtin") {
+    commandIndex = 1;
+  }
+  if (words[commandIndex]?.value !== "unset") return [];
   const names: string[] = [];
-  for (const token of words.slice(1)) {
+  for (const token of words.slice(commandIndex + 1)) {
     if (token.value === "-f") return [];
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(token.value)) continue;
     names.push(token.value);

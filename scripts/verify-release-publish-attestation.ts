@@ -34,6 +34,7 @@ import {
   type ShellCommand,
   type SourceFile,
   tokenizeCommands,
+  unsetNames,
   type VerifierResult,
 } from "./shell-command-scan.ts";
 import { isMainInvocation } from "./main-invocation.ts";
@@ -278,11 +279,7 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
         else scalars.delete(name);
       }
       for (const command of tokenizeCommands(segment)) {
-        if (command[0]?.value !== "unset") continue;
-        if (command.slice(1).some((token) => token.value === "-f")) continue;
-        for (const token of command.slice(1)) {
-          if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(token.value)) scalars.delete(token.value);
-        }
+        for (const name of unsetNames(command)) scalars.delete(name);
       }
       assignmentEligible = false;
       return resolved;
