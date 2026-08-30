@@ -841,8 +841,9 @@ export function heredocExpansionLines(lines: string[]): boolean[] {
  * pass. Erring toward the false alarm is the only direction that cannot ship an
  * unattested artifact.
  *
- * Direct invocation and the `command unset` / `builtin unset` wrapper forms
- * all reach the same builtin and therefore remove the same bindings.
+ * Leading environment assignments and the `command unset` / `builtin unset`
+ * wrapper forms all reach the same builtin and therefore remove the same
+ * bindings.
  *
  * `-v` selects the variable namespace, which is what this map models. `-f`
  * unsets a shell function and touches no variable, so such a command is left to
@@ -854,11 +855,12 @@ export function heredocExpansionLines(lines: string[]): boolean[] {
 export function unsetNames(command: ShellCommand): string[] {
   const words = withoutRedirections(command);
   let commandIndex = 0;
-  if (words[0]?.value === "command") {
-    commandIndex = 1;
+  while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[commandIndex]?.value ?? "")) commandIndex += 1;
+  if (words[commandIndex]?.value === "command") {
+    commandIndex += 1;
     while (words[commandIndex]?.value.startsWith("-")) commandIndex += 1;
-  } else if (words[0]?.value === "builtin") {
-    commandIndex = 1;
+  } else if (words[commandIndex]?.value === "builtin") {
+    commandIndex += 1;
   }
   if (words[commandIndex]?.value !== "unset") return [];
   const names: string[] = [];

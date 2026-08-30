@@ -1080,6 +1080,8 @@ test("unset discards a binding the shell no longer passes", () => {
     ["after another command", ["FLAG=--provenance", "echo ready; unset FLAG"]],
     ["with the -v selector", ["FLAG=--provenance", "unset -v FLAG"]],
     ["with a quoted builtin name", ["FLAG=--provenance", "'unset' FLAG"]],
+    ["after an assignment prefix", ["FLAG=--provenance", "TMP=x unset FLAG"]],
+    ["after an assignment prefix and command", ["FLAG=--provenance", "TMP=x command unset FLAG"]],
     ["through command", ["FLAG=--provenance", "command unset FLAG"]],
     ["through command with an option", ["FLAG=--provenance", "command -p unset FLAG"]],
     ["through builtin", ["FLAG=--provenance", "builtin unset FLAG"]],
