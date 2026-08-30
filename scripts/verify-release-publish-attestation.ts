@@ -264,26 +264,35 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
     if (value !== "") segments.push(value);
 
     let assignmentEligible = true;
-    return segments.map((segment) => {
+    let pendingAssignments = new Map<string, string>();
+    let pendingAssignmentEligible = false;
+    const rendered = segments.map((segment) => {
       if (/^(?:;|&&?|\|\|?)$/.test(segment)) {
+        for (const [name, binding] of pendingAssignments) {
+          // Only a sequential separator persists the assignment in the parent.
+          // Background, pipeline, and conditional execution are ambiguous, so
+          // they clear prior evidence rather than inventing provenance.
+          if (pendingAssignmentEligible && segment === ";") scalars.set(name, binding);
+          else scalars.delete(name);
+        }
+        pendingAssignments = new Map();
         assignmentEligible = segment === ";";
         return segment;
       }
       const resolved = expandScalars(expandArrays(segment, arrays), scalars);
-      const assignments = shellScalars(`${segment};`);
-      for (const [name, binding] of assignments) {
-        // After a conditional separator the assignment may or may not execute.
-        // Keeping the previous value can lend stale provenance to a later
-        // publish, so ambiguous writes clear evidence instead of guessing.
-        if (assignmentEligible) scalars.set(name, binding);
-        else scalars.delete(name);
-      }
+      pendingAssignments = shellScalars(`${segment};`);
+      pendingAssignmentEligible = assignmentEligible;
       for (const command of tokenizeCommands(segment)) {
         for (const name of unsetNames(command)) scalars.delete(name);
       }
       assignmentEligible = false;
       return resolved;
-    }).join("");
+    });
+    for (const [name, binding] of pendingAssignments) {
+      if (pendingAssignmentEligible) scalars.set(name, binding);
+      else scalars.delete(name);
+    }
+    return rendered.join("");
   }).join("\n");
   const found: PublishInvocation[] = [];
   for (const command of tokenizeCommands(expanded)) {

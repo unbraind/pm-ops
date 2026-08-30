@@ -1155,6 +1155,15 @@ test("a heredoc written in a comment or a quoted word opens no body", () => {
   assert.deepEqual(heredocBodyLines(["cat x#y <<EOF", "FLAG=1", "EOF"]), [false, true, true],
     "a hash inside a word does not open a comment");
 });
+test("a backgrounded assignment cannot attest the parent shell", () => {
+  const result = auditPublishAttestation([{
+    file: "release.yml",
+    text: "FLAG=--provenance & npm publish --access public $FLAG",
+  }]);
+  assert.equal(result.failures.length, 1);
+  assert.match(result.failures[0]!, /does not enable --provenance/);
+});
+
 test("an ambiguous conditional assignment cannot preserve stale attestation", () => {
   for (const conditional of ["true && FLAG=", "false || FLAG=--no-provenance"]) {
     const result = auditPublishAttestation([{
