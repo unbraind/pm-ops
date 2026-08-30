@@ -251,6 +251,11 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
         value += character;
         continue;
       }
+      if (quote === undefined && character === "#"
+        && (index === 0 || /[\s;&|()]/.test(line[index - 1]!))) {
+        value += line.slice(index);
+        break;
+      }
       if (quote === undefined && (character === ";" || character === "&" || character === "|")) {
         if (value !== "") segments.push(value);
         const doubled = line[index + 1] === character && character !== ";";

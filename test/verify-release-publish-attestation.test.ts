@@ -1155,6 +1155,17 @@ test("a heredoc written in a comment or a quoted word opens no body", () => {
   assert.deepEqual(heredocBodyLines(["cat x#y <<EOF", "FLAG=1", "EOF"]), [false, true, true],
     "a hash inside a word does not open a comment");
 });
+test("a comment cannot persist a fake same-line assignment", () => {
+  for (const comment of ["#;FLAG=--provenance", "echo ready #;FLAG=--provenance"]) {
+    const result = auditPublishAttestation([{
+      file: "release.yml",
+      text: `${comment}\nnpm publish --access public $FLAG`,
+    }]);
+    assert.equal(result.failures.length, 1, comment);
+    assert.match(result.failures[0]!, /does not enable --provenance/);
+  }
+});
+
 test("a backgrounded assignment cannot attest the parent shell", () => {
   const result = auditPublishAttestation([{
     file: "release.yml",
