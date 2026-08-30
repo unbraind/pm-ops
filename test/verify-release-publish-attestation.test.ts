@@ -1032,6 +1032,8 @@ test("heredoc bodies are tracked per redirection, in the order bash closes them"
     "an arithmetic-expansion shift opens no heredoc");
   assert.deepEqual(heredocBodyLines(["(( 1 << 2 ))", "unset FLAG"]), [false, false],
     "an arithmetic-command shift opens no heredoc");
+  assert.deepEqual(heredocBodyLines(["echo $(((1) << 2))", "unset FLAG"]), [false, false],
+    "nested arithmetic parentheses keep shifts out of heredoc discovery");
   // Two heredocs may open on one line; bash reads their bodies in the order the
   // redirections appear. Tracking only the last would end the first body at the
   // wrong delimiter and expose the rest of the second as source.
