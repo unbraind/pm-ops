@@ -957,6 +957,21 @@ test("a read-write redirection does not turn its target into the command", () =>
   assert.equal(result.failures.length, 1, "the redirected publish must still be audited");
   assert.match(result.failures[0]!, /does not enable --provenance/);
 });
+test("the known attestation bypass shapes all fail closed", () => {
+  const bypasses = new Map([
+    ["heredoc body", `cat <<'SCRIPT'\nnpm publish --access public\nSCRIPT`],
+    ["discarded shell binding", `FLAG=--provenance\nunset FLAG\nnpm publish --access public $FLAG`],
+    ["multiline continuation", `npm publish \\\n  --access public`],
+    ["subshell", `(npm publish --access public)`],
+    ["uninvoked function", `release() { npm publish --access public; }`],
+  ]);
+  for (const [name, text] of bypasses) {
+    const result = auditPublishAttestation([{ file: "release.yml", text }]);
+    assert.equal(result.failures.length, 1, `${name} must expose its unattested publish`);
+    assert.match(result.failures[0]!, /does not enable --provenance/, name);
+  }
+});
+
 test("a heredoc body is data and binds no variable the shell would pass", () => {
   // A heredoc body reaches a command on stdin. It cannot bind a variable in
   // the shell that reads it, so indexing `FLAG=--provenance` out of one
@@ -968,6 +983,7 @@ test("a heredoc body is data and binds no variable the shell would pass", () => 
     ["tab separated", ["cat <<\tEOF", "FLAG=--provenance", "EOF"]],
     ["single quoted delimiter", ["cat <<'EOF'", "FLAG=--provenance", "EOF"]],
     ["double quoted delimiter", ['cat <<"EOF"', "FLAG=--provenance", "EOF"]],
+    ["backslash quoted delimiter", ["cat <<\\EOF", "FLAG=--provenance", "EOF"]],
     ["tab stripping", ["cat <<-EOF", "\tFLAG=--provenance", "\tEOF"]],
     ["after another redirection", ["cat > out.txt <<EOF", "FLAG=--provenance", "EOF"]],
   ];
@@ -1003,6 +1019,8 @@ test("a heredoc suppresses binding without hiding a publish written inside it", 
   assert.match(result.failures[0]!, /does not enable --provenance/);
 });
 test("heredoc bodies are tracked per redirection, in the order bash closes them", () => {
+  assert.deepEqual(heredocBodyLines(["cat <<", "FLAG=1"]), [false, false],
+    "an incomplete redirection opens no body");
   // Two heredocs may open on one line; bash reads their bodies in the order the
   // redirections appear. Tracking only the last would end the first body at the
   // wrong delimiter and expose the rest of the second as source.
@@ -1039,6 +1057,7 @@ test("unset discards a binding the shell no longer passes", () => {
     ["on its own line", ["FLAG=--provenance", "unset FLAG"]],
     ["after another command", ["FLAG=--provenance", "echo ready; unset FLAG"]],
     ["with the -v selector", ["FLAG=--provenance", "unset -v FLAG"]],
+    ["with a quoted builtin name", ["FLAG=--provenance", "'unset' FLAG"]],
     ["naming several variables", ["FLAG=--provenance", "unset OTHER FLAG"]],
   ];
   for (const [name, body] of spellings) {
@@ -1058,9 +1077,10 @@ test("unset discards a binding the shell no longer passes", () => {
   // unattested.
   assert.equal(shellScalars("FLAG=--provenance\nunset -f FLAG\n").get("FLAG"), "--provenance",
     "unsetting a function leaves the variable bound");
-  // A quoted `unset` is an argument to something else, not the builtin.
-  assert.equal(shellScalars("FLAG=--provenance\n'unset' FLAG\n").get("FLAG"), "--provenance",
-    "a quoted word is not the unset builtin");
+  // Quote removal still resolves the builtin name; quoting does not turn it
+  // into an inert argument or a different command.
+  assert.equal(shellScalars("FLAG=--provenance\n'unset' FLAG\n").get("FLAG"), undefined,
+    "a quoted builtin name still unsets the variable");
 });
 test("a binding is read where the invocation runs, not at the end of the file", () => {
   // `unset` gives a binding a lifetime. Expanding every invocation against the
@@ -1097,4 +1117,51 @@ test("a later assignment does not attest an earlier publish", () => {
     text: ["FLAG=--provenance", "npm publish --access public $FLAG"].join("\n"),
   }]);
   assert.deepEqual(ordered.failures, [], "a publish below the assignment carries the flag");
+});
+test("a heredoc written in a comment or a quoted word opens no body", () => {
+  // A phantom heredoc is a bypass, not merely a misparse. Marking the following
+  // lines as body skips them for binding, so a real `unset` inside the phantom
+  // body was skipped too, the discarded binding survived, and it attested a
+  // publish the shell runs unattested -- reachable from a comment that merely
+  // mentions a heredoc. Every release workflow in this fleet contains exactly
+  // such a comment.
+  for (const [name, mention] of [
+    ["a comment", "# example: cat <<EOF"],
+    ["a double-quoted word", 'echo "see cat <<EOF for details"'],
+    ["a single-quoted word", "echo 'see cat <<EOF for details'"],
+  ]) {
+    const result = auditPublishAttestation([{
+      file: "release.yml",
+      text: ["FLAG=--provenance", mention, "unset FLAG", "npm publish --access public $FLAG"].join("\n"),
+    }]);
+    assert.equal(result.failures.length, 1, `${name} mentioning a heredoc does not suppress the unset`);
+    assert.match(result.failures[0]!, /does not enable --provenance/);
+  }
+
+  // The quoting rules still have to admit a real heredoc whose delimiter is
+  // quoted, and a `#` that is part of a word rather than opening a comment.
+  assert.deepEqual(heredocBodyLines(["cat <<'EOF'", "FLAG=--provenance", "EOF"]), [false, true, true],
+    "a quoted delimiter still opens a real body");
+  assert.deepEqual(heredocBodyLines(["cat x#y <<EOF", "FLAG=1", "EOF"]), [false, true, true],
+    "a hash inside a word does not open a comment");
+});
+test("an unset later on the same line does not retroactively unbind an earlier use", () => {
+  // Expansion and mutation are ordered by shell segment: a use before `unset`
+  // sees the binding, while a use after it cannot borrow the discarded value.
+  assert.deepEqual(auditPublishAttestation([{
+    file: "release.yml",
+    text: "FLAG=--provenance\nunset -f FLAG; npm publish $FLAG\\",
+  }]).failures, [], "a function unset and trailing escape leave the scalar binding intact");
+
+  const useThenUnset = auditPublishAttestation([{
+    file: "release.yml",
+    text: ["FLAG=--provenance", "npm publish --access public $FLAG; unset FLAG"].join("\n"),
+  }]);
+  assert.deepEqual(useThenUnset.failures, [], "the publish is expanded before the later unset runs");
+
+  const unsetThenUse = auditPublishAttestation([{
+    file: "release.yml",
+    text: ["FLAG=--provenance", "unset FLAG; npm publish --access public $FLAG"].join("\n"),
+  }]);
+  assert.equal(unsetThenUse.failures.length, 1, "the direction that must never become a pass");
 });

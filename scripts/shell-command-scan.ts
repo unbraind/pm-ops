@@ -649,16 +649,74 @@ function literalShellWord(raw: string): string {
  * Match one heredoc redirection: the operator, an optional `-`, optional
  * whitespace, then the delimiter word.
  *
- * `<<<` is a herestring, not a heredoc, and opens no body. Both guards are
- * needed to reject one: the lookahead rejects a match starting at its first
- * `<`, and the lookbehind rejects the one starting at its second, which
- * otherwise read `<<<word` as a heredoc delimited by `word` and swallowed the
- * rest of the file as its body. A delimiter may
+ * Anchored, because {@link heredocOpenersIn} applies it only at a position it
+ * has already established is unquoted shell source and is not part of a `<<<`
+ * herestring. A delimiter may
  * be quoted (`<<'EOF'`) to suppress expansion inside the body, which changes
- * nothing about where that body ends, so all three spellings are captured
- * alike.
+ * nothing about where that body ends, so single-, double-, backslash-, and
+ * unquoted spellings are captured alike.
  */
-const HEREDOC_REDIRECTION = /(?<!<)<<(-)?(?!<)[ \t]*(?:'([^']*)'|"([^"]*)"|([A-Za-z_][A-Za-z0-9_]*))/g;
+const HEREDOC_REDIRECTION = /^<<(-)?[ \t]*(?:'([^']*)'|"([^"]*)"|\\([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*))/;
+
+/**
+ * Find the heredocs one line opens, reading only positions the shell would
+ * treat as source.
+ *
+ * A `<<EOF` written inside a comment or a quoted argument opens nothing. Matching
+ * it anyway marked the following lines as heredoc body, and because a body is
+ * skipped for binding, a real `unset` inside that phantom body was skipped too.
+ * The discarded binding then survived and attested a publish the shell runs
+ * unattested -- a bypass, reachable from nothing more than a comment mentioning
+ * a heredoc. Quote state and the start of a comment are therefore tracked
+ * before the operator is looked for.
+ *
+ * The delimiter itself may be quoted (`<<'EOF'`), which is why quotes are
+ * skipped over rather than stripped: the scan resumes past the whole
+ * redirection once one is recognised.
+ *
+ * `<<<` is a herestring and opens no body. It is rejected by refusing a match
+ * whose operator is followed by a third `<`; the scan then steps past all three,
+ * so the second and third cannot be read as an operator of their own.
+ *
+ * @param line - One source line, with continuations already joined.
+ * @returns The heredocs opened, in the order bash will read their bodies.
+ */
+function heredocOpenersIn(line: string): Array<{ delimiter: string; stripTabs: boolean }> {
+  const openers: Array<{ delimiter: string; stripTabs: boolean }> = [];
+  let single = false;
+  let double = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index]!;
+    if (character === "\\" && !single) {
+      index += 1;
+      continue;
+    }
+    if (character === "'" && !double) {
+      single = !single;
+      continue;
+    }
+    if (character === '"' && !single) {
+      double = !double;
+      continue;
+    }
+    if (single || double) continue;
+    // A `#` opens a comment only at the start of a word, which is how bash
+    // reads it: `foo#bar` is one word, not a command and a comment.
+    if (character === "#" && (index === 0 || /\s/.test(line[index - 1]!))) break;
+    if (character !== "<" || line[index + 1] !== "<") continue;
+    if (line[index + 2] === "<") {
+      // A herestring. Step past all three so the pair inside it is not read as
+      // an operator on the next iteration.
+      index += 2;
+      continue;
+    }
+    const match = HEREDOC_REDIRECTION.exec(line.slice(index));
+    if (match === null) continue;
+    openers.push({ delimiter: match[2] ?? match[3] ?? match[4] ?? match[5]!, stripTabs: match[1] === "-" });
+    index += match[0].length - 1;
+  }
+  return openers;
+}
 
 /**
  * Report which lines of a file are heredoc *body* rather than shell source.
@@ -700,9 +758,7 @@ export function heredocBodyLines(lines: string[]): boolean[] {
       if (candidate === pending[0]!.delimiter) pending = pending.slice(1);
       continue;
     }
-    for (const match of line.matchAll(HEREDOC_REDIRECTION)) {
-      pending.push({ delimiter: match[2] ?? match[3] ?? match[4]!, stripTabs: match[1] === "-" });
-    }
+    pending.push(...heredocOpenersIn(line));
   }
   return isBody;
 }
@@ -733,7 +789,7 @@ export function heredocBodyLines(lines: string[]): boolean[] {
  */
 function unsetNames(command: ShellCommand): string[] {
   const words = withoutRedirections(command);
-  if (words[0]?.value !== "unset" || words[0].startsQuoted) return [];
+  if (words[0]?.value !== "unset") return [];
   const names: string[] = [];
   for (const token of words.slice(1)) {
     if (token.value === "-f") return [];
@@ -818,7 +874,7 @@ export function shellScalarsByLine(text: string): Array<Map<string, string>> {
       // so `FLAG=--provenance\;` would let an unattested publish borrow a flag
       // the shell passes as a literal argument. Reject the same characters
       // tokenizeCommands treats as operators or structural delimiters.
-      if (assignment !== undefined && !/[\$`"'(){};&|<>#]/.test(assignment[1])) {
+      if (assignment !== undefined && !/[$`"'(){};&|<>#]/.test(assignment[1])) {
         scalars.set(assignment[0], assignment[1]);
       }
       for (const command of tokenizeCommands(line)) {

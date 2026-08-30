@@ -28,8 +28,9 @@ import {
   commandName,
   expandArrays,
   expandScalars,
+  heredocBodyLines,
   joinContinuations,
-  shellScalarsByLine,
+  shellScalars,
   type ShellCommand,
   type SourceFile,
   tokenizeCommands,
@@ -229,13 +230,59 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
   const raw = source.file.endsWith("package.json") ? manifestCommandLines(source.text) : source.text;
   const text = joinContinuations(raw);
   const arrays = bashArrays(text);
-  // Per line, not per file: `unset` gives a binding a lifetime, so an
-  // invocation must be expanded against the bindings standing where it runs.
-  const scalars = shellScalarsByLine(text);
-  const expanded = text
-    .split("\n")
-    .map((line, index) => expandScalars(expandArrays(line, arrays), scalars[index]!))
-    .join("\n");
+  const lines = text.split("\n");
+  const bodies = heredocBodyLines(lines);
+  const scalars = new Map<string, string>();
+  const expanded = lines.map((line, lineIndex) => {
+    if (bodies[lineIndex]!) return line;
+    const segments: string[] = [];
+    let value = "";
+    let quote: "'" | '"' | undefined;
+    for (let index = 0; index < line.length; index += 1) {
+      const character = line[index]!;
+      if (character === "\\" && quote !== "'") {
+        value += character + (line[index + 1] ?? "");
+        index += 1;
+        continue;
+      }
+      if (character === "'" || character === '"') {
+        quote = quote === undefined ? character : quote === character ? undefined : quote;
+        value += character;
+        continue;
+      }
+      if (quote === undefined && (character === ";" || character === "&" || character === "|")) {
+        if (value !== "") segments.push(value);
+        const doubled = line[index + 1] === character && character !== ";";
+        segments.push(doubled ? character + character : character);
+        if (doubled) index += 1;
+        value = "";
+        continue;
+      }
+      value += character;
+    }
+    if (value !== "") segments.push(value);
+
+    let assignmentEligible = true;
+    return segments.map((segment) => {
+      if (/^(?:;|&&?|\|\|?)$/.test(segment)) {
+        assignmentEligible = segment === ";";
+        return segment;
+      }
+      const resolved = expandScalars(expandArrays(segment, arrays), scalars);
+      if (assignmentEligible) {
+        for (const [name, binding] of shellScalars(`${segment};`)) scalars.set(name, binding);
+      }
+      for (const command of tokenizeCommands(segment)) {
+        if (command[0]?.value !== "unset") continue;
+        if (command.slice(1).some((token) => token.value === "-f")) continue;
+        for (const token of command.slice(1)) {
+          if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(token.value)) scalars.delete(token.value);
+        }
+      }
+      assignmentEligible = false;
+      return resolved;
+    }).join("");
+  }).join("\n");
   const found: PublishInvocation[] = [];
   for (const command of tokenizeCommands(expanded)) {
     // Every reading, not just the command's own: a wrapper option that takes a
