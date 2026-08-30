@@ -235,7 +235,10 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
   const bodies = heredocBodyLines(lines);
   const scalars = new Map<string, string>();
   const expanded = lines.map((line, lineIndex) => {
-    if (bodies[lineIndex]!) return line;
+    // Heredoc bodies cannot mutate the parent binding state, but unquoted
+    // bodies do expand variables before being written to a generated script.
+    // Expand known values for publish discovery without indexing assignments.
+    if (bodies[lineIndex]!) return expandScalars(expandArrays(line, arrays), scalars);
     const segments: string[] = [];
     let value = "";
     let quote: "'" | '"' | undefined;

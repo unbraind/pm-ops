@@ -1161,6 +1161,23 @@ test("a heredoc written in a comment or a quoted word opens no body", () => {
   assert.deepEqual(heredocBodyLines(["cat x#y <<EOF", "FLAG=1", "EOF"]), [false, true, true],
     "a hash inside a word does not open a comment");
 });
+test("a generated heredoc script exposes scalar-carried publishes", () => {
+  const source = {
+    file: "release.yml",
+    text: [
+      "CMD='npm publish --access public'",
+      "cat >publish.sh <<EOF",
+      "$CMD",
+      "EOF",
+      "npm publish --access public --provenance",
+    ].join("\n"),
+  };
+  const result = auditPublishAttestation([source]);
+  assert.equal(publishInvocationsIn(source).length, 2);
+  assert.equal(result.failures.length, 1);
+  assert.match(result.failures[0]!, /does not enable --provenance/);
+});
+
 test("an arithmetic shift cannot hide a binding mutation", () => {
   const result = auditPublishAttestation([{
     file: "release.yml",

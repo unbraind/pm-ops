@@ -6,17 +6,18 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-30T16:41:27.338Z"
-updated_at: "2026-08-30T17:27:35.784Z"
+updated_at: "2026-08-30T17:33:58.363Z"
 closed_at: "2026-08-30T16:50:33.296Z"
 completed_at: "2026-08-30T16:50:33.296Z"
 author: pi-agent
-comments[6]{created_at,author,text}:
+comments[7]{created_at,author,text}:
   "2026-08-30T16:50:32.625Z",pi-agent,"Implemented all four real review findings: lexical heredoc opener detection ignores comments and quoted prose; backslash-quoted delimiters are recognized; quoted unset invokes the builtin; and scalar expansion/mutation is ordered per same-line shell segment. Added the five required bypass regressions. Revert proof against the PR head failed all four review regressions (backslash heredoc, quoted unset, phantom opener, same-line ordering) and restoration passed all four. Coverage instrumentation reports 100% statements, branches, functions, and lines; the full local command is separately blocked by the pre-existing installed-package timeout tracked as ops-gp0d."
   "2026-08-30T16:55:32.952Z",pi-agent,"Greptile follow-up fixed: assignments after conditional separators now clear prior evidence instead of preserving a stale provenance value. Exact true-and-empty and false-or-no-provenance regressions pass; reverting ambiguity clearing makes true && FLAG= pass incorrectly and the test fail 0 !== 1."
   "2026-08-30T17:04:50.953Z",pi-agent,"CodeRabbit follow-up fixed: heredoc delimiters now parse as complete shell words with quote removal, covering numeric, punctuation, concatenated-quote, and escaped forms. The shared unset parser now recognizes command and builtin wrappers and is reused by publish expansion. Reverting these changes makes the numeric-delimiter and command-unset assertions fail; restoration passes. Full coverage now measures 100/100/100/100; the pre-existing concurrent install test remains intermittently nonzero locally, while the same install command passes in isolation."
   "2026-08-30T17:10:22.880Z",pi-agent,"Greptile follow-up fixed: assignments are now deferred until the following separator proves parent-shell persistence. Background, pipeline, and conditional separators clear evidence; semicolon and line end commit it. The exact FLAG=--provenance & npm publish regression fails 0 !== 1 against the prior commit and passes now."
   "2026-08-30T17:20:15.177Z",pi-agent,"Greptile follow-up fixed: the same-line segmenter now recognizes comments at shell word boundaries and leaves their remaining semicolons inert. Both line-leading and trailing-comment regressions pass; reverting makes #;FLAG=--provenance attest the later publish and fail 0 !== 1."
   "2026-08-30T17:27:35.784Z",pi-agent,"Greptile follow-up fixed: heredoc discovery now suppresses << while inside $((...)) arithmetic expansions and ((...)) arithmetic commands. A revert-proof variant with whitespace before the closing parentheses (so the old delimiter actually closes) fails 0 !== 1 against the prior scanner and passes now; both arithmetic forms have direct body-classification regressions."
+  "2026-08-30T17:33:58.363Z",pi-agent,"Greptile follow-up fixed: known scalar and array references inside heredoc bodies are expanded for publish discovery without allowing body assignments or unsets to mutate parent state. A generated-script fixture now finds both the scalar-carried unattested publish and the visible attested publish; reverting finds only one and fails 1 !== 2."
 files[3]{path,scope}:
   scripts/shell-command-scan.ts,project
   scripts/verify-release-publish-attestation.ts,project
