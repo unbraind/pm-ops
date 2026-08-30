@@ -672,8 +672,14 @@ function heredocOpenersIn(line: string): Array<{ delimiter: string; stripTabs: b
   const openers: Array<{ delimiter: string; stripTabs: boolean }> = [];
   let single = false;
   let double = false;
+  let arithmeticDepth = 0;
   for (let index = 0; index < line.length; index += 1) {
     const character = line[index]!;
+    if (arithmeticDepth > 0) {
+      if (character === "(") arithmeticDepth += 1;
+      if (character === ")") arithmeticDepth -= 1;
+      continue;
+    }
     if (character === "\\" && !single) {
       index += 1;
       continue;
@@ -684,6 +690,16 @@ function heredocOpenersIn(line: string): Array<{ delimiter: string; stripTabs: b
     }
     if (character === '"' && !single) {
       double = !double;
+      continue;
+    }
+    if (!single && character === "$" && line[index + 1] === "(" && line[index + 2] === "(") {
+      arithmeticDepth = 2;
+      index += 2;
+      continue;
+    }
+    if (!single && !double && character === "(" && line[index + 1] === "(") {
+      arithmeticDepth = 2;
+      index += 1;
       continue;
     }
     if (single || double) continue;

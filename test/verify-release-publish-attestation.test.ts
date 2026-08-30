@@ -1028,6 +1028,10 @@ test("heredoc bodies are tracked per redirection, in the order bash closes them"
     "a trailing delimiter escape opens no body");
   assert.deepEqual(heredocBodyLines(['cat <<"E\'OF"', "x=1", "E'OF"]), [false, true, true],
     "the other quote kind remains literal inside a quoted delimiter");
+  assert.deepEqual(heredocBodyLines(["echo $((1 << true ))", "unset FLAG"]), [false, false],
+    "an arithmetic-expansion shift opens no heredoc");
+  assert.deepEqual(heredocBodyLines(["(( 1 << 2 ))", "unset FLAG"]), [false, false],
+    "an arithmetic-command shift opens no heredoc");
   // Two heredocs may open on one line; bash reads their bodies in the order the
   // redirections appear. Tracking only the last would end the first body at the
   // wrong delimiter and expose the rest of the second as source.
@@ -1155,6 +1159,21 @@ test("a heredoc written in a comment or a quoted word opens no body", () => {
   assert.deepEqual(heredocBodyLines(["cat x#y <<EOF", "FLAG=1", "EOF"]), [false, true, true],
     "a hash inside a word does not open a comment");
 });
+test("an arithmetic shift cannot hide a binding mutation", () => {
+  const result = auditPublishAttestation([{
+    file: "release.yml",
+    text: [
+      "FLAG=--provenance",
+      "echo $((1 << true ))",
+      "unset FLAG",
+      "true",
+      "npm publish --access public $FLAG",
+    ].join("\n"),
+  }]);
+  assert.equal(result.failures.length, 1);
+  assert.match(result.failures[0]!, /does not enable --provenance/);
+});
+
 test("a comment cannot persist a fake same-line assignment", () => {
   for (const comment of ["#;FLAG=--provenance", "echo ready #;FLAG=--provenance"]) {
     const result = auditPublishAttestation([{
