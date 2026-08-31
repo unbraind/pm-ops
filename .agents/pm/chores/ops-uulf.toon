@@ -1,0 +1,24 @@
+id: ops-uulf
+title: Converge the pinned pm-cli on 2026.8.31 and repair history hashes
+description: "The pm-cli history-hash computation changed between 2026.8.22 and 2026.8.24, so a repo whose history was written by an older pm reports history_drift_chain_mismatch (gate_failing) the moment the pinned pm binary is bumped. This converges the pm-ops pin to @unbrained/pm-cli 2026.8.31 (the fleet-wide target), recomputes the drifted ops-w3ke history stream hash via pm history-repair --all, and reinstalls the pm-ops self-extension against the new binary so the extension_host_pm_cli_version_skew census agrees. The before/after hash chain is intact and no item payloads changed. Upstream: pm-cli#1168."
+type: Chore
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-31T16:25:29.586Z"
+updated_at: "2026-08-31T18:45:46.461Z"
+closed_at: "2026-08-31T16:26:12.341Z"
+completed_at: "2026-08-31T16:26:12.341Z"
+claim_principal: pi-agent
+author: pi-agent
+comments[1]{created_at,author,text}:
+  "2026-08-31T16:25:42.730Z",pi-agent,"Convergence applied. Root pin bumped from 2026.8.21 to 2026.8.31 (exact). history-repair --all recomputed the ops-w3ke stream (7 entries rehashed, 0 patched, no item reconciliation). Pre-repair health reported history_drift_chain_mismatch:ops-w3ke (gate_failing) and a stale extension_host_pm_cli_version_skew (local self-extension still pinned to 2026.8.21). Reinstalled the pm-ops self-extension against the new binary so the host-version census agrees. Post-repair pm health --strict-exit exits 0. git status shows only .agents/pm/history/ops-w3ke.jsonl, package.json, package-lock.json changed; all .toon payloads byte-identical. The history-repair warnings (history_repair_discarded_authors / reconcile_discards_events) are the known false alarms from pm-cli#1168 — nothing was discarded."
+files[4]{path,scope}:
+  .agents/pm/history/ops-w3ke.jsonl,project
+  package-lock.json,project
+  package.json,project
+  test/compatibility-floor.test.ts,project
+tests[1]{command,path,scope,provenance{author,created_at,source_kind,source_ref},note}:
+  "node --test --test-name-pattern=\"the development dependency is an exact pin at or above the declared floor\" test/compatibility-floor.test.ts",test/compatibility-floor.test.ts,project,pi-agent,"2026-08-31T18:32:19.347Z",local_mutation,chore/converge-pm-cli-pin-and-repair-history-hashes,the development dependency is an exact pin at or above the declared floor
+close_reason: "Done: pinned @unbrained/pm-cli at 2026.8.31, repaired the drifted ops-w3ke history stream hash, and reinstalled the pm-ops self-extension against the new binary. Updated the compatibility-floor test's REQUIRED_DEVELOPMENT_VERSION to match the new pin. pm health --strict-exit is green; changed files: .agents/pm/history/ops-w3ke.jsonl, package.json, package-lock.json, test/compatibility-floor.test.ts; no .toon payloads modified."
+body: ""
