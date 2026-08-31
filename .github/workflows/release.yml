@@ -880,6 +880,18 @@ jobs:
       # reports incomplete predecessors loudly (the workflow fails, triggering
       # alerts), but it does not stand between the workflow and the step that
       # completes the current release.
+      # Deliberately NOT gated on should_release. An incomplete predecessor is
+      # most likely to exist precisely on a day with nothing new to publish: the
+      # run that failed left a tag and an npm version behind, and the next run
+      # has no source changes, so it would skip everything - including the audit
+      # - and the gap would never be reported at all. Auditing unconditionally
+      # means the daily run reports the gap every day until it is repaired,
+      # rather than only on days that happen to release.
+      #
+      # This detects; it does not yet repair. Creating the missing GitHub
+      # Release for an already-tagged, already-published version is tracked
+      # separately, because it is a write path that deserves its own review
+      # rather than being folded into a change about detection.
       - name: Audit release completeness
-        if: steps.decide.outputs.should_release == 'true'
+        if: always()
         run: npm run verify:release-completeness
