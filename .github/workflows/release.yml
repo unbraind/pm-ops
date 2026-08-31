@@ -818,20 +818,38 @@ jobs:
         run: |
           set -euo pipefail
           pkg_name="$(node -p "require('./package.json').name")"
+          # Each attempt gets a FRESH install cache directory AND a cleared bun
+          # pm cache. The old loop re-ran `bun add` without invalidating bun's
+          # registry manifest cache, so attempts 2..5 re-read the SAME cached
+          # negative manifest attempt 1 wrote and could never observe a version
+          # that had since appeared - a vacuous retry by construction. That left
+          # tags v2026.08.28, v2026.08.29 and v2026.08.31 published to npm with no
+          # GitHub Release for 14 days, because this step failed on every attempt
+          # while `npm view` already returned the version, and the failure aborted
+          # the job before the Create-GitHub-release step ran. A fresh
+          # BUN_INSTALL_CACHE_DIR per attempt forces bun to re-query the registry;
+          # `bun pm cache rm` clears the global cache for the same reason. The gate
+          # still fails closed: a version that never appears exhausts the loop and
+          # exits non-zero.
+          backoffs=(15 30 60 90 120)
           mkdir -p /tmp/bun-verify
-          cd /tmp/bun-verify
-          rm -rf node_modules bun.lockb package.json
-          bun init -y > /dev/null
-          # Retry up to 5 times - npm registry can take ~60s to propagate
-          for attempt in 1 2 3 4 5; do
-            if bun add "${pkg_name}@${NPM_VERSION}"; then
-              echo "bun add succeeded on attempt $attempt"
+          attempt=0
+          while (( attempt < ${#backoffs[@]} + 1 )); do
+            attempt=$(( attempt + 1 ))
+            work_dir="$(mktemp -d /tmp/bun-verify/attempt-XXXXXX)"
+            export BUN_INSTALL_CACHE_DIR="$(mktemp -d /tmp/bun-verify/cache-XXXXXX)"
+            bun pm cache rm > /dev/null 2>&1 || true
+            if (cd "${work_dir}" && bun init -y > /dev/null && bun add "${pkg_name}@${NPM_VERSION}"); then
+              echo "bun add succeeded on attempt ${attempt}"
               exit 0
             fi
-            echo "bun add failed on attempt $attempt, sleeping 30s..."
-            sleep 30
+            if (( attempt < ${#backoffs[@]} + 1 )); then
+              backoff="${backoffs[$(( attempt - 1 ))]}"
+              echo "bun add failed on attempt ${attempt}, sleeping ${backoff}s..."
+              sleep "${backoff}"
+            fi
           done
-          echo "bun add failed after 5 attempts"
+          echo "bun add failed after ${attempt} attempts"
           exit 1
       - name: Create GitHub release
         if: steps.decide.outputs.should_release == 'true'

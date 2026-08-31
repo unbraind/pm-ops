@@ -46,14 +46,15 @@
     "changelog:full": "pm-changelog --pm-root .agents/pm --mode replace --output CHANGELOG.md --all-release-tags --release-version-from-package --date-from-version --item-url-base https://github.com/unbraind/pm-ops/blob/main/.agents/pm --respect-item-release --pm-bin ./node_modules/.bin/pm --pm-arg=--output-budget --pm-arg=unbounded --pm-arg=--output-limit --pm-arg=unbounded",
     "changelog:check": "pm-changelog --pm-root .agents/pm --mode replace --output CHANGELOG.md --all-release-tags --release-version-from-package --date-from-version --item-url-base https://github.com/unbraind/pm-ops/blob/main/.agents/pm --respect-item-release --check --pm-bin ./node_modules/.bin/pm --pm-arg=--output-budget --pm-arg=unbounded --pm-arg=--output-limit --pm-arg=unbounded",
     "docstring": "node scripts/docstring-gate.ts",
-    "release:check": "npm run check && npm run docstring && npm run coverage && npm run audit:prod && npm run pack:dry-run && npm run changelog:check && npm run verify:release-changelog-date && npm run verify:release-publish-attestation",
+    "release:check": "npm run check && npm run docstring && npm run coverage && npm run audit:prod && npm run pack:dry-run && npm run changelog:check && npm run verify:release-changelog-date && npm run verify:release-publish-attestation && npm run verify:release-completeness",
     "prepublishOnly": "npm run release:check",
     "release:notes": "pm-changelog --pm-root .agents/pm --stdout --since-previous-tag --until-release-tag --release-version-from-package --date-from-version --item-url-base https://github.com/unbraind/pm-ops/blob/main/.agents/pm --respect-item-release --pm-bin ./node_modules/.bin/pm --pm-arg=--output-budget --pm-arg=unbounded --pm-arg=--output-limit --pm-arg=unbounded --github-step-summary",
     "prepare": "node scripts/prepare-merge-driver.ts",
     "merge:install": "pm merge install",
     "coverage": "npm run build && npm run build:test && node scripts/coverage-gate.ts",
     "verify:release-changelog-date": "node scripts/verify-release-changelog-date.ts",
-    "verify:release-publish-attestation": "node scripts/verify-release-publish-attestation.ts"
+    "verify:release-publish-attestation": "node scripts/verify-release-publish-attestation.ts",
+    "verify:release-completeness": "node scripts/verify-release-completeness.ts"
   },
   "dependencies": {
     "@toon-format/toon": "^4.1.0",

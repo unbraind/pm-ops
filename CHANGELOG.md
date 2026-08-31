@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- A release-completeness gate that requires every release tag to have a matching npm version and GitHub Release ([ops-i8yp](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-i8yp.toon))
+
+### Fixed
+
+- The bun install verification retried a cached negative manifest, so published versions were never observed ([ops-i3ie](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-i3ie.toon))
+
 ## 2026.8.31 - 2026-08-31
 
 ### Fixed
