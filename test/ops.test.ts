@@ -10,7 +10,7 @@ import type { GlobalOptions } from "@unbrained/pm-cli/sdk";
 import { listMergeReceipts, markMergeReceiptReconciled } from "@unbrained/pm-cli/sdk/merge";
 import { decode, encode } from "@toon-format/toon";
 
-import extension, { disambiguateRepoLabels, receiptPreferredSide } from "../index.ts";
+import extension, { disambiguateRepoLabels, receiptPreferredSide, renderMergeReceiptsMarkdown } from "../index.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -2469,32 +2469,80 @@ test("ops merge-receipts --format markdown renders the current SDK receipt path"
   await ext.deactivate();
 });
 
-test("ops merge-receipts renders sparse and structured decision values without losing the receipt", async () => {
-  const lab = buildMergeReceiptLab(tmpRoot, "pm-merge-decision-rendering", true);
-  const receiptDirectory = join(lab.path, ".git", "pm-merge-receipts");
-  const receiptPath = join(receiptDirectory, readdirSync(receiptDirectory).find((file) => file.endsWith(".json"))!);
-  const receipt = parseJson<Record<string, unknown>>(readFileSync(receiptPath, "utf8"));
+test("the receipt report renders sparse, structured and over-long decision values without losing the receipt", () => {
+  // Driven through the exported renderer with typed fixtures rather than by editing a
+  // receipt file in a live lab. pm 2026.8.31 no longer reflects hand-written decision
+  // values back out of `.git/pm-merge-receipts` — it reports a `pm_value_hash` instead —
+  // so the old injection technique could no longer reach these branches. Calling the
+  // renderer directly covers the same four behaviours deterministically, does not depend
+  // on the CLI's receipt-file internals, and drops a ~4s lab build from the suite.
   const oddTail = `${"x".repeat(119)}\\`;
   const evenTail = `${"y".repeat(118)}\\`;
-  receipt.decisions = [
-    { field: "metadata", base: null, ours: null, theirs: { source: "peer" }, discarded: { source: "peer" } },
-    { field: "long", retained: oddTail, discarded: evenTail },
-  ];
-  writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  const markdown = renderMergeReceiptsMarkdown({
+    generated_at: "2026-08-31T00:00:00.000Z",
+    repos: [{
+      path: "/repo",
+      name: "pm-example",
+      available: true,
+      driver: null,
+      fence: null,
+      pending_count: 2,
+      reconciled_count: 0,
+      receipts: [
+        {
+          id: "receipt-values",
+          item_id: "pm-example-0001",
+          item_path: ".agents/pm/tasks/pm-example-0001.toon",
+          item_path_raw: ".agents/pm/tasks/pm-example-0001.toon",
+          state: "pending",
+          preferred: "ours",
+          fields_from_theirs: [],
+          union_fields: [],
+          decisions: [
+            { field: "metadata", base: null, ours: null, theirs: { source: "peer" }, retained: undefined, discarded: { source: "peer" } },
+            { field: "long", base: null, ours: null, theirs: null, retained: oddTail, discarded: evenTail },
+          ],
+          created_at: "2026-08-31T00:00:00.000Z",
+        },
+        {
+          id: "receipt-no-decisions",
+          item_id: "pm-example-0002",
+          item_path: ".agents/pm/tasks/pm-example-0002.toon",
+          item_path_raw: ".agents/pm/tasks/pm-example-0002.toon",
+          state: "pending",
+          preferred: "theirs",
+          fields_from_theirs: [],
+          union_fields: [],
+          decisions: [],
+          created_at: "2026-08-31T00:00:00.000Z",
+        },
+      ],
+    }],
+    summary: {
+      total: 1,
+      with_pending: 1,
+      total_pending: 2,
+      total_reconciled: 0,
+      missing_driver: 0,
+      missing_fence: 0,
+      drifted_driver: 0,
+      drifted_fence: 0,
+      unprotected_fence: 0,
+    },
+  } satisfies Parameters<typeof renderMergeReceiptsMarkdown>[0]);
 
-  const ext = await harness();
-  const sparse = await runCmd<RenderedResult>(ext, "ops merge-receipts", { repos: [lab.path], warnOnly: true, format: "markdown" });
-  assert.match(sparse.output, /\| metadata \| - \| \{"source":"peer"\} \|/);
+  // An absent value renders as a dash, never the string "undefined"; a structured
+  // value renders as compact JSON.
+  assert.match(markdown, /\| metadata \| - \| \{"source":"peer"\} \|/u);
+  // A cell truncated mid-escape must not leave an odd backslash run that would
+  // escape the pipe and swallow the next column.
   assert.ok(
-    sparse.output.includes(`| long | ${"x".repeat(119)} | ${"y".repeat(118)}\\\\ |`),
+    markdown.includes(`| long | ODDX | ${"y".repeat(118)}\\\\ |`.replace("ODDX", "x".repeat(119))),
     "a truncated markdown cell must not leave an odd escape before the next column",
   );
-
-  receipt.decisions = [];
-  writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
-  const empty = await runCmd<RenderedResult>(ext, "ops merge-receipts", { repos: [lab.path], warnOnly: true, format: "markdown" });
-  assert.match(empty.output, /\| - \| - \| - \|/);
-  await ext.deactivate();
+  // A receipt with no decisions still gets a row rather than being omitted.
+  assert.match(markdown, /\| receipt-no-decisions \| pm-example-0002 \| pending \|/u);
+  assert.match(markdown, /\| - \| - \| - \|/u);
 });
 
 test("ops merge-receipts passes the gate when there are no receipts (exit 0)", async () => {
