@@ -827,10 +827,14 @@ jobs:
           # GitHub Release for 14 days, because this step failed on every attempt
           # while `npm view` already returned the version, and the failure aborted
           # the job before the Create-GitHub-release step ran. A fresh
-          # BUN_INSTALL_CACHE_DIR per attempt forces bun to re-query the registry;
-          # `bun pm cache rm` clears the global cache for the same reason. The gate
-          # still fails closed: a version that never appears exhausts the loop and
-          # exits non-zero.
+          # BUN_INSTALL_CACHE_DIR per attempt forces bun to re-query the registry.
+          # The `bun pm cache rm` that follows is deliberately belt-and-braces and
+          # is normally a no-op: it clears whichever cache bun is CONFIGURED to
+          # use, which by then is the fresh empty one. It is kept so the step stays
+          # correct if a bun version ignores BUN_INSTALL_CACHE_DIR, in which case it
+          # is the only thing invalidating the manifest. The gate still fails
+          # closed: a version that never appears exhausts the loop and exits
+          # non-zero.
           backoffs=(15 30 60 90 120)
           mkdir -p /tmp/bun-verify
           attempt=0
