@@ -139,6 +139,16 @@ test("parseNpmVersions reads the JSON array npm view prints, and tolerates a non
   assert.deepEqual(parseNpmVersions('["2026.8.31", 42, null, "2026.8.28"]'), ["2026.8.31", "2026.8.28"]);
   assert.deepEqual(parseNpmVersions('{"version":"2026.8.31"}'), [], "a single-version object is not an array");
   assert.deepEqual(parseNpmVersions("null"), []);
+
+  // A malformed reply must not throw. The docstring promised this and the
+  // implementation did not: JSON.parse raised a SyntaxError straight out of the
+  // parser, aborting `verify` before the audit and the report ran, with an
+  // error naming neither the package nor the registry call. Returning [] keeps
+  // the failure loud where it is readable - the audit then reports every
+  // release tag as missing its npm version.
+  assert.deepEqual(parseNpmVersions("npm ERR! code E404"), [], "a non-JSON reply yields nothing");
+  assert.deepEqual(parseNpmVersions('["2026.8.31"'), [], "a truncated reply yields nothing");
+  assert.deepEqual(parseNpmVersions(""), [], "an empty reply yields nothing");
 });
 
 test("a complete triple passes and is reported as a single summary note", () => {

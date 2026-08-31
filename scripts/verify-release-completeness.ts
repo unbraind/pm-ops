@@ -187,7 +187,19 @@ export function parseLines(output: string): string[] {
  * @returns The version strings found, in the order npm prints them.
  */
 export function parseNpmVersions(output: string): string[] {
-  const parsed: unknown = JSON.parse(output);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    // The docstring above promised this and the code did not deliver it: a
+    // malformed reply threw a SyntaxError out of the parser, which aborted
+    // `verify` before the audit and the report ever ran. Returning [] keeps the
+    // failure loud in the right place - every release tag is then reported as
+    // missing its npm version, by the audit, with a readable report - instead
+    // of crashing with a JSON error that names neither the package nor the
+    // registry call that produced it.
+    return [];
+  }
   if (!Array.isArray(parsed)) return [];
   return parsed.filter((entry): entry is string => typeof entry === "string");
 }

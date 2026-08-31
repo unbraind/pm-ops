@@ -1,0 +1,20 @@
+id: ops-f5m7
+title: "A malformed npm reply crashed the release audit, and the docstring already promised it would not"
+description: "CodeRabbit flagged that parseNpmVersions calls JSON.parse without handling SyntaxError, so a malformed npm view reply throws out of the parser and aborts verify before auditReleaseCompleteness and report ever run. The docstring directly above the function already claimed the opposite behaviour, that a malformed reply yields nothing rather than throwing, so the documented contract and the implementation disagreed and the documentation was the correct one. Returning an empty list keeps the failure loud in the place where it is readable: the audit then reports every release tag as missing its npm version, with a report naming the package, instead of crashing with a JSON syntax error that names neither the package nor the registry call that produced it."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-31T12:29:21.802Z"
+updated_at: "2026-08-31T12:29:24.222Z"
+closed_at: "2026-08-31T12:29:24.207Z"
+completed_at: "2026-08-31T12:29:24.207Z"
+author: claude-orchestrator
+resolution: "parseNpmVersions now catches the SyntaxError and returns an empty list, which is the behaviour its own docstring already described."
+expected_result: "A transient registry hiccup is reported by the audit as missing npm versions, naming the package."
+actual_result: "JSON.parse threw out of the parser and aborted verify before the audit or the report ran, with an error naming neither the package nor the registry call."
+files[2]{path,scope}:
+  scripts/verify-release-completeness.ts,project
+  test/verify-release-completeness.test.ts,project
+close_reason: "Caught the parse failure and returned an empty list, with tests for a non-JSON reply, a truncated reply and an empty reply; verified revert-proof at 321 pass and 1 fail on revert, 322 of 322 restored."
+body: ""
