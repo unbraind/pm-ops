@@ -20,6 +20,10 @@
 
 - Security: repository-host check matches too loosely (notgithub.com accepted as GitHub) ([ops-042o](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-042o.toon))
 
+### Other
+
+- Converge the pinned pm-cli on 2026.8.31 and repair history hashes ([ops-uulf](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-uulf.toon))
+
 ## 2026.8.31 - 2026-08-31
 
 ### Fixed

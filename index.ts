@@ -1877,7 +1877,16 @@ function markdownCell(text: string, limit: number): string {
   );
 }
 
-/** Render an unknown retained/discarded value as a short, single-line markdown cell. */
+/**
+ * Render an unknown retained/discarded value as a short, single-line markdown cell.
+ *
+ * `retained` and `discarded` are typed `unknown`, and a receipt written by an
+ * older pm merge driver can omit either one. pm 2026.8.31 always populates both
+ * for the conflict shapes the test lab produces, so this `undefined` arm is no
+ * longer reachable through a live merge — it is covered directly instead. Do not
+ * delete it: it is what keeps an older or partial receipt rendering as `-`
+ * rather than the string `"undefined"`.
+ */
 function describeDecisionValue(value: unknown): string {
   if (value === undefined) return "-";
   const text = typeof value === "string" ? value : JSON.stringify(value);
@@ -1890,7 +1899,7 @@ function describeDecisionValue(value: unknown): string {
  * receipt with its state, item id, repository-relative path, preferred side, and the
  * retained/discarded values for every scalar conflict decision.
  */
-function renderMergeReceiptsMarkdown(result: MergeReceiptsResult): string {
+export function renderMergeReceiptsMarkdown(result: MergeReceiptsResult): string {
   const lines: string[] = [];
   lines.push("# pm-ops merge-receipts");
   lines.push("");
@@ -1920,6 +1929,10 @@ function renderMergeReceiptsMarkdown(result: MergeReceiptsResult): string {
     lines.push(renderMarkdownRow(["receipt", "item_id", "state", "item_path", "preferred", "field", "retained", "discarded"]));
     lines.push(renderMarkdownRow(["---", "---", "---", "---", "---", "---", "---", "---"]));
     for (const receipt of repo.receipts) {
+      // A receipt with no recoverable scalar decisions still deserves a row, so the
+      // report never silently omits a pending receipt. pm 2026.8.31 records at least
+      // one decision for every conflict the lab can produce, so this fallback is
+      // covered directly rather than through a live merge.
       const decisions = receipt.decisions.length > 0 ? receipt.decisions : [{ field: "-", retained: "-", discarded: "-" } as const];
       for (const decision of decisions) {
         lines.push(renderMarkdownRow([
