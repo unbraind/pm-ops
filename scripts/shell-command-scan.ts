@@ -749,32 +749,7 @@ function heredocOpenersIn(line: string): Array<{ delimiter: string; stripTabs: b
   return openers;
 }
 
-/**
- * Report which lines of a file are heredoc *body* rather than shell source.
- *
- * A heredoc body is data on a command's stdin. It cannot bind a variable in the
- * shell that reads it, so indexing `FLAG=--provenance` out of one invents a
- * binding the shell never makes, and an unattested `npm publish $FLAG` then
- * borrowed that flag and passed the attestation gate. Every heredoc spelling
- * hid a binding the same way: the plain `<<EOF`, the space- and tab-separated
- * `<<  EOF`, the quoted `<<'EOF'` and `<<"EOF"`, the tab-stripping `<<-EOF`,
- * and one written after another redirection (`cat > f <<EOF`).
- *
- * Only *binding* is suppressed here, never publish detection. A heredoc can
- * carry a script that is written to a file and executed later, so an
- * `npm publish` inside one remains a publish path this scan must report. Both
- * halves of that split fail closed: an unindexed name leaves `$FLAG`
- * unresolved, so the publish reads as unattested and the gate fails, and a
- * publish written into a heredoc still has to carry the flag itself.
- *
- * Several heredocs may open on one line (`cat <<A <<B`); bash reads their
- * bodies in the order the redirections appear, which is the order kept here. A
- * body whose delimiter never arrives runs to the end of the file, exactly as
- * the shell would read it.
- *
- * @param lines - The file's lines, with continuations already joined.
- * @returns One flag per line, true where that line is heredoc body.
- */
+/** Per-line heredoc body classification state. */
 interface HeredocLineState {
   /** The line is body data or a terminator, not parent-shell source. */
   body: boolean;
@@ -802,10 +777,30 @@ function heredocLineStates(lines: string[]): HeredocLineState[] {
 }
 
 /**
- * Mark heredoc body data and terminators so neither mutates parent bindings.
+ * Report which lines of a file are heredoc *body* rather than shell source.
+ *
+ * A heredoc body is data on a command's stdin. It cannot bind a variable in the
+ * shell that reads it, so indexing `FLAG=--provenance` out of one invents a
+ * binding the shell never makes, and an unattested `npm publish $FLAG` then
+ * borrowed that flag and passed the attestation gate. Every heredoc spelling
+ * hid a binding the same way: the plain `<<EOF`, the space- and tab-separated
+ * `<<  EOF`, the quoted `<<'EOF'` and `<<"EOF"`, the tab-stripping `<<-EOF`,
+ * and one written after another redirection (`cat > f <<EOF`).
+ *
+ * Only *binding* is suppressed here, never publish detection. A heredoc can
+ * carry a script that is written to a file and executed later, so an
+ * `npm publish` inside one remains a publish path this scan must report. Both
+ * halves of that split fail closed: an unindexed name leaves `$FLAG`
+ * unresolved, so the publish reads as unattested and the gate fails, and a
+ * publish written into a heredoc still has to carry the flag itself.
+ *
+ * Several heredocs may open on one line (`cat <<A <<B`); bash reads their
+ * bodies in the order the redirections appear, which is the order kept here. A
+ * body whose delimiter never arrives runs to the end of the file, exactly as
+ * the shell would read it.
  *
  * @param lines - The file's lines, with continuations already joined.
- * @returns One flag per line, true where that line is not parent-shell source.
+ * @returns One flag per line, true where that line is heredoc body.
  */
 export function heredocBodyLines(lines: string[]): boolean[] {
   return heredocLineStates(lines).map((state) => state.body);
@@ -870,6 +865,52 @@ export function unsetNames(command: ShellCommand): string[] {
     names.push(token.value);
   }
   return names;
+}
+
+/**
+ * Split one shell line into segments separated by control operators.
+ *
+ * Quoting and backslash escaping are respected so that operators inside quotes
+ * or after a backslash do not split. Comments (`#` at a word boundary) absorb
+ * the rest of the line into the preceding segment. The returned array
+ * interleaves text segments with operator segments (`;`, `&`, `&&`, `|`, `||`).
+ *
+ * @param line - One line of shell source (continuations already joined).
+ * @returns Segments where control operators are separate entries.
+ */
+export function segmentShellLine(line: string): string[] {
+  const segments: string[] = [];
+  let value = "";
+  let quote: "'" | '"' | undefined;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index]!;
+    if (character === "\\" && quote !== "'") {
+      value += character + (line[index + 1] ?? "");
+      index += 1;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = quote === undefined ? character : quote === character ? undefined : quote;
+      value += character;
+      continue;
+    }
+    if (quote === undefined && character === "#"
+      && (index === 0 || /[\s;&|()]/.test(line[index - 1]!))) {
+      value += line.slice(index);
+      break;
+    }
+    if (quote === undefined && (character === ";" || character === "&" || character === "|")) {
+      if (value !== "") segments.push(value);
+      const doubled = line[index + 1] === character && character !== ";";
+      segments.push(doubled ? character + character : character);
+      if (doubled) index += 1;
+      value = "";
+      continue;
+    }
+    value += character;
+  }
+  if (value !== "") segments.push(value);
+  return segments;
 }
 
 /**

@@ -31,6 +31,7 @@ import {
   heredocBodyLines,
   heredocExpansionLines,
   joinContinuations,
+  segmentShellLine,
   shellScalars,
   type ShellCommand,
   type SourceFile,
@@ -243,37 +244,7 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
     if (bodies[lineIndex]!) {
       return bodyExpansion[lineIndex]! ? expandScalars(expandArrays(line, arrays), scalars) : line;
     }
-    const segments: string[] = [];
-    let value = "";
-    let quote: "'" | '"' | undefined;
-    for (let index = 0; index < line.length; index += 1) {
-      const character = line[index]!;
-      if (character === "\\" && quote !== "'") {
-        value += character + (line[index + 1] ?? "");
-        index += 1;
-        continue;
-      }
-      if (character === "'" || character === '"') {
-        quote = quote === undefined ? character : quote === character ? undefined : quote;
-        value += character;
-        continue;
-      }
-      if (quote === undefined && character === "#"
-        && (index === 0 || /[\s;&|()]/.test(line[index - 1]!))) {
-        value += line.slice(index);
-        break;
-      }
-      if (quote === undefined && (character === ";" || character === "&" || character === "|")) {
-        if (value !== "") segments.push(value);
-        const doubled = line[index + 1] === character && character !== ";";
-        segments.push(doubled ? character + character : character);
-        if (doubled) index += 1;
-        value = "";
-        continue;
-      }
-      value += character;
-    }
-    if (value !== "") segments.push(value);
+    const segments = segmentShellLine(line);
 
     let assignmentEligible = true;
     let pendingAssignments = new Map<string, string>();
