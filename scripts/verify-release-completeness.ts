@@ -313,7 +313,12 @@ export function fetchGithubReleasesPaginated(
   const releases: string[] = [];
   let page = 1;
   while (true) {
-    const output = exec("gh", ["api", `repos/${slug}/releases`, "-f", `per_page=${GITHUB_RELEASES_PER_PAGE}`, "-f", `page=${page}`, "--jq", ".[].tag_name"], {});
+    // `--method GET` is load-bearing, not decoration: `gh api` switches to POST
+    // as soon as any `-f` parameter is present, so without it this "read" posts
+    // to the create-a-release endpoint. Verified against the live API — it
+    // returns `422 "tag_name" wasn't supplied`, i.e. the request was understood
+    // as an attempt to CREATE a release, and the audit fails outright.
+    const output = exec("gh", ["api", `repos/${slug}/releases`, "--method", "GET", "-f", `per_page=${GITHUB_RELEASES_PER_PAGE}`, "-f", `page=${page}`, "--jq", ".[].tag_name"], {});
     const pageReleases = parseLines(output);
     if (pageReleases.length === 0) break;
     releases.push(...pageReleases);

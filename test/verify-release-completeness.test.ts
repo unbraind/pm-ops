@@ -248,6 +248,25 @@ test("fetchGithubReleasesPaginated collects releases across a page boundary, not
   assert.deepEqual(releases.slice(100), ["v2026.02.01", "v2026.02.02"]);
 });
 
+test("fetchGithubReleasesPaginated asks the API to GET, so a paginated read is not posted as a create", () => {
+  // `gh api` selects POST as soon as any `-f` parameter is present. Without an
+  // explicit `--method GET` this "read" posts to the create-a-release endpoint:
+  // against the live API it returns `422 "tag_name" wasn't supplied`, meaning
+  // the request was understood as an attempt to CREATE a release. The audit
+  // then fails outright. This asserts the constructed argv, because the other
+  // pagination tests use an executor that ignores its arguments and would pass
+  // against either spelling.
+  let seen: string[] = [];
+  const mockExec = (_command: string, args: string[], _options: { cwd?: string }): string => {
+    seen = args;
+    return "";
+  };
+  fetchGithubReleasesPaginated(mockExec, "owner/repo");
+  const methodIndex = seen.indexOf("--method");
+  assert.notEqual(methodIndex, -1, "the request must name its HTTP method explicitly");
+  assert.equal(seen[methodIndex + 1], "GET", "a paginated release listing is a read, not a create");
+});
+
 test("fetchGithubReleasesPaginated stops when a page returns fewer than a full page", () => {
   let pageCalls = 0;
   const mockExec = (command: string, args: string[], _options: { cwd?: string }): string => {
