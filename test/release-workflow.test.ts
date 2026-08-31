@@ -752,3 +752,100 @@ test("vacuousRetryLoops flags a loop that only sleeps between install attempts a
   ].join("\n");
   assert.equal(vacuousRetryLoops(nested).length, 1);
 });
+
+test("the completeness audit runs after Create GitHub release, not in release:check, so detection does not block repair", () => {
+  // The completeness gate was wired into `release:check` / `prepublishOnly`,
+  // which run BEFORE the release job's Create-GitHub-release step. When a
+  // predecessor published to npm and pushed its tag but failed before creating
+  // its GitHub Release, the NEXT run hit the gate, was rejected for the
+  // incomplete state, and aborted before it could create the missing GitHub
+  // Release. The gate turned the exact 14-day outage it detects into an outage
+  // with no automated way out. The audit must run AFTER the repair steps, not
+  // before them, so detection is loud without blocking repair.
+  const pkg = JSON.parse(
+    readFileSync(resolve(import.meta.dirname, "../package.json"), "utf-8"),
+  ) as { scripts: Record<string, string> };
+
+  // release:check runs in the "Run release checks" and "Verify merged release"
+  // workflow steps, both of which execute BEFORE "Create GitHub release".
+  // The completeness gate must not be in that path.
+  const releaseCheck = pkg.scripts["release:check"] ?? "";
+  assert.doesNotMatch(
+    releaseCheck,
+    /verify:release-completeness/,
+    "release:check must not include the completeness gate, which runs before the Create-GitHub-release step and would block repair of an incomplete predecessor",
+  );
+
+  // prepublishOnly is triggered by `npm publish`, which also runs before
+  // "Create GitHub release". It must not include the gate directly either.
+  const prepublishOnly = pkg.scripts["prepublishOnly"] ?? "";
+  assert.doesNotMatch(
+    prepublishOnly,
+    /verify:release-completeness/,
+    "prepublishOnly must not include the completeness gate directly",
+  );
+
+  // The verify:release-completeness script must still exist so the workflow
+  // audit step can invoke it.
+  assert.ok(
+    pkg.scripts["verify:release-completeness"],
+    "the verify:release-completeness script must still exist for the workflow audit step",
+  );
+
+  // The audit step must exist in the workflow and run AFTER "Create GitHub
+  // release", so the current release is complete before the audit checks for
+  // incomplete predecessors. This keeps detection without blocking repair:
+  // the audit still fails the workflow (triggering alerts) when a predecessor
+  // is incomplete, but it does not abort the run before the step that
+  // completes the current release.
+  const auditStep = stepIndex("Audit release completeness");
+  const createRelease = stepIndex("Create GitHub release");
+  assert.ok(
+    auditStep > createRelease,
+    "the completeness audit must run after the Create GitHub release step, not before it",
+  );
+
+  // The audit step must actually run the completeness verifier.
+  const auditSource = executable(stepSource("Audit release completeness"));
+  assert.match(
+    auditSource,
+    /npm run verify:release-completeness/,
+    "the audit step must run the completeness verifier",
+  );
+
+  // The "Run release checks" step (which runs release:check) must run before
+  // "Create GitHub release", confirming the ordering: release:check (without
+  // the completeness gate) runs first, then publish, then the GitHub Release
+  // is created, and only then does the audit run.
+  const runChecks = stepIndex("Run release checks");
+  assert.ok(
+    runChecks < createRelease,
+    "release:check runs before Create GitHub release, so it must not include the completeness gate",
+  );
+});
+
+test("a probe called from inside a retry loop must only return status, not exit the step from within the loop", () => {
+  // The successful `bun add` branch exited the step with `exit 0` from inside
+  // the retry loop instead of returning status to loop-level termination. A
+  // probe called from inside a retry loop must only return status; the loop
+  // terminates normally on success via `break`, and the step exits after the
+  // loop based on whether any attempt succeeded.
+  const step = stepRunBody(workflow, "Verify bun install of published package");
+  let foundInstallLoop = false;
+  for (const header of step.matchAll(/\b(?:for|while)\b[\s\S]*?\bdo\b/g)) {
+    const body = shellLoopBody(step, header.index! + header[0].length);
+    if (body === undefined) continue;
+    if (!INSTALL_COMMANDS.test(body)) continue;
+    foundInstallLoop = true;
+    // The loop body must not contain `exit` — the probe returns status to
+    // loop-level termination (break), not to the step's exit. An `exit` inside
+    // the loop body bypasses loop-level termination and prevents any cleanup
+    // or post-loop logic from running.
+    assert.doesNotMatch(
+      body,
+      /\bexit\b/,
+      "a retry loop probe must not exit the step from inside the loop; use break and exit after the loop",
+    );
+  }
+  assert.ok(foundInstallLoop, "the Verify bun install step must contain a retry loop around a package-manager install");
+});

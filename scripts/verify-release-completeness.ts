@@ -109,12 +109,46 @@ export function repositoryUrl(repo: string | { url?: string } | undefined): stri
  * shorthand. A URL that names no GitHub host yields an empty string so the
  * caller can fail closed rather than querying the wrong registry.
  *
+ * The host check requires `hostname === "github.com"` exactly rather than a
+ * substring test. A regex that merely looks for `github` anywhere in the URL
+ * accepts `https://notgithub.com/owner/name` and
+ * `https://evil.example/github:owner/name`, directing the verifier at the
+ * wrong repository. The HTTPS form is parsed with `new URL` so the hostname is
+ * compared precisely; the SSH (`git@github.com:owner/name`) and shorthand
+ * (`github:owner/name`) forms are not valid URLs and are matched with anchored
+ * patterns that require the `github.com` host literally.
+ *
  * @param url - The repository URL to parse.
  * @returns The `owner/name` slug, or an empty string when no GitHub host is named.
  */
 export function repoSlugFromUrl(url: string): string {
-  const match = /(?:github\.com|github)[:/]([^/]+\/[^/]+?)(?:\.git)?\/?$/i.exec(url);
-  return match ? match[1]! : "";
+  // Shorthand form: `github:owner/name`. Checked before URL parsing because
+  // `new URL("github:owner/name")` parses `github` as the protocol and an
+  // empty hostname, which would fall through to the URL branch and return ""
+  // for a valid shorthand.
+  const shorthand = /^github:([^/]+\/[^/]+?)(?:\.git)?\/?$/i.exec(url);
+  if (shorthand) return shorthand[1]!;
+
+  // SSH form: `git@github.com:owner/name.git`. Not a URL, so it is matched
+  // with an anchored pattern that requires `github.com` literally.
+  const ssh = /^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?\/?$/i.exec(url);
+  if (ssh) return ssh[1]!;
+
+  // HTTPS form: `git+https://github.com/owner/name.git` etc. The `git+`
+  // prefix is stripped so `new URL` can parse the remaining `https://` URL.
+  // The hostname is compared exactly — a substring test accepts hostile hosts
+  // such as `notgithub.com`.
+  try {
+    const parsed = new URL(url.replace(/^git\+/i, ""));
+    if (parsed.hostname === "github.com") {
+      const path = /^\/([^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(parsed.pathname);
+      if (path) return path[1]!;
+    }
+  } catch {
+    // Not a valid URL — neither the SSH nor shorthand branches matched, so
+    // there is no GitHub slug to extract.
+  }
+  return "";
 }
 
 /**
@@ -131,7 +165,7 @@ export function packageNameFromManifest(root: string): string {
 /**
  * Split command output into non-empty, trimmed lines.
  *
- * Used for `git tag` and `gh release list` output, both of which are one entry
+ * Used for `git tag` and `gh api ... releases` output, both of which are one entry
  * per line. A trailing newline produces no empty entry.
  *
  * @param output - Raw command output.
@@ -254,6 +288,41 @@ export function defaultExec(
   return execFileSync(command, args, { encoding: "utf-8", ...options });
 }
 
+/** Page size for GitHub Release API pagination. The API caps at 100. */
+const GITHUB_RELEASES_PER_PAGE = 100;
+
+/**
+ * Fetch all GitHub Release tag names for a slug, paginating through the API.
+ *
+ * `gh release list -L N` caps at N entries, so a repository with more than N
+ * releases silently omits the older ones. This function pages through the
+ * GitHub releases API 100 at a time until a page returns fewer than a full
+ * page, collecting every release so the completeness audit sees the full
+ * history rather than a truncated prefix. Raising a fixed cap reproduces the
+ * same defect later; paginating until the API reports no further pages does
+ * not.
+ *
+ * @param exec - The executor to run `gh` commands through.
+ * @param slug - The `owner/name` slug to query.
+ * @returns All GitHub Release tag names, in API order.
+ */
+export function fetchGithubReleasesPaginated(
+  exec: (command: string, args: string[], options: { cwd?: string }) => string,
+  slug: string,
+): string[] {
+  const releases: string[] = [];
+  let page = 1;
+  while (true) {
+    const output = exec("gh", ["api", `repos/${slug}/releases`, "-f", `per_page=${GITHUB_RELEASES_PER_PAGE}`, "-f", `page=${page}`, "--jq", ".[].tag_name"], {});
+    const pageReleases = parseLines(output);
+    if (pageReleases.length === 0) break;
+    releases.push(...pageReleases);
+    if (pageReleases.length < GITHUB_RELEASES_PER_PAGE) break;
+    page++;
+  }
+  return releases;
+}
+
 /**
  * Build a fetcher from an executor.
  *
@@ -277,7 +346,7 @@ export function makeFetcher(exec: (command: string, args: string[], options: { c
       return parseNpmVersions(exec("npm", ["view", pkgName, "versions", "--json"], {}));
     },
     githubReleases(slug) {
-      return parseLines(exec("gh", ["release", "list", "-R", slug, "-L", "500", "--json", "tagName", "-q", ".[].tagName"], {}));
+      return fetchGithubReleasesPaginated(exec, slug);
     },
   };
 }

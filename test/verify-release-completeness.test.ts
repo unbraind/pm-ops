@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import {
   auditReleaseCompleteness,
   defaultExec,
+  fetchGithubReleasesPaginated,
   isReleaseTag,
   makeFetcher,
   npmVersionToTag,
@@ -102,6 +103,31 @@ test("repoSlugFromUrl extracts owner/name from every spelling git and npm record
   assert.equal(repoSlugFromUrl("not-a-github-url"), "");
 });
 
+test("repoSlugFromUrl rejects hostile hosts that merely contain 'github' and accepts valid GitHub forms", () => {
+  // A substring test for `github` accepts `https://notgithub.com/o/n` and
+  // `https://evil.example/github:o/n`, directing the verifier at the wrong
+  // repository. The hostname must be `github.com` exactly; the SSH and
+  // shorthand forms are matched with anchored patterns that require the host
+  // literally.
+  const cases: { url: string; expected: string; label: string }[] = [
+    // Hostile inputs that must be REJECTED (empty slug)
+    { url: "https://notgithub.com/o/n", expected: "", label: "notgithub.com is not github.com" },
+    { url: "https://evil.example/github:o/n", expected: "", label: "evil.example with github: in path is not github.com" },
+    { url: "https://evil.example/github/o/n", expected: "", label: "evil.example with github/ in path is not github.com" },
+    { url: "http://github.com.evil.example/o/n", expected: "", label: "github.com subdomain of evil.example is not github.com" },
+    // Valid GitHub inputs that must be ACCEPTED
+    { url: "git@github.com:o/n", expected: "o/n", label: "SSH form without .git" },
+    { url: "github:o/n", expected: "o/n", label: "shorthand form without .git" },
+    { url: "https://github.com/o/n", expected: "o/n", label: "HTTPS form" },
+    { url: "git+https://github.com/o/n.git", expected: "o/n", label: "git+HTTPS form with .git" },
+    { url: "git@github.com:o/n.git", expected: "o/n", label: "SSH form with .git" },
+    { url: "github:o/n.git", expected: "o/n", label: "shorthand form with .git" },
+  ];
+  for (const { url, expected, label } of cases) {
+    assert.equal(repoSlugFromUrl(url), expected, `${label}: ${url}`);
+  }
+});
+
 test("parseLines splits output into trimmed non-empty lines", () => {
   assert.deepEqual(parseLines("v1\nv2\nv3\n"), ["v1", "v2", "v3"]);
   assert.deepEqual(parseLines("  v1  \n\n v2 \n"), ["v1", "v2"]);
@@ -181,7 +207,7 @@ test("makeFetcher builds a fetcher whose methods parse executor output", () => {
     if (args[0] === "tag") return "v2026.08.17\nv2026.08.28\n";
     if (args[0] === "remote") return "git@github.com:unbraind/pm-ops.git\n";
     if (args[0] === "view") return '["2026.8.17","2026.8.28"]';
-    if (args[0] === "release") return "v2026.08.17\nv2026.08.28\n";
+    if (args[0] === "api") return "v2026.08.17\nv2026.08.28\n";
     return "";
   };
   const fetcher = makeFetcher(mockExec);
@@ -192,12 +218,81 @@ test("makeFetcher builds a fetcher whose methods parse executor output", () => {
   assert.ok(calls.some((c) => c.startsWith("git tag")), "the tags method runs git tag");
   assert.ok(calls.some((c) => c.includes("remote get-url origin")), "the remoteUrl method reads the origin remote");
   assert.ok(calls.some((c) => c.includes("view pm-ops versions --json")), "the npmVersions method queries npm");
-  assert.ok(calls.some((c) => c.includes("release list")), "the githubReleases method queries gh");
+  assert.ok(calls.some((c) => c.includes("api") && c.includes("repos/unbraind/pm-ops/releases")), "the githubReleases method queries the GitHub releases API");
 });
 
 test("realFetcher is built from the real executor at module load", () => {
   assert.equal(typeof realFetcher.tags, "function");
   assert.equal(typeof realFetcher.npmVersions, "function");
+});
+
+test("fetchGithubReleasesPaginated collects releases across a page boundary, not just the first page", () => {
+  // `gh release list -L 500` caps at 500 entries, so a repository with more
+  // than 500 releases silently omits the older ones. Past that cap, otherwise
+  // complete tags get reported as missing a GitHub Release — permanently red
+  // release:check. Paginating until the API reports no further pages does not.
+  let pageCalls = 0;
+  const page1 = Array.from({ length: 100 }, (_, i) => `v2026.01.${String(i + 1).padStart(2, "0")}`).join("\n") + "\n";
+  const page2 = "v2026.02.01\nv2026.02.02\n";
+  const mockExec = (command: string, args: string[], _options: { cwd?: string }): string => {
+    if (args[0] === "api") {
+      pageCalls++;
+      return pageCalls === 1 ? page1 : page2;
+    }
+    return "";
+  };
+  const releases = fetchGithubReleasesPaginated(mockExec, "owner/repo");
+  assert.equal(releases.length, 102, "all releases across both pages are collected");
+  assert.equal(pageCalls, 2, "both pages were fetched");
+  assert.deepEqual(releases.slice(0, 2), ["v2026.01.01", "v2026.01.02"]);
+  assert.deepEqual(releases.slice(100), ["v2026.02.01", "v2026.02.02"]);
+});
+
+test("fetchGithubReleasesPaginated stops when a page returns fewer than a full page", () => {
+  let pageCalls = 0;
+  const mockExec = (command: string, args: string[], _options: { cwd?: string }): string => {
+    if (args[0] === "api") {
+      pageCalls++;
+      return "v2026.01.01\nv2026.01.02\n";
+    }
+    return "";
+  };
+  const releases = fetchGithubReleasesPaginated(mockExec, "owner/repo");
+  assert.equal(releases.length, 2, "a partial page is the last page");
+  assert.equal(pageCalls, 1, "no second page is fetched after a partial page");
+});
+
+test("fetchGithubReleasesPaginated stops when a page returns nothing", () => {
+  let pageCalls = 0;
+  const mockExec = (command: string, args: string[], _options: { cwd?: string }): string => {
+    if (args[0] === "api") {
+      pageCalls++;
+      return pageCalls === 1 ? Array.from({ length: 100 }, (_, i) => `v2026.01.${String(i + 1).padStart(2, "0")}`).join("\n") + "\n" : "";
+    }
+    return "";
+  };
+  const releases = fetchGithubReleasesPaginated(mockExec, "owner/repo");
+  assert.equal(releases.length, 100, "a full page followed by an empty page yields exactly one page");
+  assert.equal(pageCalls, 2, "the empty page was fetched to confirm no more results");
+});
+
+test("makeFetcher paginates githubReleases through the API rather than capping at a fixed limit", () => {
+  let pageCalls = 0;
+  const mockExec = (command: string, args: string[], _options: { cwd?: string }): string => {
+    if (args[0] === "tag") return "v2026.01.01\n";
+    if (args[0] === "remote") return "https://github.com/o/repo.git\n";
+    if (args[0] === "view") return '["2026.1.1"]';
+    if (args[0] === "api") {
+      pageCalls++;
+      if (pageCalls === 1) return Array.from({ length: 100 }, (_, i) => `v2026.01.${String(i + 1).padStart(2, "0")}`).join("\n") + "\n";
+      return "v2026.02.01\n";
+    }
+    return "";
+  };
+  const fetcher = makeFetcher(mockExec);
+  const releases = fetcher.githubReleases("o/repo");
+  assert.equal(releases.length, 101, "the fetcher paginates past the first page");
+  assert.equal(pageCalls, 2);
 });
 
 test("verify gathers the three lists through the fetcher and audits them", () => {

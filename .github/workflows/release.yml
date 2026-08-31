@@ -838,6 +838,7 @@ jobs:
           backoffs=(15 30 60 90 120)
           mkdir -p /tmp/bun-verify
           attempt=0
+          bun_succeeded=0
           while (( attempt < ${#backoffs[@]} + 1 )); do
             attempt=$(( attempt + 1 ))
             work_dir="$(mktemp -d /tmp/bun-verify/attempt-XXXXXX)"
@@ -845,7 +846,8 @@ jobs:
             bun pm cache rm > /dev/null 2>&1 || true
             if (cd "${work_dir}" && bun init -y > /dev/null && bun add "${pkg_name}@${NPM_VERSION}"); then
               echo "bun add succeeded on attempt ${attempt}"
-              exit 0
+              bun_succeeded=1
+              break
             fi
             if (( attempt < ${#backoffs[@]} + 1 )); then
               backoff="${backoffs[$(( attempt - 1 ))]}"
@@ -853,8 +855,10 @@ jobs:
               sleep "${backoff}"
             fi
           done
-          echo "bun add failed after ${attempt} attempts"
-          exit 1
+          if (( ! bun_succeeded )); then
+            echo "bun add failed after ${attempt} attempts"
+            exit 1
+          fi
       - name: Create GitHub release
         if: steps.decide.outputs.should_release == 'true'
         env:
@@ -862,3 +866,20 @@ jobs:
           RELEASE_TAG: ${{ steps.decide.outputs.tag }}
           GH_TOKEN: ${{ github.token }}
         run: gh release create "${RELEASE_TAG}" --title "${REPO_NAME} ${RELEASE_TAG}" --notes-file RELEASE_NOTES.md --verify-tag
+
+      # Audit release completeness AFTER the current release's GitHub Release
+      # has been created, not before. Running the audit in `release:check` /
+      # `prepublishOnly` (which execute before the Create-GitHub-release step)
+      # would reject the run for a PREDECESSOR's incomplete triple and abort
+      # before the step that completes the current one - turning detection into
+      # a permanent block with no automated way out. The exact 14-day outage
+      # this gate exists to detect would become an outage with no automated
+      # recovery: every subsequent run fails at the gate and never reaches the
+      # step that could create the missing GitHub Release. By running the audit
+      # after the current release is complete, the gate still detects and
+      # reports incomplete predecessors loudly (the workflow fails, triggering
+      # alerts), but it does not stand between the workflow and the step that
+      # completes the current release.
+      - name: Audit release completeness
+        if: steps.decide.outputs.should_release == 'true'
+        run: npm run verify:release-completeness

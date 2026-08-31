@@ -8,7 +8,14 @@
 
 ### Fixed
 
+- P2: GitHub Release history truncated by gh release list -L 500 (uncapped reads miss older releases) ([ops-ud1m](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-ud1m.toon))
+- P2: exit 0 inside the retry loop instead of returning status to loop-level termination ([ops-emii](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-emii.toon))
+- P1: Completeness gate makes a partial release permanent (release:check blocks repair) ([ops-94me](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-94me.toon))
 - The bun install verification retried a cached negative manifest, so published versions were never observed ([ops-i3ie](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-i3ie.toon))
+
+### Security
+
+- Security: repository-host check matches too loosely (notgithub.com accepted as GitHub) ([ops-042o](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-042o.toon))
 
 ## 2026.8.31 - 2026-08-31
 

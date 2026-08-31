@@ -1,0 +1,21 @@
+id: ops-ud1m
+title: "P2: GitHub Release history truncated by gh release list -L 500 (uncapped reads miss older releases)"
+description: "Reported by Greptile and Sourcery. scripts/verify-release-completeness.ts:280 uses gh release list -L 500 while the tag and npm-version reads are uncapped. This is a daily-release repository: past 500 releases, older releases are omitted and their otherwise complete tags get reported as missing a GitHub Release — permanently red release:check and prepublishOnly. Paginate until the API reports no further pages (do not simply raise 500 to a bigger number; that reproduces the same bug later)."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-31T11:48:58.987Z"
+updated_at: "2026-08-31T11:52:05.781Z"
+closed_at: "2026-08-31T11:52:05.767Z"
+completed_at: "2026-08-31T11:52:05.767Z"
+author: pi-agent
+comments[1]{created_at,author,text}:
+  "2026-08-31T11:51:48.244Z",pi-agent,"Fix: Replaced 'gh release list -L 500' with fetchGithubReleasesPaginated, which pages through the GitHub releases API 100 at a time (gh api repos/{slug}/releases with per_page and page parameters) until a page returns fewer than a full page or nothing. This collects every release rather than truncating at a fixed cap. Revert-proof: test 'fetchGithubReleasesPaginated collects releases across a page boundary, not just the first page' fails RED when makeFetcher.githubReleases reverts to the capped gh release list -L 500 call."
+files[2]{path,scope}:
+  scripts/verify-release-completeness.ts,project
+  test/verify-release-completeness.test.ts,project
+tests[1]{command,path,scope,note}:
+  "PM_PATH=/tmp/pm-test PM_GLOBAL_PATH=/tmp/pm-test-g node --test --test-name-pattern=\"page boundary\" test/verify-release-completeness.test.ts",test/verify-release-completeness.test.ts,project,"fetchGithubReleasesPaginated collects releases across a page boundary, not just the first page"
+close_reason: "Fixed: GitHub Release listing paginated through API instead of capped at 500"
+body: ""
