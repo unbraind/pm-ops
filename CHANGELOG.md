@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- The revert-proof test read its vulnerable fixture from origin/main, so merging it would have turned it red ([ops-9ktn](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-9ktn.toon))
 - The paginated release listing was posted rather than fetched, because gh api switches to POST as soon as a parameter is present ([ops-eugo](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-eugo.toon))
 - P2: GitHub Release history truncated by gh release list -L 500 (uncapped reads miss older releases) ([ops-ud1m](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-ud1m.toon))
 - P2: exit 0 inside the retry loop instead of returning status to loop-level termination ([ops-emii](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-emii.toon))

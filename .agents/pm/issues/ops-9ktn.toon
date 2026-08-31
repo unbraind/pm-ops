@@ -1,0 +1,19 @@
+id: ops-9ktn
+title: "The revert-proof test read its vulnerable fixture from origin/main, so merging it would have turned it red"
+description: "CodeRabbit flagged this as a Major functional-correctness issue on pull request 77 and it is right. The regression test that proves the vacuous-retry rule discriminates read its vulnerable fixture from the mutable ref origin/main, using git show. That makes the test self-invalidating: the moment this branch merges, origin/main IS the patched workflow, so vacuousRetryLoops correctly returns an empty list for it and the assertion that the old text is flagged fails on main. A green test that turns red with no commit changing it, which is the same class as a gate whose verdict depends on the clock rather than on its input. A checkout without an origin/main ref failed even earlier, at the git show itself. Replaced with the vulnerable step checked in verbatim as an inline fixture, which is the only input this assertion is actually about, and removed the now-unused execFileSync import."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-31T12:23:49.256Z"
+updated_at: "2026-08-31T12:23:50.465Z"
+closed_at: "2026-08-31T12:23:50.450Z"
+completed_at: "2026-08-31T12:23:50.450Z"
+author: claude-orchestrator
+resolution: "The vulnerable workflow step is checked into the test as an inline fixture, so the assertion depends only on its input rather than on the current contents of a mutable ref."
+expected_result: "A regression test's verdict depends on the code under test, not on which commit a branch happens to point at."
+actual_result: "It read origin/main through git show, so after this branch merged the fixture would have become the patched text, the rule would correctly return no findings, and the assertion that the old text is flagged would have failed on main with no commit changing it."
+files[1]{path,scope}:
+  test/release-workflow.test.ts,project
+close_reason: Replaced the origin/main read with a checked-in inline fixture of the vulnerable step and dropped the unused import; 322 of 322 pass and the coverage gate is satisfied.
+body: ""

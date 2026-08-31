@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
@@ -666,12 +665,33 @@ test("a retry loop around a package-manager install must invalidate the cache or
   // `npm view` already returned the version, and the failure aborted the job
   // before `Create GitHub release` ran. The rule must fail the workflow text
   // that shipped that defect, and pass the text that fixes it.
-  const previousWorkflow = execFileSync(
-    "git",
-    ["show", "origin/main:.github/workflows/release.yml"],
-    { encoding: "utf-8" },
-  );
-  const oldStep = stepRunBody(previousWorkflow, "Verify bun install of published package");
+  // The vulnerable step is checked in verbatim rather than read from
+  // `origin/main`. Reading the ref made the test self-invalidating: the moment
+  // this branch merges, `origin/main` IS the patched workflow, so the rule
+  // correctly returns [] for it and this assertion fails on main — a green test
+  // that turns red with no commit changing it, and a checkout without an
+  // `origin/main` ref failed even earlier at `git show`. A fixture pins the
+  // input the rule is supposed to reject, which is the only thing this
+  // assertion is about.
+  const oldStep = [
+    'set -euo pipefail',
+    'pkg_name="$(node -p "require(\'./package.json\').name")"',
+    'mkdir -p /tmp/bun-verify',
+    'cd /tmp/bun-verify',
+    'rm -rf node_modules bun.lockb package.json',
+    'bun init -y > /dev/null',
+    '# Retry up to 5 times - npm registry can take ~60s to propagate',
+    'for attempt in 1 2 3 4 5; do',
+    '  if bun add "${pkg_name}@${NPM_VERSION}"; then',
+    '    echo "bun add succeeded on attempt $attempt"',
+    '    exit 0',
+    '  fi',
+    '  echo "bun add failed on attempt $attempt, sleeping 30s..."',
+    '  sleep 30',
+    'done',
+    'echo "bun add failed after 5 attempts"',
+    'exit 1',
+  ].join("\n");
   assert.notDeepEqual(
     vacuousRetryLoops(oldStep),
     [],
