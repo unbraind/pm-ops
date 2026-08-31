@@ -1,0 +1,22 @@
+id: ops-94me
+title: "P1: Completeness gate makes a partial release permanent (release:check blocks repair)"
+description: "Reported by Greptile (P1) and CodeRabbit. The completeness gate is wired into release:check / prepublishOnly, which run before the release job's recovery steps. So when a run publishes to npm or pushes its tag and then fails before completing the triple, the next run hits the gate, is rejected for the incomplete state, and aborts before it can create the missing tag or GitHub Release. The gate would have turned the exact 14-day outage it detects into an outage with no automated way out."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-31T11:48:41.382Z"
+updated_at: "2026-08-31T11:52:04.435Z"
+closed_at: "2026-08-31T11:52:04.415Z"
+completed_at: "2026-08-31T11:52:04.415Z"
+author: pi-agent
+comments[1]{created_at,author,text}:
+  "2026-08-31T11:51:27.231Z",pi-agent,"Fix: Removed verify:release-completeness from release:check/prepublishOnly and added a new 'Audit release completeness' workflow step AFTER 'Create GitHub release'. This keeps detection loud (the workflow still fails and triggers alerts when a predecessor is incomplete) without standing between the workflow and the step that completes the current release. Chosen approach: run the audit after the repair steps. The audit step runs after Create GitHub release, so the current release's triple is complete before the audit checks predecessors. An incomplete predecessor still fails the workflow (alerting maintainers), but the current release is not blocked. Revert-proof: test 'the completeness audit runs after Create GitHub release, not in release:check, so detection does not block repair' fails RED when verify:release-completeness is put back in release:check."
+files[3]{path,scope}:
+  .github/workflows/release.yml,project
+  package.json,project
+  test/release-workflow.test.ts,project
+tests[1]{command,path,scope,note}:
+  "PM_PATH=/tmp/pm-test PM_GLOBAL_PATH=/tmp/pm-test-g node --test --test-name-pattern=\"detection does not block repair\" test/release-workflow.test.ts",test/release-workflow.test.ts,project,"the completeness audit runs after Create GitHub release, not in release:check, so detection does not block repair"
+close_reason: "Fixed: completeness gate removed from release:check, audit step added after Create GitHub release"
+body: ""
