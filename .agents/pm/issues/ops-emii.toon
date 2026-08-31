@@ -1,0 +1,21 @@
+id: ops-emii
+title: "P2: exit 0 inside the retry loop instead of returning status to loop-level termination"
+description: "Reported by Greptile (P2). .github/workflows/release.yml:848: the successful bun add branch exits the step from inside the loop instead of returning status to loop-level termination. Greptile cites a repository rule that a probe called from inside a retry loop must only return status. Restructure so the loop terminates normally on success."
+type: Issue
+status: closed
+priority: 2
+tags: []
+created_at: "2026-08-31T11:48:48.464Z"
+updated_at: "2026-08-31T11:52:05.137Z"
+closed_at: "2026-08-31T11:52:05.123Z"
+completed_at: "2026-08-31T11:52:05.123Z"
+author: pi-agent
+comments[1]{created_at,author,text}:
+  "2026-08-31T11:51:34.834Z",pi-agent,"Fix: Replaced 'exit 0' inside the retry loop with 'bun_succeeded=1; break'. The loop now terminates normally on success via break, and the step exits after the loop based on the success flag: 'if (( ! bun_succeeded )); then exit 1; fi'. The probe returns status to loop-level termination rather than exiting the step from within the loop. Revert-proof: test 'a probe called from inside a retry loop must only return status, not exit the step from within the loop' fails RED when exit 0 is restored inside the loop body."
+files[2]{path,scope}:
+  .github/workflows/release.yml,project
+  test/release-workflow.test.ts,project
+tests[1]{command,path,scope,note}:
+  "PM_PATH=/tmp/pm-test PM_GLOBAL_PATH=/tmp/pm-test-g node --test --test-name-pattern=\"must only return status\" test/release-workflow.test.ts",test/release-workflow.test.ts,project,"a probe called from inside a retry loop must only return status, not exit the step from within the loop"
+close_reason: "Fixed: exit 0 replaced with break and success flag in retry loop"
+body: ""

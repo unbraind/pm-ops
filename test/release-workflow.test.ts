@@ -515,3 +515,357 @@ test("publication is proven possible before anything is mutated", () => {
   assert.doesNotMatch(step, /-o\s+\/tmp\/[^\s"]+/);
   assert.match(step, /-o "\$\{response\}"/);
 });
+
+/**
+ * Package-manager install commands a retry loop might re-run. Matched as
+ * whole commands so `bun additional` or a variable named `add` do not trip the
+ * rule: `npm i` only matches a standalone `i`, because the word boundary after
+ * `i` is absent inside `install`.
+ */
+const INSTALL_COMMANDS =
+  /\b(?:bun\s+add|npm\s+(?:install|i|add|ci)|pnpm\s+(?:add|install|i)|yarn\s+(?:add|install))\b/;
+
+/**
+ * Commands that clear a package-manager's cache between attempts. A clear
+ * forces the next install to re-query the registry rather than re-reading a
+ * cached negative manifest.
+ */
+const CACHE_INVALIDATIONS =
+  /\b(?:bun\s+pm\s+cache\s+rm|npm\s+cache\s+(?:clean|verify|clear)|pnpm\s+store\s+prune|yarn\s+cache\s+clean)\b/;
+
+/**
+ * A fresh install or cache directory created per attempt and bound to a
+ * cache- or install-root environment variable. A `mktemp` BEFORE the loop
+ * runs once and is reused by every attempt, so only the loop BODY is inspected
+ * for this signal: a fresh cache dir between attempts is what makes attempt
+ * N+1 observe state attempt N did not.
+ */
+const FRESH_CACHE_DIR =
+  /\b(?:BUN_INSTALL_CACHE_DIR|npm_config_cache|NPM_CONFIG_CACHE|XDG_CACHE_HOME|COREPACK_HOME|npm_config_prefix)\b[^=]*=\s*"?\$\(mktemp/;
+
+/**
+ * Extract the body of one workflow step's `run:` block from arbitrary workflow
+ * source.
+ *
+ * The module-level {@link stepSource} is bound to the current {@link workflow};
+ * this standalone copy works against any text (notably the `origin/main`
+ * revision read with `git show`), so the vacuous-retry rule can be proven
+ * against the exact text that shipped the defect rather than a paraphrase.
+ *
+ * @param source - Workflow YAML source.
+ * @param name - The exact `- name:` value of the step.
+ * @returns The `run:` block body, de-indented to its own leading column.
+ */
+function stepRunBody(source: string, name: string): string {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const nameMatch = new RegExp(
+    `^([ \\t]*)-[ \\t]+name:[ \\t]+${escaped}[ \\t]*(?:#[^\\r\\n]*)?$`,
+    "m",
+  ).exec(source);
+  assert.ok(nameMatch, `workflow should contain the ${name} step`);
+  const stepIndent = nameMatch[1]!.length;
+  const afterName = source.slice(nameMatch.index! + 1);
+  const nextStep = new RegExp(`^ {${stepIndent}}- name:`, "m").exec(afterName);
+  const stepText = nextStep
+    ? source.slice(nameMatch.index!, nameMatch.index! + 1 + nextStep.index!)
+    : source.slice(nameMatch.index!);
+  const runMatch = /^([ \t]*)run:[ \t]*[|>]/m.exec(stepText);
+  assert.ok(runMatch, `${name} step should declare a run: block`);
+  const runIndent = runMatch[1]!.length;
+  const bodyLines: string[] = [];
+  for (const line of stepText.slice(runMatch.index! + runMatch[0].length).split("\n")) {
+    if (line.trim().length === 0) {
+      bodyLines.push(line);
+      continue;
+    }
+    if (/^([ \t]*)/.exec(line)![1].length > runIndent) {
+      bodyLines.push(line);
+    } else {
+      break;
+    }
+  }
+  return bodyLines.join("\n");
+}
+
+/**
+ * Return the body of the shell loop whose `do` begins at `afterDo`, tracking
+ * nested `do`/`done` pairs so an inner loop does not end the outer one early.
+ *
+ * @param source - The shell source to scan.
+ * @param afterDo - Offset just past the loop header's `do`.
+ * @returns The loop body, or `undefined` when the `do` is never closed.
+ */
+function shellLoopBody(source: string, afterDo: number): string | undefined {
+  let depth = 1;
+  let i = afterDo;
+  const doRe = /\bdo\b/g;
+  const doneRe = /\bdone\b/g;
+  while (i < source.length) {
+    doRe.lastIndex = i;
+    doneRe.lastIndex = i;
+    const doMatch = doRe.exec(source);
+    const doneMatch = doneRe.exec(source);
+    const nextDo = doMatch ? doMatch.index : Infinity;
+    const nextDone = doneMatch ? doneMatch.index : Infinity;
+    if (nextDone === Infinity) return undefined;
+    if (nextDo < nextDone) {
+      depth += 1;
+      i = doMatch!.index + doMatch![0].length;
+    } else {
+      depth -= 1;
+      if (depth === 0) return source.slice(afterDo, doneMatch!.index);
+      i = doneMatch!.index + doneMatch![0].length;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Find retry loops around a package-manager install that re-read the same
+ * cached registry manifest on every attempt - a vacuous retry.
+ *
+ * A loop is vacuous when it retries an install command (`bun add`, `npm ci`,
+ * `npm install`, `pnpm add`, `yarn add`) but its body neither clears the
+ * package cache ({@link CACHE_INVALIDATIONS}) nor binds a fresh cache directory
+ * per attempt ({@link FRESH_CACHE_DIR}). With neither, attempt N+1 re-reads the
+ * negative manifest attempt N cached, so a version that appears between
+ * attempts is never observed and the loop cannot succeed no matter how many
+ * times it retries. The rule fails the workflow, not the run: a retry that
+ * cannot observe new state is a defect in the workflow, not a transient
+ * registry delay.
+ *
+ * Only the loop BODY is inspected. A cache clear or fresh directory created
+ * BEFORE the loop runs once and is reused by every attempt, so it does not
+ * un-vacuous a retry - it must happen between attempts, i.e. inside the body.
+ *
+ * @param source - A workflow step `run:` body, or any shell source.
+ * @returns One defect description per vacuous retry loop found.
+ */
+function vacuousRetryLoops(source: string): string[] {
+  const defects: string[] = [];
+  for (const header of source.matchAll(/\b(?:for|while)\b[\s\S]*?\bdo\b/g)) {
+    const body = shellLoopBody(source, header.index! + header[0].length);
+    if (body === undefined) continue;
+    if (!INSTALL_COMMANDS.test(body)) continue;
+    if (CACHE_INVALIDATIONS.test(body) || FRESH_CACHE_DIR.test(body)) continue;
+    defects.push(
+      "retry loop re-runs a package-manager install without clearing its cache or binding a fresh cache directory between attempts",
+    );
+  }
+  return defects;
+}
+
+test("a retry loop around a package-manager install must invalidate the cache or bind a fresh cache directory between attempts", () => {
+  // The old `Verify bun install of published package` step retried `bun add`
+  // five times in a fixed directory with no cache invalidation between
+  // attempts, so attempts 2..5 re-read the same cached negative manifest and
+  // could never observe a version that had since appeared. That left tags
+  // v2026.08.28, v2026.08.29 and v2026.08.31 published to npm with no GitHub
+  // Release for 14 days, because the step failed on every attempt while
+  // `npm view` already returned the version, and the failure aborted the job
+  // before `Create GitHub release` ran. The rule must fail the workflow text
+  // that shipped that defect, and pass the text that fixes it.
+  // The vulnerable step is checked in verbatim rather than read from
+  // `origin/main`. Reading the ref made the test self-invalidating: the moment
+  // this branch merges, `origin/main` IS the patched workflow, so the rule
+  // correctly returns [] for it and this assertion fails on main — a green test
+  // that turns red with no commit changing it, and a checkout without an
+  // `origin/main` ref failed even earlier at `git show`. A fixture pins the
+  // input the rule is supposed to reject, which is the only thing this
+  // assertion is about.
+  const oldStep = [
+    'set -euo pipefail',
+    'pkg_name="$(node -p "require(\'./package.json\').name")"',
+    'mkdir -p /tmp/bun-verify',
+    'cd /tmp/bun-verify',
+    'rm -rf node_modules bun.lockb package.json',
+    'bun init -y > /dev/null',
+    '# Retry up to 5 times - npm registry can take ~60s to propagate',
+    'for attempt in 1 2 3 4 5; do',
+    '  if bun add "${pkg_name}@${NPM_VERSION}"; then',
+    '    echo "bun add succeeded on attempt $attempt"',
+    '    exit 0',
+    '  fi',
+    '  echo "bun add failed on attempt $attempt, sleeping 30s..."',
+    '  sleep 30',
+    'done',
+    'echo "bun add failed after 5 attempts"',
+    'exit 1',
+  ].join("\n");
+  assert.notDeepEqual(
+    vacuousRetryLoops(oldStep),
+    [],
+    "the old workflow's retry loop is vacuous: it re-runs bun add without invalidating the cache",
+  );
+
+  const newStep = stepRunBody(workflow, "Verify bun install of published package");
+  assert.deepEqual(
+    vacuousRetryLoops(newStep),
+    [],
+    "the new workflow's retry loop clears bun's cache and binds a fresh BUN_INSTALL_CACHE_DIR per attempt",
+  );
+});
+
+test("vacuousRetryLoops flags a loop that only sleeps between install attempts and passes one that clears the cache", () => {
+  // A minimal vacuous loop: install + sleep, no cache work. The rule must flag
+  // it so the workflow-level guard is not the only thing standing between a
+  // future edit and a re-introduced vacuous retry.
+  const vacuous = [
+    "set -euo pipefail",
+    "for attempt in 1 2 3; do",
+    "  if bun add pkg@1.0.0; then exit 0; fi",
+    "  echo 'failed'",
+    "  sleep 30",
+    "done",
+    "exit 1",
+  ].join("\n");
+  assert.equal(vacuousRetryLoops(vacuous).length, 1);
+
+  // A loop that clears the npm cache between attempts is not vacuous.
+  const cleared = [
+    "for attempt in 1 2 3; do",
+    "  npm cache clean --force",
+    "  npm install pkg@1.0.0 && exit 0",
+    "  sleep 30",
+    "done",
+  ].join("\n");
+  assert.deepEqual(vacuousRetryLoops(cleared), []);
+
+  // A loop that binds a fresh cache dir per attempt is not vacuous.
+  const freshDir = [
+    "for attempt in 1 2 3; do",
+    "  export npm_config_cache=\"$(mktemp -d)\"",
+    "  npm install pkg@1.0.0 && exit 0",
+    "  sleep 30",
+    "done",
+  ].join("\n");
+  assert.deepEqual(vacuousRetryLoops(freshDir), []);
+
+  // A loop with no install command is not in scope.
+  const noInstall = [
+    "for attempt in 1 2 3; do",
+    "  curl -sf https://example.com && exit 0",
+    "  sleep 30",
+    "done",
+  ].join("\n");
+  assert.deepEqual(vacuousRetryLoops(noInstall), []);
+
+  // A cache clear BEFORE the loop does not un-vacuous a retry that reuses it.
+  const staleSetup = [
+    "npm cache clean --force",
+    "for attempt in 1 2 3; do",
+    "  npm install pkg@1.0.0 && exit 0",
+    "  sleep 30",
+    "done",
+  ].join("\n");
+  assert.equal(vacuousRetryLoops(staleSetup).length, 1);
+
+  // A nested loop: the inner loop is vacuous and is flagged independently.
+  const nested = [
+    "for i in 1 2; do",
+    "  export npm_config_cache=\"$(mktemp -d)\"",
+    "  for attempt in 1 2 3; do",
+    "    bun add pkg@1.0.0 && exit 0",
+    "    sleep 30",
+    "  done",
+    "done",
+  ].join("\n");
+  assert.equal(vacuousRetryLoops(nested).length, 1);
+});
+
+test("the completeness audit runs after Create GitHub release, not in release:check, so detection does not block repair", () => {
+  // The completeness gate was wired into `release:check` / `prepublishOnly`,
+  // which run BEFORE the release job's Create-GitHub-release step. When a
+  // predecessor published to npm and pushed its tag but failed before creating
+  // its GitHub Release, the NEXT run hit the gate, was rejected for the
+  // incomplete state, and aborted before it could create the missing GitHub
+  // Release. The gate turned the exact 14-day outage it detects into an outage
+  // with no automated way out. The audit must run AFTER the repair steps, not
+  // before them, so detection is loud without blocking repair.
+  const pkg = JSON.parse(
+    readFileSync(resolve(import.meta.dirname, "../package.json"), "utf-8"),
+  ) as { scripts: Record<string, string> };
+
+  // release:check runs in the "Run release checks" and "Verify merged release"
+  // workflow steps, both of which execute BEFORE "Create GitHub release".
+  // The completeness gate must not be in that path.
+  const releaseCheck = pkg.scripts["release:check"] ?? "";
+  assert.doesNotMatch(
+    releaseCheck,
+    /verify:release-completeness/,
+    "release:check must not include the completeness gate, which runs before the Create-GitHub-release step and would block repair of an incomplete predecessor",
+  );
+
+  // prepublishOnly is triggered by `npm publish`, which also runs before
+  // "Create GitHub release". It must not include the gate directly either.
+  const prepublishOnly = pkg.scripts["prepublishOnly"] ?? "";
+  assert.doesNotMatch(
+    prepublishOnly,
+    /verify:release-completeness/,
+    "prepublishOnly must not include the completeness gate directly",
+  );
+
+  // The verify:release-completeness script must still exist so the workflow
+  // audit step can invoke it.
+  assert.ok(
+    pkg.scripts["verify:release-completeness"],
+    "the verify:release-completeness script must still exist for the workflow audit step",
+  );
+
+  // The audit step must exist in the workflow and run AFTER "Create GitHub
+  // release", so the current release is complete before the audit checks for
+  // incomplete predecessors. This keeps detection without blocking repair:
+  // the audit still fails the workflow (triggering alerts) when a predecessor
+  // is incomplete, but it does not abort the run before the step that
+  // completes the current release.
+  const auditStep = stepIndex("Audit release completeness");
+  const createRelease = stepIndex("Create GitHub release");
+  assert.ok(
+    auditStep > createRelease,
+    "the completeness audit must run after the Create GitHub release step, not before it",
+  );
+
+  // The audit step must actually run the completeness verifier.
+  const auditSource = executable(stepSource("Audit release completeness"));
+  assert.match(
+    auditSource,
+    /npm run verify:release-completeness/,
+    "the audit step must run the completeness verifier",
+  );
+
+  // The "Run release checks" step (which runs release:check) must run before
+  // "Create GitHub release", confirming the ordering: release:check (without
+  // the completeness gate) runs first, then publish, then the GitHub Release
+  // is created, and only then does the audit run.
+  const runChecks = stepIndex("Run release checks");
+  assert.ok(
+    runChecks < createRelease,
+    "release:check runs before Create GitHub release, so it must not include the completeness gate",
+  );
+});
+
+test("a probe called from inside a retry loop must only return status, not exit the step from within the loop", () => {
+  // The successful `bun add` branch exited the step with `exit 0` from inside
+  // the retry loop instead of returning status to loop-level termination. A
+  // probe called from inside a retry loop must only return status; the loop
+  // terminates normally on success via `break`, and the step exits after the
+  // loop based on whether any attempt succeeded.
+  const step = stepRunBody(workflow, "Verify bun install of published package");
+  let foundInstallLoop = false;
+  for (const header of step.matchAll(/\b(?:for|while)\b[\s\S]*?\bdo\b/g)) {
+    const body = shellLoopBody(step, header.index! + header[0].length);
+    if (body === undefined) continue;
+    if (!INSTALL_COMMANDS.test(body)) continue;
+    foundInstallLoop = true;
+    // The loop body must not contain `exit` — the probe returns status to
+    // loop-level termination (break), not to the step's exit. An `exit` inside
+    // the loop body bypasses loop-level termination and prevents any cleanup
+    // or post-loop logic from running.
+    assert.doesNotMatch(
+      body,
+      /\bexit\b/,
+      "a retry loop probe must not exit the step from inside the loop; use break and exit after the loop",
+    );
+  }
+  assert.ok(foundInstallLoop, "the Verify bun install step must contain a retry loop around a package-manager install");
+});
