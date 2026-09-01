@@ -1,0 +1,15 @@
+id: ops-jarm
+title: "A flag bound identically in every conditional arm is refused, because branch bindings are cleared rather than joined"
+description: "Closing the sibling-arm bypass clears the enclosing scope when a sibling arm opens, so a scalar bound to the same attested value in EVERY arm of an if/else is not visible to a publish after the block. The gate refuses a publish that is in fact attested on every path. This is fail-closed and therefore not a security defect, but it is imprecise: the correct treatment is to JOIN the arms and keep a binding whose value agrees across all of them."
+type: Issue
+status: open
+priority: 3
+tags[3]: attestation,fail-closed,precision
+created_at: "2026-09-01T06:56:23.826Z"
+updated_at: "2026-09-01T06:56:24.380Z"
+author: claude
+acceptance_criteria: A scalar bound to the same value in every arm of an if/else remains visible after the block; A scalar bound to differing values across arms stays unproven and is still refused; The sibling-arm bypass regression test still fails on revert
+risk: low
+comments[1]{created_at,author,text}:
+  "2026-09-01T06:56:24.380Z",claude,"Reproduced against the canonical implementation at dd0121c:\n\njobs:\n  r:\n    steps:\n      - run: |\n          if [ \"$X\" = \"1\" ]; then FLAG=--provenance; else FLAG=--provenance; fi\n          npm publish $FLAG\n\nResult: failures=1, 'a publish invocation does not enable --provenance ... npm publish $FLAG'. FLAG is --provenance on every path, so the publish is attested and the refusal is a false positive.\n\nImpact is currently zero and the direction is safe. Running the canonical auditor against the real .github/workflows of all 22 fleet repositories gives OK for 21; the only non-OK is pm-rust, which correctly reports recognition=none because it is a Cargo crate that never runs npm publish and does not use this gate. No fleet workflow uses the identical-arms shape, so the convergence is not blocked by this.\n\nDeliberately not fixed in the same change as the bypass closure: joining arms is path-sensitive analysis, and loosening visibility is exactly the direction that reopens the sibling-arm bypass. It needs its own change with the bypass regression test still verified red on revert."
+body: ""
