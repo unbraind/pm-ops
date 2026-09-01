@@ -6,7 +6,7 @@ status: closed
 priority: 0
 tags[4]: attestation,fail-open,security,supply-chain
 created_at: "2026-09-01T06:29:34.267Z"
-updated_at: "2026-09-01T06:48:42.856Z"
+updated_at: "2026-09-01T07:06:18.537Z"
 closed_at: "2026-09-01T06:48:42.819Z"
 completed_at: "2026-09-01T06:48:42.819Z"
 claim_principal: pi-agent
@@ -16,8 +16,9 @@ risk: critical
 resolution: "Canonical attestation expansion now tracks sibling branch identity, applies scope transitions per shell segment, records provable compound assignments, and fails closed on unresolved publisher variables."
 expected_result: Sibling-arm bindings cannot attest each other; one-line compound assignments expose routed publishes; uncertainty refuses.
 actual_result: "Both reproduced bypasses now produce one failure; compound reproduction recognizes two publishes; branch, case, and uncertainty regressions pass."
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-09-01T06:46:33.893Z",pi-agent,"Reproduced both fail-open paths by executing auditPublishAttestation. Before the fix, the if/else workflow returned failures: [] with the ok note, and the two-job compound workflow returned recognition {kind:\"recognized\",count:1} with failures: [].\n\nRed-on-revert proof:\n1. Branch identity: removed only the sibling-arm clearing block in attestation.ts (`if (startsIfSiblingArm(segment) || (insideCase && startsCaseArm(segment))) scopes[scopes.length - 1]!.clear()`). The test \"a binding from one conditional arm cannot attest a publish in its sibling arm\" failed at its first assertion with actual 0 failures versus expected 1. Restored the block; the test passed.\n2. Compound assignments: removed the compound-position token loop from literalScalarAssignments in shell-scan.ts and reverted the unresolved-program candidate fallback in attestation.ts to the former npm/foreign-publisher filter. The test \"a compound-line assignment exposes the unattested publish it routes\" failed with recognition count 1 versus expected 2. Restored both hunks; the test passed with recognition count 2 and one unattested-publish failure.\n\nThe reported heredoc construction was not changed; no executing fail-open reproduction exists for it.\n"
+  "2026-09-01T07:06:18.537Z",claude,"CodeQL flagged js/polynomial-redos (high) on BASH_ARRAY_DECLARATION at shell-scan.ts:580 as a new alert for this PR. Measured rather than assumed, on BOTH engines this package must run under, across five adversarial shapes including the exact one CodeQL suggested ('A=(' with many repetitions of \" A=(\\\\'\"):\n\nNode 26, matchAll over the whole input, milliseconds at n = 1000 / 4000 / 16000 / 64000:\n  unterminated dquote       0.2  0.0  0.2  1.0\n  unterminated squote       0.0  0.0  0.1  0.3\n  backslash run             0.0  0.0  0.2  0.8\n  plain, never closed       0.0  0.0  0.1  0.4\n  dquote pairs, never closed 0.0 0.1  0.3  2.6\n\nbun 1.3.5 (a different regex engine, which this package must support):\n  unterminated dquote       3.1  3.0  8.6  37.6\n  dquote pairs, never closed 1.2 5.2 20.3  82.5\n  backslash run             0.7  2.7  9.7  52.3\n\nAt n=64000 the input is roughly 192 KB. Growth is linear in both engines: quadrupling the input quadruples the time rather than multiplying it sixteen-fold. bun is about 30x slower than Node in absolute terms but shows the same linear shape, and 82 ms for a 192 KB workflow file is not a denial of service. The theoretical ambiguity CodeQL identifies in the nested alternation is real, but neither engine explores it. Dismissed as a false positive with these numbers attached; the measurement is the justification, not the reading of the pattern."
 files[3]{path,scope,note}:
   attestation.ts,project,fail-closed publish expansion
   shell-scan.ts,project,branch-aware scalar parsing and compound segments
