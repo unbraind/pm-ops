@@ -1063,3 +1063,33 @@ test("a read-write redirection does not turn its target into the command", () =>
   assert.equal(result.failures.length, 1, "the redirected publish must still be audited");
   assert.match(result.failures[0]!, /does not enable --provenance/);
 });
+
+test("a tracked executable whose name merely ends in package.json is scanned as a shell script", () => {
+  const result = auditPublishAttestation([{
+    file: "scripts/fake-package.json",
+    text: ["#!/bin/bash", "npm publish"].join("\n"),
+  }]);
+  assert.equal(result.recognition.kind, "recognized", "the publish must be discovered, not parsed away as JSON");
+  assert.equal(result.failures.length, 1, "an unattested publish in that file must be reported");
+  assert.match(result.failures[0]!, /does not enable --provenance/);
+});
+
+test("a publish hidden in a package.json-suffixed script is not covered by an attested sibling", () => {
+  const result = auditPublishAttestation([
+    { file: ".github/workflows/release.yml", text: "jobs:\n  a:\n    steps:\n      - run: npm publish --provenance\n" },
+    { file: "scripts/fake-package.json", text: ["#!/bin/bash", "npm publish"].join("\n") },
+  ]);
+  // The non-vacuity guard is repository-wide, so hiding one publish is fail-open
+  // as soon as a single attested publish exists anywhere in the tree.
+  assert.equal(result.failures.length, 1, "the hidden publish must fail the audit, not be masked by the attested sibling");
+  assert.match(result.failures[0]!, /does not enable --provenance/);
+});
+
+test("a real manifest is still read as a manifest", () => {
+  const result = auditPublishAttestation([{
+    file: "package.json",
+    text: '{"scripts":{"release":"npm publish --provenance"}}',
+  }]);
+  assert.equal(result.failures.length, 0, "an attested manifest publish must still pass");
+  assert.equal(result.recognition.kind, "recognized");
+});

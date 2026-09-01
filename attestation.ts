@@ -376,6 +376,16 @@ function publishInvocationsInShell(source: SourceFile, raw: string): PublishInvo
   return found;
 }
 
+/** A path whose final segment is exactly `package.json`.
+ *
+ * Anchored at a segment boundary rather than matched as a suffix: a tracked
+ * executable named `fake-package.json` ends with the same characters, and
+ * routing it to the manifest reader parses it as JSON, fails, and yields no
+ * bodies — hiding every publish it contains from the audit. Because the
+ * non-vacuity guard is repository-wide, one attested publish elsewhere then
+ * satisfies it and the whole run passes clean. */
+const MANIFEST_PATH = /(?:^|\/)package\.json$/;
+
 /**
  * Find every publish invocation in one source, isolating package scripts.
  *
@@ -386,7 +396,7 @@ function publishInvocationsInShell(source: SourceFile, raw: string): PublishInvo
  * @returns The publish invocations found, in file and script order.
  */
 export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
-  const bodies = source.file.endsWith("package.json")
+  const bodies = MANIFEST_PATH.test(source.file)
     ? manifestCommandBodies(source.text)
     : [source.text];
   return bodies.flatMap((body) => publishInvocationsInShell(source, body));
