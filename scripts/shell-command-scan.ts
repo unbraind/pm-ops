@@ -646,7 +646,276 @@ function literalShellWord(raw: string): string {
 }
 
 /**
- * Index scalar assignments so a command held in a variable can be audited.
+ * Find the heredocs one line opens, reading only positions the shell would
+ * treat as source.
+ *
+ * A `<<EOF` written inside a comment or a quoted argument opens nothing. Matching
+ * it anyway marked the following lines as heredoc body, and because a body is
+ * skipped for binding, a real `unset` inside that phantom body was skipped too.
+ * The discarded binding then survived and attested a publish the shell runs
+ * unattested -- a bypass, reachable from nothing more than a comment mentioning
+ * a heredoc. Quote state and the start of a comment are therefore tracked
+ * before the operator is looked for.
+ *
+ * The delimiter itself may be any shell word, including numeric, punctuation,
+ * concatenated quoted fragments, or backslash quoting. It is parsed through the
+ * end of that word and quote removal produces the terminator Bash compares.
+ *
+ * `<<<` is a herestring and opens no body. It is rejected by refusing a match
+ * whose operator is followed by a third `<`; the scan then steps past all three,
+ * so the second and third cannot be read as an operator of their own.
+ *
+ * @param line - One source line, with continuations already joined.
+ * @returns The heredocs opened, in the order bash will read their bodies.
+ */
+function heredocOpenersIn(line: string): Array<{ delimiter: string; stripTabs: boolean; expand: boolean }> {
+  const openers: Array<{ delimiter: string; stripTabs: boolean; expand: boolean }> = [];
+  let single = false;
+  let double = false;
+  let arithmeticDepth = 0;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index]!;
+    if (arithmeticDepth > 0) {
+      if (character === "(") arithmeticDepth += 1;
+      if (character === ")") arithmeticDepth -= 1;
+      continue;
+    }
+    if (character === "\\" && !single) {
+      index += 1;
+      continue;
+    }
+    if (character === "'" && !double) {
+      single = !single;
+      continue;
+    }
+    if (character === '"' && !single) {
+      double = !double;
+      continue;
+    }
+    if (!single && character === "$" && line[index + 1] === "(" && line[index + 2] === "(") {
+      arithmeticDepth = 2;
+      index += 2;
+      continue;
+    }
+    if (!single && !double && character === "(" && line[index + 1] === "(") {
+      arithmeticDepth = 2;
+      index += 1;
+      continue;
+    }
+    if (single || double) continue;
+    // A `#` opens a comment only at the start of a word, which is how bash
+    // reads it: `foo#bar` is one word, not a command and a comment.
+    if (character === "#" && (index === 0 || /\s/.test(line[index - 1]!))) break;
+    if (character !== "<" || line[index + 1] !== "<") continue;
+    if (line[index + 2] === "<") {
+      // A herestring. Step past all three so the pair inside it is not read as
+      // an operator on the next iteration.
+      index += 2;
+      continue;
+    }
+    let cursor = index + 2;
+    const stripTabs = line[cursor] === "-";
+    if (stripTabs) cursor += 1;
+    while (line[cursor] === " " || line[cursor] === "\t") cursor += 1;
+    let delimiter = "";
+    let delimiterQuote: "'" | '"' | undefined;
+    let consumed = false;
+    let quoted = false;
+    for (; cursor < line.length; cursor += 1) {
+      const part = line[cursor]!;
+      if (part === "\\" && delimiterQuote !== "'") {
+        const escaped = line[cursor + 1];
+        if (escaped === undefined) break;
+        delimiter += escaped;
+        consumed = true;
+        quoted = true;
+        cursor += 1;
+        continue;
+      }
+      if (part === "'" || part === '"') {
+        delimiterQuote = delimiterQuote === undefined ? part : delimiterQuote === part ? undefined : delimiterQuote;
+        consumed = true;
+        quoted = true;
+        continue;
+      }
+      if (delimiterQuote === undefined && (/\s/.test(part) || /[;&|<>]/.test(part))) break;
+      delimiter += part;
+      consumed = true;
+    }
+    if (!consumed || delimiterQuote !== undefined) continue;
+    openers.push({ delimiter, stripTabs, expand: !quoted });
+    index = cursor - 1;
+  }
+  return openers;
+}
+
+/** Per-line heredoc body classification state. */
+interface HeredocLineState {
+  /** The line is body data or a terminator, not parent-shell source. */
+  body: boolean;
+  /** The shell expands substitutions on this body-data line. */
+  expand: boolean;
+}
+
+/** Classify heredoc body lines while retaining delimiter quote behavior. */
+function heredocLineStates(lines: string[]): HeredocLineState[] {
+  const states = lines.map(() => ({ body: false, expand: false }));
+  /** Delimiters still awaiting their terminator, in the order bash closes them. */
+  let pending: Array<{ delimiter: string; stripTabs: boolean; expand: boolean }> = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (pending.length > 0) {
+      const candidate = (pending[0]!.stripTabs ? line.replace(/^\t+/, "") : line).replace(/\r$/, "");
+      const terminator = candidate === pending[0]!.delimiter;
+      states[index] = { body: true, expand: pending[0]!.expand && !terminator };
+      if (terminator) pending = pending.slice(1);
+      continue;
+    }
+    pending.push(...heredocOpenersIn(line));
+  }
+  return states;
+}
+
+/**
+ * Report which lines of a file are heredoc *body* rather than shell source.
+ *
+ * A heredoc body is data on a command's stdin. It cannot bind a variable in the
+ * shell that reads it, so indexing `FLAG=--provenance` out of one invents a
+ * binding the shell never makes, and an unattested `npm publish $FLAG` then
+ * borrowed that flag and passed the attestation gate. Every heredoc spelling
+ * hid a binding the same way: the plain `<<EOF`, the space- and tab-separated
+ * `<<  EOF`, the quoted `<<'EOF'` and `<<"EOF"`, the tab-stripping `<<-EOF`,
+ * and one written after another redirection (`cat > f <<EOF`).
+ *
+ * Only *binding* is suppressed here, never publish detection. A heredoc can
+ * carry a script that is written to a file and executed later, so an
+ * `npm publish` inside one remains a publish path this scan must report. Both
+ * halves of that split fail closed: an unindexed name leaves `$FLAG`
+ * unresolved, so the publish reads as unattested and the gate fails, and a
+ * publish written into a heredoc still has to carry the flag itself.
+ *
+ * Several heredocs may open on one line (`cat <<A <<B`); bash reads their
+ * bodies in the order the redirections appear, which is the order kept here. A
+ * body whose delimiter never arrives runs to the end of the file, exactly as
+ * the shell would read it.
+ *
+ * @param lines - The file's lines, with continuations already joined.
+ * @returns One flag per line, true where that line is heredoc body.
+ */
+export function heredocBodyLines(lines: string[]): boolean[] {
+  return heredocLineStates(lines).map((state) => state.body);
+}
+
+/**
+ * Report body-data lines on which Bash performs parameter expansion.
+ *
+ * Quote removal still applies to every delimiter, but quoting any part of that
+ * delimiter suppresses expansion in its body. Terminator lines never expand.
+ *
+ * @param lines - The file's lines, with continuations already joined.
+ * @returns One flag per line, true only for expandable heredoc body data.
+ */
+export function heredocExpansionLines(lines: string[]): boolean[] {
+  return heredocLineStates(lines).map((state) => state.expand);
+}
+
+/**
+ * Parse the scalar names one command unsets, or nothing.
+ *
+ * `unset FLAG` after `FLAG=--provenance` leaves the shell passing no flag at
+ * all, so retaining the binding let an unattested publish borrow `--provenance`
+ * and pass the gate. Commands are read through the tokeniser rather than an
+ * anchored whole-line pattern, because `echo ready; unset FLAG` unsets exactly
+ * as effectively as a line holding nothing else.
+ *
+ * An unset the parent shell would not actually perform -- inside `$(...)`, or
+ * one the tokeniser surfaces from a nested body -- is honoured too, because the
+ * two directions of error are not symmetric. Dropping a binding can only make a
+ * later `$FLAG` unresolve, which reads as an unattested publish and *fails* the
+ * gate; keeping one the shell discarded is what lets an unattested publish
+ * pass. Erring toward the false alarm is the only direction that cannot ship an
+ * unattested artifact.
+ *
+ * Leading environment assignments and the `command unset` / `builtin unset`
+ * wrapper forms all reach the same builtin and therefore remove the same
+ * bindings.
+ *
+ * `-v` selects the variable namespace, which is what this map models. `-f`
+ * unsets a shell function and touches no variable, so such a command is left to
+ * bind nothing.
+ *
+ * @param command - One tokenised command.
+ * @returns The scalar names unset, empty when the command unsets none.
+ */
+export function unsetNames(command: ShellCommand): string[] {
+  const words = withoutRedirections(command);
+  let commandIndex = 0;
+  while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[commandIndex]?.value ?? "")) commandIndex += 1;
+  if (words[commandIndex]?.value === "command") {
+    commandIndex += 1;
+    while (words[commandIndex]?.value.startsWith("-")) commandIndex += 1;
+  } else if (words[commandIndex]?.value === "builtin") {
+    commandIndex += 1;
+  }
+  if (words[commandIndex]?.value !== "unset") return [];
+  const names: string[] = [];
+  for (const token of words.slice(commandIndex + 1)) {
+    if (token.value === "-f") return [];
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(token.value)) continue;
+    names.push(token.value);
+  }
+  return names;
+}
+
+/**
+ * Split one shell line into segments separated by control operators.
+ *
+ * Quoting and backslash escaping are respected so that operators inside quotes
+ * or after a backslash do not split. Comments (`#` at a word boundary) absorb
+ * the rest of the line into the preceding segment. The returned array
+ * interleaves text segments with operator segments (`;`, `&`, `&&`, `|`, `||`).
+ *
+ * @param line - One line of shell source (continuations already joined).
+ * @returns Segments where control operators are separate entries.
+ */
+export function segmentShellLine(line: string): string[] {
+  const segments: string[] = [];
+  let value = "";
+  let quote: "'" | '"' | undefined;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index]!;
+    if (character === "\\" && quote !== "'") {
+      value += character + (line[index + 1] ?? "");
+      index += 1;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = quote === undefined ? character : quote === character ? undefined : quote;
+      value += character;
+      continue;
+    }
+    if (quote === undefined && character === "#"
+      && (index === 0 || /[\s;&|()]/.test(line[index - 1]!))) {
+      value += line.slice(index);
+      break;
+    }
+    if (quote === undefined && (character === ";" || character === "&" || character === "|")) {
+      if (value !== "") segments.push(value);
+      const doubled = line[index + 1] === character && character !== ";";
+      segments.push(doubled ? character + character : character);
+      if (doubled) index += 1;
+      value = "";
+      continue;
+    }
+    value += character;
+  }
+  if (value !== "") segments.push(value);
+  return segments;
+}
+
+/**
+ * Index scalar assignments per line, so a command held in a variable can be
+ * audited against the bindings that stand where it actually runs.
  *
  * `CMD="npm publish"` followed by `$CMD` runs a publish that no scan of the
  * invocation line can see, because the invocation line contains no publish. The
@@ -692,24 +961,57 @@ function literalShellWord(raw: string): string {
  * split on it, so `FLAG=--provenance\;` would let an unattested publish borrow
  * a flag the shell passes as a literal `--provenance;` argument.
  *
+ * Two things the shell does that a line-at-a-time reading missed both let an
+ * unattested publish pass. A heredoc body is stdin data and binds nothing, yet
+ * `FLAG=--provenance` inside one was indexed as an assignment; see
+ * {@link heredocBodyLines}. And `unset FLAG` discards a binding, yet the map
+ * kept it, so a later `npm publish $FLAG` borrowed a flag the shell no longer
+ * passed; see the deletion below.
+ *
+ * Because `unset` makes a binding's lifetime positional, the result is one map
+ * per line rather than one per file. Reading every invocation against the
+ * file's end state would report an unattested publish for a flag that was
+ * genuinely set where the publish runs and unset only afterwards.
+ *
+ * @param text - File contents with continuations already joined.
+ * @returns One map per line: the bindings in effect once that line has run.
+ */
+export function shellScalarsByLine(text: string): Array<Map<string, string>> {
+  const lines = text.split("\n");
+  const bodies = heredocBodyLines(lines);
+  const scalars = new Map<string, string>();
+  return lines.map((line, index) => {
+    if (!bodies[index]!) {
+      const assignment = literalAssignment(line);
+      // Shell metacharacters that survive unescaping must not be inlined: an
+      // escaped `\;` becomes `;` here, and tokenizeCommands would split on it,
+      // so `FLAG=--provenance\;` would let an unattested publish borrow a flag
+      // the shell passes as a literal argument. Reject the same characters
+      // tokenizeCommands treats as operators or structural delimiters.
+      if (assignment !== undefined && !/[$`"'(){};&|<>#]/.test(assignment[1])) {
+        scalars.set(assignment[0], assignment[1]);
+      }
+      for (const command of tokenizeCommands(line)) {
+        for (const name of unsetNames(command)) scalars.delete(name);
+      }
+    }
+    // A copy per line: the map keeps mutating, and an invocation must be read
+    // against the bindings that stood where it runs, not the file's end state.
+    return new Map(scalars);
+  });
+}
+
+/**
+ * The scalar bindings standing at the end of a file.
+ *
  * @param text - File contents with continuations already joined.
  * @returns Variable name mapped to the literal text it holds.
  */
 export function shellScalars(text: string): Map<string, string> {
-  const scalars = new Map<string, string>();
-  for (const line of text.split("\n")) {
-    const assignment = literalAssignment(line);
-    if (assignment === undefined) continue;
-    const value = assignment[1];
-    // Shell metacharacters that survive unescaping must not be inlined: an
-    // escaped `\;` becomes `;` here, and tokenizeCommands would split on it,
-    // so `FLAG=--provenance\;` would let an unattested publish borrow a flag
-    // the shell passes as a literal argument. Reject the same characters
-    // tokenizeCommands treats as operators or structural delimiters.
-    if (/[\$`"'(){};&|<>#]/.test(value)) continue;
-    scalars.set(assignment[0], value);
-  }
-  return scalars;
+  const perLine = shellScalarsByLine(text);
+  // `String.prototype.split` never returns an empty array, so there is always a
+  // final line to read the closing state from.
+  return perLine[perLine.length - 1]!;
 }
 
 /**

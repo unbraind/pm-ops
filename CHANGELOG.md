@@ -28,7 +28,12 @@
 
 ### Fixed
 
+- Finish shell-accurate heredoc and unset handling in publish attestation ([ops-62d1](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-62d1.toon))
 - The release changelog remained Unreleased after the release tag was created ([ops-3ete](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3ete.toon))
+
+### Security
+
+- A heredoc body and a discarded binding both let an unattested publish pass the attestation gate ([ops-5jp6](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-5jp6.toon))
 
 ## 2026.8.29 - 2026-08-29
 

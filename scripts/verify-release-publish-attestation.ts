@@ -28,11 +28,15 @@ import {
   commandName,
   expandArrays,
   expandScalars,
+  heredocBodyLines,
+  heredocExpansionLines,
   joinContinuations,
+  segmentShellLine,
   shellScalars,
   type ShellCommand,
   type SourceFile,
   tokenizeCommands,
+  unsetNames,
   type VerifierResult,
 } from "./shell-command-scan.ts";
 import { isMainInvocation } from "./main-invocation.ts";
@@ -229,11 +233,50 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
   const raw = source.file.endsWith("package.json") ? manifestCommandLines(source.text) : source.text;
   const text = joinContinuations(raw);
   const arrays = bashArrays(text);
-  const scalars = shellScalars(text);
-  const expanded = text
-    .split("\n")
-    .map((line) => expandScalars(expandArrays(line, arrays), scalars))
-    .join("\n");
+  const lines = text.split("\n");
+  const bodies = heredocBodyLines(lines);
+  const bodyExpansion = heredocExpansionLines(lines);
+  const scalars = new Map<string, string>();
+  const expanded = lines.map((line, lineIndex) => {
+    // Heredoc bodies cannot mutate the parent binding state. Unquoted bodies
+    // expand variables before being written; quoted bodies retain references,
+    // which fail closed if a generated script later executes them.
+    if (bodies[lineIndex]!) {
+      return bodyExpansion[lineIndex]! ? expandScalars(expandArrays(line, arrays), scalars) : line;
+    }
+    const segments = segmentShellLine(line);
+
+    let assignmentEligible = true;
+    let pendingAssignments = new Map<string, string>();
+    let pendingAssignmentEligible = false;
+    const rendered = segments.map((segment) => {
+      if (/^(?:;|&&?|\|\|?)$/.test(segment)) {
+        for (const [name, binding] of pendingAssignments) {
+          // Only a sequential separator persists the assignment in the parent.
+          // Background, pipeline, and conditional execution are ambiguous, so
+          // they clear prior evidence rather than inventing provenance.
+          if (pendingAssignmentEligible && segment === ";") scalars.set(name, binding);
+          else scalars.delete(name);
+        }
+        pendingAssignments = new Map();
+        assignmentEligible = segment === ";";
+        return segment;
+      }
+      const resolved = expandScalars(expandArrays(segment, arrays), scalars);
+      pendingAssignments = shellScalars(`${segment};`);
+      pendingAssignmentEligible = assignmentEligible;
+      for (const command of tokenizeCommands(segment)) {
+        for (const name of unsetNames(command)) scalars.delete(name);
+      }
+      assignmentEligible = false;
+      return resolved;
+    });
+    for (const [name, binding] of pendingAssignments) {
+      if (pendingAssignmentEligible) scalars.set(name, binding);
+      else scalars.delete(name);
+    }
+    return rendered.join("");
+  }).join("\n");
   const found: PublishInvocation[] = [];
   for (const command of tokenizeCommands(expanded)) {
     // Every reading, not just the command's own: a wrapper option that takes a
