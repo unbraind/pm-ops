@@ -4,6 +4,7 @@
 
 ### Added
 
+- Publish the canonical attestation scanner as pm-ops exports ([ops-4b34](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-4b34.toon))
 - A release-completeness gate that requires every release tag to have a matching npm version and GitHub Release ([ops-i8yp](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-i8yp.toon))
 
 ### Fixed
@@ -18,6 +19,7 @@
 
 ### Security
 
+- Branch-local and compound-line publish bindings let an unattested npm publish pass the attestation gate ([ops-brsc](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-brsc.toon))
 - Security: repository-host check matches too loosely (notgithub.com accepted as GitHub) ([ops-042o](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-042o.toon))
 
 ### Other

@@ -1,0 +1,22 @@
+id: ops-4b34
+title: Publish the canonical attestation scanner as pm-ops exports
+description: Replace divergent vendored publish-attestation scanners with canonical pm-ops shell-scan and attestation exports that union both hardened lineages.
+type: Feature
+status: closed
+priority: 0
+tags[4]: attestation,fleet,release,supply-chain
+created_at: "2026-09-01T06:29:06.075Z"
+updated_at: "2026-09-01T06:48:43.402Z"
+closed_at: "2026-09-01T06:48:43.385Z"
+completed_at: "2026-09-01T06:48:43.385Z"
+author: "harness:claude-code"
+acceptance_criteria: "Canonical shell-scan and attestation exports include both lineage fix sets; Auditor exposes recognised-publish non-vacuity distinction; Sibling-branch and compound-line publish bypasses are closed, each verified red on revert; Packed tarball subpath imports execute in a throwaway install"
+risk: critical
+resolution: Published shell-scan and attestation package subpaths replace the vendored script implementation while retaining compatibility shims.
+expected_result: Consumers can import canonical pm-ops/shell-scan and pm-ops/attestation exports.
+actual_result: "Subpath exports, declarations, canonical tests, and release packaging all pass."
+comments[2]{created_at,author,text}:
+  "2026-09-01T06:29:22.844Z","harness:claude-code","Recovery context. The canonical de-vendor work (shell-scan.ts, attestation.ts, package subpath exports, union test suites) was completed and closed at 2026-09-01T04:50Z, but never pushed. A host disk-full event at 06:53Z (root filesystem 98% full) truncated 29 git objects to zero length, destroyed this item's .toon, and NUL-padded history line 11. The git object store was repaired from origin; the working tree survived intact; this item was rebuilt by replaying the 10 valid history JSON-patch events. pm restore could not do the rebuild because it parses the on-disk item before consulting history — filed upstream."
+  "2026-09-01T06:29:23.376Z","harness:claude-code","Re-verification of the canonical implementation found the union is still bypassable in two ways, both reproduced by executing auditPublishAttestation (not by reading code). (1) Sibling-branch bindings: FLAG=--provenance assigned in a then-branch and 'npm publish $FLAG' executed in the mutually exclusive else-branch share a numeric scope depth, so the binding is visible and the auditor reports 'each carrying --provenance' for a publish that is actually unattested. (2) Compound-line assignments: 'if true; then NPM=npm; $NPM publish; fi' is invisible to the start-anchored assignment matcher, so the publish is never discovered; an attested sibling invocation then satisfies the non-vacuity guard and the audit passes clean while a second unattested publish ships. Greptile's third claim (heredoc scope-depth desync) did not reproduce: both constructions fail closed."
+close_reason: "Canonical shell scanner and publish-attestation auditor are exported from pm-ops; repository scripts are compatibility shims, published contracts are tested, and release gates pass."
+body: ""

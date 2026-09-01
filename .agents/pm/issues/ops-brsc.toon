@@ -1,0 +1,29 @@
+id: ops-brsc
+title: Branch-local and compound-line publish bindings let an unattested npm publish pass the attestation gate
+description: "The canonical auditor resolves shell scalars by numeric scope depth only, so a binding assigned in one branch of an if/else is visible in the mutually exclusive sibling branch, and its assignment matcher is anchored to the start of a line, so an assignment inside a one-line compound command is never recorded. Both make the gate attest a publish it has not proven: the first reports an unattested publish as carrying --provenance, the second hides the publish entirely and lets an attested sibling satisfy the non-vacuity guard."
+type: Issue
+status: closed
+priority: 0
+tags[4]: attestation,fail-open,security,supply-chain
+created_at: "2026-09-01T06:29:34.267Z"
+updated_at: "2026-09-01T06:48:42.856Z"
+closed_at: "2026-09-01T06:48:42.819Z"
+completed_at: "2026-09-01T06:48:42.819Z"
+claim_principal: pi-agent
+author: "harness:claude-code"
+acceptance_criteria: "A scalar bound only in a then-branch is not visible to a publish in the else-branch; the auditor refuses rather than attests; An assignment inside a one-line compound command is recorded, and the publish it routes is discovered; Each fix has a regression test verified to fail when the fix alone is reverted; No coverage or docstring regression; the gate stays at 100/100/100/100"
+risk: critical
+resolution: "Canonical attestation expansion now tracks sibling branch identity, applies scope transitions per shell segment, records provable compound assignments, and fails closed on unresolved publisher variables."
+expected_result: Sibling-arm bindings cannot attest each other; one-line compound assignments expose routed publishes; uncertainty refuses.
+actual_result: "Both reproduced bypasses now produce one failure; compound reproduction recognizes two publishes; branch, case, and uncertainty regressions pass."
+comments[1]{created_at,author,text}:
+  "2026-09-01T06:46:33.893Z",pi-agent,"Reproduced both fail-open paths by executing auditPublishAttestation. Before the fix, the if/else workflow returned failures: [] with the ok note, and the two-job compound workflow returned recognition {kind:\"recognized\",count:1} with failures: [].\n\nRed-on-revert proof:\n1. Branch identity: removed only the sibling-arm clearing block in attestation.ts (`if (startsIfSiblingArm(segment) || (insideCase && startsCaseArm(segment))) scopes[scopes.length - 1]!.clear()`). The test \"a binding from one conditional arm cannot attest a publish in its sibling arm\" failed at its first assertion with actual 0 failures versus expected 1. Restored the block; the test passed.\n2. Compound assignments: removed the compound-position token loop from literalScalarAssignments in shell-scan.ts and reverted the unresolved-program candidate fallback in attestation.ts to the former npm/foreign-publisher filter. The test \"a compound-line assignment exposes the unattested publish it routes\" failed with recognition count 1 versus expected 2. Restored both hunks; the test passed with recognition count 2 and one unattested-publish failure.\n\nThe reported heredoc construction was not changed; no executing fail-open reproduction exists for it.\n"
+files[3]{path,scope,note}:
+  attestation.ts,project,fail-closed publish expansion
+  shell-scan.ts,project,branch-aware scalar parsing and compound segments
+  test/published-attestation.test.ts,project,canonical regression coverage
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref},note}:
+  "npm run build && npm run build:test && node --test --test-name-pattern=\"a binding from one conditional arm cannot attest a publish in its sibling arm\" test/published-attestation.test.ts",project,pi-agent,"2026-09-01T06:46:33.242Z",local_mutation,fix/refuse-unprovable-publish-bindings,a binding from one conditional arm cannot attest a publish in its sibling arm
+  "npm run build && npm run build:test && node --test --test-name-pattern=\"a compound-line assignment exposes the unattested publish it routes\" test/published-attestation.test.ts",project,pi-agent,"2026-09-01T06:46:33.242Z",local_mutation,fix/refuse-unprovable-publish-bindings,a compound-line assignment exposes the unattested publish it routes
+close_reason: "Branch-local scalar evidence is cleared at if/elif/else and case-arm boundaries; compound-line literal assignments are tokenized and variable-routed publishes are discovered or refused. Both regressions are red-on-revert, all mandatory gates passed at 100% coverage."
+body: ""
