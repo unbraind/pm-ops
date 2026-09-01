@@ -1127,3 +1127,43 @@ test("a binding made inside a case arm still cannot attest a publish after esac"
   assert.equal(result.failures.length, 1, "the arm-local binding must not attest the later publish");
   assert.match(result.failures[0]!, /does not enable --provenance/);
 });
+
+test("a sibling arm that opens a nested block cannot borrow the previous arm's binding", () => {
+  // The arm begins by opening a nested block, so the segment both starts a
+  // sibling arm and increases block depth. Skipping the arm reset for any
+  // depth-increasing segment would leave the previous arm's binding visible.
+  const result = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:",
+      "  r:",
+      "    steps:",
+      "      - run: |",
+      '          case "$X" in',
+      "            a) FLAG=--provenance ;;",
+      "            b) if true; then npm publish $FLAG; fi ;;",
+      "          esac",
+    ].join("\n"),
+  }]);
+  assert.equal(result.failures.length, 1, "a mutually exclusive arm must not attest this publish");
+  assert.match(result.failures[0]!, /does not enable --provenance/);
+});
+
+test("an attested publish inside a nested case arm is still accepted", () => {
+  // The control for the test above: resetting sibling arms must not refuse a
+  // publish that carries the flag directly.
+  const result = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:",
+      "  r:",
+      "    steps:",
+      "      - run: |",
+      '          case "$X" in',
+      "            a) : ;;",
+      "            b) if true; then npm publish --provenance; fi ;;",
+      "          esac",
+    ].join("\n"),
+  }]);
+  assert.deepEqual(result.failures, [], "a directly attested publish must not be refused");
+});

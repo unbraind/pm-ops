@@ -328,13 +328,19 @@ function publishInvocationsInShell(source: SourceFile, raw: string): PublishInvo
       // it is the branch identity: evidence from a mutually exclusive arm can
       // never be visible to this path. Outer scopes remain visible.
       //
-      // Only when this segment does not itself open a scope. A `case` opener
-      // sharing a segment with its first arm both opens the block and starts an
-      // arm, and the push below has not happened yet — so clearing here would
-      // erase the OUTER scope and refuse a publish whose flag was bound before
-      // the block. The scope pushed below is already empty, which is the same
-      // branch identity by construction.
-      if (change <= 0 && (startsIfSiblingArm(segment) || (insideCase && startsCaseArm(segment)))) {
+      // Skipped only when this segment is itself the `case` opener. Such a
+      // segment both opens the block and starts its first arm, and the push
+      // below has not happened yet — so clearing here would erase the OUTER
+      // scope and refuse a publish whose flag was bound before the block. There
+      // is no earlier sibling arm at that point, and the scope pushed below is
+      // empty, so the branch identity holds by construction.
+      //
+      // It must NOT be skipped merely because the segment opens some block: a
+      // later arm that begins by opening a nested block (`b) if true; then …`)
+      // is still a sibling, and skipping the reset there leaves the previous
+      // arm's binding visible and attests a publish from a mutually exclusive
+      // arm.
+      if (caseChange <= 0 && (startsIfSiblingArm(segment) || (insideCase && startsCaseArm(segment)))) {
         const currentScope = scopes[scopes.length - 1]!;
         const discarded = [...currentScope].filter((entry) => entry[1] === undefined);
         currentScope.clear();
