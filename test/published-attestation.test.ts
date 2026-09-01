@@ -21,8 +21,25 @@ test("the audit result makes a vacuous scan structurally distinct", () => {
 });
 
 test("literal assignment indexing is linear on adjacent assignment-like text", () => {
-  const hostile = `A=${"!A=".repeat(40)}(`;
-  assert.equal(shellScalars(hostile).size, 0);
+  // The structural assertion alone cannot see a complexity regression: a
+  // quadratic implementation returns the same empty map. Scale the input until
+  // the two are distinguishable and bound the elapsed time.
+  //
+  // Measured linear here at ~15 ms for this 60 KB input (5x the input costs
+  // ~2.6x the time). A quadratic scan of the same input runs into seconds, so
+  // the bound below has roughly two orders of magnitude of headroom over the
+  // observed cost while still failing a genuine regression. It is deliberately
+  // generous rather than tight: a bound a loaded CI runner can trip teaches
+  // people to re-run the gate instead of reading it.
+  const hostile = `A=${"!A=".repeat(20_000)}(`;
+  const startedAt = process.hrtime.bigint();
+  const indexed = shellScalars(hostile);
+  const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+  assert.equal(indexed.size, 0);
+  assert.ok(
+    elapsedMs < 2_000,
+    `indexing ${hostile.length} characters took ${elapsedMs.toFixed(1)}ms, which indicates super-linear scanning`
+  );
 });
 
 test("an unset inside a block invalidates an outer attestation binding", () => {

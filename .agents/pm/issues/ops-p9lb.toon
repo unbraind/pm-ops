@@ -6,7 +6,7 @@ status: closed
 priority: 0
 tags[4]: attestation,release,supply-chain,"type:defect"
 created_at: "2026-09-01T07:39:43.324Z"
-updated_at: "2026-09-01T08:00:12.856Z"
+updated_at: "2026-09-01T08:31:41.445Z"
 closed_at: "2026-09-01T08:00:03.820Z"
 completed_at: "2026-09-01T08:00:03.820Z"
 author: pi-agent
@@ -16,7 +16,7 @@ severity: critical
 repro_steps: "Execute auditPublishAttestation at ca78aa9 against: FLAG=--provenance followed by conditional unset and npm publish dollar-FLAG; npm publish with a single-quoted dollar-FLAG or escaped dollar-FLAG; and package scripts setup=FLAG=--provenance plus release=npm publish dollar-FLAG. Each reports failures: []."
 resolution: "Propagated destructive unsets across conservative scope joins, made scalar and array expansion shell-quote aware, isolated every npm script body, preserved the shim's legacy enumerable shape, and repaired test quality defects."
 expected_result: All three unprovable publishes are refused while established straight-line and same-arm attested publishes continue to pass.
-actual_result: Each reproduced input reports no failures and attests an npm publish that lacks runtime provenance.
+actual_result: "All four reproduced inputs are now refused. The unset inside a block invalidates the outer binding, the single-quoted scalar and array references are no longer expanded, each npm script body is isolated so evidence cannot cross a fresh shell, and the compatibility shim keeps its legacy enumerable shape. Each fix is covered by a regression verified red on revert."
 component: attestation
 regression: true
 customer_impact: An unattested package publish can satisfy the release attestation gate.
