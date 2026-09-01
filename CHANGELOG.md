@@ -19,6 +19,7 @@
 
 ### Security
 
+- A case opener sharing a segment with its first arm leaks that arm's binding past esac ([ops-csop](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-csop.toon))
 - Branch-local and compound-line publish bindings let an unattested npm publish pass the attestation gate ([ops-brsc](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-brsc.toon))
 - Security: repository-host check matches too loosely (notgithub.com accepted as GitHub) ([ops-042o](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-042o.toon))
 

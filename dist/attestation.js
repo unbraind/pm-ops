@@ -254,13 +254,14 @@ export function publishInvocationsIn(source) {
             // one-line compound command can open, assign, publish, and close without
             // any net line-level depth change, yet each command still needs the
             // binding state at the point where it runs.
-            const insideCase = caseDepth > 0;
+            const caseChange = caseDepthChange(segment);
+            const insideCase = caseDepth > 0 || caseChange > 0;
             const change = blockDepthChange(segment, insideCase);
             if (change < 0) {
                 for (let count = 0; count > change && scopes.length > 1; count -= 1)
                     scopes.pop();
             }
-            caseDepth = Math.max(0, caseDepth + caseDepthChange(segment));
+            caseDepth = Math.max(0, caseDepth + caseChange);
             // A sibling arm receives a fresh map at the same numeric depth. Clearing
             // it is the branch identity: evidence from a mutually exclusive arm can
             // never be visible to this path. Outer scopes remain visible.

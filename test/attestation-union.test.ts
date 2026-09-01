@@ -1005,6 +1005,39 @@ test("a scalar is taken only from a line that is exactly one literal assignment"
     assert.match(result.failures[0]!, /does not enable --provenance/);
   }
 });
+
+test("a case opener and first arm on one line do not leak the arm binding past esac", () => {
+  const result = auditPublishAttestation([{
+    file: "release.yml",
+    text: 'case "$X" in a) FLAG=--provenance ;; esac\nnpm publish $FLAG',
+  }]);
+  assert.deepEqual(result.recognition, { kind: "recognized", count: 1 }, "the publish is recognised");
+  assert.equal(result.failures.length, 1, "the first arm may not execute, so its binding is unavailable after esac");
+  assert.match(result.failures[0]!, /does not enable --provenance/);
+});
+
+test("a case opener sharing its first-arm segment does not leak across a later esac line", () => {
+  const result = auditPublishAttestation([{
+    file: "release.yml",
+    text: 'case "$X" in a) FLAG=--provenance ;;\nesac\nnpm publish $FLAG',
+  }]);
+  assert.deepEqual(result.recognition, { kind: "recognized", count: 1 }, "the publish is recognised");
+  assert.equal(result.failures.length, 1, "the first arm may not execute, so its binding is unavailable after esac");
+  assert.match(result.failures[0]!, /does not enable --provenance/);
+});
+
+test("case-arm scope neighbours remain conservatively refused", () => {
+  const neighbours = [
+    'if true; then case "$X" in a) FLAG=--provenance ;; esac; fi\nnpm publish $FLAG',
+    'case "$X" in a) FLAG=--provenance ;;& *) : ;; esac\nnpm publish $FLAG',
+  ];
+  for (const text of neighbours) {
+    const result = auditPublishAttestation([{ file: "release.yml", text }]);
+    assert.deepEqual(result.recognition, { kind: "recognized", count: 1 }, "the publish is recognised");
+    assert.equal(result.failures.length, 1, "an arm-local binding cannot attest the later publish");
+  }
+});
+
 test("a read-write redirection does not turn its target into the command", () => {
   // `<>` is one operator, not `<` followed by `>`. Unnamed, it was read as a
   // joined redirection that consumes no target, so `/dev/null` became the
