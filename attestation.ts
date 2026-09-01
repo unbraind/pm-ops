@@ -99,25 +99,35 @@ const EXECUTABLE_PATHS = [
  * reports that far better than a publish audit can.
  *
  * @param text - The manifest's contents.
- * @returns One line per script body, newline joined.
+ * @returns Each script body in manifest order.
  */
-export function manifestCommandLines(text: string): string {
+function manifestCommandBodies(text: string): string[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return "";
+    return [];
   }
-  if (typeof parsed !== "object" || parsed === null) return "";
+  if (typeof parsed !== "object" || parsed === null) return [];
   const scripts = (parsed as { scripts?: unknown }).scripts;
-  if (typeof scripts !== "object" || scripts === null) return "";
-  // Each script is its own command list, so one cannot continue into the next.
-  // A body ending in a backslash would otherwise be joined to the following
-  // script by continuation collapsing, and a script beginning `--provenance`
-  // would lend its flag to the unattested publish that ended the script before
-  // it -- turning two commands into one attested-looking command.
+  if (typeof scripts !== "object" || scripts === null) return [];
   return Object.values(scripts as Record<string, unknown>)
-    .filter((value): value is string => typeof value === "string")
+    .filter((value): value is string => typeof value === "string");
+}
+
+/**
+ * Join manifest script bodies for legacy text consumers without continuations.
+ *
+ * The auditor itself analyzes each returned body in a fresh scope; this text
+ * form remains for callers that need the earlier newline-joined contract.
+ *
+ * @param text - The manifest's contents.
+ * @returns One sanitized line per script body, newline joined.
+ */
+export function manifestCommandLines(text: string): string {
+  // Preserve the text-returning compatibility contract while ensuring a body
+  // cannot continue into the next one when callers tokenize the joined result.
+  return manifestCommandBodies(text)
     .map((value) => value.replace(/\\+$/, ""))
     .join("\n");
 }
@@ -248,8 +258,7 @@ function startsIfSiblingArm(segment: string): boolean {
  * @param source - The file's path and contents.
  * @returns The publish invocations found, in file order.
  */
-export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
-  const raw = source.file.endsWith("package.json") ? manifestCommandLines(source.text) : source.text;
+function publishInvocationsInShell(source: SourceFile, raw: string): PublishInvocation[] {
   const text = joinContinuations(raw);
   const arrays = bashArrays(text);
   const lines = text.split("\n");
@@ -302,7 +311,16 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
       const insideCase = caseDepth > 0 || caseChange > 0;
       const change = blockDepthChange(segment, insideCase);
       if (change < 0) {
-        for (let count = 0; count > change && scopes.length > 1; count -= 1) scopes.pop();
+        for (let count = 0; count > change && scopes.length > 1; count -= 1) {
+          const closed = scopes.pop()!;
+          const parent = scopes[scopes.length - 1]!;
+          // Assignments inside a conditional remain arm-local and are dropped,
+          // but an unset is destructive evidence. Forgetting it could restore
+          // an attesting outer value that the real shell discarded.
+          for (const [name, binding] of closed) {
+            if (binding === undefined) parent.set(name, undefined);
+          }
+        }
       }
       caseDepth = Math.max(0, caseDepth + caseChange);
 
@@ -310,7 +328,13 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
       // it is the branch identity: evidence from a mutually exclusive arm can
       // never be visible to this path. Outer scopes remain visible.
       if (startsIfSiblingArm(segment) || (insideCase && startsCaseArm(segment))) {
-        scopes[scopes.length - 1]!.clear();
+        const currentScope = scopes[scopes.length - 1]!;
+        const discarded = [...currentScope].filter((entry) => entry[1] === undefined);
+        currentScope.clear();
+        // A destructive operation in either possible arm makes the later value
+        // unprovable. Retain only unsets when moving to a sibling arm; retaining
+        // assignments here would re-open the sibling-evidence defect.
+        for (const [name] of discarded) currentScope.set(name, undefined);
       }
       if (change > 0) {
         for (let count = 0; count < change; count += 1) scopes.push(new Map());
@@ -350,6 +374,22 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
     }
   }
   return found;
+}
+
+/**
+ * Find every publish invocation in one source, isolating package scripts.
+ *
+ * npm launches every manifest script in a fresh shell, so scalar evidence from
+ * one body can never attest a publish in another body.
+ *
+ * @param source - The file's path and contents.
+ * @returns The publish invocations found, in file and script order.
+ */
+export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
+  const bodies = source.file.endsWith("package.json")
+    ? manifestCommandBodies(source.text)
+    : [source.text];
+  return bodies.flatMap((body) => publishInvocationsInShell(source, body));
 }
 
 /**

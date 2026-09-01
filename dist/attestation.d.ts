@@ -25,21 +25,13 @@ export interface PublishInvocation {
 /** Publishers other than npm, which this repository has no attested path for. */
 export declare const FOREIGN_PUBLISHERS: Set<string>;
 /**
- * Yield the command text held inside a package manifest.
+ * Join manifest script bodies for legacy text consumers without continuations.
  *
- * A manifest is JSON, so its script bodies are string values rather than lines
- * of shell. Handing the raw file to a shell tokeniser would read the JSON
- * punctuation as commands and the script bodies as quoted words. Parsing the
- * manifest and returning the bodies restores them to the shape the scanner
- * expects, which matters because a publish moved into an npm script is entirely
- * real and would otherwise be invisible to this gate.
- *
- * A manifest that will not parse yields nothing rather than throwing, so a
- * malformed sibling file cannot take the gate down; the manifest's own tooling
- * reports that far better than a publish audit can.
+ * The auditor itself analyzes each returned body in a fresh scope; this text
+ * form remains for callers that need the earlier newline-joined contract.
  *
  * @param text - The manifest's contents.
- * @returns One line per script body, newline joined.
+ * @returns One sanitized line per script body, newline joined.
  */
 export declare function manifestCommandLines(text: string): string;
 /**
@@ -91,14 +83,13 @@ export declare function isPublishCommand(command: ShellCommand): boolean;
  */
 export declare function attestationEnabled(command: ShellCommand): boolean;
 /**
- * Find every publish invocation in one file's contents.
+ * Find every publish invocation in one source, isolating package scripts.
  *
- * Continuations are joined and shared arrays expanded before tokenising, for
- * the same reason the changelog-date scan does it: a multi-line invocation
- * otherwise looks like fragments, none of which carries the flag.
+ * npm launches every manifest script in a fresh shell, so scalar evidence from
+ * one body can never attest a publish in another body.
  *
  * @param source - The file's path and contents.
- * @returns The publish invocations found, in file order.
+ * @returns The publish invocations found, in file and script order.
  */
 export declare function publishInvocationsIn(source: SourceFile): PublishInvocation[];
 /**

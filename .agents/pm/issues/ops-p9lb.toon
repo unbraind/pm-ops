@@ -1,0 +1,109 @@
+id: ops-p9lb
+title: Three shell-scope and quoting fail-opens attest unproven npm publishes
+description: "The canonical publish-attestation auditor passes three executed counterexamples: unset inside an if is forgotten after block close, single-quoted or backslash-escaped variable references are expanded, and bindings leak between independent npm script shells."
+type: Issue
+status: closed
+priority: 0
+tags[4]: attestation,release,supply-chain,"type:defect"
+created_at: "2026-09-01T07:39:43.324Z"
+updated_at: "2026-09-01T08:00:12.856Z"
+closed_at: "2026-09-01T08:00:03.820Z"
+completed_at: "2026-09-01T08:00:03.820Z"
+author: pi-agent
+acceptance_criteria: Conditional unset survives the auditor block close conservatively; Single-quoted and backslash-escaped scalar and array references do not expand; Each package script is analyzed in an independent shell scope; Required pass/fail behavior and 22-repo fleet non-regression are verified
+risk: critical
+severity: critical
+repro_steps: "Execute auditPublishAttestation at ca78aa9 against: FLAG=--provenance followed by conditional unset and npm publish dollar-FLAG; npm publish with a single-quoted dollar-FLAG or escaped dollar-FLAG; and package scripts setup=FLAG=--provenance plus release=npm publish dollar-FLAG. Each reports failures: []."
+resolution: "Propagated destructive unsets across conservative scope joins, made scalar and array expansion shell-quote aware, isolated every npm script body, preserved the shim's legacy enumerable shape, and repaired test quality defects."
+expected_result: All three unprovable publishes are refused while established straight-line and same-arm attested publishes continue to pass.
+actual_result: Each reproduced input reports no failures and attests an npm publish that lacks runtime provenance.
+component: attestation
+regression: true
+customer_impact: An unattested package publish can satisfy the release attestation gate.
+comments[7]:
+  - created_at: "2026-09-01T07:41:37.224Z"
+    author: pi-agent
+    text: "Reproduced all three against ca78aa9 by executing auditPublishAttestation with Node's TypeScript stripping. conditionalUnset => failures: [], recognition recognized count 1; singleQuoted => failures: [], recognition recognized count 1; independentScripts => failures: [], recognition recognized count 1. Each note incorrectly says the invocation carries --provenance."
+    edited_at: "2026-09-01T07:41:51.353Z"
+  - created_at: "2026-09-01T07:45:58.214Z"
+    author: pi-agent
+    text: "Red-on-revert proof 1: replaced the block-close propagation loop in attestation.ts with its prior scopes.pop() loop only. Exact test 'an unset inside a block invalidates an outer attestation binding' ran 1, passed 0, failed 1, exit 1. Restored the hunk; the three defect tests then ran 3, passed 3, failed 0."
+  - created_at: "2026-09-01T07:45:58.859Z"
+    author: pi-agent
+    text: "Red-on-revert proof 2: reverted expandScalars and expandArrays to unconditional regex substitution, removing the isExpandableReference checks. Exact test 'single-quoted and escaped references cannot borrow attestation evidence' ran 1, passed 0, failed 1, exit 1. Restored both expansion hunks; the three defect tests then ran 3, passed 3, failed 0."
+  - created_at: "2026-09-01T07:45:59.548Z"
+    author: pi-agent
+    text: "Red-on-revert proof 3: changed publishInvocationsIn back to scanning manifestCommandLines(source.text) as one shell body. Exact test 'independent npm scripts cannot share attestation bindings' ran 1, passed 0, failed 1, exit 1. Restored per-body flatMap isolation; the three defect tests then ran 3, passed 3, failed 0."
+  - created_at: "2026-09-01T08:00:02.286Z"
+    author: pi-agent
+    text: "Behavior matrix verified by executing the canonical auditor: PASS direct --provenance; PASS straight-line scalar; PASS command binding inside block; PASS binding and publish in same arm; PASS outer binding with nested publish; FAIL sibling-arm evidence; FAIL compound line beside attested sibling with recognition count 2; FAIL case arm closing on the same line; FAIL case with esac on the next line."
+  - created_at: "2026-09-01T08:00:02.864Z"
+    author: pi-agent
+    text: "Fleet non-regression scanned only the real .github/workflows YAML of all 22 pm-* repositories: 21 recognized one attested publish with zero failures; pm-rust returned recognition none as expected for a Cargo crate. No repository became non-OK."
+  - created_at: "2026-09-01T08:00:03.342Z"
+    author: pi-agent
+    text: "Compatibility decision: preserve the script shim's legacy enumerable { failures, notes } shape. The canonical package API still returns enumerable recognition; the retained script attaches recognition non-enumerably so existing deep equality, Object.keys, and snapshots remain stable while transitional property readers keep working."
+files[5]{path,scope}:
+  attestation.ts,project
+  scripts/verify-release-publish-attestation.ts,project
+  shell-scan.ts,project
+  test/attestation-union.test.ts,project
+  test/published-attestation.test.ts,project
+tests[5]:
+  - command: "node --test --test-name-pattern=\"^an unset inside a block invalidates an outer attestation binding$\" test/published-attestation.test.ts"
+    path: test/published-attestation.test.ts
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: pi-agent
+      created_at: "2026-09-01T07:45:57.344Z"
+      source_kind: local_mutation
+      source_ref: fix/refuse-unprovable-publish-bindings
+    assert_stdout_regex[1]: "an unset inside a block invalidates an outer attestation binding[\\s\\S]*tests 1[\\s\\S]*pass 1[\\s\\S]*fail 0"
+    note: an unset inside a block invalidates an outer attestation binding
+  - command: "node --test --test-name-pattern=\"^single-quoted and escaped references cannot borrow attestation evidence$\" test/published-attestation.test.ts"
+    path: test/published-attestation.test.ts
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: pi-agent
+      created_at: "2026-09-01T07:45:57.344Z"
+      source_kind: local_mutation
+      source_ref: fix/refuse-unprovable-publish-bindings
+    assert_stdout_regex[1]: "single-quoted and escaped references cannot borrow attestation evidence[\\s\\S]*tests 1[\\s\\S]*pass 1[\\s\\S]*fail 0"
+    note: single-quoted and escaped references cannot borrow attestation evidence
+  - command: "node --test --test-name-pattern=\"^independent npm scripts cannot share attestation bindings$\" test/published-attestation.test.ts"
+    path: test/published-attestation.test.ts
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: pi-agent
+      created_at: "2026-09-01T07:45:57.344Z"
+      source_kind: local_mutation
+      source_ref: fix/refuse-unprovable-publish-bindings
+    assert_stdout_regex[1]: "independent npm scripts cannot share attestation bindings[\\s\\S]*tests 1[\\s\\S]*pass 1[\\s\\S]*fail 0"
+    note: independent npm scripts cannot share attestation bindings
+  - command: "node --test --test-name-pattern=\"^evaluator recursion is bounded, so hostile nesting cannot hang the gate$\" test/attestation-union.test.ts"
+    path: test/attestation-union.test.ts
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: pi-agent
+      created_at: "2026-09-01T07:45:57.344Z"
+      source_kind: local_mutation
+      source_ref: fix/refuse-unprovable-publish-bindings
+    assert_stdout_regex[1]: "evaluator recursion is bounded, so hostile nesting cannot hang the gate[\\s\\S]*tests 1[\\s\\S]*pass 1[\\s\\S]*fail 0"
+    note: "evaluator recursion is bounded, so hostile nesting cannot hang the gate"
+  - command: "node --test --test-name-pattern=\"^the compatibility shim preserves the legacy enumerable result shape$\" test/verify-release-publish-attestation.test.ts"
+    path: test/verify-release-publish-attestation.test.ts
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: pi-agent
+      created_at: "2026-09-01T07:45:57.344Z"
+      source_kind: local_mutation
+      source_ref: fix/refuse-unprovable-publish-bindings
+    assert_stdout_regex[1]: "the compatibility shim preserves the legacy enumerable result shape[\\s\\S]*tests 1[\\s\\S]*pass 1[\\s\\S]*fail 0"
+    note: the compatibility shim preserves the legacy enumerable result shape
+close_reason: "Closed three executed attestation fail-opens with exact red-on-revert tests; five linked tests, the nine-behavior matrix, 22-repo workflow fleet scan, 100% coverage, release gates, and strict health all pass."
+body: ""

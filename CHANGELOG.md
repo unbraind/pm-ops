@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- Three shell-scope and quoting fail-opens attest unproven npm publishes ([ops-p9lb](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-p9lb.toon))
 - A malformed npm reply crashed the release audit, and the docstring already promised it would not ([ops-f5m7](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-f5m7.toon))
 - The revert-proof test read its vulnerable fixture from origin/main, so merging it would have turned it red ([ops-9ktn](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-9ktn.toon))
 - The paginated release listing was posted rather than fetched, because gh api switches to POST as soon as a parameter is present ([ops-eugo](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-eugo.toon))

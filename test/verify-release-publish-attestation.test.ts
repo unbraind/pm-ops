@@ -76,6 +76,17 @@ test("an attested publish passes and is reported by file", () => {
   assert.deepEqual(result.notes, [`ok - release.yml: 1 publish invocation(s), each carrying ${ATTESTATION_FLAG}`]);
 });
 
+test("the compatibility shim preserves the legacy enumerable result shape", () => {
+  const result = auditPublishAttestation([{ file: "release.yml", text: `          ${ATTESTED}` }]);
+  assert.deepEqual(Object.keys(result), ["failures", "notes"]);
+  assert.deepEqual(result, {
+    failures: [],
+    notes: [`ok - release.yml: 1 publish invocation(s), each carrying ${ATTESTATION_FLAG}`],
+  });
+  assert.deepEqual(result.recognition, { kind: "recognized", count: 1 },
+    "recognition remains readable as a non-enumerable transition aid");
+});
+
 test("a file holding both an attested and an unattested publish fails, so one cannot cover for the other", () => {
   const result = auditPublishAttestation([
     { file: "release.yml", text: `          ${ATTESTED}\n          ${UNATTESTED}` },

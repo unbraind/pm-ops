@@ -23,10 +23,11 @@
  * and `sh -c` payloads recursed into -- and each command records whether its
  * words were quoted. Nothing downstream has to guess.
  *
- * This is deliberately not a shell. It does not expand variables, globs or
- * arithmetic, and it does not track redirections. It exists to enumerate
- * candidate command invocations for auditing, where missing one is a security
- * failure and inventing one is merely noise.
+ * This is deliberately not a shell. It resolves only provably literal scalar
+ * and array bindings, preserves unknown expansions, and removes redirections
+ * when locating command words; it does not expand globs or arithmetic. It
+ * exists to enumerate candidate command invocations for auditing, where
+ * missing one is a security failure and inventing one is merely noise.
  *
  * @packageDocumentation
  */
@@ -1159,8 +1160,30 @@ export function shellScalars(text) {
     // final line to read the closing state from.
     return perLine[perLine.length - 1];
 }
+/** Decide whether shell quoting permits expansion at one source offset. */
+function isExpandableReference(line, offset) {
+    let precedingBackslashes = 0;
+    for (let index = offset - 1; index >= 0 && line[index] === "\\"; index -= 1)
+        precedingBackslashes += 1;
+    if (precedingBackslashes % 2 === 1)
+        return false;
+    let singleQuoted = false;
+    let doubleQuoted = false;
+    for (let index = 0; index < offset; index += 1) {
+        const character = line[index];
+        if (character === "\\" && !singleQuoted) {
+            index += 1;
+            continue;
+        }
+        if (character === "'" && !doubleQuoted)
+            singleQuoted = !singleQuoted;
+        else if (character === '"' && !singleQuoted)
+            doubleQuoted = !doubleQuoted;
+    }
+    return !singleQuoted;
+}
 /**
- * Expand `$name` and `${name}` references against the file's scalar assignments.
+ * Expand unescaped, non-single-quoted scalar references against known bindings.
  *
  * An unknown name is left in place for the same reason an unknown array is:
  * erasing it would turn "not understood" into "carries no flags", which reads
@@ -1168,12 +1191,14 @@ export function shellScalars(text) {
  *
  * @param line - One logical command.
  * @param scalars - Scalar assignments from the same file.
- * @returns The command with known scalar references inlined.
+ * @returns The command with expandable known scalar references inlined.
  */
 export function expandScalars(line, scalars) {
     // One of the two alternatives always captures the name, so there is no
     // nameless match to guard against.
-    return line.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (whole, braced, bare) => {
+    return line.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (whole, braced, bare, offset) => {
+        if (!isExpandableReference(line, offset))
+            return whole;
         const value = scalars.get(braced ?? bare);
         // The decoded value is inserted back into shell source. Double literal
         // backslashes so tokenisation preserves them as argument characters rather
@@ -1193,6 +1218,8 @@ export function expandScalars(line, scalars) {
  * @returns The command with referenced array contents inlined.
  */
 export function expandArrays(line, arrays) {
-    return line.replace(/"?\$\{([A-Za-z_][A-Za-z0-9_]*)\[@\]\}"?/g, (whole, name) => arrays.get(name) ?? whole);
+    return line.replace(/"?\$\{([A-Za-z_][A-Za-z0-9_]*)\[@\]\}"?/g, (whole, name, offset) => isExpandableReference(line, offset)
+        ? arrays.get(name) ?? whole
+        : whole);
 }
 //# sourceMappingURL=shell-scan.js.map

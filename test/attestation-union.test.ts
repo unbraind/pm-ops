@@ -386,15 +386,24 @@ test("a tracked path that cannot be opened is skipped rather than taking the gat
 });
 
 test("evaluator recursion is bounded, so hostile nesting cannot hang the gate", () => {
-  let text = UNATTESTED;
+  let withinBound = UNATTESTED;
   // Escape backslashes before quotes. Escaping only the quote leaves a literal
   // backslash in the payload able to consume the escape that follows it, so the
   // nesting this test builds would not be the nesting it asserts on.
-  for (let depth = 0; depth < 12; depth += 1) {
-    text = `eval "${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  for (let depth = 0; depth < 8; depth += 1) {
+    withinBound = `eval "${withinBound.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
   }
-  assert.deepEqual(tokenizeCommands(text, 9), [], "past the bound the walk stops rather than recursing");
-  assert.ok(tokenizeCommands(`eval "${UNATTESTED}"`).length > 1, "within the bound the payload is still scanned");
+  assert.ok(tokenizeCommands(withinBound).some((command) => commandName(command) === "npm"),
+    "the deepest command at the bound is still entered");
+
+  let pastBound = withinBound;
+  for (let depth = 0; depth < 4; depth += 1) {
+    pastBound = `eval "${pastBound.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  }
+  const bounded = tokenizeCommands(pastBound);
+  assert.equal(bounded.length, 9, "the walk enters each allowed evaluator depth before stopping");
+  assert.equal(bounded.some((command) => commandName(command) === "npm"), false,
+    "a payload beyond the bound is not entered");
 });
 
 test("renderCommand joins the resolved tokens and caps the length of a report line", () => {

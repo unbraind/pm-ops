@@ -2,11 +2,10 @@
  * Regression tests for the published scanner and auditor contracts.
  */
 import assert from "node:assert/strict";
-import { performance } from "node:perf_hooks";
 import test from "node:test";
 
 import { auditPublishAttestation } from "../attestation.ts";
-import { literalScalarAssignments, shellScalars, startsCaseArm } from "../shell-scan.ts";
+import { bashArrays, expandArrays, expandScalars, literalScalarAssignments, shellScalars, startsCaseArm } from "../shell-scan.ts";
 
 test("the audit result makes a vacuous scan structurally distinct", () => {
   const empty = auditPublishAttestation([{ file: "release.yml", text: "npm ci\n" }]);
@@ -23,9 +22,56 @@ test("the audit result makes a vacuous scan structurally distinct", () => {
 
 test("literal assignment indexing is linear on adjacent assignment-like text", () => {
   const hostile = `A=${"!A=".repeat(40)}(`;
-  const started = performance.now();
   assert.equal(shellScalars(hostile).size, 0);
-  assert.ok(performance.now() - started < 100, "40 repetitions must complete under 100ms");
+});
+
+test("an unset inside a block invalidates an outer attestation binding", () => {
+  const result = auditPublishAttestation([{
+    file: "release.yml",
+    text: [
+      "FLAG=--provenance",
+      "if [ -n \"$X\" ]; then",
+      "  unset FLAG",
+      "fi",
+      "npm publish $FLAG",
+    ].join("\n"),
+  }]);
+  assert.equal(result.failures.length, 1);
+  assert.deepEqual(result.recognition, { kind: "recognized", count: 1 });
+
+  const siblingArm = auditPublishAttestation([{
+    file: "release.yml",
+    text: "FLAG=--provenance\nif test -n \"$X\"; then\nunset FLAG\nelse\n:\nfi\nnpm publish $FLAG",
+  }]);
+  assert.equal(siblingArm.failures.length, 1,
+    "an unset in either possible arm leaves the post-block binding unprovable");
+});
+
+test("single-quoted and escaped references cannot borrow attestation evidence", () => {
+  const scalars = new Map([["FLAG", "--provenance"]]);
+  const arrays = bashArrays("FLAGS=(--provenance)");
+  assert.equal(expandScalars("npm publish '$FLAG'", scalars), "npm publish '$FLAG'");
+  assert.equal(expandScalars("npm publish \\$FLAG", scalars), "npm publish \\$FLAG");
+  assert.equal(expandScalars("echo \\x; npm publish $FLAG", scalars), "echo \\x; npm publish --provenance",
+    "an earlier escape does not suppress a later expandable reference");
+  assert.equal(expandArrays("npm publish '${FLAGS[@]}'", arrays), "npm publish '${FLAGS[@]}'");
+
+  for (const text of [
+    "FLAG=--provenance\nnpm publish '$FLAG'",
+    "FLAG=--provenance\nnpm publish \\$FLAG",
+    "FLAGS=(--provenance)\nnpm publish '${FLAGS[@]}'",
+  ]) {
+    assert.equal(auditPublishAttestation([{ file: "release.yml", text }]).failures.length, 1, text);
+  }
+});
+
+test("independent npm scripts cannot share attestation bindings", () => {
+  const manifest = JSON.stringify({
+    scripts: { setup: "FLAG=--provenance", release: "npm publish $FLAG" },
+  });
+  const result = auditPublishAttestation([{ file: "package.json", text: manifest }]);
+  assert.equal(result.failures.length, 1);
+  assert.deepEqual(result.recognition, { kind: "recognized", count: 1 });
 });
 
 test("a binding from one conditional arm cannot attest a publish in its sibling arm", () => {

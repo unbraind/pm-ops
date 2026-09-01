@@ -23,10 +23,11 @@
  * and `sh -c` payloads recursed into -- and each command records whether its
  * words were quoted. Nothing downstream has to guess.
  *
- * This is deliberately not a shell. It does not expand variables, globs or
- * arithmetic, and it does not track redirections. It exists to enumerate
- * candidate command invocations for auditing, where missing one is a security
- * failure and inventing one is merely noise.
+ * This is deliberately not a shell. It resolves only provably literal scalar
+ * and array bindings, preserves unknown expansions, and removes redirections
+ * when locating command words; it does not expand globs or arithmetic. It
+ * exists to enumerate candidate command invocations for auditing, where
+ * missing one is a security failure and inventing one is merely noise.
  *
  * @packageDocumentation
  */
@@ -351,7 +352,7 @@ export declare function shellScalarsByLine(text: string): Array<Map<string, stri
  */
 export declare function shellScalars(text: string): Map<string, string>;
 /**
- * Expand `$name` and `${name}` references against the file's scalar assignments.
+ * Expand unescaped, non-single-quoted scalar references against known bindings.
  *
  * An unknown name is left in place for the same reason an unknown array is:
  * erasing it would turn "not understood" into "carries no flags", which reads
@@ -359,7 +360,7 @@ export declare function shellScalars(text: string): Map<string, string>;
  *
  * @param line - One logical command.
  * @param scalars - Scalar assignments from the same file.
- * @returns The command with known scalar references inlined.
+ * @returns The command with expandable known scalar references inlined.
  */
 export declare function expandScalars(line: string, scalars: Map<string, string>): string;
 /**
