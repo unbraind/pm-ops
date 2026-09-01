@@ -1093,3 +1093,37 @@ test("a real manifest is still read as a manifest", () => {
   assert.equal(result.failures.length, 0, "an attested manifest publish must still pass");
   assert.equal(result.recognition.kind, "recognized");
 });
+
+test("a binding made before a case block survives an opener that shares its first arm", () => {
+  // The opener both opens the block and starts an arm. Resetting arm identity
+  // before the scope is pushed would clear the OUTER scope and refuse a publish
+  // whose flag was bound before the block ever started.
+  const result = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:",
+      "  r:",
+      "    steps:",
+      "      - run: |",
+      "          FLAG=--provenance; case $X in a) : ;; esac; npm publish $FLAG",
+    ].join("\n"),
+  }]);
+  assert.deepEqual(result.failures, [], "a genuinely attested publish must not be refused");
+  assert.equal(result.recognition.kind, "recognized");
+});
+
+test("a binding made inside a case arm still cannot attest a publish after esac", () => {
+  const result = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:",
+      "  r:",
+      "    steps:",
+      "      - run: |",
+      '          case "$X" in a) FLAG=--provenance ;; esac',
+      "          npm publish $FLAG",
+    ].join("\n"),
+  }]);
+  assert.equal(result.failures.length, 1, "the arm-local binding must not attest the later publish");
+  assert.match(result.failures[0]!, /does not enable --provenance/);
+});

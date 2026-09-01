@@ -282,7 +282,14 @@ function publishInvocationsInShell(source, raw) {
             // A sibling arm receives a fresh map at the same numeric depth. Clearing
             // it is the branch identity: evidence from a mutually exclusive arm can
             // never be visible to this path. Outer scopes remain visible.
-            if (startsIfSiblingArm(segment) || (insideCase && startsCaseArm(segment))) {
+            //
+            // Only when this segment does not itself open a scope. A `case` opener
+            // sharing a segment with its first arm both opens the block and starts an
+            // arm, and the push below has not happened yet — so clearing here would
+            // erase the OUTER scope and refuse a publish whose flag was bound before
+            // the block. The scope pushed below is already empty, which is the same
+            // branch identity by construction.
+            if (change <= 0 && (startsIfSiblingArm(segment) || (insideCase && startsCaseArm(segment)))) {
                 const currentScope = scopes[scopes.length - 1];
                 const discarded = [...currentScope].filter((entry) => entry[1] === undefined);
                 currentScope.clear();
