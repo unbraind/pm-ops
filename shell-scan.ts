@@ -568,7 +568,7 @@ export function joinContinuations(text: string): string {
  * match at line start.
  */
 const BLOCK_SCALAR_HEADER =
-  /^([ \t]*)((?:-[ \t]+)*)("[^"]*"|'[^']*'|[A-Za-z_][\w.-]*):[ \t]*([|>])(?:[+-]?([1-9])?[+-]?)?(?:[ \t]+#.*)?\r?$/;
+  /^([ \t]*)((?:-[ \t]+)*)("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[A-Za-z_][\w.-]*):[ \t]*([|>])(?:[+-]?([1-9])?[+-]?)?(?:[ \t]+#.*)?\r?$/;
 
 /**
  * Decode a hex escape to its character, or `undefined` when it names no code point.

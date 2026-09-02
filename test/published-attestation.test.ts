@@ -554,3 +554,26 @@ test("an escape naming no code point leaves the scan running", () => {
     assert.equal(result.failures.length, 1);
   }
 });
+
+test("a key carrying an escaped quote is still consumed as a block", () => {
+  // Fail-open guard. The header matcher rejected `"NO\\"TE": |`, so the block
+  // was never consumed, its body stayed in the shell text, and a publish
+  // written inside it was discovered as a real invocation - the phantom fail-open
+  // in another spelling. Both quote styles carry an escape: a backslash in the
+  // double-quoted form, a doubled quote in the single-quoted one.
+  for (const key of ['"NO\\"TE"', "'IT''S'"]) {
+    const result = auditPublishAttestation([{
+      file: ".github/workflows/release.yml",
+      text: [
+        "jobs:", "  release:", "    steps:",
+        "      - env:",
+        `          ${key}: |`,
+        "            run: |",
+        "              npm publish --access public --provenance",
+        "        run: npm ci",
+      ].join("\n"),
+    }]);
+    assert.deepEqual(result.recognition, { kind: "none" }, `${key} must be consumed as data`);
+    assert.equal(result.failures.length, 1);
+  }
+});

@@ -548,7 +548,7 @@ export function joinContinuations(text) {
  * content's YAML indentation would remain and a heredoc terminator would never
  * match at line start.
  */
-const BLOCK_SCALAR_HEADER = /^([ \t]*)((?:-[ \t]+)*)("[^"]*"|'[^']*'|[A-Za-z_][\w.-]*):[ \t]*([|>])(?:[+-]?([1-9])?[+-]?)?(?:[ \t]+#.*)?\r?$/;
+const BLOCK_SCALAR_HEADER = /^([ \t]*)((?:-[ \t]+)*)("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[A-Za-z_][\w.-]*):[ \t]*([|>])(?:[+-]?([1-9])?[+-]?)?(?:[ \t]+#.*)?\r?$/;
 /**
  * Decode a hex escape to its character, or `undefined` when it names no code point.
  *
