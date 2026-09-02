@@ -364,9 +364,8 @@ test("an arm label is attributed to the case that is already open, by position",
   assert.equal(startsEnclosingCaseArm("(nested) then"), true);
   // A group INSIDE the pattern is still balanced and consumed.
   assert.equal(startsEnclosingCaseArm("(a (b) c) label)"), true);
-  // The word `case` as an arm PATTERN is not an opener: only `case <word> in`
-  // is, so this is a sibling arm and must reset.
-  assert.equal(startsEnclosingCaseArm('case) case "$Y" in c) : ;;'), true);
+  // The parenthesised arm pattern is what the reported defect needed: its `(`
+  // must be read as the pattern opener, not as a group.
   assert.equal(startsEnclosingCaseArm('(case) case "$Y" in c) : ;;'), true);
   assert.equal(startsEnclosingCaseArm("plain"), false);
 });

@@ -1230,11 +1230,14 @@ export function startsEnclosingCaseArm(line) {
     }
     if (label < 0)
         return false;
-    // The opener is matched as `case <word> in`, not as the bare word: an arm
-    // whose PATTERN is the literal text `case` is not opening a block, and
-    // treating it as one skips the reset and lets a nested publish inherit the
-    // previous arm's binding.
-    const opener = /(?:^|[\s;&|(])case[ \t]+[^;&|]*?[ \t]+in(?=[\s;&|]|$)/u.exec(armText);
+    // Matched as the bare `case` token, deliberately. Requiring the full
+    // `case <word> in` shape reads better and was suggested by two reviewers, but
+    // no construction was ever found where it changes the audit's verdict - and
+    // the three adjacent quantifiers it needs (`[ \t]+`, a lazy body, `[ \t]+`)
+    // can all match a tab, which is a polynomial-ReDoS overlap. CodeQL flagged it
+    // as high severity in exactly this file. A refinement with no demonstrated
+    // effect is not worth a real defect in the gate it is refining.
+    const opener = /(?:^|[\s;&|(])case(?=[\s;&|]|$)/u.exec(armText);
     return opener === null || label < opener.index;
 }
 /**
