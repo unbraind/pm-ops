@@ -1,0 +1,21 @@
+id: ops-yxej
+title: Two stacked release pull requests are blocked because a merge reintroduced history drift on ops-5jp6
+description: "The Daily Release pull requests for 2026-09-01 and 2026-09-02 both fail the tracked-health gate with history_drift_chain_mismatch and history_drift_hash_mismatch on ops-5jp6, so pm-ops has published nothing for two days. Reproduced on main at 83177be with the repo-pinned CLI and a cleared drift cache, so it is neither a stale cache nor a global-binary disagreement. The chain links are internally consistent: every event's before_hash equals its predecessor's after_hash and there are zero breaks. What differs is the recomputed hash for item_hash_version 2, which is the cross-version disagreement pm-cli issue 1135 describes. PR 78 converged the pin on 2026.8.31 and repaired hashes; PR 70 then merged a branch whose ops-5jp6 events had been written under an older pin, which re-anchored the chain to hashes the pinned binary no longer computes."
+type: Issue
+status: closed
+priority: 1
+tags[3]: "area:pm-items","area:release","type:defect"
+created_at: "2026-09-02T17:22:04.137Z"
+updated_at: "2026-09-02T17:22:42.878Z"
+closed_at: "2026-09-02T17:22:42.864Z"
+completed_at: "2026-09-02T17:22:42.864Z"
+author: pi-agent
+acceptance_criteria: pm health run with the repo-pinned binary and a cleared drift cache exits zero on main; the two stacked release pull requests are unblocked and pm-ops publishes again
+risk: high
+severity: high
+repro_steps: "On pm-ops main, rm .agents/pm/runtime/history-drift-cache.json then run the repo-pinned pm health --strict-exit. It exits 1 naming history_drift_chain_mismatch:ops-5jp6 and history_drift_hash_mismatch:ops-5jp6."
+component: .agents/pm/history/ops-5jp6.jsonl
+comments[1]{created_at,author,text}:
+  "2026-09-02T17:22:18.917Z",pi-agent,"Repaired with the repo-pinned 2026.8.31 binary, which is the version CI runs; repairing with the global 2026.9.2 would have written a chain CI cannot verify. pm history-repair ops-5jp6 re-anchored the entries and reported verify_ok true, and it recorded matched_chain_before false and reconciled_with_item false, which is the drift itself rather than a failure of the repair.\n\nVerified by re-running the full gate after deleting .agents/pm/runtime/history-drift-cache.json so the verdict could not come from a cached result: pm health --strict-exit now exits 0 with failed_because empty. The three advisory warnings that remain are unrelated and pre-existing: two stale in-progress items and the claude_session_file provenance resolver that has never once resolved a model or version in 139 attempts.\n\nNote this is a merge-ordering hazard, not a one-off. PR 78 converged the pin and repaired hashes; PR 70 then merged a branch whose events were written under an older pin, and nothing in the merge re-verified them. Any branch opened before a pin bump carries the same latent failure, and it surfaces only in the daily release pull request, two days after the fact."
+close_reason: "Repaired ops-5jp6 with the repo-pinned 2026.8.31 binary and verified against a cleared drift cache: pm health --strict-exit now exits 0 with failed_because empty, where it previously named both a chain and a hash mismatch. The two stacked release pull requests can now be re-run."
+body: ""
