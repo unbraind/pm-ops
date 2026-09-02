@@ -6,7 +6,7 @@ status: closed
 priority: 0
 tags[4]: attestation,fleet,release,supply-chain
 created_at: "2026-09-01T06:29:06.075Z"
-updated_at: "2026-09-02T19:24:17.177Z"
+updated_at: "2026-09-02T20:15:10.983Z"
 closed_at: "2026-09-01T06:48:43.385Z"
 completed_at: "2026-09-01T06:48:43.385Z"
 author: "harness:claude-code"
@@ -15,7 +15,7 @@ risk: critical
 resolution: Published shell-scan and attestation package subpaths replace the vendored script implementation while retaining compatibility shims.
 expected_result: Consumers can import canonical pm-ops/shell-scan and pm-ops/attestation exports.
 actual_result: "Subpath exports, declarations, canonical tests, and release packaging all pass."
-comments[5]:
+comments[6]:
   - created_at: "2026-09-01T06:29:22.844Z"
     author: "harness:claude-code"
     text: "Recovery context, corrected after review pointed out that the original wording overstated what was done. What is verifiable: the canonical de-vendor work (shell-scan.ts, attestation.ts, package subpath exports, union test suites) was completed and closed earlier, but never pushed; a host disk-full event on 2026-09-01 (root filesystem at 98%) truncated 29 git objects in this repository to zero length, emptied this item's .toon, and left history line 11 as 701 NUL bytes. The salvaged stream contained exactly 10 parseable JSON lines before that NUL line.\n\nCorrection: those 10 events were replayed only to recover the item's FIELD VALUES (title, type, tags, acceptance criteria, files, tests, comments, close reason). The item itself was then RECREATED with 'pm create --id ops-4b34', which necessarily starts a new hash chain. This item's history is therefore a fresh 4-event chain and is NOT a continuation of the original 10-event stream, and the earlier claim that the item 'was rebuilt by replaying the 10 valid history JSON-patch events' was wrong about the history even though it was right about the field values. The original 10-event stream survives only as an out-of-tree salvage copy.\n\nThe specific wall-clock time previously given for the disk-full event is also withdrawn: it cannot be reconciled with the timestamps in this chain, and no cause is asserted here that has not been verified. The git object store was repaired from origin and git fsck is clean. See pm-cli#1171 — pm restore parses the on-disk item before consulting history, so it could not do this rebuild itself, which is why the item had to be recreated rather than replayed."
@@ -32,5 +32,8 @@ comments[5]:
   - created_at: "2026-09-02T19:24:17.177Z"
     author: pi-agent
     text: "Correction to the recovery note on this item, which described the rebuilt history as a fresh four-event chain. That was accurate when written and is no longer: the chain now carries seven events, because this item has been commented on repeatedly since the rebuild.\n\nStating it as a bare count made it rot the moment anything was appended, which for an append-only history is immediate. What is durable, and what the note was actually trying to say, is that the chain was rebuilt from scratch at recovery rather than repaired in place, and that every event after the rebuild is ordinary subsequent work rather than reconstructed history. The four events were the rebuild; the rest are what came after."
+  - created_at: "2026-09-02T20:15:10.983Z"
+    author: pi-agent
+    text: "The previous correction repeated the mistake it was correcting: it replaced one event count with another, and that one was stale by the time it was written, because appending the correction itself extended the chain.\n\nStating it without a count, which is what should have been written both times: this item's history was rebuilt from scratch during the disk-full recovery rather than repaired in place, and every event after the rebuild is ordinary subsequent work rather than reconstructed history. Nothing about that becomes false when another event is appended.\n\nThe general rule, since this is the second time: a record in an append-only history must not assert a property of that history's length. Anything that counts events is stale on the next write, and a record that decays on the next write is not a record."
 close_reason: "Canonical shell scanner and publish-attestation auditor are exported from pm-ops; repository scripts are compatibility shims, published contracts are tested, and release gates pass."
 body: ""

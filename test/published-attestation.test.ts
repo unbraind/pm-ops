@@ -480,6 +480,15 @@ test("a YAML-escaped run key is executable, and its publish is not hidden", () =
     text: ["jobs:", "  release:", "    steps:", "      - 'run': |", "          npm publish --access public"].join("\n"),
   }]);
   assert.deepEqual(singleQuoted.recognition, { kind: "recognized", count: 1 });
+
+  // The wide `\U` escape is part of the same set, and leaving it undecoded is
+  // the same fail-open in a third spelling.
+  const wideEscaped = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: ["jobs:", "  release:", "    steps:", "      - \"r\\U00000075n\": |", "          npm publish --access public"].join("\n"),
+  }]);
+  assert.deepEqual(wideEscaped.recognition, { kind: "recognized", count: 1 });
+  assert.equal(wideEscaped.failures.length, 1);
 });
 
 test("a composite action is scanned wherever its file sits, including the root", () => {
@@ -495,5 +504,10 @@ test("a composite action is scanned wherever its file sits, including the root",
     file: "action.yml",
     text: ["runs:", "  steps:", "    - run: |", "        npm publish --access public"].join("\n"),
   }]);
+  // Recognition FIRST. A failure count of one proves nothing on its own here:
+  // the auditor also emits exactly one failure when it recognised no publish at
+  // all, so this assertion passes unchanged if the file is never scanned. The
+  // recognition count is what proves the root action reached the auditor.
+  assert.deepEqual(rootAction.recognition, { kind: "recognized", count: 1 });
   assert.equal(rootAction.failures.length, 1);
 });

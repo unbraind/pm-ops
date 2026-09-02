@@ -1,0 +1,18 @@
+id: ops-vkvy
+title: "A parenthesised command inside a case arm is read as an arm label, refusing a publish the shell attests"
+description: "A known false refusal, recorded rather than fixed because the safe fix is not available at the level the predicate operates on.\n\nInside a case arm, a parenthesised command such as an echo in its own subshell is a complete command whose parentheses balance. An arm pattern written with its optional leading parenthesis is also balanced, and the two are structurally identical when a single segment is examined in isolation. The predicate that decides whether a segment starts a sibling arm therefore treats the subshell as an arm label and clears the arm's bindings, so a flag bound earlier in the same arm stops being visible and a publish that the shell does pass the flag to is refused.\n\nThe direction matters. This is a fail-closed defect: it refuses a release that should have been allowed, rather than attesting one that should not. Every candidate fix that distinguishes the two shapes from a single segment opens a fail-open in exchange. Treating a parenthesised segment with nothing after its closing parenthesis as a subshell would misread an arm label written on its own line, which is legal and would then skip the sibling reset.\n\nThe faithful fix is to track whether an arm label is expected at all, which is knowable from the surrounding segments: an arm begins after the in keyword of a case opener, or after a double semicolon. That is a state machine across segments rather than a predicate on one, and it is deliberately not being attempted at the end of a review cycle in which three separate fixes to this scope model each opened a new defect one construction away."
+type: Issue
+status: open
+priority: 2
+tags[2]: "area:gates","type:false-refusal"
+created_at: "2026-09-02T20:15:11.460Z"
+updated_at: "2026-09-02T20:15:12.022Z"
+author: pi-agent
+acceptance_criteria: A parenthesised command inside a case arm does not clear the arm's bindings; an arm label written with its optional leading parenthesis still resets the previous arm; both directions proven by execution
+risk: medium
+severity: medium
+repro_steps: "Audit a workflow whose case arm binds the flag, then runs a parenthesised command, then publishes with the flag expanded. The publish is refused although the shell passes the flag."
+component: shell-scan.ts
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  ops-cxrx,related,"2026-09-02T20:15:11.990Z",pi-agent,"cli:update:dep",detected
+body: ""

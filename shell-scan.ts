@@ -591,9 +591,14 @@ function unquoteKey(key: string): string {
   // A double-quoted scalar supports the full escape set, so comparing the raw
   // text to `run` reads `"r\u0075n"` as data - and its body then never reaches
   // the shell scan, hiding a publish that GitHub Actions really does execute.
+  // `\U` (eight hex digits) is part of the same escape set as `\u` and `\x`, and
+  // leaving it undecoded reads an executable key as data - the same fail-open
+  // in a third spelling. Matched before `\u` only because the alternation is
+  // ordered; the two are distinct escapes, not case variants.
   return body.replace(
-    /\\(?:u([0-9A-Fa-f]{4})|x([0-9A-Fa-f]{2})|(.))/gu,
-    (_match, unicode?: string, hex?: string, single?: string) => {
+    /\\(?:U([0-9A-Fa-f]{8})|u([0-9A-Fa-f]{4})|x([0-9A-Fa-f]{2})|(.))/gu,
+    (_match, wide?: string, unicode?: string, hex?: string, single?: string) => {
+      if (wide !== undefined) return String.fromCodePoint(Number.parseInt(wide, 16));
       if (unicode !== undefined) return String.fromCodePoint(Number.parseInt(unicode, 16));
       if (hex !== undefined) return String.fromCodePoint(Number.parseInt(hex, 16));
       const simple: Record<string, string> = { n: "\n", t: "\t", r: "\r", "0": "\0", "\\": "\\", '"': '"', "/": "/" };
@@ -1218,7 +1223,7 @@ export function startsEnclosingCaseArm(line: string): boolean {
   //
   // The trailing whitespace matters: `case)` is an arm whose PATTERN is the
   // word `case`, not an opener.
-  if (/^[ \t]*case[ \t]/u.test(bare)) return false;
+  const opensCase = /^[ \t]*case[ \t]/u.test(bare);
   // Everything else carrying an arm label is a sibling of a previous arm, and
   // that includes a parenthesised pattern - whose contents may themselves read
   // like an opener (`(case  in )`). Deciding by position inside such a pattern
@@ -1229,12 +1234,22 @@ export function startsEnclosingCaseArm(line: string): boolean {
   // so it is consumed here rather than paired with the `)` that is the label.
   const armText = bare.replace(/^([ \t]*)\(/u, "$1 ");
   let groups = 0;
-  for (const character of armText) {
+  let label = -1;
+  for (let index = 0; index < armText.length; index += 1) {
+    const character = armText[index]!;
     if (character === "(") groups += 1;
-    else if (character === ")" && groups === 0) return true;
+    else if (character === ")" && groups === 0) { label = index; break; }
     else if (character === ")") groups -= 1;
   }
-  return false;
+  if (label < 0) return false;
+  // A segment can BEGIN with `case ` and still be an arm rather than an opener:
+  // `case foo)` is an arm whose pattern is two words, the first of which is the
+  // keyword. What separates the two is the `in` keyword, which a real opener
+  // must carry before its first arm label. Searched only in the text before the
+  // label, and with a single-character alternation on either side of a literal,
+  // so there is nothing to backtrack over.
+  if (opensCase && /(?:^|[\s;&|])in(?=[\s;&|]|$)/u.test(armText.slice(0, label))) return false;
+  return true;
 }
 
 /**
