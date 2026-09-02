@@ -6,17 +6,18 @@ status: closed
 priority: 1
 tags[3]: "area:gates","area:supply-chain","type:security"
 created_at: "2026-09-02T19:24:37.016Z"
-updated_at: "2026-09-02T20:04:24.566Z"
-closed_at: "2026-09-02T19:24:37.973Z"
-completed_at: "2026-09-02T19:24:37.973Z"
+updated_at: "2026-09-02T20:32:18.405Z"
+closed_at: "2026-09-02T20:32:18.390Z"
+completed_at: "2026-09-02T20:32:18.390Z"
 author: pi-agent
 acceptance_criteria: "An arm pattern written with or without its optional parenthesis resets the sibling scope; an escaped run key stays executable and a non-run key stays data whatever its spelling; a sequence entry's marker counts toward the indentation an indicator measures from, proven against a real YAML parser; a composite action at any path is scanned"
 risk: critical
+unblock_note: "Reopened because the recorded close reason described a state the branch no longer had. It said the opener refinement was pinned at unit level and cited fourteen verified constructions, and both were true when written; the refinement was then removed after CodeQL flagged it as a high-severity polynomial expression, the predicate was rewritten twice more, and the construction count changed. A close reason that describes a superseded state is worse than none, because it is the thing a reader trusts."
 severity: critical
 component: "shell-scan.ts, attestation.ts"
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   ops-setc,related,"2026-09-02T19:24:38.684Z",pi-agent,"cli:update:dep",detected
 comments[1]{created_at,author,text}:
   "2026-09-02T20:04:24.566Z",pi-agent,"A twelfth construction, found after the previous round and worth recording because it closes the loop on two earlier decisions.\n\nGreptile reported that an arm pattern whose text reads like an opener suppresses the sibling reset. Its example used a quoted pattern, which does not reproduce, because quoted text is stripped before the scan. The unquoted grouped form does reproduce: an arm pattern of the shape open-paren, the word case, the word in, close-paren, followed by a nested case in the same segment, returned no failures for a publish the shell runs unattested.\n\nThis is the same construction the opener refinement removed in the previous commit would have caught, and that refinement was removed because CodeQL flagged it as a high-severity polynomial expression. So the two findings were in tension, and resolving them by tightening the expression again would have reintroduced the defect.\n\nThe predicate is rewritten instead. It asks a single anchored question: does the segment BEGIN with the case keyword followed by whitespace. That is one bounded quantifier with a literal between it and the next, so there is no adjacency to backtrack over. Everything else carrying an arm label is treated as a sibling, including a parenthesised pattern whose contents read like an opener. Deciding by position inside such a pattern is guesswork; treating it as a sibling is the fail-closed direction, because the only consequence of resetting is that a binding stops being visible.\n\nTwelve constructions verified by execution with no regression."
-close_reason: "All four confirmed by execution and fixed, with fourteen constructions re-verified and no regression. The escaped-key and arm-pattern guards are revert-proof against their own reverts. The opener refinement that distinguishes the case keyword from an arm pattern spelling it is pinned at unit level but had no end-to-end construction demonstrating a fail-open, and is recorded as a correctness refinement rather than a closed hole."
+close_reason: "Final state after the full review cycle. The four fail modes this item was opened for are closed, and so are the four found afterwards: an arm pattern read as an opener in three distinct spellings, a wide unicode escape left undecoded, a brace-grouped nested case whose opener was missed, and an out-of-range escape that threw and aborted the scan. The opener refinement referenced in the first close reason no longer exists - it was removed after CodeQL flagged it, and the predicate now asks one anchored question instead. One defect is deliberately left open as ops-vkvy: a parenthesised command inside a case arm is read as an arm label and refuses a publish the shell attests, which fails closed and cannot be distinguished from an arm pattern within a single segment."
 body: ""

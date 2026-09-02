@@ -511,3 +511,46 @@ test("a composite action is scanned wherever its file sits, including the root",
   assert.deepEqual(rootAction.recognition, { kind: "recognized", count: 1 });
   assert.equal(rootAction.failures.length, 1);
 });
+
+test("a brace group before the keyword does not hide the opener", () => {
+  // Fail-closed guard. `{ case "$Y" in ... }` opens a nested case behind a
+  // grouping token, and missing that made the later arm label look like a
+  // sibling of the enclosing arm - clearing a binding the same arm had made and
+  // refusing a publish the shell attests. Braces are safe to allow through: `{`
+  // is never an arm pattern, which is exactly why `(` is not allowed through.
+  const braced = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:", "  release:", "    steps:",
+      "      - run: |",
+      "          case \"$X\" in",
+      "            b) FLAG=--provenance",
+      "               { case \"$Y\" in c) npm publish --access public $FLAG ;; esac ; }",
+      "               ;;",
+      "          esac",
+    ].join("\n"),
+  }]);
+  assert.deepEqual(braced.failures, [], "a binding made in the same arm must survive a braced nested case");
+  assert.deepEqual(braced.recognition, { kind: "recognized", count: 1 });
+});
+
+test("an escape naming no code point leaves the scan running", () => {
+  // A throw here would abort the whole attestation scan, so a malformed key
+  // would become a way to stop the gate running rather than a key that simply
+  // is not `run`. Both an out-of-range value and a surrogate half are refused
+  // as unusable and left as written.
+  for (const escape of ["\\UFFFFFFFF", "\\uD800"]) {
+    const result = auditPublishAttestation([{
+      file: ".github/workflows/release.yml",
+      text: [
+        "jobs:", "  release:", "    steps:",
+        `      - "r${escape}n": |`,
+        "          npm publish --access public",
+      ].join("\n"),
+    }]);
+    // Not `run` after decoding, so the block is data - and crucially the audit
+    // completed rather than throwing.
+    assert.deepEqual(result.recognition, { kind: "none" }, `${escape} must not be read as the run key`);
+    assert.equal(result.failures.length, 1);
+  }
+});

@@ -550,6 +550,25 @@ export function joinContinuations(text) {
  */
 const BLOCK_SCALAR_HEADER = /^([ \t]*)((?:-[ \t]+)*)("[^"]*"|'[^']*'|[A-Za-z_][\w.-]*):[ \t]*([|>])(?:[+-]?([1-9])?[+-]?)?(?:[ \t]+#.*)?\r?$/;
 /**
+ * Decode a hex escape to its character, or `undefined` when it names no code point.
+ *
+ * `String.fromCodePoint` throws on a value above the Unicode maximum or on a
+ * surrogate half. Inside the key decoder a throw would abort the entire
+ * attestation scan, so a malformed escape would become a way to stop the gate
+ * running rather than a key that simply is not `run`.
+ *
+ * @param hex - The escape's hex digits, or `undefined` when this alternative did not match.
+ * @returns The decoded character, or `undefined` when there is nothing to decode.
+ */
+function codePoint(hex) {
+    if (hex === undefined)
+        return undefined;
+    const value = Number.parseInt(hex, 16);
+    if (value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff))
+        return undefined;
+    return String.fromCodePoint(value);
+}
+/**
  * Strip the quotes YAML allows around a mapping key.
  *
  * Executability is decided by comparing this to `run`, rather than by a second
@@ -577,12 +596,15 @@ function unquoteKey(key) {
     // in a third spelling. Matched before `\u` only because the alternation is
     // ordered; the two are distinct escapes, not case variants.
     return body.replace(/\\(?:U([0-9A-Fa-f]{8})|u([0-9A-Fa-f]{4})|x([0-9A-Fa-f]{2})|(.))/gu, (_match, wide, unicode, hex, single) => {
-        if (wide !== undefined)
-            return String.fromCodePoint(Number.parseInt(wide, 16));
-        if (unicode !== undefined)
-            return String.fromCodePoint(Number.parseInt(unicode, 16));
-        if (hex !== undefined)
-            return String.fromCodePoint(Number.parseInt(hex, 16));
+        // An escape may name a code point that does not exist. `fromCodePoint`
+        // throws on those, and a throw here would abort the whole attestation
+        // scan - turning a malformed key into a way to stop the gate running at
+        // all. An unusable escape is left as written, which cannot equal `run`.
+        const decoded = codePoint(wide ?? unicode ?? hex);
+        if (decoded !== undefined)
+            return decoded;
+        if (wide !== undefined || unicode !== undefined || hex !== undefined)
+            return _match;
         const simple = { n: "\n", t: "\t", r: "\r", "0": "\0", "\\": "\\", '"': '"', "/": "/" };
         return simple[single] ?? single;
     });
@@ -1224,7 +1246,16 @@ export function startsEnclosingCaseArm(line) {
     //
     // The trailing whitespace matters: `case)` is an arm whose PATTERN is the
     // word `case`, not an opener.
-    const opensCase = /^[ \t]*case[ \t]/u.test(bare);
+    // A brace group may precede the keyword (`{ case "$X" in ...`). Braces are
+    // unambiguous here - `{` is never an arm pattern - so allowing one is safe.
+    // A leading `(` is NOT allowed through: `(case  in )` is a legal arm pattern
+    // and `( case "$Y" in` a grouped opener, and nothing in one segment tells
+    // them apart, so the parenthesis keeps its conservative reading below.
+    //
+    // Written as an optional single prefix rather than a repeated one: nesting a
+    // whitespace quantifier inside a repeated group is the polynomial shape this
+    // file has already been bitten by once.
+    const opensCase = /^[ \t]*(?:\{[ \t]+)?case[ \t]/u.test(bare);
     // Everything else carrying an arm label is a sibling of a previous arm, and
     // that includes a parenthesised pattern - whose contents may themselves read
     // like an opener (`(case  in )`). Deciding by position inside such a pattern
