@@ -21,6 +21,7 @@
 
 ### Security
 
+- An arm that opens a nested case skipped the sibling reset, so a publish could borrow a flag from a mutually exclusive arm ([ops-rsbn](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-rsbn.toon))
 - Skipping the sibling-arm reset for any depth-increasing segment let a later arm borrow the previous arm's binding ([ops-narm](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-narm.toon))
 - A tracked executable whose name merely ends in package.json has its publish hidden from the audit ([ops-fnbd](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-fnbd.toon))
 - A case opener sharing a segment with its first arm leaks that arm's binding past esac ([ops-csop](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-csop.toon))

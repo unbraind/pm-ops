@@ -332,6 +332,13 @@ function publishInvocationsInShell(source: SourceFile, raw: string): PublishInvo
       // any net line-level depth change, yet each command still needs the
       // binding state at the point where it runs.
       const caseChange = caseDepthChange(segment);
+      // The `case` nesting depth *before* this segment. A segment that opens a
+      // `case` is the first arm of the block it opens and has no earlier
+      // sibling; a segment that starts an arm while already inside a `case` is
+      // a sibling of a previous arm even when it also opens a nested one.
+      // `insideCase` folds this segment's own opener in and so cannot tell the
+      // two apart — see the sibling reset below.
+      const caseDepthBefore = caseDepth;
       const insideCase = caseDepth > 0 || caseChange > 0;
       const change = blockDepthChange(segment, insideCase);
       if (change < 0) {
@@ -352,19 +359,19 @@ function publishInvocationsInShell(source: SourceFile, raw: string): PublishInvo
       // it is the branch identity: evidence from a mutually exclusive arm can
       // never be visible to this path. Outer scopes remain visible.
       //
-      // Skipped only when this segment is itself the `case` opener. Such a
-      // segment both opens the block and starts its first arm, and the push
-      // below has not happened yet — so clearing here would erase the OUTER
-      // scope and refuse a publish whose flag was bound before the block. There
-      // is no earlier sibling arm at that point, and the scope pushed below is
-      // empty, so the branch identity holds by construction.
+      // Keyed on the depth BEFORE this segment, never on whether the segment
+      // opens a `case`. A segment that opens one is the first arm of the block
+      // it opens: the push below has not happened yet, so clearing would erase
+      // the OUTER scope and refuse a publish whose flag was bound before the
+      // block, and there is no earlier sibling to hide anyway.
       //
-      // It must NOT be skipped merely because the segment opens some block: a
-      // later arm that begins by opening a nested block (`b) if true; then …`)
-      // is still a sibling, and skipping the reset there leaves the previous
-      // arm's binding visible and attests a publish from a mutually exclusive
-      // arm.
-      if (caseChange <= 0 && (startsIfSiblingArm(segment) || (insideCase && startsCaseArm(segment)))) {
+      // But "opens a `case`" is NOT the same question. A later arm may itself
+      // open a nested `case` (`b) case "$Y" in`), and it is still a sibling of
+      // the previous arm. Skipping the reset for it leaves that arm's binding
+      // visible and attests a publish the shell would run unattested from a
+      // mutually exclusive arm. `else`/`elif` are siblings unconditionally, for
+      // the same reason, including when they open a nested block.
+      if (startsIfSiblingArm(segment) || (caseDepthBefore > 0 && startsCaseArm(segment))) {
         const currentScope = scopes[scopes.length - 1]!;
         const discarded = [...currentScope].filter((entry) => entry[1] === undefined);
         currentScope.clear();

@@ -118,6 +118,71 @@ test("a binding from one conditional arm cannot attest a publish in its sibling 
   assert.equal(siblingCase.failures.length, 1);
 });
 
+test("an arm that opens a nested case is still a sibling of the arm before it", () => {
+  // Fail-open guard. `b)` is mutually exclusive with `a)`, so the shell runs the
+  // publish with FLAG unset. The arm reset used to be skipped for any segment
+  // that opened a `case`, which let arm `a`'s binding stay visible inside the
+  // nested block and attested a publish that would ship unattested.
+  const nestedCase = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:",
+      "  release:",
+      "    steps:",
+      "      - run: |",
+      "          case \"$X\" in",
+      "            a) FLAG=--provenance ;;",
+      "            b) case \"$Y\" in",
+      "                 c) npm publish --access public $FLAG ;;",
+      "               esac",
+      "               ;;",
+      "          esac",
+    ].join("\n"),
+  }]);
+  assert.equal(nestedCase.failures.length, 1, "a publish in a sibling arm must not borrow the earlier arm's flag");
+  assert.deepEqual(nestedCase.notes, []);
+
+  // The same shape reached through `else`, which is a sibling unconditionally.
+  const elseOpensCase = auditPublishAttestation([{
+    file: "release.yml",
+    text: "if true; then FLAG=--provenance; else case $Y in c) npm publish $FLAG ;; esac; fi",
+  }]);
+  assert.equal(elseOpensCase.failures.length, 1);
+});
+
+test("a nested case does not discard a binding made in the arm that encloses it", () => {
+  // Fail-closed guard, paired with the test above. Here the binding and the
+  // publish are in the SAME arm, so the shell does pass the flag and the gate
+  // must not refuse the release. Tightening the arm reset without this pair is
+  // indistinguishable from over-correcting it: twice before, closing a
+  // fail-open in this scope model opened a fail-closed one construction away.
+  const sameArm = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:",
+      "  release:",
+      "    steps:",
+      "      - run: |",
+      "          case \"$X\" in",
+      "            b) FLAG=--provenance",
+      "               case \"$Y\" in",
+      "                 c) npm publish --access public $FLAG ;;",
+      "               esac",
+      "               ;;",
+      "          esac",
+    ].join("\n"),
+  }]);
+  assert.deepEqual(sameArm.failures, []);
+  assert.deepEqual(sameArm.recognition, { kind: "recognized", count: 1 });
+
+  // And a flag bound before the block still survives it.
+  const beforeBlock = auditPublishAttestation([{
+    file: "release.yml",
+    text: "FLAG=--provenance\ncase $X in a) : ;; esac\nnpm publish $FLAG",
+  }]);
+  assert.deepEqual(beforeBlock.failures, []);
+});
+
 test("a compound-line assignment exposes the unattested publish it routes", () => {
   const result = auditPublishAttestation([{
     file: "release.yml",
