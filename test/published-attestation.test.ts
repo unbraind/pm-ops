@@ -367,6 +367,12 @@ test("an arm label is attributed to the case that is already open, by position",
   // The parenthesised arm pattern is what the reported defect needed: its `(`
   // must be read as the pattern opener, not as a group.
   assert.equal(startsEnclosingCaseArm('(case) case "$Y" in c) : ;;'), true);
+  // An arm pattern whose text reads like an opener is still a pattern.
+  assert.equal(startsEnclosingCaseArm('(case  in ) case "$Y" in c) : ;;'), true);
+  // `case)` is an arm whose pattern is the word `case`; the trailing space is
+  // what separates it from a real opener.
+  assert.equal(startsEnclosingCaseArm('case) case "$Y" in c) : ;;'), true);
+  assert.equal(startsEnclosingCaseArm('case "$Y" in c) : ;;'), false);
   assert.equal(startsEnclosingCaseArm("plain"), false);
 });
 
@@ -377,7 +383,12 @@ test("an arm whose pattern merely contains the word case is still a sibling", ()
   // block inherited the previous arm's flag. Reported independently by two
   // reviewers, and only the grouped spelling reproduced at first, because the
   // optional `(` on an arm pattern was being consumed as a group.
-  for (const pattern of ["case)", "(case)"]) {
+  // The last two are the shapes review kept finding: an arm pattern whose TEXT
+  // reads like an opener. Deciding by position inside such a pattern is
+  // guesswork, so the predicate treats any labelled segment that does not BEGIN
+  // with the `case` keyword as a sibling - the fail-closed direction, since the
+  // only consequence of resetting is that a binding stops being visible.
+  for (const pattern of ["case)", "(case)", '"case  in ")', "(case  in )"]) {
     const result = auditPublishAttestation([{
       file: ".github/workflows/release.yml",
       text: [

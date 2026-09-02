@@ -1209,30 +1209,32 @@ export function caseDepthChange(line: string): number {
  */
 export function startsEnclosingCaseArm(line: string): boolean {
   const bare = unquotedText(line);
-  // A `case` arm pattern may be written with an optional leading `(`, so in a
-  // case context `(case)` is the pattern `case` and its `)` is the arm label,
-  // NOT a group close. Consuming it as a group finds the wrong `)` and reads a
-  // sibling arm as a nested one. This function is only consulted while a `case`
-  // is already open, which is what makes that reading the correct one here.
-  const armText = /^[ \t]*\(/u.test(bare) ? bare.replace(/^([ \t]*)\(/u, "$1 ") : bare;
+  // A segment opens the `case` whose first arm it also carries only when it
+  // BEGINS with the `case` keyword. That is an anchored test with one bounded
+  // quantifier and a literal between it and the next - no adjacency, so no
+  // polynomial overlap. An earlier attempt matched the full `case <word> in`
+  // shape anywhere in the segment; CodeQL flagged it as a high-severity ReDoS,
+  // and it bought nothing this does not.
+  //
+  // The trailing whitespace matters: `case)` is an arm whose PATTERN is the
+  // word `case`, not an opener.
+  if (/^[ \t]*case[ \t]/u.test(bare)) return false;
+  // Everything else carrying an arm label is a sibling of a previous arm, and
+  // that includes a parenthesised pattern - whose contents may themselves read
+  // like an opener (`(case  in )`). Deciding by position inside such a pattern
+  // is guesswork; treating it as a sibling is the fail-CLOSED direction, since
+  // the only consequence of resetting is that a binding stops being visible.
+  //
+  // The leading `(` of an arm pattern is the pattern's own opener, not a group,
+  // so it is consumed here rather than paired with the `)` that is the label.
+  const armText = bare.replace(/^([ \t]*)\(/u, "$1 ");
   let groups = 0;
-  let label = -1;
-  for (let index = 0; index < armText.length; index += 1) {
-    const character = armText[index]!;
+  for (const character of armText) {
     if (character === "(") groups += 1;
-    else if (character === ")" && groups === 0) { label = index; break; }
+    else if (character === ")" && groups === 0) return true;
     else if (character === ")") groups -= 1;
   }
-  if (label < 0) return false;
-  // Matched as the bare `case` token, deliberately. Requiring the full
-  // `case <word> in` shape reads better and was suggested by two reviewers, but
-  // no construction was ever found where it changes the audit's verdict - and
-  // the three adjacent quantifiers it needs (`[ \t]+`, a lazy body, `[ \t]+`)
-  // can all match a tab, which is a polynomial-ReDoS overlap. CodeQL flagged it
-  // as high severity in exactly this file. A refinement with no demonstrated
-  // effect is not worth a real defect in the gate it is refining.
-  const opener = /(?:^|[\s;&|(])case(?=[\s;&|]|$)/u.exec(armText);
-  return opener === null || label < opener.index;
+  return false;
 }
 
 /**
