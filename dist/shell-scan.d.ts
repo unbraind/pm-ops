@@ -290,6 +290,24 @@ export declare function segmentShellLine(line: string): string[];
  */
 export declare function caseDepthChange(line: string): number;
 /**
+ * Report whether a segment's `case` arm label belongs to an ENCLOSING `case`.
+ *
+ * A segment can both close one arm and open a nested block, and the two cases
+ * need opposite treatment. In `b) case "$Y" in` the label precedes the opener,
+ * so it starts a sibling of the previous arm and that arm's bindings must be
+ * cleared. In `case "$Y" in c) npm publish` the opener precedes the label, so
+ * the label is the FIRST arm of the block this very segment opens - it has no
+ * earlier sibling, and clearing there would discard a binding the enclosing arm
+ * legitimately made, refusing a publish the shell does attest.
+ *
+ * Position is what separates them, which is why this compares indices rather
+ * than asking the two questions independently.
+ *
+ * @param line - One shell segment.
+ * @returns True when the segment opens an arm of a `case` it did not itself open.
+ */
+export declare function startsEnclosingCaseArm(line: string): boolean;
+/**
  * Decide whether text starts a new `case` arm.
  *
  * An arm label ends at an unquoted `)` that does not close a parenthesis group.

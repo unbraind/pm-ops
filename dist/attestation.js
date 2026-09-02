@@ -20,7 +20,7 @@
 import { execFileSync } from "node:child_process";
 import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 import { resolve } from "node:path";
-import { bashArrays, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, dedentRunBlocks, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, joinContinuations, literalScalarAssignments, segmentShellLine, startsCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
+import { bashArrays, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, dedentRunBlocks, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, joinContinuations, literalScalarAssignments, segmentShellLine, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
 /** The flag that attaches a build attestation to the published tarball. */
 export const ATTESTATION_FLAG = "--provenance";
 /** Publishers other than npm, which this repository has no attested path for. */
@@ -322,7 +322,7 @@ function publishInvocationsInShell(source, raw) {
             // visible and attests a publish the shell would run unattested from a
             // mutually exclusive arm. `else`/`elif` are siblings unconditionally, for
             // the same reason, including when they open a nested block.
-            if (startsIfSiblingArm(segment) || (caseDepthBefore > 0 && startsCaseArm(segment))) {
+            if (startsIfSiblingArm(segment) || (caseDepthBefore > 0 && startsEnclosingCaseArm(segment))) {
                 const currentScope = scopes[scopes.length - 1];
                 const discarded = [...currentScope].filter((entry) => entry[1] === undefined);
                 currentScope.clear();

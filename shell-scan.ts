@@ -567,23 +567,25 @@ export function joinContinuations(text: string): string {
  * content's YAML indentation would remain and a heredoc terminator would never
  * match at line start.
  */
-const RUN_BLOCK_HEADER =
-  /^([ \t]*)(?:-[ \t]+)?run:[ \t]*[|>](?:[+-]?([1-9])?[+-]?)?(?:[ \t]+#.*)?\r?$/;
+const BLOCK_SCALAR_HEADER =
+  /^([ \t]*)(?:-[ \t]+)?("[^"]*"|'[^']*'|[A-Za-z_][\w.-]*):[ \t]*([|>])(?:[+-]?([1-9])?[+-]?)?(?:[ \t]+#.*)?\r?$/;
 
 /**
- * Any YAML block scalar header, whatever key introduces it.
+ * Strip the quotes YAML allows around a mapping key.
  *
- * The dedent has to recognise these even when the key is not `run`, because a
- * block scalar's body is opaque data: a line inside it that merely looks like
- * `run: |` is content GitHub Actions never executes. Consuming every block —
- * not just the executable ones — is what keeps such a line from being scanned
- * as a header and letting a publish that never runs satisfy the audit.
+ * Executability is decided by comparing this to `run`, rather than by a second
+ * matcher that only recognises the unquoted spelling. Two matchers that must
+ * agree is exactly how `"run": |` came to be read as data by one and as a block
+ * by the other - which hides a real publish in one direction and admits a
+ * phantom one in the other.
  *
- * Group 1 is the indentation, group 2 the key, group 3 the style (`|` literal
- * or `>` folded) and group 4 an explicit indentation indicator.
+ * @param key - The key exactly as written, possibly quoted.
+ * @returns The key without surrounding quotes.
  */
-const BLOCK_SCALAR_HEADER =
-  /^([ \t]*)(?:-[ \t]+)?([A-Za-z_][\w.-]*):[ \t]*([|>])(?:[+-]?([1-9])?[+-]?)?(?:[ \t]+#.*)?\r?$/;
+function unquoteKey(key: string): string {
+  const quoted = /^(["'])(.*)\1$/u.exec(key);
+  return quoted === null ? key : quoted[2]!;
+}
 
 /** Leading whitespace, which YAML never mixes between a block and its parent. */
 const LEADING_WHITESPACE = /^[ \t]*/;
@@ -670,7 +672,7 @@ export function dedentRunBlocks(text: string): string {
       index += 1;
       continue;
     }
-    const executable = RUN_BLOCK_HEADER.test(lines[index]!);
+    const executable = unquoteKey(header[2]!) === "run";
     const folded = header[3] === ">";
     // The block's indentation comes from its first non-blank line, so blank
     // lines between the header and the content decide nothing here.
@@ -1165,6 +1167,38 @@ export function caseDepthChange(line: string): number {
   const bare = unquotedText(line);
   return (bare.match(/(?:^|[\s;&|(])case(?=[\s;&|]|$)/gu) ?? []).length
     - (bare.match(/(?:^|[\s;&|])esac(?=[\s;&|)]|$)/gu) ?? []).length;
+}
+
+/**
+ * Report whether a segment's `case` arm label belongs to an ENCLOSING `case`.
+ *
+ * A segment can both close one arm and open a nested block, and the two cases
+ * need opposite treatment. In `b) case "$Y" in` the label precedes the opener,
+ * so it starts a sibling of the previous arm and that arm's bindings must be
+ * cleared. In `case "$Y" in c) npm publish` the opener precedes the label, so
+ * the label is the FIRST arm of the block this very segment opens - it has no
+ * earlier sibling, and clearing there would discard a binding the enclosing arm
+ * legitimately made, refusing a publish the shell does attest.
+ *
+ * Position is what separates them, which is why this compares indices rather
+ * than asking the two questions independently.
+ *
+ * @param line - One shell segment.
+ * @returns True when the segment opens an arm of a `case` it did not itself open.
+ */
+export function startsEnclosingCaseArm(line: string): boolean {
+  const bare = unquotedText(line);
+  let groups = 0;
+  let label = -1;
+  for (let index = 0; index < bare.length; index += 1) {
+    const character = bare[index]!;
+    if (character === "(") groups += 1;
+    else if (character === ")" && groups === 0) { label = index; break; }
+    else if (character === ")") groups -= 1;
+  }
+  if (label < 0) return false;
+  const opener = /(?:^|[\s;&|(])case(?=[\s;&|]|$)/u.exec(bare);
+  return opener === null || label < opener.index;
 }
 
 /**

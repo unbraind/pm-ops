@@ -38,7 +38,7 @@ import {
   segmentShellLine,
   type ShellCommand,
   type SourceFile,
-  startsCaseArm,
+  startsEnclosingCaseArm,
   tokenizeCommands,
   unsetNames,
   type VerifierResult,
@@ -371,7 +371,7 @@ function publishInvocationsInShell(source: SourceFile, raw: string): PublishInvo
       // visible and attests a publish the shell would run unattested from a
       // mutually exclusive arm. `else`/`elif` are siblings unconditionally, for
       // the same reason, including when they open a nested block.
-      if (startsIfSiblingArm(segment) || (caseDepthBefore > 0 && startsCaseArm(segment))) {
+      if (startsIfSiblingArm(segment) || (caseDepthBefore > 0 && startsEnclosingCaseArm(segment))) {
         const currentScope = scopes[scopes.length - 1]!;
         const discarded = [...currentScope].filter((entry) => entry[1] === undefined);
         currentScope.clear();

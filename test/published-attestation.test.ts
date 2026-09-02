@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { auditPublishAttestation } from "../attestation.ts";
-import { bashArrays, expandArrays, expandScalars, literalScalarAssignments, shellScalars, startsCaseArm } from "../shell-scan.ts";
+import { bashArrays, expandArrays, expandScalars, literalScalarAssignments, shellScalars, startsCaseArm, startsEnclosingCaseArm } from "../shell-scan.ts";
 
 test("the audit result makes a vacuous scan structurally distinct", () => {
   const empty = auditPublishAttestation([{ file: "release.yml", text: "npm ci\n" }]);
@@ -282,4 +282,84 @@ test("compound assignment indexing accepts only provably literal assignment comm
   assert.equal(startsCaseArm("pattern)"), true);
   assert.equal(startsCaseArm("(nested)"), false);
   assert.equal(startsCaseArm("plain"), false);
+});
+
+test("a nested case opened inside the arm that binds the flag does not discard it", () => {
+  // Fail-closed guard for the ONE-SEGMENT form, which the multi-line form does
+  // not cover: here the arm label, the assignment, the nested opener and the
+  // publish all share a line. The shell passes --provenance on this path, so
+  // refusing it would block a legitimate release. This exact shape was opened
+  // by the fix for the sibling-arm fail-open, which is why the pair matters.
+  const oneSegment = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:", "  release:", "    steps:",
+      "      - run: |",
+      "          case \"$X\" in",
+      "            b) FLAG=--provenance; case \"$Y\" in c) npm publish --access public $FLAG ;; esac ;;",
+      "          esac",
+    ].join("\n"),
+  }]);
+  assert.deepEqual(oneSegment.failures, [], "a binding made in the enclosing arm must survive a nested case");
+
+  // Paired with the fail-open it must not reopen: a label that PRECEDES the
+  // opener is a sibling of the previous arm and must still be reset.
+  const siblingArm = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:", "  release:", "    steps:",
+      "      - run: |",
+      "          case \"$X\" in",
+      "            a) FLAG=--provenance ;;",
+      "            b) case \"$Y\" in c) npm publish --access public $FLAG ;; esac ;;",
+      "          esac",
+    ].join("\n"),
+  }]);
+  assert.equal(siblingArm.failures.length, 1);
+});
+
+test("a quoted YAML key neither hides a block nor promotes data to a run block", () => {
+  // Fail-open guard: a quoted key on a non-run block used to leave the block
+  // unconsumed, so an inner `run: |` was read as executable and its phantom
+  // publish satisfied the non-vacuity check.
+  for (const key of ['"NOTE"', "'NOTE'"]) {
+    const phantom = auditPublishAttestation([{
+      file: ".github/workflows/release.yml",
+      text: [
+        "jobs:", "  release:", "    steps:",
+        "      - env:",
+        `          ${key}: |`,
+        "            run: |",
+        "              npm publish --access public --provenance",
+        "        run: npm ci",
+      ].join("\n"),
+    }]);
+    assert.deepEqual(phantom.recognition, { kind: "none" }, `${key} must not admit a phantom publish`);
+    assert.equal(phantom.failures.length, 1);
+  }
+
+  // Paired guard in the opposite direction: a quoted `run` key IS executable,
+  // and treating it as data would hide a real unattested publish. Recognising
+  // quoted keys only in the generic matcher would have caused exactly that.
+  const quotedRun = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: ["jobs:", "  release:", "    steps:", "      - \"run\": |", "          npm publish --access public"].join("\n"),
+  }]);
+  assert.deepEqual(quotedRun.recognition, { kind: "recognized", count: 1 });
+  assert.equal(quotedRun.failures.length, 1);
+});
+
+test("an arm label is attributed to the case that is already open, by position", () => {
+  // The label precedes the opener, so it belongs to the enclosing `case`.
+  assert.equal(startsEnclosingCaseArm('b) case "$Y" in'), true);
+  // No opener at all: an ordinary arm of whatever case is already open.
+  assert.equal(startsEnclosingCaseArm("b) npm publish $FLAG ;;"), true);
+  // The opener precedes the label, so the label is the first arm of the block
+  // this segment opens - it has no earlier sibling to be cleared of.
+  assert.equal(startsEnclosingCaseArm('case "$Y" in c) npm publish $FLAG ;;'), false);
+  // A balanced group is not an arm label: `(` opens and `)` closes it, so the
+  // scan must consume both rather than stop at the first `)` it sees.
+  assert.equal(startsEnclosingCaseArm("(nested) then"), false);
+  assert.equal(startsEnclosingCaseArm("(a (b) c) label)"), true);
+  assert.equal(startsEnclosingCaseArm("plain"), false);
 });

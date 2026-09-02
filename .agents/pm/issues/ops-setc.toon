@@ -1,0 +1,21 @@
+id: ops-setc
+title: "Attributing a case arm label by presence rather than position refused an attested publish, and a quoted key hid a phantom one"
+description: "Two more fail modes in the canonical attestation gate, both reported by review on this branch and both confirmed by executing the auditor rather than by reading it. They are the tenth and eleventh found here, and the tenth is again a fix for an earlier one over-correcting.\n\nThe first is a fail-closed introduced by the nested-case fix. That fix asked whether a segment starts a case arm while a case is already open, which is true both of a later sibling arm and of the first arm of a nested case the same segment opens. In the one-segment form, where the arm label, the assignment, the nested opener and the publish share a line, the reset fired on the nested first arm and discarded a binding the enclosing arm had legitimately made, refusing a publish the shell does attest. Position separates the two: a label before the opener belongs to the enclosing case, a label after it belongs to the block this segment opens.\n\nThe second is a fail-open from having two matchers that had to agree. A quoted YAML key matched the run header pattern but not the generic block scalar pattern, so a non-run block with a quoted key was never consumed and an inner run block inside it was read as executable, admitting a phantom publish that satisfied the non-vacuity guard. Recognising quoted keys in only the generic matcher would have inverted the bug rather than fixed it, hiding a real publish written under a quoted run key. The two matchers are now one, with the key deciding executability."
+type: Issue
+status: closed
+priority: 1
+tags[3]: "area:gates","area:supply-chain","type:security"
+created_at: "2026-09-02T18:38:27.455Z"
+updated_at: "2026-09-02T18:38:28.527Z"
+closed_at: "2026-09-02T18:38:27.959Z"
+completed_at: "2026-09-02T18:38:27.959Z"
+author: pi-agent
+acceptance_criteria: A binding made in an enclosing arm survives a nested case opened in the same segment; a label preceding the opener still resets the previous arm; a quoted key on a non-run block admits no phantom publish; a quoted run key remains executable; reverting either fix turns its own guard red
+risk: critical
+severity: critical
+repro_steps: "Audit a workflow whose case arm reads b) FLAG assignment then a nested case containing the publish, all on one line: it was refused though the shell attests it. Audit a workflow whose env block uses a double-quoted key and contains an inner run block with an attested publish: it returned no failures for a workflow that publishes nothing."
+component: "shell-scan.ts, attestation.ts"
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  ops-rsbn,related,"2026-09-02T18:38:28.478Z",pi-agent,"cli:update:dep",detected
+close_reason: "Arm labels are now attributed by position rather than presence, and the two block-scalar matchers are collapsed into one with the key deciding executability. Ten constructions verified by execution, including every earlier one, with no regression; both fixes revert-proof against their own guards. Full suite 425 passing, release:check green at 100 percent."
+body: ""
