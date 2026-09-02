@@ -1,12 +1,12 @@
 id: ops-yxej
-title: Two stacked release pull requests are blocked because a merge reintroduced history drift on ops-5jp6
+title: Repaired the ops-5jp6 history drift that had blocked two stacked release pull requests
 description: "The Daily Release pull requests for 2026-09-01 and 2026-09-02 both fail the tracked-health gate with history_drift_chain_mismatch and history_drift_hash_mismatch on ops-5jp6, so pm-ops has published nothing for two days. Reproduced on main at 83177be with the repo-pinned CLI and a cleared drift cache, so it is neither a stale cache nor a global-binary disagreement. The chain links are internally consistent: every event's before_hash equals its predecessor's after_hash and there are zero breaks. What differs is the recomputed hash for item_hash_version 2, which is the cross-version disagreement pm-cli issue 1135 describes. PR 78 converged the pin on 2026.8.31 and repaired hashes; PR 70 then merged a branch whose ops-5jp6 events had been written under an older pin, which re-anchored the chain to hashes the pinned binary no longer computes."
 type: Issue
 status: closed
 priority: 1
 tags[3]: "area:pm-items","area:release","type:defect"
 created_at: "2026-09-02T17:22:04.137Z"
-updated_at: "2026-09-02T17:22:42.878Z"
+updated_at: "2026-09-02T17:36:11.133Z"
 closed_at: "2026-09-02T17:22:42.864Z"
 completed_at: "2026-09-02T17:22:42.864Z"
 author: pi-agent
