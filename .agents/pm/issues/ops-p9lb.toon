@@ -6,7 +6,7 @@ status: closed
 priority: 0
 tags[4]: attestation,release,supply-chain,"type:defect"
 created_at: "2026-09-01T07:39:43.324Z"
-updated_at: "2026-09-02T17:32:17.398Z"
+updated_at: "2026-09-02T17:56:55.435Z"
 closed_at: "2026-09-01T08:00:03.820Z"
 completed_at: "2026-09-01T08:00:03.820Z"
 author: pi-agent
@@ -20,7 +20,7 @@ actual_result: "All three reproduced inputs are now refused. The unset inside a 
 component: attestation
 regression: true
 customer_impact: An unattested package publish can satisfy the release attestation gate.
-comments[8]:
+comments[9]:
   - created_at: "2026-09-01T07:41:37.224Z"
     author: pi-agent
     text: "Reproduced all three against ca78aa9 by executing auditPublishAttestation with Node's TypeScript stripping. conditionalUnset => failures: [], recognition recognized count 1; singleQuoted => failures: [], recognition recognized count 1; independentScripts => failures: [], recognition recognized count 1. Each note incorrectly says the invocation carries --provenance."
@@ -46,6 +46,9 @@ comments[8]:
   - created_at: "2026-09-02T17:32:17.398Z"
     author: pi-agent
     text: "Corrected fail-open count: the issue documents three reproduced inputs (conditional unset, single-quoted/escaped references, independent script shells), verified by executing the three test constructions against the canonical auditor. The record at line 17 claimed 'four' — the fourth item it listed (the compatibility shim) is not a reproduced fail-open input. The record and the issue actual_result now both say three."
+  - created_at: "2026-09-02T17:56:55.435Z"
+    author: pi-agent
+    text: "Correction to the previous comment on this item: it cited the record 'at line 17' as the one claiming four, which was wrong twice over. The value sat on a later line, and citing a line number in an append-only file is fragile in any case, because every later record shifts it. The record that re-asserted four while its own message claimed to correct four to three has since been removed from this branch, the count reads three throughout, and the history was re-anchored and verified clean. Refer to records by their op and timestamp, not by line number."
 files[5]{path,scope}:
   attestation.ts,project
   scripts/verify-release-publish-attestation.ts,project

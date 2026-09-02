@@ -570,11 +570,60 @@ export function joinContinuations(text: string): string {
 const RUN_BLOCK_HEADER =
   /^([ \t]*)(?:-[ \t]+)?run:[ \t]*[|>](?:[+-]?([1-9])?[+-]?)?(?:[ \t]+#.*)?\r?$/;
 
+/**
+ * Any YAML block scalar header, whatever key introduces it.
+ *
+ * The dedent has to recognise these even when the key is not `run`, because a
+ * block scalar's body is opaque data: a line inside it that merely looks like
+ * `run: |` is content GitHub Actions never executes. Consuming every block —
+ * not just the executable ones — is what keeps such a line from being scanned
+ * as a header and letting a publish that never runs satisfy the audit.
+ *
+ * Group 1 is the indentation, group 2 the key, group 3 the style (`|` literal
+ * or `>` folded) and group 4 an explicit indentation indicator.
+ */
+const BLOCK_SCALAR_HEADER =
+  /^([ \t]*)(?:-[ \t]+)?([A-Za-z_][\w.-]*):[ \t]*([|>])(?:[+-]?([1-9])?[+-]?)?(?:[ \t]+#.*)?\r?$/;
+
 /** Leading whitespace, which YAML never mixes between a block and its parent. */
 const LEADING_WHITESPACE = /^[ \t]*/;
 
 /** A line that is blank, including the carriage return a CRLF file leaves. */
 const BLANK_LINE = /^[ \t\r]*$/;
+
+/**
+ * Apply YAML folding to the already-dedented body of a `>` block scalar.
+ *
+ * A folded block joins consecutive lines with a single space before the value
+ * ever reaches the shell, so a publish whose `--provenance` sits on the next
+ * line is one command by the time bash sees it. Scanning the lines separately
+ * reads that flag as absent and refuses a release that is in fact attested.
+ *
+ * Folding stops at the two boundaries YAML honours: a blank line, which
+ * becomes a line break, and a more-indented line, which is kept literally.
+ *
+ * @param lines - The block's body, already stripped of its block indentation.
+ * @returns The body with foldable runs joined by single spaces.
+ */
+function foldScalarLines(lines: readonly string[]): string[] {
+  const folded: string[] = [];
+  let run: string[] = [];
+  const flush = (): void => {
+    if (run.length > 0) folded.push(run.join(" "));
+    run = [];
+  };
+  for (const line of lines) {
+    const literal = BLANK_LINE.test(line) || LEADING_WHITESPACE.exec(line)![0].length > 0;
+    if (literal) {
+      flush();
+      folded.push(line);
+      continue;
+    }
+    run.push(line.replace(/\r$/u, ""));
+  }
+  flush();
+  return folded;
+}
 
 /**
  * Strip the YAML block indentation from `run:` block scalars.
@@ -615,12 +664,14 @@ export function dedentRunBlocks(text: string): string {
   const output: string[] = [];
   let index = 0;
   while (index < lines.length) {
-    const header = RUN_BLOCK_HEADER.exec(lines[index]!);
+    const header = BLOCK_SCALAR_HEADER.exec(lines[index]!);
     if (header === null) {
       output.push(lines[index]!);
       index += 1;
       continue;
     }
+    const executable = RUN_BLOCK_HEADER.test(lines[index]!);
+    const folded = header[3] === ">";
     // The block's indentation comes from its first non-blank line, so blank
     // lines between the header and the content decide nothing here.
     let content = index + 1;
@@ -630,7 +681,7 @@ export function dedentRunBlocks(text: string): string {
     // the scanner strips that exact width rather than guessing from the first
     // non-blank line — which matters when the content itself starts with extra
     // leading spaces that are data, not structural indentation.
-    const explicitIndent = header[2] !== undefined ? header[1]!.length + Number(header[2]) : undefined;
+    const explicitIndent = header[4] !== undefined ? header[1]!.length + Number(header[4]) : undefined;
     // Without an explicit indicator the block's indentation is learned from
     // its first non-blank line, as YAML itself learns it.
     const detected = content < lines.length ? LEADING_WHITESPACE.exec(lines[content]!)![0] : "";
@@ -644,14 +695,32 @@ export function dedentRunBlocks(text: string): string {
     }
     output.push(lines[index]!);
     index += 1;
+    // Collect the body first. A non-executable block is emitted exactly as
+    // written — it is data, and dedenting it would only make its contents
+    // easier to mistake for shell — but it is still CONSUMED here so nothing
+    // inside it is scanned as a header on the next pass.
+    const body: string[] = [];
     while (index < lines.length) {
-      const body = lines[index]!;
+      const line = lines[index]!;
       // A blank line is block content YAML keeps as an empty line; anything
       // else must carry the block's own indentation to belong to it.
-      if (!BLANK_LINE.test(body) && !body.startsWith(indent)) break;
-      output.push(BLANK_LINE.test(body) ? body : body.slice(indent.length));
+      if (!BLANK_LINE.test(line) && !line.startsWith(indent)) break;
+      body.push(line);
       index += 1;
     }
+    if (!executable) {
+      // Replaced by blank lines rather than kept: the body of a non-`run`
+      // block scalar is data GitHub Actions never executes, so a publish
+      // written inside one is a phantom. Left in the text it is discovered as
+      // a real invocation, and an attested phantom is enough to satisfy the
+      // audit's non-vacuity guard — the exact shape that makes this gate read
+      // as covered while something else publishes unattested. Blank lines keep
+      // the line count, and with it every line-indexed scan downstream.
+      output.push(...body.map(() => ""));
+      continue;
+    }
+    const dedented = body.map((line) => (BLANK_LINE.test(line) ? line : line.slice(indent.length)));
+    output.push(...(folded ? foldScalarLines(dedented) : dedented));
   }
   return output.join("\n");
 }

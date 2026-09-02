@@ -118,6 +118,72 @@ test("a binding from one conditional arm cannot attest a publish in its sibling 
   assert.equal(siblingCase.failures.length, 1);
 });
 
+test("a publish written inside a non-run block scalar is a phantom, not coverage", () => {
+  // GitHub Actions never executes the body of a block scalar under any key but
+  // `run`. A publish written there is data, so counting it inflates the audit's
+  // recognition count with an invocation that cannot run — and an attested
+  // phantom is exactly what satisfies the non-vacuity guard while the real
+  // publish is unattested. The workflow below runs `npm ci` and nothing else.
+  const phantomOnly = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:", "  release:", "    steps:",
+      "      - env:",
+      "          NOTE: |",
+      "            run: |",
+      "              npm publish --access public --provenance",
+      "        run: npm ci",
+    ].join("\n"),
+  }]);
+  assert.deepEqual(phantomOnly.recognition, { kind: "none" }, "a phantom publish must not count as a recognised invocation");
+  assert.equal(phantomOnly.failures.length, 1);
+
+  // And the phantom must not pad the count beside a real invocation either.
+  const phantomBesideReal = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:", "  release:", "    steps:",
+      "      - env:",
+      "          NOTE: |",
+      "            run: |",
+      "              npm publish --access public --provenance",
+      "        run: |",
+      "          npm publish --access public",
+    ].join("\n"),
+  }]);
+  assert.deepEqual(phantomBesideReal.recognition, { kind: "recognized", count: 1 });
+  assert.equal(phantomBesideReal.failures.length, 1);
+});
+
+test("a folded run block joins its lines before the flag is judged", () => {
+  // Fail-closed guard. YAML folds a `>` block into one line before bash sees
+  // it, so this publish does carry --provenance. Judging the lines separately
+  // reads the flag as absent and refuses a release that is properly attested.
+  const folded = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:", "  release:", "    steps:",
+      "      - run: >",
+      "          npm publish --access public",
+      "          --provenance",
+    ].join("\n"),
+  }]);
+  assert.deepEqual(folded.failures, [], "a folded attested publish must not be refused");
+  assert.deepEqual(folded.recognition, { kind: "recognized", count: 1 });
+
+  // Folding must not invent a flag that is not there.
+  const foldedUnattested = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:", "  release:", "    steps:",
+      "      - run: >",
+      "          npm publish --access public",
+      "          --tag next",
+    ].join("\n"),
+  }]);
+  assert.equal(foldedUnattested.failures.length, 1);
+});
+
 test("an arm that opens a nested case is still a sibling of the arm before it", () => {
   // Fail-open guard. `b)` is mutually exclusive with `a)`, so the shell runs the
   // publish with FLAG unset. The arm reset used to be skipped for any segment

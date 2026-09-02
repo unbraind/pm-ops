@@ -94,11 +94,14 @@ test("run-block dedenting refuses shapes YAML would not deliver as blocks", () =
   // no content at all.
   assert.equal(dedentRunBlocks("prior\n  run: |"), "prior\n  run: |");
   assert.equal(dedentRunBlocks("  run: |\n\n"), "  run: |\n\n");
-  // A `run:` value that is not a block scalar is not a header, and a block
-  // scalar under any other key is data no shell runs, so both stay as written.
+  // A `run:` value that is not a block scalar is not a header. A block scalar
+  // under any other key IS consumed, and its body is replaced by blank lines:
+  // it is data no shell runs, and leaving it in the text lets a publish written
+  // inside it be discovered as a real invocation. The line count is preserved
+  // so every line-indexed scan downstream still lines up.
   assert.equal(
     dedentRunBlocks(["  run: npm publish", "  env: |", "    FOO=1"].join("\n")),
-    ["  run: npm publish", "  env: |", "    FOO=1"].join("\n"),
+    ["  run: npm publish", "  env: |", ""].join("\n"),
   );
 });
 
