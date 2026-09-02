@@ -6,7 +6,7 @@ status: closed
 priority: 0
 tags[4]: attestation,release,supply-chain,"type:defect"
 created_at: "2026-09-01T07:39:43.324Z"
-updated_at: "2026-09-01T08:31:41.445Z"
+updated_at: "2026-09-02T17:32:17.398Z"
 closed_at: "2026-09-01T08:00:03.820Z"
 completed_at: "2026-09-01T08:00:03.820Z"
 author: pi-agent
@@ -16,11 +16,11 @@ severity: critical
 repro_steps: "Execute auditPublishAttestation at ca78aa9 against: FLAG=--provenance followed by conditional unset and npm publish dollar-FLAG; npm publish with a single-quoted dollar-FLAG or escaped dollar-FLAG; and package scripts setup=FLAG=--provenance plus release=npm publish dollar-FLAG. Each reports failures: []."
 resolution: "Propagated destructive unsets across conservative scope joins, made scalar and array expansion shell-quote aware, isolated every npm script body, preserved the shim's legacy enumerable shape, and repaired test quality defects."
 expected_result: All three unprovable publishes are refused while established straight-line and same-arm attested publishes continue to pass.
-actual_result: "All four reproduced inputs are now refused. The unset inside a block invalidates the outer binding, the single-quoted scalar and array references are no longer expanded, each npm script body is isolated so evidence cannot cross a fresh shell, and the compatibility shim keeps its legacy enumerable shape. Each fix is covered by a regression verified red on revert."
+actual_result: "All three reproduced inputs are now refused. The unset inside a block invalidates the outer binding, the single-quoted scalar and array references are no longer expanded, each npm script body is isolated so evidence cannot cross a fresh shell, and the compatibility shim keeps its legacy enumerable shape. Each fix is covered by a regression verified red on revert."
 component: attestation
 regression: true
 customer_impact: An unattested package publish can satisfy the release attestation gate.
-comments[7]:
+comments[8]:
   - created_at: "2026-09-01T07:41:37.224Z"
     author: pi-agent
     text: "Reproduced all three against ca78aa9 by executing auditPublishAttestation with Node's TypeScript stripping. conditionalUnset => failures: [], recognition recognized count 1; singleQuoted => failures: [], recognition recognized count 1; independentScripts => failures: [], recognition recognized count 1. Each note incorrectly says the invocation carries --provenance."
@@ -43,6 +43,9 @@ comments[7]:
   - created_at: "2026-09-01T08:00:03.342Z"
     author: pi-agent
     text: "Compatibility decision: preserve the script shim's legacy enumerable { failures, notes } shape. The canonical package API still returns enumerable recognition; the retained script attaches recognition non-enumerably so existing deep equality, Object.keys, and snapshots remain stable while transitional property readers keep working."
+  - created_at: "2026-09-02T17:32:17.398Z"
+    author: pi-agent
+    text: "Corrected fail-open count: the issue documents three reproduced inputs (conditional unset, single-quoted/escaped references, independent script shells), verified by executing the three test constructions against the canonical auditor. The record at line 17 claimed 'four' — the fourth item it listed (the compatibility shim) is not a reproduced fail-open input. The record and the issue actual_result now both say three."
 files[5]{path,scope}:
   attestation.ts,project
   scripts/verify-release-publish-attestation.ts,project

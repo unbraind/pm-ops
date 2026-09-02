@@ -555,6 +555,108 @@ export function joinContinuations(text: string): string {
 }
 
 /**
+ * A `run:` block-scalar header: the key, an indicator, and nothing else.
+ *
+ * YAML allows a block scalar to carry an explicit indentation indicator (a
+ * digit `1`–`9`) alongside the chomping indicator (`+` or `-`), in either
+ * order — `|2`, `|-2`, `|2-` are all valid. When present, the digit tells the
+ * parser exactly how many spaces of indentation the content carries relative
+ * to the parent key, so the scanner can strip that exact width instead of
+ * inferring it from the first non-blank line. The capture group for the digit
+ * is used by {@link dedentRunBlocks} to dedent precisely; without it the
+ * content's YAML indentation would remain and a heredoc terminator would never
+ * match at line start.
+ */
+const RUN_BLOCK_HEADER =
+  /^([ \t]*)(?:-[ \t]+)?run:[ \t]*[|>](?:[+-]?([1-9])?[+-]?)?(?:[ \t]+#.*)?\r?$/;
+
+/** Leading whitespace, which YAML never mixes between a block and its parent. */
+const LEADING_WHITESPACE = /^[ \t]*/;
+
+/** A line that is blank, including the carriage return a CRLF file leaves. */
+const BLANK_LINE = /^[ \t\r]*$/;
+
+/**
+ * Strip the YAML block indentation from `run:` block scalars.
+ *
+ * GitHub Actions takes a `run:` block's text, removes the indentation YAML
+ * gave it, and hands the result to bash — so the shell never sees the leading
+ * whitespace the raw workflow file carries. The scanner reads the raw file,
+ * and exactly one of its rules is whitespace-sensitive: a heredoc terminator
+ * is recognised only at the start of the line the shell sees. A terminator
+ * compared against a YAML-indented line therefore never matches, the heredoc
+ * swallows the rest of the file, every later assignment is payload, and a
+ * `$NPM publish` after the heredoc is omitted from the audit while an
+ * attested sibling elsewhere satisfies the non-vacuity guard — the scan
+ * reports clean over an unattested publish.
+ *
+ * Dedenting the block content restores the text bash actually receives. Every
+ * other rule in the scanner already tolerates leading whitespace
+ * (`STANDALONE_ASSIGNMENT` opens with `^[ \t]*`, control closers and function
+ * openers are matched against trimmed syntax, a comment starts after any
+ * separator or whitespace, and `bashArrays` anchors on a word boundary), so
+ * this function changes nothing else about what the scanner sees.
+ *
+ * Only `run:` blocks are dedented, because `run` is the key GitHub Actions
+ * executes; a block scalar under any other key is data no shell runs, and
+ * stripping its indentation would be rewriting prose. The block's indentation
+ * is learned from its first non-blank line, as YAML itself learns it, a line
+ * keeps any indentation beyond the block's own, and the block ends at the
+ * first non-blank line indented less — which is where YAML ends it too. A
+ * `run:`-shaped line inside another block's content is content, not a header,
+ * because the scanner walks the file once, forward, consuming each block
+ * before looking for the next.
+ *
+ * @param text - A workflow file's raw contents.
+ * @returns The same text with each `run:` block's content dedented.
+ */
+export function dedentRunBlocks(text: string): string {
+  const lines = text.split("\n");
+  const output: string[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    const header = RUN_BLOCK_HEADER.exec(lines[index]!);
+    if (header === null) {
+      output.push(lines[index]!);
+      index += 1;
+      continue;
+    }
+    // The block's indentation comes from its first non-blank line, so blank
+    // lines between the header and the content decide nothing here.
+    let content = index + 1;
+    while (content < lines.length && BLANK_LINE.test(lines[content]!)) content += 1;
+    // An explicit indentation indicator (e.g. `|2`) tells the YAML parser the
+    // content is indented exactly that many spaces beyond the parent key, so
+    // the scanner strips that exact width rather than guessing from the first
+    // non-blank line — which matters when the content itself starts with extra
+    // leading spaces that are data, not structural indentation.
+    const explicitIndent = header[2] !== undefined ? header[1]!.length + Number(header[2]) : undefined;
+    // Without an explicit indicator the block's indentation is learned from
+    // its first non-blank line, as YAML itself learns it.
+    const detected = content < lines.length ? LEADING_WHITESPACE.exec(lines[content]!)![0] : "";
+    const indent = explicitIndent !== undefined ? " ".repeat(explicitIndent) : detected;
+    // A header with no more-indented line after it holds an empty block: YAML
+    // ends it immediately, and so does this scan.
+    if (explicitIndent === undefined && indent.length <= header[1]!.length) {
+      output.push(lines[index]!);
+      index += 1;
+      continue;
+    }
+    output.push(lines[index]!);
+    index += 1;
+    while (index < lines.length) {
+      const body = lines[index]!;
+      // A blank line is block content YAML keeps as an empty line; anything
+      // else must carry the block's own indentation to belong to it.
+      if (!BLANK_LINE.test(body) && !body.startsWith(indent)) break;
+      output.push(BLANK_LINE.test(body) ? body : body.slice(indent.length));
+      index += 1;
+    }
+  }
+  return output.join("\n");
+}
+
+/**
  * A supported Bash array declaration, with quoted and escaped parentheses kept
  * inside the declaration rather than mistaken for its closing delimiter.
  *

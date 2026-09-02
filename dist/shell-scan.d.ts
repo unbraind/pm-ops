@@ -135,6 +135,41 @@ export interface SourceFile {
  */
 export declare function joinContinuations(text: string): string;
 /**
+ * Strip the YAML block indentation from `run:` block scalars.
+ *
+ * GitHub Actions takes a `run:` block's text, removes the indentation YAML
+ * gave it, and hands the result to bash — so the shell never sees the leading
+ * whitespace the raw workflow file carries. The scanner reads the raw file,
+ * and exactly one of its rules is whitespace-sensitive: a heredoc terminator
+ * is recognised only at the start of the line the shell sees. A terminator
+ * compared against a YAML-indented line therefore never matches, the heredoc
+ * swallows the rest of the file, every later assignment is payload, and a
+ * `$NPM publish` after the heredoc is omitted from the audit while an
+ * attested sibling elsewhere satisfies the non-vacuity guard — the scan
+ * reports clean over an unattested publish.
+ *
+ * Dedenting the block content restores the text bash actually receives. Every
+ * other rule in the scanner already tolerates leading whitespace
+ * (`STANDALONE_ASSIGNMENT` opens with `^[ \t]*`, control closers and function
+ * openers are matched against trimmed syntax, a comment starts after any
+ * separator or whitespace, and `bashArrays` anchors on a word boundary), so
+ * this function changes nothing else about what the scanner sees.
+ *
+ * Only `run:` blocks are dedented, because `run` is the key GitHub Actions
+ * executes; a block scalar under any other key is data no shell runs, and
+ * stripping its indentation would be rewriting prose. The block's indentation
+ * is learned from its first non-blank line, as YAML itself learns it, a line
+ * keeps any indentation beyond the block's own, and the block ends at the
+ * first non-blank line indented less — which is where YAML ends it too. A
+ * `run:`-shaped line inside another block's content is content, not a header,
+ * because the scanner walks the file once, forward, consuming each block
+ * before looking for the next.
+ *
+ * @param text - A workflow file's raw contents.
+ * @returns The same text with each `run:` block's content dedented.
+ */
+export declare function dedentRunBlocks(text: string): string;
+/**
  * Index bash array assignments so a shared options array can be expanded.
  *
  * The release workflows declare `common=( ... )` once and pass `"${common[@]}"`

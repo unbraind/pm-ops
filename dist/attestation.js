@@ -20,16 +20,36 @@
 import { execFileSync } from "node:child_process";
 import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 import { resolve } from "node:path";
-import { bashArrays, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, joinContinuations, literalScalarAssignments, segmentShellLine, startsCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
+import { bashArrays, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, dedentRunBlocks, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, joinContinuations, literalScalarAssignments, segmentShellLine, startsCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
 /** The flag that attaches a build attestation to the published tarball. */
 export const ATTESTATION_FLAG = "--provenance";
 /** Publishers other than npm, which this repository has no attested path for. */
 export const FOREIGN_PUBLISHERS = new Set(["yarn", "pnpm", "bun"]);
 /** Repository subtrees whose contents are build output rather than a publish path. */
 const GENERATED_PREFIXES = ["dist/", "coverage/", "node_modules/", ".agents/pm/runtime/"];
+/**
+ * The workflow-shaped path patterns whose `run:` blocks GitHub Actions
+ * executes as shell, defined once so the workflow entries in
+ * {@link EXECUTABLE_PATHS} and the {@link isWorkflowYaml} test can never
+ * drift apart. A workflow file and a composite action are the two shapes a
+ * YAML parser hands to bash with the block indentation removed.
+ */
+const WORKFLOW_PATHS = [
+    /^\.github\/workflows\/[^/]+\.ya?ml$/,
+    /^\.github\/actions\/.+\/action\.ya?ml$/,
+];
+/**
+ * Whether a repository-relative path is a workflow file whose `run:` blocks
+ * GitHub Actions executes as shell. These are the tracked files whose shell
+ * text a YAML parser hands to bash with the block indentation removed, so they
+ * are the files whose `run:` blocks are dedented before scanning. A plain
+ * shell script is not on this list: its indentation is the shell's own, and a
+ * heredoc terminator indented there is not a terminator in bash either.
+ */
+const isWorkflowYaml = (path) => WORKFLOW_PATHS.some((pattern) => pattern.test(path));
 /** Tracked paths that can execute a command, matched against the repository-relative path. */
 const EXECUTABLE_PATHS = [
-    /^\.github\/workflows\/[^/]+\.ya?ml$/,
+    ...WORKFLOW_PATHS,
     /(^|\/)package\.json$/,
     /\.(sh|bash|zsh|ksh)$/,
     /(^|\/)(Makefile|makefile|GNUmakefile)$/,
@@ -361,7 +381,19 @@ const MANIFEST_PATH = /(?:^|\/)package\.json$/;
  * Find every publish invocation in one source, isolating package scripts.
  *
  * npm launches every manifest script in a fresh shell, so scalar evidence from
- * one body can never attest a publish in another body.
+ * one body can never attest a publish in another body. A workflow file's `run:`
+ * blocks are dedented first — before {@link joinContinuations} and heredoc
+ * detection — because that is what happens to them before bash sees the text:
+ * YAML strips the block indentation when it delivers the value. The order
+ * matters: `dedentRunBlocks` reads the raw YAML line structure to find block
+ * headers and strip their indentation, and `joinContinuations` would merge a
+ * `run:` header with the next line when a backslash continuation sits between
+ * them, destroying the header the dedent needs to see. Heredoc detection runs
+ * after both, because a heredoc terminator must match at the start of the line
+ * bash receives — which is the dedented, continuation-joined text. The one
+ * scanner rule that is whitespace-sensitive is the heredoc terminator, so
+ * dedenting before that rule runs is what makes a `run: |2` block's heredoc
+ * terminator match instead of swallowing the rest of the file.
  *
  * @param source - The file's path and contents.
  * @returns The publish invocations found, in file and script order.
@@ -369,7 +401,9 @@ const MANIFEST_PATH = /(?:^|\/)package\.json$/;
 export function publishInvocationsIn(source) {
     const bodies = MANIFEST_PATH.test(source.file)
         ? manifestCommandBodies(source.text)
-        : [source.text];
+        : isWorkflowYaml(source.file)
+            ? [dedentRunBlocks(source.text)]
+            : [source.text];
     return bodies.flatMap((body) => publishInvocationsInShell(source, body));
 }
 /**
