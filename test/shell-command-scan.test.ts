@@ -146,13 +146,19 @@ test("a dedented |2 heredoc terminator lets unset FLAG invalidate the publish (f
     "  release:",
     "    runs-on: ubuntu-latest",
     "    steps:",
+    // Content sits at column 10, not 8. The indentation indicator counts from
+    // the PARENT node, and in a sequence entry the `- ` marker is part of that
+    // node's indentation - so `|2` under `      - run:` means column 8 + 2.
+    // The earlier fixture put the content at column 8, which a real YAML parser
+    // rejects outright, so this guard was asserting against a document GitHub
+    // Actions could never have run.
     "      - run: |2",
-    "        FLAG=--provenance",
-    "        cat <<EOF",
-    "          heredoc payload",
-    "        EOF",
-    "        unset FLAG",
-    "        npm publish $FLAG",
+    "          FLAG=--provenance",
+    "          cat <<EOF",
+    "            heredoc payload",
+    "          EOF",
+    "          unset FLAG",
+    "          npm publish $FLAG",
   ].join("\n");
   const result = auditPublishAttestation([{ file: ".github/workflows/release.yml", text: workflow }]);
   assert.equal(result.failures.length, 1,
@@ -185,4 +191,30 @@ test("dedenting does not refuse a publish that carries --provenance on every pat
   assert.equal(result.failures.length, 0,
     "an attested workflow must not be refused after dedent");
   assert.deepEqual(result.recognition, { kind: "recognized", count: 2 });
+});
+test("a sequence entry's marker counts toward the indentation an indicator measures from", () => {
+  // Verified against a real YAML parser rather than argued from the spec: with
+  // the content at column 12, `      - run: |4` parses and yields fully
+  // dedented content, while putting it at column 10 does not parse at all. So
+  // the indicator counts from the parent node, and in a sequence entry the
+  // `- ` marker is part of that node's indentation.
+  //
+  // Stripping two columns too few leaves residual indentation, which is enough
+  // to stop a heredoc terminator matching at the shell line start - and an
+  // unterminated heredoc swallows every assignment and publish after it.
+  assert.equal(
+    dedentRunBlocks([
+      "      - run: |4",
+      "            cat <<EOF",
+      "            EOF",
+      "            NPM=npm",
+    ].join("\n")),
+    ["      - run: |4", "cat <<EOF", "EOF", "NPM=npm"].join("\n"),
+  );
+
+  // A nested sequence entry adds its marker too.
+  assert.equal(
+    dedentRunBlocks(["  - - run: |2", "        echo hi"].join("\n")),
+    ["  - - run: |2", "echo hi"].join("\n"),
+  );
 });

@@ -36,7 +36,12 @@ const GENERATED_PREFIXES = ["dist/", "coverage/", "node_modules/", ".agents/pm/r
  */
 const WORKFLOW_PATHS = [
     /^\.github\/workflows\/[^/]+\.ya?ml$/,
-    /^\.github\/actions\/.+\/action\.ya?ml$/,
+    // A composite action is recognised by its FILE NAME, wherever it sits - a
+    // repository that is itself an action carries `action.yml` at its root, and
+    // matching only `.github/actions/**` excludes it. Its `run:` blocks are shell
+    // GitHub executes, so leaving them unscanned lets an unattested publish hide
+    // there while an attested sibling keeps the audit non-vacuous.
+    /(^|\/)action\.ya?ml$/,
 ];
 /**
  * Whether a repository-relative path is a workflow file whose `run:` blocks

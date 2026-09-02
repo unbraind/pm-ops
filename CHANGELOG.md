@@ -22,6 +22,7 @@
 
 ### Security
 
+- Four more fail modes in the canonical gate: an arm pattern read as an opener, an escaped run key read as data, a sequence marker missing from the indent, and composite actions unscanned ([ops-cxrx](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-cxrx.toon))
 - Attributing a case arm label by presence rather than position refused an attested publish, and a quoted key hid a phantom one ([ops-setc](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-setc.toon))
 - An arm that opens a nested case skipped the sibling reset, so a publish could borrow a flag from a mutually exclusive arm ([ops-rsbn](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-rsbn.toon))
 - Skipping the sibling-arm reset for any depth-increasing segment let a later arm borrow the previous arm's binding ([ops-narm](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-narm.toon))

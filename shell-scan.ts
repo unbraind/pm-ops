@@ -568,7 +568,7 @@ export function joinContinuations(text: string): string {
  * match at line start.
  */
 const BLOCK_SCALAR_HEADER =
-  /^([ \t]*)(?:-[ \t]+)?("[^"]*"|'[^']*'|[A-Za-z_][\w.-]*):[ \t]*([|>])(?:[+-]?([1-9])?[+-]?)?(?:[ \t]+#.*)?\r?$/;
+  /^([ \t]*)((?:-[ \t]+)*)("[^"]*"|'[^']*'|[A-Za-z_][\w.-]*):[ \t]*([|>])(?:[+-]?([1-9])?[+-]?)?(?:[ \t]+#.*)?\r?$/;
 
 /**
  * Strip the quotes YAML allows around a mapping key.
@@ -584,7 +584,22 @@ const BLOCK_SCALAR_HEADER =
  */
 function unquoteKey(key: string): string {
   const quoted = /^(["'])(.*)\1$/u.exec(key);
-  return quoted === null ? key : quoted[2]!;
+  if (quoted === null) return key;
+  const [, quote, body] = quoted as unknown as [string, string, string];
+  // A single-quoted YAML scalar has exactly one escape: a doubled quote.
+  if (quote === "'") return body.replaceAll("''", "'");
+  // A double-quoted scalar supports the full escape set, so comparing the raw
+  // text to `run` reads `"r\u0075n"` as data - and its body then never reaches
+  // the shell scan, hiding a publish that GitHub Actions really does execute.
+  return body.replace(
+    /\\(?:u([0-9A-Fa-f]{4})|x([0-9A-Fa-f]{2})|(.))/gu,
+    (_match, unicode?: string, hex?: string, single?: string) => {
+      if (unicode !== undefined) return String.fromCodePoint(Number.parseInt(unicode, 16));
+      if (hex !== undefined) return String.fromCodePoint(Number.parseInt(hex, 16));
+      const simple: Record<string, string> = { n: "\n", t: "\t", r: "\r", "0": "\0", "\\": "\\", '"': '"', "/": "/" };
+      return simple[single!] ?? single!;
+    },
+  );
 }
 
 /** Leading whitespace, which YAML never mixes between a block and its parent. */
@@ -672,8 +687,14 @@ export function dedentRunBlocks(text: string): string {
       index += 1;
       continue;
     }
-    const executable = unquoteKey(header[2]!) === "run";
-    const folded = header[3] === ">";
+    // The sequence-item marker is part of the parent node's indentation: in
+    // `      - run: |4` the key sits at column 8, not 6, so the content the
+    // indicator counts from starts at 12. Omitting the marker's width strips
+    // two columns too few and leaves residual indentation, which is enough to
+    // stop a heredoc terminator matching at the shell line start.
+    const parentIndent = header[1]!.length + header[2]!.length;
+    const executable = unquoteKey(header[3]!) === "run";
+    const folded = header[4] === ">";
     // The block's indentation comes from its first non-blank line, so blank
     // lines between the header and the content decide nothing here.
     let content = index + 1;
@@ -683,14 +704,14 @@ export function dedentRunBlocks(text: string): string {
     // the scanner strips that exact width rather than guessing from the first
     // non-blank line — which matters when the content itself starts with extra
     // leading spaces that are data, not structural indentation.
-    const explicitIndent = header[4] !== undefined ? header[1]!.length + Number(header[4]) : undefined;
+    const explicitIndent = header[5] !== undefined ? parentIndent + Number(header[5]) : undefined;
     // Without an explicit indicator the block's indentation is learned from
     // its first non-blank line, as YAML itself learns it.
     const detected = content < lines.length ? LEADING_WHITESPACE.exec(lines[content]!)![0] : "";
     const indent = explicitIndent !== undefined ? " ".repeat(explicitIndent) : detected;
     // A header with no more-indented line after it holds an empty block: YAML
     // ends it immediately, and so does this scan.
-    if (explicitIndent === undefined && indent.length <= header[1]!.length) {
+    if (explicitIndent === undefined && indent.length <= parentIndent) {
       output.push(lines[index]!);
       index += 1;
       continue;
@@ -1188,16 +1209,26 @@ export function caseDepthChange(line: string): number {
  */
 export function startsEnclosingCaseArm(line: string): boolean {
   const bare = unquotedText(line);
+  // A `case` arm pattern may be written with an optional leading `(`, so in a
+  // case context `(case)` is the pattern `case` and its `)` is the arm label,
+  // NOT a group close. Consuming it as a group finds the wrong `)` and reads a
+  // sibling arm as a nested one. This function is only consulted while a `case`
+  // is already open, which is what makes that reading the correct one here.
+  const armText = /^[ \t]*\(/u.test(bare) ? bare.replace(/^([ \t]*)\(/u, "$1 ") : bare;
   let groups = 0;
   let label = -1;
-  for (let index = 0; index < bare.length; index += 1) {
-    const character = bare[index]!;
+  for (let index = 0; index < armText.length; index += 1) {
+    const character = armText[index]!;
     if (character === "(") groups += 1;
     else if (character === ")" && groups === 0) { label = index; break; }
     else if (character === ")") groups -= 1;
   }
   if (label < 0) return false;
-  const opener = /(?:^|[\s;&|(])case(?=[\s;&|]|$)/u.exec(bare);
+  // The opener is matched as `case <word> in`, not as the bare word: an arm
+  // whose PATTERN is the literal text `case` is not opening a block, and
+  // treating it as one skips the reset and lets a nested publish inherit the
+  // previous arm's binding.
+  const opener = /(?:^|[\s;&|(])case[ \t]+[^;&|]*?[ \t]+in(?=[\s;&|]|$)/u.exec(armText);
   return opener === null || label < opener.index;
 }
 

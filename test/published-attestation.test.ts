@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { auditPublishAttestation } from "../attestation.ts";
+import { auditPublishAttestation, isExecutableSource } from "../attestation.ts";
 import { bashArrays, expandArrays, expandScalars, literalScalarAssignments, shellScalars, startsCaseArm, startsEnclosingCaseArm } from "../shell-scan.ts";
 
 test("the audit result makes a vacuous scan structurally distinct", () => {
@@ -357,9 +357,133 @@ test("an arm label is attributed to the case that is already open, by position",
   // The opener precedes the label, so the label is the first arm of the block
   // this segment opens - it has no earlier sibling to be cleared of.
   assert.equal(startsEnclosingCaseArm('case "$Y" in c) npm publish $FLAG ;;'), false);
-  // A balanced group is not an arm label: `(` opens and `)` closes it, so the
-  // scan must consume both rather than stop at the first `)` it sees.
-  assert.equal(startsEnclosingCaseArm("(nested) then"), false);
+  // A `case` arm pattern may carry an optional leading `(`, and this predicate
+  // is only consulted while a `case` is already open - so there, `(nested)` is
+  // the pattern `nested` and its `)` IS the arm label. Reading it as a balanced
+  // group finds the wrong `)` and lets a sibling arm pass as a nested one.
+  assert.equal(startsEnclosingCaseArm("(nested) then"), true);
+  // A group INSIDE the pattern is still balanced and consumed.
   assert.equal(startsEnclosingCaseArm("(a (b) c) label)"), true);
+  // The word `case` as an arm PATTERN is not an opener: only `case <word> in`
+  // is, so this is a sibling arm and must reset.
+  assert.equal(startsEnclosingCaseArm('case) case "$Y" in c) : ;;'), true);
+  assert.equal(startsEnclosingCaseArm('(case) case "$Y" in c) : ;;'), true);
   assert.equal(startsEnclosingCaseArm("plain"), false);
+});
+
+test("an arm whose pattern merely contains the word case is still a sibling", () => {
+  // Fail-open guard. `case` is a legal arm PATTERN, and matching the bare word
+  // as a block opener made the segment look like the case it was only matching
+  // against - so the sibling reset was skipped and a publish in the nested
+  // block inherited the previous arm's flag. Reported independently by two
+  // reviewers, and only the grouped spelling reproduced at first, because the
+  // optional `(` on an arm pattern was being consumed as a group.
+  for (const pattern of ["case)", "(case)"]) {
+    const result = auditPublishAttestation([{
+      file: ".github/workflows/release.yml",
+      text: [
+        "jobs:", "  release:", "    steps:",
+        "      - run: |",
+        "          case \"$X\" in",
+        "            a) FLAG=--provenance ;;",
+        `            ${pattern} case "$Y" in c) npm publish --access public $FLAG ;; esac ;;`,
+        "          esac",
+      ].join("\n"),
+    }]);
+    assert.equal(result.failures.length, 1, `${pattern} must not borrow the earlier arm's flag`);
+  }
+});
+
+test("a YAML-escaped run key is executable, and its publish is not hidden", () => {
+  // Fail-open guard, and the one that had to be composed to be seen. In
+  // isolation the escaped key merely made the scan vacuous, which fails closed;
+  // beside ONE attested sibling the same construction returned no failures at
+  // all, which is the shape this gate keeps failing in.
+  const composed = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:", "  release:", "    steps:",
+      "      - run: npm publish --access public --provenance",
+      "      - \"r\\u0075n\": |",
+      "          npm publish --access public",
+    ].join("\n"),
+  }]);
+  assert.equal(composed.failures.length, 1, "an escaped run key must not hide an unattested publish");
+  assert.deepEqual(composed.recognition, { kind: "recognized", count: 2 });
+
+  // Paired guard: decoding must not turn data into shell. A non-run key stays
+  // data however it is spelled.
+  const escapedData = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:", "  release:", "    steps:",
+      "      - \"n\\u006fte\": |",
+      "            run: |",
+      "              npm publish --access public --provenance",
+      "        run: npm ci",
+    ].join("\n"),
+  }]);
+  assert.deepEqual(escapedData.recognition, { kind: "none" });
+
+  // The other escape forms YAML allows in a double-quoted key: a hex escape,
+  // and a simple two-character escape. Both must decode, or the same hiding
+  // trick works with a different spelling.
+  const hexEscaped = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: ["jobs:", "  release:", "    steps:", "      - \"ru\\x6e\": |", "          npm publish --access public"].join("\n"),
+  }]);
+  assert.deepEqual(hexEscaped.recognition, { kind: "recognized", count: 1 });
+  assert.equal(hexEscaped.failures.length, 1);
+
+  // A simple escape decodes to itself where YAML defines no special meaning,
+  // so a key that is not `run` after decoding stays data.
+  const simpleEscaped = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:", "  release:", "    steps:",
+      "      - \"no\\/te\": |",
+      "            run: |",
+      "              npm publish --access public --provenance",
+      "        run: npm ci",
+    ].join("\n"),
+  }]);
+  assert.deepEqual(simpleEscaped.recognition, { kind: "none" });
+
+  // An escape YAML does not define decodes to the character itself, which is
+  // what the fallback is for: an unrecognised escape must not make the key
+  // compare equal to `run` by accident, nor throw and take the scan down.
+  const unknownEscape = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: [
+      "jobs:", "  release:", "    steps:",
+      "      - \"no\\qte\": |",
+      "            run: |",
+      "              npm publish --access public --provenance",
+      "        run: npm ci",
+    ].join("\n"),
+  }]);
+  assert.deepEqual(unknownEscape.recognition, { kind: "none" });
+
+  // A single-quoted key escapes only by doubling the quote.
+  const singleQuoted = auditPublishAttestation([{
+    file: ".github/workflows/release.yml",
+    text: ["jobs:", "  release:", "    steps:", "      - 'run': |", "          npm publish --access public"].join("\n"),
+  }]);
+  assert.deepEqual(singleQuoted.recognition, { kind: "recognized", count: 1 });
+});
+
+test("a composite action is scanned wherever its file sits, including the root", () => {
+  // GitHub recognises a composite action by file name, so a repository that IS
+  // an action carries `action.yml` at its root. Matching only
+  // `.github/actions/**` left those `run:` blocks unscanned.
+  assert.equal(isExecutableSource("action.yml", ""), true);
+  assert.equal(isExecutableSource("action.yaml", ""), true);
+  assert.equal(isExecutableSource("nested/dir/action.yml", ""), true);
+  assert.equal(isExecutableSource("docs/notes.yml", ""), false);
+
+  const rootAction = auditPublishAttestation([{
+    file: "action.yml",
+    text: ["runs:", "  steps:", "    - run: |", "        npm publish --access public"].join("\n"),
+  }]);
+  assert.equal(rootAction.failures.length, 1);
 });
