@@ -1,0 +1,18 @@
+id: ops-fcow
+title: "The release completeness audit reported a published version and its GitHub Release as missing, turning a successful release into a failed one"
+description: "The 2026.9.2 release published successfully: the package is on npm carrying the canonical shell-scan and attestation exports, the tag exists, and the GitHub Release exists. The workflow nonetheless reported failure, because the completeness audit that runs afterwards claimed two things about an older tag that are both false.\n\nIt reported that release tag v2026.08.28 has no corresponding published npm version, expecting 2026.8.28, and that it has no corresponding GitHub Release. Both exist. The npm versions list contains 2026.8.28, the GitHub Release exists at that exact tag, and there is no duplicate or alternate spelling of either the tag or the version that could explain a near miss.\n\nTwo independent lookups returning a false negative for the same tag, while newer tags pass, is the signature of a windowing or pagination fault rather than a data problem. This audit has already carried two defects of exactly that family: a paginated listing that was posted rather than fetched because a parameter turned the request into a POST, and a capped read that silently missed older releases. A third in the same place is the most economical explanation and is where to look first.\n\nThe consequence is not a blocked publish, since the publish had already happened. It is worse in a subtler way: a release that fully succeeded is reported as failed, which trains a reader to discount this workflow's verdict. A gate that cries wolf is on its way to being ignored."
+type: Issue
+status: open
+priority: 1
+tags[2]: "area:release","type:false-negative"
+created_at: "2026-09-02T21:06:27.413Z"
+updated_at: "2026-09-02T21:06:28.003Z"
+author: "harness:claude-code"
+acceptance_criteria: "The audit reports no failure for a tag whose npm version and GitHub Release both exist; the fix is proven by a test that fails against the current implementation; the audit distinguishes could not determine from absent, so a lookup failure is never reported as a missing artefact"
+risk: medium
+severity: medium
+repro_steps: "Run the release workflow on pm-ops. The publish succeeds and the completeness audit then reports v2026.08.28 as having neither a published npm version nor a GitHub Release, both of which exist."
+component: scripts/verify-release-completeness.ts
+docs[1]{path,scope,note}:
+  "https://github.com/unbraind/pm-ops/actions/runs/33682325840",project,the run that published successfully and then reported failure
+body: ""
