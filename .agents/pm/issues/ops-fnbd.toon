@@ -1,0 +1,22 @@
+id: ops-fnbd
+title: A tracked executable whose name merely ends in package.json has its publish hidden from the audit
+description: "publishInvocationsIn routes any path ending in the string package.json through manifestCommandLines. A tracked shebang script named for example scripts/fake-package.json is therefore parsed as JSON, the parse fails, an empty string is returned, and every publish it contains is omitted from the audit. In isolation that fails closed on the non-vacuity guard, but composed with any attested sibling the guard is satisfied and the audit passes clean while an entirely unattested publish ships."
+type: Issue
+status: closed
+priority: 0
+tags[4]: attestation,fail-open,security,supply-chain
+created_at: "2026-09-01T07:42:36.055Z"
+updated_at: "2026-09-01T08:05:24.953Z"
+closed_at: "2026-09-01T08:05:24.940Z"
+completed_at: "2026-09-01T08:05:24.940Z"
+author: claude
+acceptance_criteria: "The manifest path is matched at a filename boundary, not by suffix; A shebang script named fake-package.json has its publish recognised and refused; The composed case with an attested sibling fails rather than passing clean; A real package.json is still parsed as a manifest"
+risk: critical
+comments[2]{created_at,author,text}:
+  "2026-09-01T07:42:36.719Z",claude,"Reproduced by execution against ca78aa9.\n\nIsolated, showing the mechanism:\n  scripts/fake-package.json  content '#!/bin/bash\\nnpm publish\\n'  -> recognition=none, failures=1\n  scripts/release.sh         identical content                      -> recognition=recognized/1, failures=1\n  package.json               real manifest                          -> recognition=recognized/1, failures=1\n\nComposed, showing it is fail-open rather than merely blind:\n  .github/workflows/release.yml : npm publish --provenance\n  scripts/fake-package.json     : #!/bin/bash / npm publish\n  -> failures=0, recognition={kind:recognized,count:1},\n     notes=['ok - .github/workflows/release.yml: 1 publish invocation(s), each carrying --provenance']\n\nThis is the third instance on this branch of the same shape: recognition too loose, plus a non-vacuity guard that a sibling invocation satisfies. The guard is repo-wide rather than per-file, so any construction that hides one publish is fail-open as soon as one attested publish exists anywhere in the tree. Rating such a finding by its isolated behaviour understates it every time.\n\nFix is the anchored match proposed in review: /(^|\\/)package\\.json$/ instead of endsWith."
+  "2026-09-01T08:05:24.426Z",claude,"Fixed by replacing the endsWith suffix test with MANIFEST_PATH, an anchored /(?:^|\\/)package\\.json$/ match, so only a path whose final segment is exactly package.json is routed to the manifest reader.\n\nRed-on-revert proof. Reverting only that one expression back to source.file.endsWith('package.json'), with the tests unchanged, turns two of the three new tests red: 'a tracked executable whose name merely ends in package.json is scanned as a shell script' and 'a publish hidden in a package.json-suffixed script is not covered by an attested sibling' both fail; restoring the anchored match returns all three to green. The third test, 'a real manifest is still read as a manifest', passes in both directions by design — it is the control that would catch an over-broad fix that stopped reading real manifests, so a test that went red on revert there would mean the fix had broken manifest handling.\n\nFleet non-regression after the change: 21 of 22 repositories OK against their real workflows, with pm-rust correctly recognition none as a Cargo crate that never runs npm publish. Gates: tsc clean, coverage 13 files 100/100/100/100, docstrings 13 files 176 declarations."
+files[2]{path,scope,note}:
+  attestation.ts,project,Anchored the manifest path at a segment boundary with MANIFEST_PATH
+  test/attestation-union.test.ts,project,"Three regressions: the suffixed executable, the attested-sibling composition, and a real manifest control"
+close_reason: "Manifest routing anchored at a segment boundary; the hidden publish is now discovered and refused, and an attested sibling no longer masks it. Verified red on revert."
+body: ""

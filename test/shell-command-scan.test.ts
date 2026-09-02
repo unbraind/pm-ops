@@ -13,7 +13,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-import { bashArrays, expandArrays, joinContinuations } from "../scripts/shell-command-scan.ts";
+import { bashArrays, dedentRunBlocks, expandArrays, joinContinuations } from "../shell-scan.ts";
+import { auditPublishAttestation } from "../attestation.ts";
 import { isMainInvocation } from "../scripts/main-invocation.ts";
 
 test("an unknown array reference is left in place rather than erased", () => {
@@ -52,4 +53,168 @@ test("an array reference is replaced by the declaration's contents, quoted or ba
   const arrays = bashArrays('common=( --access public --provenance )\n');
   assert.equal(expandArrays('npm publish "${common[@]}"', arrays), "npm publish --access public --provenance");
   assert.equal(expandArrays("npm publish ${common[@]}", arrays), "npm publish --access public --provenance");
+});
+
+test("run-block content is dedented the way YAML delivers it to bash", () => {
+  // The block's indentation is learned from its first non-blank line, a line
+  // keeps any indentation beyond the block's own, and the block ends at the
+  // first non-blank line indented less -- which is where YAML ends it too.
+  assert.equal(
+    dedentRunBlocks(["      - run: |", "          cat <<EOF", "            deeper prose", "          EOF", "          NPM=npm", "      - name: next"].join("\n")),
+    ["      - run: |", "cat <<EOF", "  deeper prose", "EOF", "NPM=npm", "      - name: next"].join("\n"),
+  );
+  // A folded block (`>`) is dedented the same way, and blank lines stay
+  // blank because YAML keeps them as empty content.
+  assert.equal(
+    dedentRunBlocks(["  run: >-", "", "    deep", "      deeper"].join("\n")),
+    ["  run: >-", "", "deep", "  deeper"].join("\n"),
+  );
+  // A comment after the indicator is still a header, and a CRLF line ending
+  // survives the strip.
+  assert.equal(
+    dedentRunBlocks("  run: | # note\r\n    x\r\n"),
+    "  run: | # note\r\nx\r\n",
+  );
+  // A `run:`-shaped line inside another block's content is content, not a
+  // header: the scan consumes each block before looking for the next.
+  assert.equal(
+    dedentRunBlocks(["  run: |", "    cat <<X", "    run: |", "      payload", "    X"].join("\n")),
+    ["  run: |", "cat <<X", "run: |", "  payload", "X"].join("\n"),
+  );
+});
+
+test("run-block dedenting refuses shapes YAML would not deliver as blocks", () => {
+  // A header whose next non-blank line is indented no deeper holds an empty
+  // block, so the following line is not content and is left untouched.
+  assert.equal(
+    dedentRunBlocks(["  run: |", "next: value"].join("\n")),
+    ["  run: |", "next: value"].join("\n"),
+  );
+  // A header at the end of the file, or followed only by blank lines, holds
+  // no content at all.
+  assert.equal(dedentRunBlocks("prior\n  run: |"), "prior\n  run: |");
+  assert.equal(dedentRunBlocks("  run: |\n\n"), "  run: |\n\n");
+  // A `run:` value that is not a block scalar is not a header. A block scalar
+  // under any other key IS consumed, and its body is replaced by blank lines:
+  // it is data no shell runs, and leaving it in the text lets a publish written
+  // inside it be discovered as a real invocation. The line count is preserved
+  // so every line-indexed scan downstream still lines up.
+  assert.equal(
+    dedentRunBlocks(["  run: npm publish", "  env: |", "    FOO=1"].join("\n")),
+    ["  run: npm publish", "  env: |", ""].join("\n"),
+  );
+});
+
+test("an explicit block indentation indicator (|2) is accepted and dedented", () => {
+  // YAML allows `run: |2` to declare the content indentation explicitly. The
+  // header must be recognised so the block is dedented; otherwise the YAML
+  // indentation stays and a heredoc terminator at the start of the shell line
+  // never matches, swallowing every later assignment as heredoc payload.
+  assert.equal(
+    dedentRunBlocks(["  run: |2", "    cat <<EOF", "      deeper prose", "    EOF", "    NPM=npm"].join("\n")),
+    ["  run: |2", "cat <<EOF", "  deeper prose", "EOF", "NPM=npm"].join("\n"),
+  );
+  // The chomping indicator may appear before or after the indentation digit.
+  assert.equal(
+    dedentRunBlocks(["  run: |-2", "    cat <<EOF", "    EOF", "    NPM=npm"].join("\n")),
+    ["  run: |-2", "cat <<EOF", "EOF", "NPM=npm"].join("\n"),
+  );
+  assert.equal(
+    dedentRunBlocks(["  run: |2-", "    cat <<EOF", "    EOF", "    NPM=npm"].join("\n")),
+    ["  run: |2-", "cat <<EOF", "EOF", "NPM=npm"].join("\n"),
+  );
+  // A folded block with an explicit indicator is dedented the same way.
+  assert.equal(
+    dedentRunBlocks(["  run: >2", "    echo hi"].join("\n")),
+    ["  run: >2", "echo hi"].join("\n"),
+  );
+});
+
+test("a dedented |2 heredoc terminator lets unset FLAG invalidate the publish (fail-open guard)", () => {
+  // Without dedent the heredoc terminator `EOF` sits at the YAML indentation
+  // level, not at the shell line start, so it never matches. The heredoc
+  // swallows the rest of the block: `unset FLAG` is heredoc body (not processed
+  // by the scope tracker), FLAG stays visible, and `$FLAG` expands to
+  // `--provenance` — so `npm publish $FLAG` reads as attested and the gate
+  // passes clean over an unattested publish. With dedent the terminator
+  // matches, `unset FLAG` is real shell source, FLAG is removed, and `$FLAG`
+  // is unresolved — the publish is correctly refused.
+  const workflow = [
+    "name: release",
+    "on: push",
+    "jobs:",
+    "  release:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    // Content sits at column 10, not 8. The indentation indicator counts from
+    // the PARENT node, and in a sequence entry the `- ` marker is part of that
+    // node's indentation - so `|2` under `      - run:` means column 8 + 2.
+    // The earlier fixture put the content at column 8, which a real YAML parser
+    // rejects outright, so this guard was asserting against a document GitHub
+    // Actions could never have run.
+    "      - run: |2",
+    "          FLAG=--provenance",
+    "          cat <<EOF",
+    "            heredoc payload",
+    "          EOF",
+    "          unset FLAG",
+    "          npm publish $FLAG",
+  ].join("\n");
+  const result = auditPublishAttestation([{ file: ".github/workflows/release.yml", text: workflow }]);
+  assert.equal(result.failures.length, 1,
+    "the unattested publish after unset FLAG must be refused");
+  assert.deepEqual(result.recognition, { kind: "recognized", count: 1 });
+});
+
+test("dedenting does not refuse a publish that carries --provenance on every path (fail-closed guard)", () => {
+  // Every publish in this workflow carries `--provenance` — one through an
+  // indexed scalar that survives the heredoc, one directly. Dedenting must not
+  // break the scan so badly that it loses the flag or invents a missing
+  // publish — a fail-closed regression would refuse a release that IS attested.
+  const workflow = [
+    "name: release",
+    "on: push",
+    "jobs:",
+    "  release:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: |2",
+    "        FLAG=--provenance",
+    "        cat <<EOF",
+    "          heredoc payload",
+    "        EOF",
+    "        npm publish $FLAG",
+    "      - run: |",
+    "        npm publish --provenance",
+  ].join("\n");
+  const result = auditPublishAttestation([{ file: ".github/workflows/release.yml", text: workflow }]);
+  assert.equal(result.failures.length, 0,
+    "an attested workflow must not be refused after dedent");
+  assert.deepEqual(result.recognition, { kind: "recognized", count: 2 });
+});
+test("a sequence entry's marker counts toward the indentation an indicator measures from", () => {
+  // Verified against a real YAML parser rather than argued from the spec: with
+  // the content at column 12, `      - run: |4` parses and yields fully
+  // dedented content, while putting it at column 10 does not parse at all. So
+  // the indicator counts from the parent node, and in a sequence entry the
+  // `- ` marker is part of that node's indentation.
+  //
+  // Stripping two columns too few leaves residual indentation, which is enough
+  // to stop a heredoc terminator matching at the shell line start - and an
+  // unterminated heredoc swallows every assignment and publish after it.
+  assert.equal(
+    dedentRunBlocks([
+      "      - run: |4",
+      "            cat <<EOF",
+      "            EOF",
+      "            NPM=npm",
+    ].join("\n")),
+    ["      - run: |4", "cat <<EOF", "EOF", "NPM=npm"].join("\n"),
+  );
+
+  // A nested sequence entry adds its marker too.
+  assert.equal(
+    dedentRunBlocks(["  - - run: |2", "        echo hi"].join("\n")),
+    ["  - - run: |2", "echo hi"].join("\n"),
+  );
 });

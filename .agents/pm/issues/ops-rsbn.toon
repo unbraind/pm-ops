@@ -1,0 +1,21 @@
+id: ops-rsbn
+title: "An arm that opens a nested case skipped the sibling reset, so a publish could borrow a flag from a mutually exclusive arm"
+description: "The ninth fail-open found in the canonical attestation gate, and the third caused by a fix for an earlier one. The sibling-arm reset was keyed on whether the segment opens a case block: a segment with a positive case-depth change skipped the reset entirely. That skip exists for a real reason, because a case opener is also the first arm of the block it opens and clearing there would erase the outer scope and refuse a publish whose flag was bound before the block. But opening a case and being a first arm are different questions. A later arm may itself open a nested case, and it is still a sibling of the arm before it, so skipping its reset left the previous arm's binding visible.\n\nReported by Greptile as a P1 on the pull request and confirmed by execution rather than by reading: a workflow binding the flag in arm a and publishing inside a nested case in arm b returned failures empty and the note that one publish invocation carries the flag, while the shell would run that publish with the variable unset. Reaching the same shape through else rather than a case arm was also fail-open, because else is a sibling unconditionally.\n\nFixed by keying the reset on the case depth before the segment instead of on whether the segment opens a case. A segment that opens one has no earlier sibling by construction; a segment that starts an arm while already inside a case is a sibling even when it also opens a nested block."
+type: Issue
+status: closed
+priority: 1
+tags[3]: "area:gates","area:supply-chain","type:security"
+created_at: "2026-09-02T17:45:38.438Z"
+updated_at: "2026-09-02T17:46:12.842Z"
+closed_at: "2026-09-02T17:45:44.861Z"
+completed_at: "2026-09-02T17:45:44.861Z"
+author: pi-agent
+acceptance_criteria: A publish inside a nested case in a later arm is refused; the same shape reached through else is refused; a binding made in the same arm that encloses a nested case still attests; a binding made before the block still attests; reverting the fix turns the fail-open guard red while the fail-closed guard stays green
+risk: critical
+severity: critical
+repro_steps: Call auditPublishAttestation on a workflow whose case binds the flag in arm a and whose arm b opens a nested case containing npm publish with the variable expanded. Before the fix it returns failures empty.
+component: attestation.ts
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  ops-brsc,related,"2026-09-02T17:46:12.809Z",pi-agent,"cli:update:dep",detected
+close_reason: "Fixed by keying the sibling reset on the case depth before the segment. Verified by execution in both directions: the nested-case construction now returns one failure where it previously returned none, and reverting the condition turns the fail-open guard red while the fail-closed guard stays green. Full suite 417 passing, release:check green at 100 percent coverage."
+body: ""

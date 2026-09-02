@@ -1,0 +1,37 @@
+id: ops-csop
+title: A case opener sharing a segment with its first arm leaks that arm's binding past esac
+description: "insideCase is computed for a segment before that segment increments caseDepth, so when a case opener and its first arm occupy one segment the arm boundary is never taken. A binding made in that arm stays visible after esac, and a later unconditional npm publish routed through it is reported as attested even though the arm may not have run."
+type: Issue
+status: closed
+priority: 0
+tags[4]: attestation,fail-open,security,supply-chain
+created_at: "2026-09-01T07:07:36.300Z"
+updated_at: "2026-09-01T07:17:52.050Z"
+closed_at: "2026-09-01T07:17:29.642Z"
+completed_at: "2026-09-01T07:17:29.642Z"
+author: claude
+estimated_minutes: 30
+acceptance_criteria: "A binding made in a case arm that shares a segment with the case opener is not visible after esac; The auditor refuses the publish in both reported shapes rather than attesting it; Regression tests for both shapes are verified red on revert; The existing sibling-arm and compound-line regressions still pass, and no fleet workflow regresses"
+risk: critical
+resolution: Compute each segment's case-depth change once and treat a positive change as already inside case for block-depth and arm-boundary handling.
+expected_result: A first-arm binding that shares the case opener's segment is unavailable after esac unless runtime execution keeps the publish in that arm.
+actual_result: Both reported shapes now produce one recognized unattested publish failure; focused tests pass 3/3 and the full suite passes 401 with 2 intentional skips.
+comments[3]{created_at,author,text}:
+  "2026-09-01T07:07:37.063Z",claude,"Reproduced by execution against 56aa31c. Two shapes are FAIL-OPEN (auditPublishAttestation returns failures=[] and attests the publish):\n\n  case \"$X\" in a) FLAG=--provenance ;; esac\n  npm publish $FLAG\n\n  case \"$X\" in a) FLAG=--provenance ;;\n  esac\n  npm publish $FLAG\n\nTwo neighbouring shapes correctly REFUSE, which localises the defect to the opener sharing a segment with the first arm rather than to case handling generally:\n\n  if true; then case \"$X\" in a) FLAG=--provenance ;; esac; fi   -> refused\n  case \"$X\" in a) FLAG=--provenance ;;& *) : ;; esac            -> refused\n\nNote on my own first attempt: I initially wrote the case with a second arm on its own line and saw it refuse, and nearly recorded Greptile's report as unreproduced. The construction has to put the opener and the first arm in one segment. A single non-reproducing construction is not evidence that a reported fail-open is absent."
+  "2026-09-01T07:11:40.000Z",pi-agent,"Red-on-revert proof: I reverted only these two source substitutions in `attestation.ts`: (1) `const caseChange = caseDepthChange(segment); const insideCase = caseDepth > 0 || caseChange > 0;` back to `const insideCase = caseDepth > 0;`; (2) `caseDepth = Math.max(0, caseDepth + caseChange);` back to `caseDepth = Math.max(0, caseDepth + caseDepthChange(segment));`. With that exact revert, the focused run executed 3 tests: both new fail-open tests failed (`failures.length` was 0 instead of 1), while `case-arm scope neighbours remain conservatively refused` passed. Exit was 1, pass 1, fail 2. Restoring only those substitutions produced pass 3, fail 0."
+  "2026-09-01T07:12:24.008Z",pi-agent,"Fleet non-regression scan (read-only) loaded every `.github/workflows/*.y*ml` under all 22 `fleet/pm-*` repositories through the rebuilt canonical auditor. Result: 21 repositories were OK with `recognition.kind=recognized`, each count 1; only `pm-rust` reported `recognition.kind=none` and the expected non-vacuity failure because it is a Cargo crate with no npm publish. No unexpected non-OK repository."
+files[10]{path,scope}:
+  .agents/pm/history/ops-csop.jsonl,project
+  .agents/pm/history/ops-jarm.jsonl,project
+  .agents/pm/issues/ops-csop.toon,project
+  .agents/pm/issues/ops-jarm.toon,project
+  attestation.ts,project
+  CHANGELOG.md,project
+  dist/attestation.d.ts.map,project
+  dist/attestation.js,project
+  dist/attestation.js.map,project
+  test/attestation-union.test.ts,project
+tests[1]{command,path,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  "npm run build && npm run build:test && node --test --test-name-pattern=\"^(a case opener and first arm on one line do not leak the arm binding past esac|a case opener sharing its first-arm segment does not leak across a later esac line|case-arm scope neighbours remain conservatively refused)$\" test/attestation-union.test.ts",test/attestation-union.test.ts,project,120,pi-agent,"2026-09-01T07:11:39.111Z",local_mutation,fix/refuse-unprovable-publish-bindings
+close_reason: "Case-opening segments now establish case context before block-depth and first-arm handling; both fail-open shapes refuse, neighbours stay refused, all gates and the 22-repository fleet scan match expectations."
+body: ""

@@ -4,11 +4,14 @@
 
 ### Added
 
+- Publish the canonical attestation scanner as pm-ops exports ([ops-4b34](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-4b34.toon))
 - A release-completeness gate that requires every release tag to have a matching npm version and GitHub Release ([ops-i8yp](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-i8yp.toon))
 
 ### Fixed
 
 - Repaired the ops-5jp6 history drift that had blocked two stacked release pull requests ([ops-yxej](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-yxej.toon))
+- A case opener sharing its first arm cleared the outer scope and refused a genuinely attested publish ([ops-cout](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-cout.toon))
+- Three shell-scope and quoting fail-opens attest unproven npm publishes ([ops-p9lb](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-p9lb.toon))
 - A malformed npm reply crashed the release audit, and the docstring already promised it would not ([ops-f5m7](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-f5m7.toon))
 - The revert-proof test read its vulnerable fixture from origin/main, so merging it would have turned it red ([ops-9ktn](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-9ktn.toon))
 - The paginated release listing was posted rather than fetched, because gh api switches to POST as soon as a parameter is present ([ops-eugo](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-eugo.toon))
@@ -19,6 +22,13 @@
 
 ### Security
 
+- Four more fail modes in the canonical gate: an arm pattern read as an opener, an escaped run key read as data, a sequence marker missing from the indent, and composite actions unscanned ([ops-cxrx](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-cxrx.toon))
+- Attributing a case arm label by presence rather than position refused an attested publish, and a quoted key hid a phantom one ([ops-setc](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-setc.toon))
+- An arm that opens a nested case skipped the sibling reset, so a publish could borrow a flag from a mutually exclusive arm ([ops-rsbn](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-rsbn.toon))
+- Skipping the sibling-arm reset for any depth-increasing segment let a later arm borrow the previous arm's binding ([ops-narm](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-narm.toon))
+- A tracked executable whose name merely ends in package.json has its publish hidden from the audit ([ops-fnbd](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-fnbd.toon))
+- A case opener sharing a segment with its first arm leaks that arm's binding past esac ([ops-csop](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-csop.toon))
+- Branch-local and compound-line publish bindings let an unattested npm publish pass the attestation gate ([ops-brsc](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-brsc.toon))
 - Security: repository-host check matches too loosely (notgithub.com accepted as GitHub) ([ops-042o](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-042o.toon))
 
 ### Other

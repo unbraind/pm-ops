@@ -129,6 +129,8 @@ test("coverage gate defaults to its package root and native process boundaries",
   const spawn = (() => {
     writeLcov(packageRoot, [
       "index.ts",
+      "attestation.ts",
+      "shell-scan.ts",
       "docstrings.ts",
       "assurance.ts",
       "scripts/coverage-gate.ts",
@@ -188,12 +190,12 @@ test("coverage gate direct entrypoint executes against an explicit package root"
   if (process.platform === "win32") {
     writeFileSync(
       join(bin, "npx.cmd"),
-      `@echo off\r\nmkdir coverage 2>nul\r\n(echo SF:index.ts& echo end_of_record& echo SF:docstrings.ts& echo end_of_record& echo SF:assurance.ts& echo end_of_record& echo SF:scripts/coverage-gate.ts& echo end_of_record& echo SF:scripts/docstring-gate.ts& echo end_of_record& echo SF:scripts/main-invocation.ts& echo end_of_record& echo SF:scripts/prepare-merge-driver.ts& echo end_of_record& echo SF:scripts/shell-command-scan.ts& echo end_of_record& echo SF:scripts/verify-release-changelog-date.ts& echo end_of_record& echo SF:scripts/verify-release-completeness.ts& echo end_of_record& echo SF:scripts/verify-release-publish-attestation.ts& echo end_of_record)>coverage\\lcov.info\r\n`,
+      `@echo off\r\nmkdir coverage 2>nul\r\n(echo SF:index.ts& echo end_of_record& echo SF:attestation.ts& echo end_of_record& echo SF:shell-scan.ts& echo end_of_record& echo SF:docstrings.ts& echo end_of_record& echo SF:assurance.ts& echo end_of_record& echo SF:scripts/coverage-gate.ts& echo end_of_record& echo SF:scripts/docstring-gate.ts& echo end_of_record& echo SF:scripts/main-invocation.ts& echo end_of_record& echo SF:scripts/prepare-merge-driver.ts& echo end_of_record& echo SF:scripts/shell-command-scan.ts& echo end_of_record& echo SF:scripts/verify-release-changelog-date.ts& echo end_of_record& echo SF:scripts/verify-release-completeness.ts& echo end_of_record& echo SF:scripts/verify-release-publish-attestation.ts& echo end_of_record)>coverage\\lcov.info\r\n`,
     );
   } else {
     writeFileSync(
       join(bin, "npx"),
-      "#!/usr/bin/env sh\nmkdir -p coverage\nprintf 'SF:index.ts\\nend_of_record\\nSF:docstrings.ts\\nend_of_record\\nSF:assurance.ts\\nend_of_record\\nSF:scripts/coverage-gate.ts\\nend_of_record\\nSF:scripts/docstring-gate.ts\\nend_of_record\\nSF:scripts/main-invocation.ts\\nend_of_record\\nSF:scripts/prepare-merge-driver.ts\\nend_of_record\\nSF:scripts/shell-command-scan.ts\\nend_of_record\\nSF:scripts/verify-release-changelog-date.ts\\nend_of_record\\nSF:scripts/verify-release-completeness.ts\\nend_of_record\\nSF:scripts/verify-release-publish-attestation.ts\\nend_of_record\\n' > coverage/lcov.info\n",
+      "#!/usr/bin/env sh\nmkdir -p coverage\nprintf 'SF:index.ts\\nend_of_record\\nSF:attestation.ts\\nend_of_record\\nSF:shell-scan.ts\\nend_of_record\\nSF:docstrings.ts\\nend_of_record\\nSF:assurance.ts\\nend_of_record\\nSF:scripts/coverage-gate.ts\\nend_of_record\\nSF:scripts/docstring-gate.ts\\nend_of_record\\nSF:scripts/main-invocation.ts\\nend_of_record\\nSF:scripts/prepare-merge-driver.ts\\nend_of_record\\nSF:scripts/shell-command-scan.ts\\nend_of_record\\nSF:scripts/verify-release-changelog-date.ts\\nend_of_record\\nSF:scripts/verify-release-completeness.ts\\nend_of_record\\nSF:scripts/verify-release-publish-attestation.ts\\nend_of_record\\n' > coverage/lcov.info\n",
     );
   }
   const packageRoot = resolve(import.meta.dirname, "..");

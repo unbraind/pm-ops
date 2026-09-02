@@ -25,6 +25,14 @@
     "./assurance": {
       "types": "./dist/assurance.d.ts",
       "default": "./dist/assurance.js"
+    },
+    "./shell-scan": {
+      "types": "./dist/shell-scan.d.ts",
+      "default": "./dist/shell-scan.js"
+    },
+    "./attestation": {
+      "types": "./dist/attestation.d.ts",
+      "default": "./dist/attestation.js"
     }
   },
   "files": [
