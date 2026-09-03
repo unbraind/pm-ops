@@ -6,16 +6,17 @@ status: closed
 priority: 2
 tags[2]: security,verification
 created_at: "2026-09-03T18:47:07.947Z"
-updated_at: "2026-09-03T19:58:58.910Z"
+updated_at: "2026-09-03T20:10:42.081Z"
 closed_at: "2026-09-03T19:58:58.895Z"
 completed_at: "2026-09-03T19:58:58.895Z"
 author: "harness:claude-code"
-acceptance_criteria: "A CodeQL scan of main has completed after the merge; the GitHub API reports both alert 1 and alert 2 with state closed and a fixed_at timestamp, rather than dismissed; and if either remains open the reason is investigated as a real reachable path rather than dismissed as a scanner limitation"
+acceptance_criteria: "A CodeQL scan of main has completed after the merge; the GitHub API reports both alert 1 and alert 2 with state fixed and a fixed_at timestamp, rather than dismissed; and if either remains open the reason is investigated as a real reachable path rather than dismissed as a scanner limitation"
 risk: low
 resolution: "The execFileSync rewrite removed the shell-command construction, and a post-merge CodeQL scan confirmed it."
-expected_result: "Both alerts report state closed with a fixed_at timestamp rather than dismissed, after a scan of main."
+expected_result: "Both alerts report state fixed with a fixed_at timestamp rather than dismissed, after a scan of main."
 actual_result: "Alerts 1 and 2 both report state fixed, fixed_at 2026-09-03T19:20:43Z."
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-09-03T19:58:58.343Z","harness:claude-code","Confirmed. CodeQL reports both alerts with state fixed and fixed_at 2026-09-03T19:20:43Z on a scan of main after the merge, not dismissed. The rewrite to execFileSync with an argument array removed the construction the query describes rather than escaping around it, and the scanner agrees.\n\nRecording why this item existed separately from the implementation item, since it has now served its purpose: the rewrite either does or does not remove the construction, which reading the diff and running the suite can decide, while whether the scanner agrees is answered by a different system at a later time. Folding the two into one criterion would have kept the implementation item open until an external scan ran. In this fleet that distinction has already mattered once — a resource-exhaustion alert in pm-slack survived the fix meant to close it and stayed open through a later successful CodeQL run, so treating a merge as a closure would have recorded it as resolved while the reachable path was still there."
+  "2026-09-03T20:10:42.081Z","harness:claude-code","Corrected the terminology throughout, on CodeRabbit's finding. The GitHub code-scanning API's terminal state for an alert a scan no longer reports is fixed, not closed, and closed is not a value that field takes — so a criterion written against closed could never be satisfied literally, and would have been read as satisfied only by someone translating it silently. The recorded actual_result and close_reason already said fixed because they were written from the API response; the criterion and expected_result were written from prose. That mismatch between what a field asserts and what the system emits is precisely the class this item was split out to avoid."
 close_reason: "CodeQL reports both alerts fixed with fixed_at 2026-09-03T19:20:43Z on a scan of main, not dismissed."
 body: ""
