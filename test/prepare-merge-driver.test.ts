@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import {
   chmodSync,
+  copyFileSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -33,6 +34,21 @@ after(() => {
 function executable(path: string, body = "exit 0"): void {
   writeFileSync(path, `#!/usr/bin/env sh\n${body}\n`);
   chmodSync(path, 0o755);
+}
+
+/**
+ * Execute the prepare-merge-driver entrypoint via the Node binary.
+ *
+ * Uses {@link execFileSync} with an argument array rather than a shell
+ * command string so that an environment-controlled `process.execPath`
+ * containing shell metacharacters is passed literally to `execve` and
+ * never interpreted by a shell.
+ */
+function runEntryPoint(
+  scriptPath: string,
+  options: { cwd: string; env: NodeJS.ProcessEnv; encoding?: BufferEncoding; stdio?: "pipe" },
+): string | Buffer {
+  return execFileSync(process.execPath, [scriptPath], options);
 }
 
 test("isExecutableFile rejects missing, directory, and non-executable POSIX candidates", () => {
@@ -156,17 +172,14 @@ test("prepare hook direct entrypoint skips absence and fails loudly for a broken
   );
   const cwd = join(root, "direct-cwd");
   mkdirSync(cwd, { recursive: true });
-  const absent = execSync(
-    `${JSON.stringify(process.execPath)} ${JSON.stringify(script)}`,
-    {
-      cwd,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        PATH: process.platform === "win32" ? "" : join(root, "absent-bin"),
-      },
+  const absent = runEntryPoint(script, {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: process.platform === "win32" ? "" : join(root, "absent-bin"),
     },
-  );
+  });
   assert.strictEqual(absent, "");
 
   const bin = join(root, "broken-bin");
@@ -178,7 +191,7 @@ test("prepare hook direct entrypoint skips absence and fails loudly for a broken
   }
   assert.throws(
     () =>
-      execSync(`${JSON.stringify(process.execPath)} ${JSON.stringify(script)}`, {
+      runEntryPoint(script, {
         cwd,
         stdio: "pipe",
         env: {
@@ -188,4 +201,34 @@ test("prepare hook direct entrypoint skips absence and fails loudly for a broken
       }),
     (error: unknown) => (error as { status?: number }).status === 7,
   );
+});
+
+test("direct entrypoint does not pass the Node executable path through a shell", { skip: process.platform === "win32" }, () => {
+  // A directory whose name embeds a POSIX shell variable expansion.
+  // execSync builds a shell command string from process.execPath via
+  // JSON.stringify, which wraps the value in double quotes but does not
+  // suppress shell expansion: $PM_OPS_PROBE_UNDEFINED is expanded to empty
+  // inside the quotes, so the shell resolves a non-existent path and throws.
+  // execFileSync passes the path literally to execve, finding the binary.
+  const shellDir = join(root, "shell$PM_OPS_PROBE_UNDEFINED");
+  mkdirSync(shellDir, { recursive: true });
+  copyFileSync(process.execPath, join(shellDir, "node"));
+  const script = resolve(
+    import.meta.dirname,
+    "../scripts/prepare-merge-driver.ts",
+  );
+  const cwd = join(root, "shell-cwd");
+  mkdirSync(cwd, { recursive: true });
+  const original = process.execPath;
+  process.execPath = join(shellDir, "node");
+  try {
+    const result = runEntryPoint(script, {
+      cwd,
+      encoding: "utf8",
+      env: { ...process.env, PATH: "" },
+    });
+    assert.strictEqual(result, "");
+  } finally {
+    process.execPath = original;
+  }
 });

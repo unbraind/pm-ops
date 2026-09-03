@@ -1,0 +1,21 @@
+id: ops-6no1
+title: "The merge-driver test builds a shell command from an environment-controlled path, which is the pattern this repository asks every other one to stop using"
+description: "CodeQL alerts 1 and 2 report js/shell-command-injection-from-environment at test/prepare-merge-driver.test.ts lines 160 and 181. Both are the same construction: the direct-entrypoint test built a command string by interpolating process.execPath and the script path into a template and handing it to execSync, which runs it through a shell.\n\nTwo arguments were available for leaving this alone and both are weak. The first is that it is test code rather than production code, which lowers the blast radius but does not make the pattern correct. The second is that process.execPath is not attacker-controlled in practice, which is true on this runner and is exactly the reasoning that makes injection bugs survive review — the value is trusted until the day the path contains a space, a parenthesis or a dollar sign, and Windows runners routinely produce paths that a shell will re-tokenise.\n\nThe decisive argument is positional rather than technical. pm-ops is the canonical home of the shared attestation gate and of the shell-scalar scanner the fleet uses to find exactly this construction in nineteen other repositories. A dismissed alert here would mean the repository that publishes the rule keeps the pattern the rule forbids.\n\nFixed by passing an argument array to execFileSync rather than a command string to execSync, so the executable path reaches execve literally and no shell parses it. That removes the class rather than escaping around it: there is no quoting to get right when there is no shell."
+type: Issue
+status: closed
+priority: 2
+tags[1]: security
+created_at: "2026-09-03T17:50:28.655Z"
+updated_at: "2026-09-03T17:50:47.115Z"
+closed_at: "2026-09-03T17:50:47.102Z"
+completed_at: "2026-09-03T17:50:47.102Z"
+author: pi-agent
+acceptance_criteria: "Both alerts are closed by CodeQL on a scan of main rather than dismissed; no execSync call in this file interpolates a path into a command string; and the full suite still passes, since the entrypoint tests are the ones that exercise the merge-driver preparation hook end to end"
+risk: medium
+comments[1]{created_at,author,text}:
+  "2026-09-03T17:50:45.599Z","harness:claude-code","Chose the rewrite over a dismissal, and the reasoning is worth recording because the alerts sit in test code and a dismissal was the defensible-looking option. execFileSync with an argument array hands the executable path to execve verbatim; there is no shell, so there is no quoting to get right and no metacharacter that can change the command's shape. That eliminates the class rather than escaping around it, which is what a dismissal would have done in prose.\n\nVerified after the change: 432 tests pass with 0 failures, and the coverage gate reports 13 source files at 100 percent with thresholds met, so nothing was traded away for the rewrite. The execSync import remains because it is still referenced as a type in three casts, not as a call."
+docs[2]{path,scope,note}:
+  "https://github.com/unbraind/pm-ops/security/code-scanning/1",project,CodeQL alert 1 js/shell-command-injection-from-environment line 160
+  "https://github.com/unbraind/pm-ops/security/code-scanning/2",project,CodeQL alert 2 same rule line 181
+close_reason: "Replaced the interpolated execSync command string with an execFileSync argument array, so the entrypoint path reaches execve literally and no shell parses it. 432 tests pass, coverage gate still 100 percent across 13 files."
+body: ""
