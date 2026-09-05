@@ -2,12 +2,21 @@ id: ops-7qhw
 title: "Confirm CodeQL closes both shell-injection alerts on a scan of main, rather than assuming the rewrite closed them"
 description: "The rewrite that removed the interpolated shell command from the merge-driver entrypoint test is complete and verified by execution: 432 tests pass and the coverage gate reports 13 source files at 100 percent. What is not verified is the thing the alerts actually measure. CodeQL alerts 1 and 2 are evaluated against main, and no scan of main has run since the change, so their state today reflects the code before it.\n\nThis distinction is not pedantry, and this fleet has the counterexample. A resource-exhaustion alert in pm-slack survived the fix that was supposed to close it: the clamp was applied at one call site while the query anchors on the helper every other caller can reach, and the alert stayed open through a later successful CodeQL run. Reading a fix as a closure without waiting for the scanner would have recorded that one as resolved while the reachable path was still there.\n\nSeparated from the implementation item deliberately. The rewrite either does or does not remove the construction, and that is decided by reading the diff and running the suite. Whether the scanner agrees is a different question answered by a different system at a later time, and folding the two into one acceptance criterion means the implementation item cannot close until an external scan runs — which is how items sit open for weeks with nothing to do."
 type: Task
-status: open
+status: closed
 priority: 2
 tags[2]: security,verification
 created_at: "2026-09-03T18:47:07.947Z"
-updated_at: "2026-09-03T18:47:07.947Z"
+updated_at: "2026-09-03T20:10:42.081Z"
+closed_at: "2026-09-03T19:58:58.895Z"
+completed_at: "2026-09-03T19:58:58.895Z"
 author: "harness:claude-code"
-acceptance_criteria: "A CodeQL scan of main has completed after the merge; the GitHub API reports both alert 1 and alert 2 with state closed and a fixed_at timestamp, rather than dismissed; and if either remains open the reason is investigated as a real reachable path rather than dismissed as a scanner limitation"
+acceptance_criteria: "A CodeQL scan of main has completed after the merge; the GitHub API reports both alert 1 and alert 2 with state fixed and a fixed_at timestamp, rather than dismissed; and if either remains open the reason is investigated as a real reachable path rather than dismissed as a scanner limitation"
 risk: low
+resolution: "The execFileSync rewrite removed the shell-command construction, and a post-merge CodeQL scan confirmed it."
+expected_result: "Both alerts report state fixed with a fixed_at timestamp rather than dismissed, after a scan of main."
+actual_result: "Alerts 1 and 2 both report state fixed, fixed_at 2026-09-03T19:20:43Z."
+comments[2]{created_at,author,text}:
+  "2026-09-03T19:58:58.343Z","harness:claude-code","Confirmed. CodeQL reports both alerts with state fixed and fixed_at 2026-09-03T19:20:43Z on a scan of main after the merge, not dismissed. The rewrite to execFileSync with an argument array removed the construction the query describes rather than escaping around it, and the scanner agrees.\n\nRecording why this item existed separately from the implementation item, since it has now served its purpose: the rewrite either does or does not remove the construction, which reading the diff and running the suite can decide, while whether the scanner agrees is answered by a different system at a later time. Folding the two into one criterion would have kept the implementation item open until an external scan ran. In this fleet that distinction has already mattered once — a resource-exhaustion alert in pm-slack survived the fix meant to close it and stayed open through a later successful CodeQL run, so treating a merge as a closure would have recorded it as resolved while the reachable path was still there."
+  "2026-09-03T20:10:42.081Z","harness:claude-code","Corrected the terminology throughout, on CodeRabbit's finding. The GitHub code-scanning API's terminal state for an alert a scan no longer reports is fixed, not closed, and closed is not a value that field takes — so a criterion written against closed could never be satisfied literally, and would have been read as satisfied only by someone translating it silently. The recorded actual_result and close_reason already said fixed because they were written from the API response; the criterion and expected_result were written from prose. That mismatch between what a field asserts and what the system emits is precisely the class this item was split out to avoid."
+close_reason: "CodeQL reports both alerts fixed with fixed_at 2026-09-03T19:20:43Z on a scan of main, not dismissed."
 body: ""

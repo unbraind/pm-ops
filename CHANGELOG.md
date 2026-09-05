@@ -4,6 +4,7 @@
 
 ### Security
 
+- Confirm CodeQL closes both shell-injection alerts on a scan of main, rather than assuming the rewrite closed them ([ops-7qhw](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-7qhw.toon))
 - The merge-driver test builds a shell command from an environment-controlled path, which is the pattern this repository asks every other one to stop using ([ops-6no1](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-6no1.toon))
 
 ## 2026.9.2 - 2026-09-02
