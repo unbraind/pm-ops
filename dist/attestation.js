@@ -26,6 +26,38 @@ export const ATTESTATION_FLAG = "--provenance";
 /** Publishers other than npm, which this repository has no attested path for. */
 export const FOREIGN_PUBLISHERS = new Set(["yarn", "pnpm", "bun"]);
 /** Repository subtrees whose contents are build output rather than a publish path. */
+/**
+ * Interpreters whose shebang means the file's body is written in shell.
+ *
+ * A shebang says a file executes; it does not say it executes AS SHELL. This
+ * scan tokenises with a shell grammar, so honouring every shebang put programs
+ * written in other languages through a parser that cannot represent them.
+ *
+ * That was harmless only while an unresolved command position was skipped.
+ * Once the scan began auditing what it cannot resolve -- which is the property
+ * that closes the variable-routed publish bypasses -- a TypeScript template
+ * literal such as `${violation.file} publish` read as an unresolved program
+ * followed by the word `publish`, and the gate failed on a file that runs no
+ * shell at all. Every repository in the fleet carries at least one
+ * `#!/usr/bin/env node` file, so that is a fleet-wide false failure rather
+ * than a corner case, and a false failure here blocks every release.
+ *
+ * Nothing real is lost by narrowing. A shell script with an extension is still
+ * matched by {@link EXECUTABLE_PATHS}; what the shebang branch adds is the
+ * EXTENSIONLESS shell script, which is exactly what this set still admits.
+ * Finding a publish inside a Node program is a genuine and separate problem
+ * that needs spawn-call recognition, and shell-tokenising TypeScript never
+ * solved it -- it only produced noise that was invisible until the scan
+ * started trusting it.
+ */
+const SHELL_INTERPRETERS = new Set(["sh", "bash", "dash", "zsh", "ksh", "mksh", "ash"]);
+/**
+ * The final path segment of a word, so an interpreter is compared by name.
+ *
+ * @param word - A shebang word, which may be a bare name or any path to one.
+ * @returns The segment after the last `/`, or the whole word when it has none.
+ */
+const leafName = (word) => word.slice(word.lastIndexOf("/") + 1);
 const GENERATED_PREFIXES = ["dist/", "coverage/", "node_modules/", ".agents/pm/runtime/"];
 /**
  * The workflow-shaped path patterns whose `run:` blocks GitHub Actions
@@ -517,7 +549,8 @@ export function auditPublishAttestation(sources) {
  * audited, and because the workflow's own attested publish satisfied the
  * non-vacuity check the gate still reported that every invocation was attested.
  * Auditing every shape that can execute closes that, and a shebang is honoured
- * so an extensionless tracked script is not a blind spot either.
+ * so an extensionless tracked script is not a blind spot either -- but only a
+ * shebang naming a SHELL, for the reason {@link SHELL_INTERPRETERS} gives.
  *
  * Build output is excluded. `dist/` is generated from sources this scan already
  * reads, it is regenerated and compared byte-for-byte on the release path, and
@@ -530,12 +563,26 @@ export function auditPublishAttestation(sources) {
 export function isExecutableSource(path, firstLine) {
     if (GENERATED_PREFIXES.some((prefix) => path.startsWith(prefix)))
         return false;
-    if (firstLine.startsWith("#!"))
-        return true;
+    if (firstLine.startsWith("#!")) {
+        // The interpreter the shebang names, stepping over `env` and its options so
+        // `#!/usr/bin/env -S bash -eu` names `bash` rather than `-S`. Only the final
+        // path segment is compared, since the same interpreter is reached as `sh`,
+        // `/bin/sh` and `/usr/local/bin/sh`.
+        const words = firstLine.slice(2).trim().split(/\s+/).filter((word) => word.length > 0);
+        let index = 0;
+        if (words[index] !== undefined && leafName(words[index]) === "env") {
+            index += 1;
+            while (words[index] !== undefined && words[index].startsWith("-"))
+                index += 1;
+        }
+        const interpreter = words[index];
+        if (interpreter !== undefined && SHELL_INTERPRETERS.has(leafName(interpreter)))
+            return true;
+    }
     return EXECUTABLE_PATHS.some((pattern) => pattern.test(path));
 }
 /**
- * Read the first two bytes of a file, or nothing when it cannot be read.
+ * Read a file's first line, or nothing when it cannot be read.
  *
  * Only a shebang is being looked for, so the whole file is never loaded --
  * `git ls-files` can name a large tracked asset, and this runs once per
@@ -548,15 +595,25 @@ export function isExecutableSource(path, firstLine) {
  * report as an untested branch.
  *
  * @param file - Absolute path to read.
- * @returns The first two bytes as text, or an empty string.
+ * @returns The file's first line, or an empty string when it cannot be read.
  */
 function firstBytes(file) {
     try {
         const handle = openSync(file, "r");
         try {
-            const buffer = Buffer.alloc(2);
-            readSync(handle, buffer, 0, 2, 0);
-            return buffer.toString("utf8");
+            // The whole shebang LINE, not the `#!` marker. Reading two bytes was
+            // enough while any shebang counted as shell, but the interpreter decides
+            // that now, and handing this function's caller `"#!"` would make every
+            // shebang unrecognisable -- silently dropping extensionless shell
+            // scripts from the scan, which is the fail-open direction.
+            //
+            // 256 bytes is the kernel's own shebang limit (BINPRM_BUF_SIZE), so a
+            // line the loader would truncate is a line this cannot need more of.
+            const buffer = Buffer.alloc(256);
+            const read = readSync(handle, buffer, 0, 256, 0);
+            const text = buffer.toString("utf8", 0, read);
+            const end = text.indexOf("\n");
+            return end === -1 ? text : text.slice(0, end);
         }
         finally {
             closeSync(handle);

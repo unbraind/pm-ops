@@ -491,6 +491,45 @@ test("isExecutableSource recognises the shapes that can run a command", () => {
   assert.equal(isExecutableSource("coverage/x.sh", ""), false);
 });
 
+test("only a shebang naming a shell makes a file shell, because the scan parses shell", () => {
+  // A shebang says a file EXECUTES; it does not say it executes as shell. Once
+  // the scan began auditing command positions it cannot resolve, honouring
+  // every shebang meant a TypeScript template literal was read as an
+  // unresolved program followed by a word -- see the end-to-end case below.
+  for (const line of ["#!/usr/bin/env bash", "#!/bin/sh", "#!/bin/sh -e", "#! /bin/bash", "#!/usr/bin/env -S bash -eu", "#!/usr/bin/env  zsh", "#!/usr/local/bin/dash", "#!/bin/ksh"]) {
+    assert.equal(isExecutableSource("tools/release", line), true, line);
+  }
+  for (const line of ["#!/usr/bin/env node", "#!/usr/bin/python3", "#!/usr/bin/env ruby", "#!/usr/bin/env -S pnpm exec tsx", "#!/usr/bin/env -S node --loader tsx", "#!/usr/bin/env", "#!"]) {
+    assert.equal(isExecutableSource("scripts/gate.ts", line), false, line);
+  }
+  // The extension still decides on its own, so narrowing the shebang branch
+  // takes nothing away from a shell script that is named like one.
+  assert.equal(isExecutableSource("scripts/gate.sh", "#!/usr/bin/env node"), true, "an extension still matches");
+});
+
+test("a Node script is not audited as shell, while a shell script still is", () => {
+  // The regression this pins: every fleet repository carries at least one
+  // `#!/usr/bin/env node` file, and a template literal in one of them read as
+  // an unresolved command position followed by `publish`, failing the gate on
+  // a file that runs no shell at all.
+  const nodeScript = "#!/usr/bin/env node\nconst message = `${violation.file}:${violation.line} publish`;\n";
+  const root = trackedFixture({ ".github/workflows/release.yml": `          ${ATTESTED}`, "scripts/gate.ts": nodeScript });
+  try {
+    assert.deepEqual(verify(root).failures, [], "a Node script must not be tokenised as shell");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+  // The other direction: an extensionless SHELL script is still scanned, which
+  // is the blind spot the shebang branch exists to close.
+  const shellScript = "#!/usr/bin/env bash\nnpm publish\n";
+  const shellRoot = trackedFixture({ ".github/workflows/release.yml": `          ${ATTESTED}`, "tools/release": shellScript });
+  try {
+    assert.equal(verify(shellRoot).failures.length, 1, "an extensionless shell script is still audited");
+  } finally {
+    rmSync(shellRoot, { recursive: true, force: true });
+  }
+});
+
 test("verify reads the tracked files and fails on an unattested one", () => {
   const root = trackedFixture({ ".github/workflows/release.yml": `          ${UNATTESTED}`, "package.json": "{}" });
   try {
