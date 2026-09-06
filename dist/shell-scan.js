@@ -198,14 +198,16 @@ export function tokenizeCommands(text, depth = 0) {
     let command = [];
     let value = "";
     let quoted = false;
+    let unresolved = false;
     let startsQuoted = false;
     let started = false;
     const endWord = () => {
         if (!started)
             return;
-        command.push({ value, quoted, startsQuoted });
+        command.push(unresolved ? { value, quoted, unresolved, startsQuoted } : { value, quoted, startsQuoted });
         value = "";
         quoted = false;
+        unresolved = false;
         startsQuoted = false;
         started = false;
     };
@@ -264,10 +266,16 @@ export function tokenizeCommands(text, depth = 0) {
                 }
                 if (inner === "`" || (inner === "$" && text[index + 1] === "(")) {
                     const { inner: body, end } = readSubstitution(text, index);
-                    nested.push(body);
+                    // `$((...))` is arithmetic expansion, not a command substitution;
+                    // its expression must not be recursively invented as a command.
+                    if (inner === "`" || text[index + 2] !== "(")
+                        nested.push(body);
+                    unresolved = true;
                     index = end;
                     continue;
                 }
+                if (inner === "$")
+                    unresolved = true;
                 value += inner;
                 index += 1;
             }
@@ -279,18 +287,57 @@ export function tokenizeCommands(text, depth = 0) {
         }
         if (character === "`" || (character === "$" && text[index + 1] === "(")) {
             const { inner, end } = readSubstitution(text, index);
-            nested.push(inner);
+            // Arithmetic expansion has the same `$(` prefix but executes no command.
+            if (character === "`" || text[index + 2] !== "(")
+                nested.push(inner);
+            unresolved = true;
             index = end - 1;
             if (!started)
                 startsQuoted = false;
             started = true;
             continue;
         }
+        if (character === "$" && text[index + 1] === "{") {
+            // Braces delimit a parameter expansion, not a brace-group command. Keep
+            // the whole unresolved word together so command-position provenance is
+            // not shattered into `$`, a variable name, and a literal argument.
+            let end = index + 2;
+            let depth = 1;
+            while (end < text.length && depth > 0) {
+                if (text[end] === "\\")
+                    end += 2;
+                else {
+                    if (text[end] === "{")
+                        depth += 1;
+                    else if (text[end] === "}")
+                        depth -= 1;
+                    end += 1;
+                }
+            }
+            value += text.slice(index, end);
+            unresolved = true;
+            if (!started)
+                startsQuoted = false;
+            started = true;
+            index = end - 1;
+            continue;
+        }
+        if (character === "$")
+            unresolved = true;
         if (character === " " || character === "\t" || character === "\r") {
             endWord();
             continue;
         }
         if (isOperatorStart(character)) {
+            // `&&` and `||` inside `[[ ... ]]` are conditional operators, not
+            // simple-command separators. Splitting there promotes a compared
+            // expansion into command position and creates a phantom opaque command.
+            if ((character === "&" || character === "|")
+                && command.some((token) => token.value === "[[")
+                && !command.some((token) => token.value === "]]")) {
+                endWord();
+                continue;
+            }
             // `2>&1` is one redirection, not a command ended by a backgrounding `&`.
             // The `&` belongs to the word only while that word is still an operator
             // awaiting its target.
@@ -433,18 +480,18 @@ function skipCommandPrefix(command) {
             index += 1;
             continue;
         }
-        // A YAML key carries the command as its value: `run: npm publish` runs npm,
-        // and reading `run:` as the program audits nothing. Workflow files are
-        // scanned as raw text, so the key is a word like any other. Only a leading
-        // key is consumed, and only one, so an argument that merely ends in a colon
-        // is untouched.
-        // A YAML list marker precedes the key on the same line: `- run: npm publish`.
+        // The YAML `run` key carries executable shell text as its value:
+        // `run: npm publish` runs npm, and reading `run:` as the program audits
+        // nothing. No other key is consumed: treating metadata such as
+        // `node-version: ${{ matrix.node-version }}` as shell would turn its value
+        // into a phantom unresolved command position. A list marker may precede
+        // the run key on the same line: `- run: npm publish`.
         if (index === 0 && !token.startsQuoted && token.value === "-") {
             sawPrefix = true;
             index += 1;
             continue;
         }
-        if (index <= 1 && !token.startsQuoted && /^[A-Za-z_][A-Za-z0-9_-]*:$/.test(token.value)) {
+        if (index <= 1 && !token.startsQuoted && token.value === "run:") {
             sawPrefix = true;
             index += 1;
             continue;
@@ -842,6 +889,18 @@ export function literalScalarAssignments(segment) {
     if (segment.includes("$(") || segment.includes("`"))
         return assignments;
     const commands = tokenizeCommands(segment);
+    const direct = commands.length === 1 ? commands[0] : undefined;
+    if (direct !== undefined && direct.length > 1 && commandName(direct) === undefined) {
+        // An assignment-only simple command persists every binding. In contrast,
+        // the same words before a real command are only that command's environment
+        // and must not enter the parent shell's scalar map.
+        for (const token of direct) {
+            const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/u.exec(token.value);
+            if (match === null || token.startsQuoted || token.unresolved === true || /[$`"'(){};&|<>#]/u.test(match[2]))
+                continue;
+            assignments.set(match[1], match[2]);
+        }
+    }
     for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {
         const command = commands[commandIndex];
         let index = 0;

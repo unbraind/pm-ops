@@ -922,7 +922,7 @@ test("a scalar is taken only from a line that is exactly one literal assignment"
   // Both leaks were false passes end to end, not merely wrong map entries.
   for (const text of [
     ["          FLAG=--provenance some-command", "          npm publish --access public $FLAG"],
-    ["          $(FLAG=--provenance)", "          npm publish --access public $FLAG"],
+    ["          sink=$(FLAG=--provenance)", "          npm publish --access public $FLAG"],
   ]) {
     const result = auditPublishAttestation([{ file: "release.yml", text: text.join("\n") }]);
     assert.equal(result.failures.length, 1, `a publish flagged only by ${text[0]!.trim()} is unattested`);

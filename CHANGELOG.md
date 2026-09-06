@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Fail closed on unresolved publish command positions ([ops-9onb](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-9onb.toon))
+
 ## 2026.9.5 - 2026-09-05
 
 ### Security

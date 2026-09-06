@@ -364,14 +364,27 @@ function publishInvocationsInShell(source, raw) {
         // value (`sudo -u root npm publish`) moves the program past where naming it
         // once would look. Missing a publish is a failed audit; offering one that no
         // shell would run is noise an operator dismisses.
+        const primaryProgram = commandName(command);
         for (const candidate of commandCandidates(command)) {
             const program = commandName(candidate);
             if (program === undefined)
                 continue;
-            const unresolvedProgram = program.startsWith("$");
+            // Secondary candidate readings compensate for unknown wrapper options;
+            // they are not the tokeniser's identified command position. Otherwise an
+            // unresolved argument after a literal program (`npm publish $FLAG`) would
+            // be reported twice, once as the real publish and once as a phantom whole
+            // command. A genuinely unresolved primary position remains fail-closed.
+            const unresolvedProgram = program === primaryProgram
+                && (program.startsWith("$") || (program.length === 0 && candidate[0]?.unresolved === true));
             if (program !== "npm" && !FOREIGN_PUBLISHERS.has(program) && !unresolvedProgram)
                 continue;
-            if (!isPublishCommand(candidate))
+            // A fully literal program must name a publisher and carry the publish
+            // subcommand. An unresolved command position cannot prove either fact:
+            // `$CMD` may expand to the whole `npm publish` command with no literal
+            // argument left for isPublishCommand to inspect, so it is audited
+            // unconditionally. This intentionally spends noise instead of allowing a
+            // silent unattested release.
+            if (!unresolvedProgram && !isPublishCommand(candidate))
                 continue;
             // Not de-duplicated: two identical publish lines are two invocations, and
             // collapsing them would report one of them as if the other did not exist.

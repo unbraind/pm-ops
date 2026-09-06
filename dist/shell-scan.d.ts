@@ -38,6 +38,14 @@ export interface ShellToken {
     /** True when any part of the word came from inside quotes. */
     quoted: boolean;
     /**
+     * True when the word contains expansion whose result cannot be proven.
+     *
+     * Auditors need this provenance after tokenisation: an empty command
+     * substitution and a literal empty word have the same value but radically
+     * different security meaning in command position.
+     */
+    unresolved?: boolean;
+    /**
      * True when the word's FIRST character came from inside quotes.
      *
      * `quoted` alone cannot tell an assignment apart from a literal that merely
