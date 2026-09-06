@@ -894,4 +894,14 @@ jobs:
       # rather than being folded into a change about detection.
       - name: Audit release completeness
         if: always()
+        # Without this the audit's `gh` calls abort with "To use GitHub CLI in a
+        # GitHub Actions workflow, set the GH_TOKEN environment variable", the
+        # script exits 1 before auditing anything, and the job reports failure.
+        # It did that on every run from 2026-08-31 to 2026-09-06 while the
+        # release itself succeeded, so this gate had never executed once and a
+        # permanently red release job hid two genuine failures - a failed
+        # "Run release checks" and a failed "Merge release metadata through
+        # protected PR" - inside the noise.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: npm run verify:release-completeness
