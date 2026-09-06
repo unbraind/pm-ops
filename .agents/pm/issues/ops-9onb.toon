@@ -1,0 +1,28 @@
+id: ops-9onb
+title: Fail closed on unresolved publish command positions
+description: "The canonical publish-attestation auditor false-passes braced variable commands, command substitutions, backticks, and whole-command expansions after multi-assignment binding because tokenizeCommands erases or shatters unresolved command-position evidence."
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-09-06T05:02:48.026Z"
+updated_at: "2026-09-06T05:22:29.137Z"
+closed_at: "2026-09-06T05:22:28.504Z"
+completed_at: "2026-09-06T05:22:28.504Z"
+author: pi-agent
+resolution: "Preserve unresolved command-position provenance through tokenization, audit unresolved primary programs fail-closed, and persist all bindings only for assignment-only commands."
+expected_result: All 13 probe cases produce the expected catch/pass outcome without regressions.
+actual_result: ALL-CORRECT; dedicated revert tests fail against the prior source; mandatory pre-changelog gates pass.
+comments[2]{created_at,author,text}:
+  "2026-09-06T05:03:32.274Z",pi-agent,"Measured shipped behavior: ${NPM} publish tokenizes as [[\"$\"],[\"NPM\"],[\"publish\"]]; ${NPM:-npm} publish as [[\"$\"],[\"NPM:-npm\"],[\"publish\"]]; $(which npm) publish and backtick substitution each leave an empty command-position token; only plain $NPM remains identifiable. These produce false passes when paired with an attested sibling publish. A whole $CMD after CMD=\"npm publish\" CI=1 also false-passes."
+  "2026-09-06T05:19:31.653Z",pi-agent,"Implemented unresolved-token provenance, kept braced parameter expansions intact, retained empty substitution command positions as unresolved, fail-closed whole-command handling, all assignment-only bindings, and arithmetic/test/YAML command-position distinctions. The built 13-case probe now prints ALL-CORRECT. Source-only revert check made all five dedicated regression tests fail; suite result was 65 pass / 6 fail, with the sixth failure from the tokenizer aggregate assertions."
+files[4]{path,scope}:
+  attestation.ts,project
+  shell-scan.ts,project
+  test/attestation-union.test.ts,project
+  test/verify-release-publish-attestation.test.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/*.test.ts,project,pi-agent,"2026-09-06T05:19:30.297Z",local_mutation,fix/audit-unresolved-command-positions
+  npm run coverage,project,pi-agent,"2026-09-06T05:19:30.911Z",local_mutation,fix/audit-unresolved-command-positions
+close_reason: "Closed five measured publish-attestation false passes; built probe is ALL-CORRECT, five dedicated tests fail on source revert, full suite and 100% coverage pass."
+body: ""

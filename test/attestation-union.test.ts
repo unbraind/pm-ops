@@ -369,6 +369,11 @@ test("unterminated and nested substitutions terminate instead of reading past th
   assert.deepEqual(words("cmd `unterminated"), [["cmd", ""], ["unterminated"]], "an unterminated backtick still scans its body");
   assert.deepEqual(words("a $(echo $(npm publish)) b"), [["a", "", "b"], ["echo", ""], ["npm", "publish"]], "nesting is counted, so the inner command survives");
   assert.deepEqual(words("a $(echo \\) x) b"), [["a", "", "b"], ["echo", ")", "x"]], "an escaped paren does not close the substitution");
+  assert.deepEqual(words("value=$((10#$year))"), [["value="]], "arithmetic expansion is not recursively scanned as a command");
+  assert.deepEqual(words('value="$((10#$year))"'), [["value="]], "quoted arithmetic expansion is not a command either");
+  assert.deepEqual(words('[[ -n "$value" && "$value" != null || "$fallback" ]]'),
+    [["[[", "-n", "$value", "$value", "!=", "null", "$fallback", "]]" ]],
+    "conditional operators inside double brackets do not promote operands to command position");
 });
 
 test("a tracked path that cannot be opened is skipped rather than taking the gate down", () => {
@@ -661,6 +666,44 @@ test("a command held in a scalar is expanded, so the assignment is where the pub
     }]).failures.length,
     1,
   );
+});
+
+test("a braced unresolved program is audited as a possible publish", () => {
+  const text = `${ATTESTED}\n\${NPM} publish`;
+  assert.equal(auditPublishAttestation([{ file: "release.yml", text }]).failures.length, 1);
+  const command = tokenizeCommands('${NPM} publish')[0]!;
+  assert.deepEqual(command.map((token) => token.value), ["${NPM}", "publish"]);
+  assert.deepEqual(command[0], { value: "${NPM}", quoted: false, unresolved: true, startsQuoted: false });
+});
+
+test("a braced default program is audited as a possible publish", () => {
+  const text = `${ATTESTED}\n\${NPM:-npm} publish`;
+  assert.equal(auditPublishAttestation([{ file: "release.yml", text }]).failures.length, 1);
+  assert.deepEqual(tokenizeCommands('${NPM:-npm} publish').map((command) => command.map((token) => token.value)), [["${NPM:-npm}", "publish"]]);
+  assert.deepEqual(tokenizeCommands('${OUTER:-${INNER}} publish')[0]!.map((token) => token.value), ["${OUTER:-${INNER}}", "publish"],
+    "nested parameter braces remain one unresolved word");
+  assert.deepEqual(tokenizeCommands('${NPM\\}} publish')[0]!.map((token) => token.value), ["${NPM\\}}", "publish"],
+    "an escaped brace does not end the expansion early");
+  assert.equal(tokenizeCommands('${NPM')[0]![0]!.value, "${NPM", "an unterminated expansion remains identifiable");
+});
+
+test("a command substitution in program position is audited as a possible publish", () => {
+  const text = `${ATTESTED}\n$(which npm) publish`;
+  assert.equal(auditPublishAttestation([{ file: "release.yml", text }]).failures.length, 1);
+  assert.deepEqual(tokenizeCommands("$(which npm) publish")[0]![0], { value: "", quoted: false, unresolved: true, startsQuoted: false });
+});
+
+test("a backtick substitution in program position is audited as a possible publish", () => {
+  const text = `${ATTESTED}\n\`which npm\` publish`;
+  assert.equal(auditPublishAttestation([{ file: "release.yml", text }]).failures.length, 1);
+  assert.deepEqual(tokenizeCommands("`which npm` publish")[0]![0], { value: "", quoted: false, unresolved: true, startsQuoted: false });
+});
+
+test("every binding in a multi-assignment-only command persists", () => {
+  const text = `${ATTESTED}\nCMD="npm publish" CI=1\n$CMD`;
+  assert.equal(auditPublishAttestation([{ file: "release.yml", text }]).failures.length, 1);
+  assert.deepEqual([...shellScalars('CMD="npm publish" CI=1\n')], [["CMD", "npm publish"], ["CI", "1"]]);
+  assert.equal(shellScalars("CI=1 npm publish\n").get("CI"), undefined, "a prefix assignment on a real command does not persist");
 });
 
 test("a workflow key carries the command as its value, and is not the command", () => {
@@ -1007,7 +1050,7 @@ test("a scalar is taken only from a line that is exactly one literal assignment"
   // Both leaks were false passes end to end, not merely wrong map entries.
   for (const text of [
     ["          FLAG=--provenance some-command", "          npm publish --access public $FLAG"],
-    ["          $(FLAG=--provenance)", "          npm publish --access public $FLAG"],
+    ["          sink=$(FLAG=--provenance)", "          npm publish --access public $FLAG"],
   ]) {
     const result = auditPublishAttestation([{ file: "release.yml", text: text.join("\n") }]);
     assert.equal(result.failures.length, 1, `a publish flagged only by ${text[0]!.trim()} is unattested`);
