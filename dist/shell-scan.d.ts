@@ -78,6 +78,20 @@ export type ShellCommand = ShellToken[];
  */
 export declare function tokenizeCommands(text: string, depth?: number): ShellCommand[];
 /**
+ * Whether a command's program is reached through a spawning wrapper.
+ *
+ * `xargs npm` and `parallel npm` name a publisher whose arguments arrive on
+ * stdin (or via `-a`/`--arg-file`), so the scanner can never see a literal
+ * `publish` word. The wrapper was already consumed by the prefix walk; this
+ * surfaces the flag it set, so an auditor treats the argument list as
+ * unresolved the way `$CMD` makes the program unresolved -- without a separate
+ * pipe-or-stdin detector.
+ *
+ * @param input - One simple command's tokens.
+ * @returns True when a spawning wrapper precedes the program word.
+ */
+export declare function spawnedAsCommand(input: ShellCommand): boolean;
+/**
  * Name the program a command runs, or nothing when it runs none.
  *
  * Leading `NAME=value` assignments and wrapper words are skipped, and a path is

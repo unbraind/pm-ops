@@ -61,6 +61,7 @@ const COMMAND_PREFIXES = new Set([
     "timeout",
     "setsid",
     "xargs",
+    "parallel",
     "npx",
     "bunx",
     "pnpx",
@@ -92,6 +93,28 @@ const TWO_WORD_PREFIXES = new Map([
     ["bun", new Set(["x", "run"])],
 ]);
 /**
+ * Wrappers that run a NAMED program with an argument list the scanner cannot
+ * resolve.
+ *
+ * `env npm publish` and `sudo npm publish` carry their arguments on the same
+ * line, so a literal `publish` word is still there to be found. `xargs npm` and
+ * `parallel npm` do not: the program's arguments arrive on stdin (or via
+ * `-a`/`--arg-file`), so the word `publish` is never on the command line at
+ * all. A scanner that dismisses the command unless it sees a literal `publish`
+ * lets an unattested publish run behind the wrapper while an attested sibling
+ * elsewhere in the file carries the audit to green.
+ *
+ * This is the same property as an unresolved PROGRAM position one level down:
+ * the program is named, but its arguments are not, so the invocation cannot be
+ * shown not to be a publish and is audited without requiring a literal
+ * subcommand. `xargs` under its own flags (`-n`, `-I{}`, `-0`, `-P`, `-a`,
+ * `--arg-file`) is still a spawning wrapper -- the flags are skipped as wrapper
+ * options, not mistaken for the program -- so the set holds the wrapper name,
+ * not a flag-by-flag enumeration. The check never depends on a pipe being
+ * present: `xargs npm < file` draws its arguments from a redirection instead.
+ */
+const SPAWNING_WRAPPERS = new Set(["xargs", "parallel"]);
+/**
  * Reduce a program word to the name it runs.
  *
  * `/usr/local/bin/npm publish` runs npm, so a check against the whole word
@@ -117,6 +140,25 @@ function isOperatorStart(character) {
         || character === ")"
         || character === "{"
         || character === "}";
+}
+/**
+ * Whether the character after a brace forces the brace to be a complete word.
+ *
+ * `{` and `}` are reserved WORDS, not metacharacters, so they delimit a brace
+ * group only when they stand alone. A brace is a complete word when the next
+ * character is whitespace, end-of-input, or a metacharacter that itself always
+ * ends a word -- but NOT another brace, because `{}` is one literal word, not an
+ * empty group followed by a closer.
+ *
+ * @param character - The character following a `{` or `}`, or undefined.
+ * @returns True when the brace is a standalone word rather than part of a larger one.
+ */
+function isBraceBoundary(character) {
+    if (character === undefined)
+        return true;
+    return character === " " || character === "\t" || character === "\r"
+        || character === ";" || character === "&" || character === "|"
+        || character === "\n" || character === "(" || character === ")";
 }
 /**
  * Read a `$(...)` or backtick substitution and return its inner text.
@@ -329,9 +371,26 @@ export function tokenizeCommands(text, depth = 0) {
             continue;
         }
         if (isOperatorStart(character)) {
-            // `&&` and `||` inside `[[ ... ]]` are conditional operators, not
-            // simple-command separators. Splitting there promotes a compared
-            // expansion into command position and creates a phantom opaque command.
+            // `{` and `}` are reserved WORDS, not metacharacters: they delimit a
+            // brace group only as a complete standalone word in command position.
+            // A brace embedded in a larger word (`xargs -I{}`) is a literal, and a
+            // brace paired with no boundary (`{}`) is the literal word `{}` rather
+            // than an empty brace group -- treating the `{` as a command separator
+            // there shattered `xargs -I{}` into `xargs -I` and an empty group,
+            // leaving the named publisher `npm` as a separate command with no
+            // wrapper prefix and no literal `publish`, so the spawning wrapper
+            // escaped the audit. A brace is an operator only at a word start
+            // followed by a real metacharacter or whitespace, never by another brace.
+            // The other operator characters are metacharacters that always end a word.
+            if (character === "{" || character === "}") {
+                if (started || !isBraceBoundary(text[index + 1])) {
+                    value += character;
+                    if (!started)
+                        startsQuoted = false;
+                    started = true;
+                    continue;
+                }
+            }
             if ((character === "&" || character === "|")
                 && command.some((token) => token.value === "[[")
                 && !command.some((token) => token.value === "]]")) {
@@ -439,7 +498,7 @@ function withoutRedirections(command) {
     return kept;
 }
 /**
- * Walk past the words that precede the program a command runs.
+ * Walk the words that precede the program a command runs.
  *
  * Three kinds of word are not the program: a leading `NAME=value` assignment, a
  * wrapper listed in `COMMAND_PREFIXES`, and -- only once a wrapper has been
@@ -452,12 +511,20 @@ function withoutRedirections(command) {
  * because which options take a value differs per wrapper, and guessing wrong
  * would move the reported program rather than merely widen the search.
  *
+ * A {@link SPAWNING_WRAPPERS} wrapper (`xargs`, `parallel`) is consumed like any
+ * other prefix but also flagged: the program it names draws its arguments from
+ * stdin or a file rather than the command line, so a literal `publish` word is
+ * never present. That flag is what lets an auditor treat the argument list as
+ * unresolved without a parallel mechanism -- the prefix walk already knows the
+ * wrapper class.
+ *
  * @param command - One simple command's tokens.
- * @returns The index of the program word, or the command's length when there is none.
+ * @returns The program index and whether a spawning wrapper was consumed.
  */
-function skipCommandPrefix(command) {
+function scanCommandPrefix(command) {
     let index = 0;
     let sawPrefix = false;
+    let spawned = false;
     while (index < command.length) {
         const token = command[index];
         if (!token.startsQuoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(token.value)) {
@@ -465,6 +532,12 @@ function skipCommandPrefix(command) {
             continue;
         }
         const base = basename(token.value);
+        if (SPAWNING_WRAPPERS.has(base)) {
+            spawned = true;
+            sawPrefix = true;
+            index += 1;
+            continue;
+        }
         if (COMMAND_PREFIXES.has(base)) {
             sawPrefix = true;
             index += 1;
@@ -496,9 +569,34 @@ function skipCommandPrefix(command) {
             index += 1;
             continue;
         }
-        return index;
+        return { index, spawned };
     }
-    return index;
+    return { index, spawned };
+}
+/**
+ * Walk past the words that precede the program a command runs.
+ *
+ * @param command - One simple command's tokens.
+ * @returns The index of the program word, or the command's length when there is none.
+ */
+function skipCommandPrefix(command) {
+    return scanCommandPrefix(command).index;
+}
+/**
+ * Whether a command's program is reached through a spawning wrapper.
+ *
+ * `xargs npm` and `parallel npm` name a publisher whose arguments arrive on
+ * stdin (or via `-a`/`--arg-file`), so the scanner can never see a literal
+ * `publish` word. The wrapper was already consumed by the prefix walk; this
+ * surfaces the flag it set, so an auditor treats the argument list as
+ * unresolved the way `$CMD` makes the program unresolved -- without a separate
+ * pipe-or-stdin detector.
+ *
+ * @param input - One simple command's tokens.
+ * @returns True when a spawning wrapper precedes the program word.
+ */
+export function spawnedAsCommand(input) {
+    return scanCommandPrefix(withoutRedirections(input)).spawned;
 }
 /**
  * Name the program a command runs, or nothing when it runs none.

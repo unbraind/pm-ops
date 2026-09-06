@@ -1210,3 +1210,72 @@ test("an attested publish inside a nested case arm is still accepted", () => {
   }]);
   assert.deepEqual(result.failures, [], "a directly attested publish must not be refused");
 });
+
+test("a spawning wrapper leaves the argument list unresolved, so a named publisher behind it is audited without a literal publish", () => {
+  // The merged change established that a command position is dismissed only
+  // when it resolves to a fully literal program: `$CMD` in command position is
+  // audited unconditionally because it may expand to the whole `npm publish`.
+  // This is that property one level down. `xargs npm` and `parallel npm` NAME
+  // the publisher on the command line but draw its arguments from stdin (or a
+  // file), so the literal `publish` word is never there for isPublishCommand to
+  // find. A wrapper that spawns a named publisher with arguments the scanner
+  // cannot resolve cannot be shown not to be a publish, so it is audited
+  // without requiring a literal subcommand -- measured by execution against
+  // the shipped 2026.9.5 package, where each of these ran an unattested
+  // publish while an attested sibling carried the audit to green.
+  const escapes: Array<[string, string]> = [
+    ["xargs pipe", `${ATTESTED}\necho publish | xargs npm`],
+    ["xargs -n1", `${ATTESTED}\necho publish | xargs -n1 npm`],
+    ["xargs -I{}", `${ATTESTED}\necho publish | xargs -I{} npm {}`],
+    ["xargs redirection", `${ATTESTED}\nxargs npm < args.txt`],
+    ["parallel", `${ATTESTED}\necho publish | parallel npm`],
+    ["xargs yarn", `${ATTESTED}\necho publish | xargs yarn`],
+  ];
+  for (const [name, text] of escapes) {
+    const result = auditPublishAttestation([{ file: "release.yml", text }]);
+    assert.equal(result.failures.length, 1, `${name} should be caught: ${JSON.stringify(result.failures)}`);
+    assert.deepEqual(result.recognition, { kind: "recognized", count: 2 }, `${name} should recognize two invocations`);
+  }
+  // A non-spawning wrapper carries its arguments on the line, so it is not
+  // unresolved: env npm publish has a literal publish and is audited normally.
+  // xargs and parallel are both spawning wrappers, not a list with only xargs.
+  assert.equal(publishInvocationsIn({ file: "release.yml", text: "env npm publish" }).length, 1);
+  // xargs flags are wrapper options, not the program; -I{} stays one word
+  // because { embedded in a word is a literal, not a brace-group keyword.
+  assert.deepEqual(onlyCommand("xargs -I{} npm {}").map((t) => t.value), ["xargs", "-I{}", "npm", "{}"]);
+});
+
+test("a spawning wrapper behind a non-spawning wrapper's unknown option is still audited", () => {
+  // sudo -u root xargs npm: sudo's -u takes a value, so the primary reading
+  // names root, and the xargs is inside a secondary candidate. The spawning
+  // wrapper is found in the candidate's own prefix, not just the command's.
+  const result = auditPublishAttestation([{ file: "release.yml", text: `${ATTESTED}\nsudo -u root xargs npm` }]);
+  assert.equal(result.failures.length, 1, "a spawning wrapper nested behind an unknown option value must not escape");
+});
+
+test("a spawning wrapper does not refuse a non-publisher, so releases are not blocked", () => {
+  // This gate blocks releases in twenty repositories, so over-refusal is an
+  // outage. A spawning wrapper followed by a non-publisher is dismissed,
+  // because only a named publisher with unresolved arguments is a publish the
+  // scanner cannot disprove.
+  const safe: Array<[string, string]> = [
+    ["xargs rm", `${ATTESTED}\nfind . -name '*.tmp' | xargs rm -f`],
+    ["xargs git", `${ATTESTED}\necho main | xargs git checkout`],
+    ["unrelated subst", `${ATTESTED}\necho "$(git rev-parse HEAD)"`],
+    ["git push tags", `${ATTESTED}\ngit push --tags`],
+  ];
+  for (const [name, text] of safe) {
+    assert.deepEqual(
+      auditPublishAttestation([{ file: "release.yml", text }]).failures,
+      [],
+      `${name} should not be refused`,
+    );
+  }
+  // An attested publish reached through a spawning wrapper is still accepted:
+  // xargs npm publish --provenance carries the flag on the command line.
+  assert.deepEqual(
+    auditPublishAttestation([{ file: "release.yml", text: `${ATTESTED}\nxargs npm publish --provenance` }]).failures,
+    [],
+    "an attested publish behind a spawning wrapper is not refused",
+  );
+});

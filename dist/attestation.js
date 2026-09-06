@@ -20,7 +20,7 @@
 import { execFileSync } from "node:child_process";
 import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 import { resolve } from "node:path";
-import { bashArrays, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, dedentRunBlocks, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, joinContinuations, literalScalarAssignments, segmentShellLine, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
+import { bashArrays, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, dedentRunBlocks, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, joinContinuations, literalScalarAssignments, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
 /** The flag that attaches a build attestation to the published tarball. */
 export const ATTESTATION_FLAG = "--provenance";
 /** Publishers other than npm, which this repository has no attested path for. */
@@ -376,6 +376,21 @@ function publishInvocationsInShell(source, raw) {
             // command. A genuinely unresolved primary position remains fail-closed.
             const unresolvedProgram = program === primaryProgram
                 && (program.startsWith("$") || (program.length === 0 && candidate[0]?.unresolved === true));
+            // A spawning wrapper (`xargs npm`, `parallel npm`) names the publisher on
+            // the command line but draws its arguments from stdin or a file, so the
+            // literal `publish` word is never there for isPublishCommand to find. That
+            // leaves the argument list unresolved the way `$CMD` leaves the program
+            // unresolved, so a named publisher reached through such a wrapper is
+            // audited without requiring a literal subcommand. The wrapper may sit in
+            // the command's consumed prefix (`xargs npm`) or inside a candidate that a
+            // non-spawning wrapper's unknown option value re-pointed (`sudo -u root
+            // xargs npm`), so both the command and the candidate are tested. A
+            // non-publisher reached this way (`xargs rm -f`) is still dismissed: only
+            // a named publisher with unresolved arguments is a publish the scanner
+            // cannot disprove.
+            const unresolvedArguments = (program === "npm" || FOREIGN_PUBLISHERS.has(program))
+                && (spawnedAsCommand(command) || spawnedAsCommand(candidate));
+            const unresolved = unresolvedProgram || unresolvedArguments;
             if (program !== "npm" && !FOREIGN_PUBLISHERS.has(program) && !unresolvedProgram)
                 continue;
             // A fully literal program must name a publisher and carry the publish
@@ -383,8 +398,10 @@ function publishInvocationsInShell(source, raw) {
             // `$CMD` may expand to the whole `npm publish` command with no literal
             // argument left for isPublishCommand to inspect, so it is audited
             // unconditionally. This intentionally spends noise instead of allowing a
-            // silent unattested release.
-            if (!unresolvedProgram && !isPublishCommand(candidate))
+            // silent unattested release. The same holds one level down for a spawning
+            // wrapper: `xargs npm` cannot prove it is not `xargs npm publish`, so the
+            // argument list is audited unconditionally too.
+            if (!unresolved && !isPublishCommand(candidate))
                 continue;
             // Not de-duplicated: two identical publish lines are two invocations, and
             // collapsing them would report one of them as if the other did not exist.

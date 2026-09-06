@@ -38,6 +38,7 @@ import {
   segmentShellLine,
   type ShellCommand,
   type SourceFile,
+  spawnedAsCommand,
   startsEnclosingCaseArm,
   tokenizeCommands,
   unsetNames,
@@ -422,14 +423,31 @@ function publishInvocationsInShell(source: SourceFile, raw: string): PublishInvo
       // command. A genuinely unresolved primary position remains fail-closed.
       const unresolvedProgram = program === primaryProgram
         && (program.startsWith("$") || (program.length === 0 && candidate[0]?.unresolved === true));
+      // A spawning wrapper (`xargs npm`, `parallel npm`) names the publisher on
+      // the command line but draws its arguments from stdin or a file, so the
+      // literal `publish` word is never there for isPublishCommand to find. That
+      // leaves the argument list unresolved the way `$CMD` leaves the program
+      // unresolved, so a named publisher reached through such a wrapper is
+      // audited without requiring a literal subcommand. The wrapper may sit in
+      // the command's consumed prefix (`xargs npm`) or inside a candidate that a
+      // non-spawning wrapper's unknown option value re-pointed (`sudo -u root
+      // xargs npm`), so both the command and the candidate are tested. A
+      // non-publisher reached this way (`xargs rm -f`) is still dismissed: only
+      // a named publisher with unresolved arguments is a publish the scanner
+      // cannot disprove.
+      const unresolvedArguments = (program === "npm" || FOREIGN_PUBLISHERS.has(program))
+        && (spawnedAsCommand(command) || spawnedAsCommand(candidate));
+      const unresolved = unresolvedProgram || unresolvedArguments;
       if (program !== "npm" && !FOREIGN_PUBLISHERS.has(program) && !unresolvedProgram) continue;
       // A fully literal program must name a publisher and carry the publish
       // subcommand. An unresolved command position cannot prove either fact:
       // `$CMD` may expand to the whole `npm publish` command with no literal
       // argument left for isPublishCommand to inspect, so it is audited
       // unconditionally. This intentionally spends noise instead of allowing a
-      // silent unattested release.
-      if (!unresolvedProgram && !isPublishCommand(candidate)) continue;
+      // silent unattested release. The same holds one level down for a spawning
+      // wrapper: `xargs npm` cannot prove it is not `xargs npm publish`, so the
+      // argument list is audited unconditionally too.
+      if (!unresolved && !isPublishCommand(candidate)) continue;
       // Not de-duplicated: two identical publish lines are two invocations, and
       // collapsing them would report one of them as if the other did not exist.
       found.push({ file: source.file, program, command: candidate });

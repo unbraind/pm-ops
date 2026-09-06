@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- Audit xargs/parallel spawning wrappers that leave the publish argument list unresolved ([ops-3xs4](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3xs4.toon))
+
+## 2026.9.6 - 2026-09-06
+
+### Fixed
+
 - Fail closed on unresolved publish command positions ([ops-9onb](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-9onb.toon))
 
 ## 2026.9.5 - 2026-09-05
