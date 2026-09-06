@@ -11,3 +11,13 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      # `github/codeql-action/init` and `github/codeql-action/analyze` are
+      # separate dependency names that must run at the same version. Ungrouped
+      # they arrive as two independent pull requests and each fails alone on
+      # the version mismatch, with nothing in either indicating they must land
+      # together. The wildcard form (used by 18 of 22 fleet repos on
+      # 2026-09-06) matches both sub-actions in one update.
+      codeql-actions:
+        patterns:
+          - "github/codeql-action*"

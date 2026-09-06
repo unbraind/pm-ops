@@ -1,0 +1,21 @@
+id: ops-3xs4
+title: Audit xargs/parallel spawning wrappers that leave the publish argument list unresolved
+description: "Measured by execution against the just-merged auditor (v2026.9.5): an attested sibling publish is present so the non-vacuity guard passes, yet 'echo publish | xargs npm' runs an unattested publish because the scanner sees 'xargs npm' with no literal 'publish' argument and isPublishCommand returns false. The same case passes against the shipped 2026.9.5 package. eval, sh -c and $(which npm) are caught in both. This is pre-existing, not a regression: a wrapper that spawns a named publisher with arguments the scanner cannot resolve (xargs, parallel) cannot be shown not to be a publish, so it must be audited without requiring a literal publish argument. parallel is the same hazard and is not yet recognized as a wrapper prefix at all."
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-09-06T05:59:36.144Z"
+updated_at: "2026-09-06T05:59:59.837Z"
+closed_at: "2026-09-06T05:59:59.824Z"
+completed_at: "2026-09-06T05:59:59.824Z"
+claim_principal: pi-agent
+author: pi-agent
+resolution: "Added a spawning-wrapper notion (xargs, parallel) to the publish-attestation auditor: a named publisher reached through a wrapper that spawns its argument as a command has an unresolved argument list, so it is audited without requiring a literal publish subcommand, the same property as an unresolved command position one level down. parallel was added to COMMAND_PREFIXES so it is recognized as a wrapper at all. Fixed the tokenizer to treat { and } as reserved words (literals mid-word and when paired as {}), not metacharacters, so xargs -I{} stays one word. Also added the CodeQL actions dependabot group."
+expected_result: "Before: echo publish | xargs npm, xargs -n1 npm, xargs -I{} npm {}, xargs npm < file, parallel npm, xargs yarn all PASS the gate (false pass) against v2026.9.5. After: all six are CAUGHT. eval, sh -c, env, braced, cmd-subst, bare unattested remain caught. Must-pass: xargs rm -f, xargs git checkout, unrelated subst, git push --tags, attested, attested access, assign prefix all still PASS (no over-refusal)."
+actual_result: "Measured by execution: all 19 probe cases pass. Revert check (git stash of source) shows the two new caught-case tests FAIL on the reverted source and the must-pass test passes on both. Full suite 440 pass / 0 fail. Coverage 100%. typecheck, docstring, verify:release-publish-attestation all pass."
+files[2]{path,scope}:
+  shell-scan.ts,project
+  attestation.ts,project
+close_reason: "Added a spawning-wrapper notion (xargs, parallel) to the publish-attestation auditor: a named publisher reached through a wrapper that spawns its argument as a command has an unresolved argument list, so it is audited without requiring a literal publish subcommand, the same property as an unresolved command position one level down. parallel was added to COMMAND_PREFIXES so it is recognized as a wrapper at all. Fixed the tokenizer to treat { and } as reserved words (literals mid-word and when paired as {}), not metacharacters, so xargs -I{} stays one word. Also added the CodeQL actions dependabot group."
+body: ""

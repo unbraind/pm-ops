@@ -94,6 +94,7 @@ const COMMAND_PREFIXES = new Set([
   "timeout",
   "setsid",
   "xargs",
+  "parallel",
   "npx",
   "bunx",
   "pnpx",
@@ -127,6 +128,56 @@ const TWO_WORD_PREFIXES = new Map([
 ]);
 
 /**
+ * Wrappers that run a NAMED program with an argument list the scanner cannot
+ * resolve.
+ *
+ * `env npm publish` and `sudo npm publish` carry their arguments on the same
+ * line, so a literal `publish` word is still there to be found. `xargs npm` and
+ * `parallel npm` do not: the program's arguments arrive on stdin (or via
+ * `-a`/`--arg-file`), so the word `publish` is never on the command line at
+ * all. A scanner that dismisses the command unless it sees a literal `publish`
+ * lets an unattested publish run behind the wrapper while an attested sibling
+ * elsewhere in the file carries the audit to green.
+ *
+ * This is the same property as an unresolved PROGRAM position one level down:
+ * the program is named, but its arguments are not, so the invocation cannot be
+ * shown not to be a publish and is audited without requiring a literal
+ * subcommand. `xargs` under its own flags (`-n`, `-I{}`, `-0`, `-P`, `-a`,
+ * `--arg-file`) is still a spawning wrapper -- the flags are skipped as wrapper
+ * options, not mistaken for the program -- so the set holds the wrapper name,
+ * not a flag-by-flag enumeration. The check never depends on a pipe being
+ * present: `xargs npm < file` draws its arguments from a redirection instead.
+ */
+/**
+ * Options of a command prefix that consume the NEXT word as their operand.
+ *
+ * Keyed by the prefix, because the same spelling means different things:
+ * `sudo -u` takes a user, `env -u` takes a variable name, and `nice -n` takes a
+ * number. Only the separated forms are listed -- `--unset=NAME` carries its own
+ * operand and needs no lookahead.
+ *
+ * Without this the walk skipped a dash option but left its operand in place, so
+ * the operand was read as the program. `env -u parallel npm --version` set the
+ * spawning-wrapper flag from `parallel` -- which is `-u`'s operand, not a
+ * command -- and `npm --version` was then audited as a possible publish. That
+ * is a false FAILURE, and this gate blocks releases across the fleet, so it
+ * costs an outage rather than a missed publish.
+ */
+const PREFIX_OPTIONS_WITH_OPERAND = new Map([
+  ["env", new Set(["-u", "--unset", "-C", "--chdir"])],
+  ["sudo", new Set(["-u", "--user", "-g", "--group", "-p", "--prompt", "-h", "--host", "-r", "--role", "-t", "--type", "-C", "--close-from", "-D", "--chdir", "-R", "--chroot", "-U", "--other-user"])],
+  ["doas", new Set(["-u", "-C"])],
+  ["nice", new Set(["-n", "--adjustment"])],
+  ["ionice", new Set(["-c", "--class", "-n", "--classdata", "-p", "--pid"])],
+  ["timeout", new Set(["-s", "--signal", "-k", "--kill-after"])],
+  ["stdbuf", new Set(["-i", "--input", "-o", "--output", "-e", "--error"])],
+  ["xargs", new Set(["-n", "--max-args", "-I", "--replace", "-a", "--arg-file", "-d", "--delimiter", "-E", "-L", "--max-lines", "-P", "--max-procs", "-s", "--max-chars"])],
+  ["parallel", new Set(["-j", "--jobs", "-a", "--arg-file", "-N", "-L", "--max-lines", "-S", "--sshlogin"])],
+]);
+
+const SPAWNING_WRAPPERS = new Set(["xargs", "parallel"]);
+
+/**
  * Reduce a program word to the name it runs.
  *
  * `/usr/local/bin/npm publish` runs npm, so a check against the whole word
@@ -154,6 +205,25 @@ function isOperatorStart(character: string): boolean {
     || character === ")"
     || character === "{"
     || character === "}";
+}
+
+/**
+ * Whether the character after a brace forces the brace to be a complete word.
+ *
+ * `{` and `}` are reserved WORDS, not metacharacters, so they delimit a brace
+ * group only when they stand alone. A brace is a complete word when the next
+ * character is whitespace, end-of-input, or a metacharacter that itself always
+ * ends a word -- but NOT another brace, because `{}` is one literal word, not an
+ * empty group followed by a closer.
+ *
+ * @param character - The character following a `{` or `}`, or undefined.
+ * @returns True when the brace is a standalone word rather than part of a larger one.
+ */
+function isBraceBoundary(character: string | undefined): boolean {
+  if (character === undefined) return true;
+  return character === " " || character === "\t" || character === "\r"
+    || character === ";" || character === "&" || character === "|"
+    || character === "\n" || character === "(" || character === ")";
 }
 
 /**
@@ -342,9 +412,25 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
       continue;
     }
     if (isOperatorStart(character)) {
-      // `&&` and `||` inside `[[ ... ]]` are conditional operators, not
-      // simple-command separators. Splitting there promotes a compared
-      // expansion into command position and creates a phantom opaque command.
+      // `{` and `}` are reserved WORDS, not metacharacters: they delimit a
+      // brace group only as a complete standalone word in command position.
+      // A brace embedded in a larger word (`xargs -I{}`) is a literal, and a
+      // brace paired with no boundary (`{}`) is the literal word `{}` rather
+      // than an empty brace group -- treating the `{` as a command separator
+      // there shattered `xargs -I{}` into `xargs -I` and an empty group,
+      // leaving the named publisher `npm` as a separate command with no
+      // wrapper prefix and no literal `publish`, so the spawning wrapper
+      // escaped the audit. A brace is an operator only at a word start
+      // followed by a real metacharacter or whitespace, never by another brace.
+      // The other operator characters are metacharacters that always end a word.
+      if (character === "{" || character === "}") {
+        if (started || !isBraceBoundary(text[index + 1])) {
+          value += character;
+          if (!started) startsQuoted = false;
+          started = true;
+          continue;
+        }
+      }
       if ((character === "&" || character === "|")
         && command.some((token) => token.value === "[[")
         && !command.some((token) => token.value === "]]")) {
@@ -447,8 +533,16 @@ function withoutRedirections(command: ShellCommand): ShellCommand {
   return kept;
 }
 
+/** The index of a command's program word and whether a spawning wrapper precedes it. */
+interface PrefixScan {
+  /** The index past the consumed prefix, or the command's length when there is none. */
+  readonly index: number;
+  /** True when a {@link SPAWNING_WRAPPERS} wrapper was consumed before the program. */
+  readonly spawned: boolean;
+}
+
 /**
- * Walk past the words that precede the program a command runs.
+ * Walk the words that precede the program a command runs.
  *
  * Three kinds of word are not the program: a leading `NAME=value` assignment, a
  * wrapper listed in `COMMAND_PREFIXES`, and -- only once a wrapper has been
@@ -457,16 +551,36 @@ function withoutRedirections(command: ShellCommand): ShellCommand {
  * command whose own first word is an option is still reported as written rather
  * than silently re-pointed at one of its arguments.
  *
- * An option's separate value (`sudo -u root npm publish`) is not skipped,
- * because which options take a value differs per wrapper, and guessing wrong
- * would move the reported program rather than merely widen the search.
+ * An option's separate value is skipped only when the prefix that introduced it
+ * is known to take one -- see {@link PREFIX_OPTIONS_WITH_OPERAND}, which is
+ * keyed by prefix because the same spelling differs by command (`sudo -u` takes
+ * a user, `env -u` a variable name, `nice -n` a number). Leaving a known
+ * operand in place let it be read as the program: `env -u parallel npm
+ * --version` set the spawning-wrapper flag from `parallel`, which is `-u`'s
+ * operand rather than a command, and audited `npm --version` as a publish.
+ *
+ * The value of an option NOT in that map is still left in place, because
+ * guessing wrong about an unknown option would move the reported program rather
+ * than merely widen the search. {@link commandCandidates} covers that case by
+ * offering it as a further reading.
+ *
+ * A {@link SPAWNING_WRAPPERS} wrapper (`xargs`, `parallel`) is consumed like any
+ * other prefix but also flagged: the program it names draws its arguments from
+ * stdin or a file rather than the command line, so a literal `publish` word is
+ * never present. That flag is what lets an auditor treat the argument list as
+ * unresolved without a parallel mechanism -- the prefix walk already knows the
+ * wrapper class.
  *
  * @param command - One simple command's tokens.
- * @returns The index of the program word, or the command's length when there is none.
+ * @returns The program index and whether a spawning wrapper was consumed.
  */
-function skipCommandPrefix(command: ShellCommand): number {
+function scanCommandPrefix(command: ShellCommand): PrefixScan {
   let index = 0;
   let sawPrefix = false;
+  let spawned = false;
+  // Which prefix introduced the options being walked, so an option's operand is
+  // resolved against the command that actually defines it.
+  let lastPrefix: string | undefined;
   while (index < command.length) {
     const token = command[index]!;
     if (!token.startsQuoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(token.value)) {
@@ -474,8 +588,16 @@ function skipCommandPrefix(command: ShellCommand): number {
       continue;
     }
     const base = basename(token.value);
+    if (SPAWNING_WRAPPERS.has(base)) {
+      spawned = true;
+      sawPrefix = true;
+      lastPrefix = base;
+      index += 1;
+      continue;
+    }
     if (COMMAND_PREFIXES.has(base)) {
       sawPrefix = true;
+      lastPrefix = base;
       index += 1;
       continue;
     }
@@ -486,7 +608,13 @@ function skipCommandPrefix(command: ShellCommand): number {
       continue;
     }
     if (sawPrefix && !token.startsQuoted && token.value.startsWith("-")) {
+      // Consume the option's operand too when the prefix that introduced it
+      // takes one, so the operand is never mistaken for the program. `env -u
+      // parallel npm --version` must not read `parallel` as a spawning wrapper.
       index += 1;
+      if (lastPrefix !== undefined && PREFIX_OPTIONS_WITH_OPERAND.get(lastPrefix)?.has(token.value) === true) {
+        index += 1;
+      }
       continue;
     }
     // The YAML `run` key carries executable shell text as its value:
@@ -505,9 +633,36 @@ function skipCommandPrefix(command: ShellCommand): number {
       index += 1;
       continue;
     }
-    return index;
+    return { index, spawned };
   }
-  return index;
+  return { index, spawned };
+}
+
+/**
+ * Walk past the words that precede the program a command runs.
+ *
+ * @param command - One simple command's tokens.
+ * @returns The index of the program word, or the command's length when there is none.
+ */
+function skipCommandPrefix(command: ShellCommand): number {
+  return scanCommandPrefix(command).index;
+}
+
+/**
+ * Whether a command's program is reached through a spawning wrapper.
+ *
+ * `xargs npm` and `parallel npm` name a publisher whose arguments arrive on
+ * stdin (or via `-a`/`--arg-file`), so the scanner can never see a literal
+ * `publish` word. The wrapper was already consumed by the prefix walk; this
+ * surfaces the flag it set, so an auditor treats the argument list as
+ * unresolved the way `$CMD` makes the program unresolved -- without a separate
+ * pipe-or-stdin detector.
+ *
+ * @param input - One simple command's tokens.
+ * @returns True when a spawning wrapper precedes the program word.
+ */
+export function spawnedAsCommand(input: ShellCommand): boolean {
+  return scanCommandPrefix(withoutRedirections(input)).spawned;
 }
 
 /**
@@ -533,20 +688,23 @@ export function commandName(input: ShellCommand): string | undefined {
  *
  * `commandName` answers "what does this command run" and answers it once. That
  * is right for reporting and wrong for auditing, because a wrapper's options
- * are not all known: `sudo -u root npm publish` stops at `root`, since `-u`
- * takes a value and nothing here knows that. Enumerating the value-taking
- * options of every wrapper would be a list that silently goes stale, and each
- * omission is a publish that disappears from the audit.
+ * are not all known. The common ones are: {@link PREFIX_OPTIONS_WITH_OPERAND}
+ * enumerates the value-taking options of each prefix, and the prefix walk
+ * consumes those operands, so `sudo -u root npm publish` no longer offers a
+ * reading starting at `root`. That precision is what stops an operand being
+ * mistaken for the program.
  *
- * So once a wrapper has been consumed, every later word is also offered as a
- * possible program, with the words after it as its arguments. An auditor asking
- * "does any publish here lack an attestation" then cannot miss one behind a
- * wrapper option it has never heard of.
+ * That map cannot be exhaustive, though, and each omission would be a publish
+ * that disappears from the audit. So once a wrapper has been consumed, every
+ * later word is ALSO offered as a possible program, with the words after it as
+ * its arguments. An auditor asking "does any publish here lack an attestation"
+ * then cannot miss one behind a wrapper option nobody has enumerated:
+ * `sudo --zzz npm publish` is still found.
  *
- * The cost is noise, never a miss: `sudo -u npm publish` -- a user actually
- * named `npm` -- is offered as a publish that no shell would run. For a gate
- * whose failure mode is an unattested release, a spurious finding an operator
- * dismisses is the cheaper error.
+ * The cost is noise, never a miss. For a gate whose failure mode is an
+ * unattested release, a spurious finding an operator dismisses is the cheaper
+ * error -- but only for options nobody knows about, which is why enumerating
+ * the ones we do know is worth doing rather than relying on noise alone.
  *
  * A command with no wrapper yields exactly one reading, so ordinary commands
  * are unaffected.

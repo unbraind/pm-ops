@@ -1,0 +1,20 @@
+id: ops-55sh
+title: "An option's operand was read as the program in two places, once failing open and once failing closed"
+description: "Two review findings on the same pull request, both confirmed by executing the branch before changing anything, and both about the same mistake made in opposite directions: an option's operand was not consumed, so the word after a flag was read as something it is not.\n\nThe first is a fail-open in the shebang interpreter check. Skipping only dash-prefixed words after env read the operand of -u and -C as the interpreter, and read a NAME=value assignment as the interpreter under -S. Measured: #!/usr/bin/env -S FOO=bar bash, #!/usr/bin/env -S -C /work bash and #!/usr/bin/env -u FOO bash all answered not-shell, so a genuine bash script drops out of the scan entirely and a publish inside it is never audited. Fixed by parsing env's grammar rather than its punctuation: skip dash options, consume the operand of the ones taking a separated one, skip any NAME=value assignments, then take what remains. -S is deliberately excluded from the operand set because in a shebang it splits the rest of the line rather than taking one operand, so consuming a word after it would swallow the interpreter it exists to introduce.\n\nThe second is a false failure in the spawning-wrapper detection. The prefix walk skipped a dash option but left its operand in place, so env -u parallel npm --version set the spawning-wrapper flag from parallel, which is -u's operand rather than a command, and npm --version was audited as a possible publish. Measured on both env -u parallel npm --version and env -C xargs npm ci. For a gate that blocks releases across twenty repositories a false failure costs an outage, not a missed publish. Fixed with a per-prefix map of options that consume the next word, keyed by the prefix because the same spelling differs by command: sudo -u takes a user, env -u takes a variable name, nice -n takes a number.\n\nThe second fix changed an existing guarantee rather than only adding to it, which is worth recording. commandCandidates deliberately offered every reading of a wrapper-led command on the stated grounds that nothing enumerated which options take a value. That is now partly false, so a known option's operand no longer starts a reading. The test now asserts both halves rather than quietly dropping the old one: a known option's operand is not a reading, and an unknown option's value still is, with an end-to-end assertion that a publish behind an unknown option is still found.\n\nApplying the first fix twice surfaced a separate problem tracked elsewhere: the two test files covering this auditor share 55 identical test titles with the same bodies, so a fix to one leaves the other failing in a way that reads as a regression."
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-09-06T06:36:48.236Z"
+updated_at: "2026-09-06T06:36:59.079Z"
+closed_at: "2026-09-06T06:36:59.062Z"
+completed_at: "2026-09-06T06:36:59.062Z"
+author: "harness:claude-code"
+resolution: "Parsed env's grammar for the interpreter check, and added a per-prefix map of options that consume the next word for the wrapper walk, so an operand is never read as the program in either place."
+expected_result: "A genuine shell script behind env options is scanned, and an option's operand is never mistaken for a spawning wrapper."
+actual_result: "env -u FOO bash answered not-shell so the file left the scan entirely, and env -u parallel npm --version was audited as a possible publish."
+files[2]{path,scope}:
+  attestation.ts,project
+  shell-scan.ts,project
+close_reason: "Parsed env's grammar for the interpreter check, and added a per-prefix map of options that consume the next word for the wrapper walk, so an operand is never read as the program in either place."
+body: ""

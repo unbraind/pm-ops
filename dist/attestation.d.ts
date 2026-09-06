@@ -136,7 +136,8 @@ export declare function auditPublishAttestation(sources: SourceFile[]): PublishA
  * audited, and because the workflow's own attested publish satisfied the
  * non-vacuity check the gate still reported that every invocation was attested.
  * Auditing every shape that can execute closes that, and a shebang is honoured
- * so an extensionless tracked script is not a blind spot either.
+ * so an extensionless tracked script is not a blind spot either -- but only a
+ * shebang naming a SHELL, for the reason {@link SHELL_INTERPRETERS} gives.
  *
  * Build output is excluded. `dist/` is generated from sources this scan already
  * reads, it is regenerated and compared byte-for-byte on the release path, and
