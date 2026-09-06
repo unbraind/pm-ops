@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- The release completeness audit has never executed because its gh calls carry no token ([ops-j46h](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-j46h.toon))
+
+## 2026.9.6 - 2026-09-06
+
+### Fixed
+
 - Fail closed on unresolved publish command positions ([ops-9onb](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-9onb.toon))
 
 ## 2026.9.5 - 2026-09-05
