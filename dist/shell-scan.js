@@ -533,9 +533,18 @@ function withoutRedirections(command) {
  * command whose own first word is an option is still reported as written rather
  * than silently re-pointed at one of its arguments.
  *
- * An option's separate value (`sudo -u root npm publish`) is not skipped,
- * because which options take a value differs per wrapper, and guessing wrong
- * would move the reported program rather than merely widen the search.
+ * An option's separate value is skipped only when the prefix that introduced it
+ * is known to take one -- see {@link PREFIX_OPTIONS_WITH_OPERAND}, which is
+ * keyed by prefix because the same spelling differs by command (`sudo -u` takes
+ * a user, `env -u` a variable name, `nice -n` a number). Leaving a known
+ * operand in place let it be read as the program: `env -u parallel npm
+ * --version` set the spawning-wrapper flag from `parallel`, which is `-u`'s
+ * operand rather than a command, and audited `npm --version` as a publish.
+ *
+ * The value of an option NOT in that map is still left in place, because
+ * guessing wrong about an unknown option would move the reported program rather
+ * than merely widen the search. {@link commandCandidates} covers that case by
+ * offering it as a further reading.
  *
  * A {@link SPAWNING_WRAPPERS} wrapper (`xargs`, `parallel`) is consumed like any
  * other prefix but also flagged: the program it names draws its arguments from
@@ -657,20 +666,23 @@ export function commandName(input) {
  *
  * `commandName` answers "what does this command run" and answers it once. That
  * is right for reporting and wrong for auditing, because a wrapper's options
- * are not all known: `sudo -u root npm publish` stops at `root`, since `-u`
- * takes a value and nothing here knows that. Enumerating the value-taking
- * options of every wrapper would be a list that silently goes stale, and each
- * omission is a publish that disappears from the audit.
+ * are not all known. The common ones are: {@link PREFIX_OPTIONS_WITH_OPERAND}
+ * enumerates the value-taking options of each prefix, and the prefix walk
+ * consumes those operands, so `sudo -u root npm publish` no longer offers a
+ * reading starting at `root`. That precision is what stops an operand being
+ * mistaken for the program.
  *
- * So once a wrapper has been consumed, every later word is also offered as a
- * possible program, with the words after it as its arguments. An auditor asking
- * "does any publish here lack an attestation" then cannot miss one behind a
- * wrapper option it has never heard of.
+ * That map cannot be exhaustive, though, and each omission would be a publish
+ * that disappears from the audit. So once a wrapper has been consumed, every
+ * later word is ALSO offered as a possible program, with the words after it as
+ * its arguments. An auditor asking "does any publish here lack an attestation"
+ * then cannot miss one behind a wrapper option nobody has enumerated:
+ * `sudo --zzz npm publish` is still found.
  *
- * The cost is noise, never a miss: `sudo -u npm publish` -- a user actually
- * named `npm` -- is offered as a publish that no shell would run. For a gate
- * whose failure mode is an unattested release, a spurious finding an operator
- * dismisses is the cheaper error.
+ * The cost is noise, never a miss. For a gate whose failure mode is an
+ * unattested release, a spurious finding an operator dismisses is the cheaper
+ * error -- but only for options nobody knows about, which is why enumerating
+ * the ones we do know is worth doing rather than relying on noise alone.
  *
  * A command with no wrapper yields exactly one reading, so ordinary commands
  * are unaffected.
