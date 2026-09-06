@@ -1,0 +1,19 @@
+id: ops-j46h
+title: The release completeness audit has never executed because its gh calls carry no token
+description: "The Daily Release job reported failure on every run from 2026-08-31 to 2026-09-06, eight consecutive runs, while the releases themselves succeeded. npm carries 2026.9.6, the tag v2026.09.06 exists and the GitHub Release was created at 05:47:42 on 2026-09-06. A red release job has therefore carried no information for over a week.\n\nReading the failing step's log rather than its status gives the cause exactly: \"gh: To use GitHub CLI in a GitHub Actions workflow, set the GH_TOKEN environment variable.\" The Audit release completeness step carried no env block, while the two steps above it in the same workflow that also shell out to gh do set GH_TOKEN. Its gh calls fail at startup and the script exits 1 before auditing anything.\n\nSo this gate has never executed. Not once. It is wired into the pipeline, it runs at the right point, and its surrounding comment explains carefully why it must run after the GitHub Release is created rather than inside release:check, because auditing earlier would reject the run for a predecessor's incomplete triple and abort before the step that completes the current one. The design was thought through; the step was simply never given a token.\n\nThat is a third distinct way a gate fails, alongside unreachable and blind: unrun. The same audit passes immediately when run locally against the same repository state, reporting 33 release tags each with a published npm version and a GitHub Release, which is what made the diagnosis quick once the log was read instead of the status.\n\nTwo genuine failures were hiding inside that permanent red and could not have been noticed while every run failed anyway: the run of 2026-09-04 also failed Run release checks, and the run of 2026-09-01 also failed Merge release metadata through protected PR, which is the protected-main release pattern.\n\nOne risk is worth stating rather than pre-empting. The audit compares git tags against npm versions and GitHub releases with no retry, and it runs immediately after publishing, so npm registry propagation could make it fail transiently on a genuinely successful release. No retry has been added, because that would be speculative: the next release will show whether it happens, and a gate that can report a real problem is strictly better than one that never runs. If it does prove flaky, the fix is a bounded retry on the npm read, not removal of the gate.\n\nOnly pm-ops runs this audit; no other fleet repository has the step, so the defect does not propagate. Whether the other twenty should have it is a separate question, since the fourteen-day silent outage this audit was built to detect could recur in any repository lacking it."
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-09-06T06:16:15.322Z"
+updated_at: "2026-09-06T06:16:23.834Z"
+closed_at: "2026-09-06T06:16:23.822Z"
+completed_at: "2026-09-06T06:16:23.822Z"
+author: "harness:claude-code"
+resolution: "Gave the Audit release completeness step env GH_TOKEN with github.token, matching the two steps above it in the same workflow that also shell out to gh."
+expected_result: The audit runs after the GitHub Release is created and reports whether every release tag has a published npm version and a GitHub Release.
+actual_result: "Its gh calls aborted for want of a token, so the script exited 1 before auditing anything and the release job reported failure on eight consecutive runs while publishing successfully, hiding two genuine failures in the noise."
+files[1]{path,scope}:
+  .github/workflows/release.yml,project
+close_reason: "Gave the Audit release completeness step env GH_TOKEN with github.token, matching the two steps above it in the same workflow that also shell out to gh."
+body: ""
