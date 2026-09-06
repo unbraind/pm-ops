@@ -9,6 +9,10 @@
 - The auditor shell-tokenised every shebang file, so a Node script failed the gate on a template literal ([ops-3o3w](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3o3w.toon))
 - Audit xargs/parallel spawning wrappers that leave the publish argument list unresolved ([ops-3xs4](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3xs4.toon))
 
+### Other
+
+- A same-day re-release is blocked because the pinned pm-changelog rejects the -N version suffix ([ops-tk0h](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-tk0h.toon))
+
 ## 2026.9.6 - 2026-09-06
 
 ### Fixed
