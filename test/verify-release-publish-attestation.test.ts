@@ -350,11 +350,16 @@ test("tokenizeCommands resolves quoting, comments and escapes the way a shell do
 
 test("every reading of a wrapper-led command is offered, so an unknown option value cannot hide a program", () => {
   // commandName answers once and is right to; an auditor cannot afford that,
-  // because `-u` takes a value and nothing here enumerates which options do.
+  // because an option may take a value and only the COMMON ones are enumerated
+  // (see PREFIX_OPTIONS_WITH_OPERAND). For an option that IS enumerated the
+  // operand is consumed, so no reading starts at it; for any other option the
+  // value is still offered as a reading, because a program hidden behind it
+  // must not go unaudited.
   const values = (command: ReturnType<typeof onlyCommand>) =>
     commandCandidates(command).map((candidate) => commandName(candidate));
-  assert.deepEqual(values(onlyCommand("sudo -u root npm publish")), ["root", "npm", "publish"]);
-  assert.deepEqual(values(onlyCommand("nice -n 10 npm publish")), ["10", "npm", "publish"]);
+  assert.deepEqual(values(onlyCommand("sudo -u root npm publish")), ["npm", "publish"], "a known option's operand is not a reading");
+  assert.deepEqual(values(onlyCommand("nice -n 10 npm publish")), ["npm", "publish"], "a known option's operand is not a reading");
+  assert.deepEqual(values(onlyCommand("sudo --zzz root npm publish")), ["root", "npm", "publish"], "an unknown option's value is still a reading");
   // No wrapper means exactly one reading, so ordinary commands are untouched.
   assert.deepEqual(values(onlyCommand("npm publish --provenance")), ["npm"]);
   assert.deepEqual(values(onlyCommand("echo npm publish")), ["echo"]);
@@ -365,7 +370,7 @@ test("every reading of a wrapper-led command is offered, so an unknown option va
   // than audited as one.
   // A trailing reading that is only assignments names no program, so it is
   // skipped rather than audited as one.
-  assert.deepEqual(values(onlyCommand("sudo -u root npm publish A=1")), ["root", "npm", "publish", undefined]);
+  assert.deepEqual(values(onlyCommand("sudo -u root npm publish A=1")), ["npm", "publish", undefined]);
   assert.deepEqual(
     publishInvocationsIn({ file: "release.yml", text: "          sudo -u root npm publish --provenance A=1\n" }).length,
     1,

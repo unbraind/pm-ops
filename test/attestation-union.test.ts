@@ -310,11 +310,23 @@ test("tokenizeCommands resolves quoting, comments and escapes the way a shell do
 
 test("every reading of a wrapper-led command is offered, so an unknown option value cannot hide a program", () => {
   // commandName answers once and is right to; an auditor cannot afford that,
-  // because `-u` takes a value and nothing here enumerates which options do.
+  // because an option may take a value and only the COMMON ones are enumerated
+  // (see PREFIX_OPTIONS_WITH_OPERAND). For an option that IS enumerated the
+  // operand is consumed, so no reading starts at it; for any other option the
+  // value is still offered as a reading, because a program hidden behind it
+  // must not go unaudited.
   const values = (command: ReturnType<typeof onlyCommand>) =>
     commandCandidates(command).map((candidate) => commandName(candidate));
-  assert.deepEqual(values(onlyCommand("sudo -u root npm publish")), ["root", "npm", "publish"]);
-  assert.deepEqual(values(onlyCommand("nice -n 10 npm publish")), ["10", "npm", "publish"]);
+  assert.deepEqual(values(onlyCommand("sudo -u root npm publish")), ["npm", "publish"], "a known option's operand is not a reading");
+  assert.deepEqual(values(onlyCommand("nice -n 10 npm publish")), ["npm", "publish"], "a known option's operand is not a reading");
+  // An option NOT enumerated for that prefix keeps the old guarantee: its value
+  // is offered as a reading, so a program behind it is still audited.
+  assert.deepEqual(values(onlyCommand("sudo --zzz root npm publish")), ["root", "npm", "publish"], "an unknown option's value is still a reading");
+  assert.deepEqual(
+    publishInvocationsIn({ file: "release.yml", text: "          sudo --zzz npm publish\n" }).length,
+    1,
+    "a publish behind an unknown option is still found",
+  );
   // No wrapper means exactly one reading, so ordinary commands are untouched.
   assert.deepEqual(values(onlyCommand("npm publish --provenance")), ["npm"]);
   assert.deepEqual(values(onlyCommand("echo npm publish")), ["echo"]);
@@ -325,7 +337,7 @@ test("every reading of a wrapper-led command is offered, so an unknown option va
   // than audited as one.
   // A trailing reading that is only assignments names no program, so it is
   // skipped rather than audited as one.
-  assert.deepEqual(values(onlyCommand("sudo -u root npm publish A=1")), ["root", "npm", "publish", undefined]);
+  assert.deepEqual(values(onlyCommand("sudo -u root npm publish A=1")), ["npm", "publish", undefined]);
   assert.deepEqual(
     publishInvocationsIn({ file: "release.yml", text: "          sudo -u root npm publish --provenance A=1\n" }).length,
     1,
@@ -505,6 +517,41 @@ test("only a shebang naming a shell makes a file shell, because the scan parses 
   // The extension still decides on its own, so narrowing the shebang branch
   // takes nothing away from a shell script that is named like one.
   assert.equal(isExecutableSource("scripts/gate.sh", "#!/usr/bin/env node"), true, "an extension still matches");
+});
+
+test("env's own options and assignments are stepped over before the interpreter is read", () => {
+  // Skipping only dash words read `-u`/`-C`'s OPERAND as the interpreter, and
+  // read `FOO=bar` as the interpreter under `-S`. Either made a real bash
+  // script answer "not shell", which is the fail-OPEN direction: the file drops
+  // out of the scan entirely and a publish inside it is never audited.
+  for (const line of ["#!/usr/bin/env -S FOO=bar bash", "#!/usr/bin/env -S -C /work bash", "#!/usr/bin/env -u FOO bash", "#!/usr/bin/env -C /work sh", "#!/usr/bin/env --unset FOO bash", "#!/usr/bin/env -S FOO=1 BAR=2 dash"]) {
+    assert.equal(isExecutableSource("tools/release", line), true, line);
+  }
+  // `--opt=value` carries its own operand, so no lookahead is wanted.
+  assert.equal(isExecutableSource("tools/release", "#!/usr/bin/env --chdir=/work bash"), true, "an = form needs no lookahead");
+  // And the narrowing still holds through the same parsing.
+  for (const line of ["#!/usr/bin/env -S FOO=bar node", "#!/usr/bin/env -u FOO python3"]) {
+    assert.equal(isExecutableSource("scripts/gate.ts", line), false, line);
+  }
+});
+
+
+test("a prefix option's operand is not mistaken for the program", () => {
+  // `env -u parallel npm --version` names `parallel` as `-u`'s OPERAND, not as
+  // a command. Reading it as a spawning wrapper made `npm --version` audit as a
+  // possible publish -- a false FAILURE, which for a gate that blocks releases
+  // across the fleet costs an outage rather than a missed publish.
+  for (const line of ["env -u parallel npm --version", "env -C xargs npm ci", "sudo -u xargs npm ci", "nice -n parallel npm ci"]) {
+    const result = auditPublishAttestation([
+      { file: ".github/workflows/release.yml", text: `          ${ATTESTED}\n          ${line}` },
+    ]);
+    assert.deepEqual(result.failures, [], line);
+  }
+  // The wrapper is still caught when it really is in command position.
+  const wrapped = auditPublishAttestation([
+    { file: ".github/workflows/release.yml", text: `          ${ATTESTED}\n          env -i xargs npm` },
+  ]);
+  assert.equal(wrapped.failures.length, 1, "a genuine wrapper behind a no-operand option is still audited");
 });
 
 test("a Node script is not audited as shell, while a shell script still is", () => {

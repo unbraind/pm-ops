@@ -50,6 +50,16 @@ export const FOREIGN_PUBLISHERS = new Set(["yarn", "pnpm", "bun"]);
  * solved it -- it only produced noise that was invisible until the scan
  * started trusting it.
  */
+/**
+ * `env` options that consume the next word, so it is not the interpreter.
+ *
+ * Only the separated spellings need listing: `--unset=NAME` and `--chdir=DIR`
+ * carry their operand and are skipped as ordinary dash words. `-S` is absent
+ * deliberately -- in a shebang it splits the REST of the line rather than
+ * taking one operand, so consuming a word after it would swallow the
+ * interpreter it exists to introduce.
+ */
+const ENV_OPTIONS_WITH_OPERAND = new Set(["-u", "--unset", "-C", "--chdir"]);
 const SHELL_INTERPRETERS = new Set(["sh", "bash", "dash", "zsh", "ksh", "mksh", "ash"]);
 /**
  * The final path segment of a word, so an interpreter is compared by name.
@@ -572,8 +582,24 @@ export function isExecutableSource(path, firstLine) {
         let index = 0;
         if (words[index] !== undefined && leafName(words[index]) === "env") {
             index += 1;
-            while (words[index] !== undefined && words[index].startsWith("-"))
+            // `env` accepts options, some of which take the NEXT word, and then any
+            // number of NAME=value assignments before the command. Skipping only
+            // dash-prefixed words read the operand of `-u`/`-C` as the interpreter,
+            // and read `FOO=bar` as the interpreter under `-S`. Either made a real
+            // `bash` script answer "not shell", which is the fail-OPEN direction: the
+            // file drops out of the scan and a publish inside it is never audited.
+            while (words[index] !== undefined) {
+                const word = words[index];
+                if (word.startsWith("-")) {
+                    index += 1;
+                    if (ENV_OPTIONS_WITH_OPERAND.has(word))
+                        index += 1;
+                    continue;
+                }
+                if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(word))
+                    break;
                 index += 1;
+            }
         }
         const interpreter = words[index];
         if (interpreter !== undefined && SHELL_INTERPRETERS.has(leafName(interpreter)))

@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- An option's operand was read as the program in two places, once failing open and once failing closed ([ops-55sh](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-55sh.toon))
 - The auditor shell-tokenised every shebang file, so a Node script failed the gate on a template literal ([ops-3o3w](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3o3w.toon))
 - Audit xargs/parallel spawning wrappers that leave the publish argument list unresolved ([ops-3xs4](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3xs4.toon))
 

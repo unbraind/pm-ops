@@ -148,6 +148,33 @@ const TWO_WORD_PREFIXES = new Map([
  * not a flag-by-flag enumeration. The check never depends on a pipe being
  * present: `xargs npm < file` draws its arguments from a redirection instead.
  */
+/**
+ * Options of a command prefix that consume the NEXT word as their operand.
+ *
+ * Keyed by the prefix, because the same spelling means different things:
+ * `sudo -u` takes a user, `env -u` takes a variable name, and `nice -n` takes a
+ * number. Only the separated forms are listed -- `--unset=NAME` carries its own
+ * operand and needs no lookahead.
+ *
+ * Without this the walk skipped a dash option but left its operand in place, so
+ * the operand was read as the program. `env -u parallel npm --version` set the
+ * spawning-wrapper flag from `parallel` -- which is `-u`'s operand, not a
+ * command -- and `npm --version` was then audited as a possible publish. That
+ * is a false FAILURE, and this gate blocks releases across the fleet, so it
+ * costs an outage rather than a missed publish.
+ */
+const PREFIX_OPTIONS_WITH_OPERAND = new Map([
+  ["env", new Set(["-u", "--unset", "-C", "--chdir"])],
+  ["sudo", new Set(["-u", "--user", "-g", "--group", "-p", "--prompt", "-h", "--host", "-r", "--role", "-t", "--type", "-C", "--close-from", "-D", "--chdir", "-R", "--chroot", "-U", "--other-user"])],
+  ["doas", new Set(["-u", "-C"])],
+  ["nice", new Set(["-n", "--adjustment"])],
+  ["ionice", new Set(["-c", "--class", "-n", "--classdata", "-p", "--pid"])],
+  ["timeout", new Set(["-s", "--signal", "-k", "--kill-after"])],
+  ["stdbuf", new Set(["-i", "--input", "-o", "--output", "-e", "--error"])],
+  ["xargs", new Set(["-n", "--max-args", "-I", "--replace", "-a", "--arg-file", "-d", "--delimiter", "-E", "-L", "--max-lines", "-P", "--max-procs", "-s", "--max-chars"])],
+  ["parallel", new Set(["-j", "--jobs", "-a", "--arg-file", "-N", "-L", "--max-lines", "-S", "--sshlogin"])],
+]);
+
 const SPAWNING_WRAPPERS = new Set(["xargs", "parallel"]);
 
 /**
@@ -542,6 +569,9 @@ function scanCommandPrefix(command: ShellCommand): PrefixScan {
   let index = 0;
   let sawPrefix = false;
   let spawned = false;
+  // Which prefix introduced the options being walked, so an option's operand is
+  // resolved against the command that actually defines it.
+  let lastPrefix: string | undefined;
   while (index < command.length) {
     const token = command[index]!;
     if (!token.startsQuoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(token.value)) {
@@ -552,11 +582,13 @@ function scanCommandPrefix(command: ShellCommand): PrefixScan {
     if (SPAWNING_WRAPPERS.has(base)) {
       spawned = true;
       sawPrefix = true;
+      lastPrefix = base;
       index += 1;
       continue;
     }
     if (COMMAND_PREFIXES.has(base)) {
       sawPrefix = true;
+      lastPrefix = base;
       index += 1;
       continue;
     }
@@ -567,7 +599,13 @@ function scanCommandPrefix(command: ShellCommand): PrefixScan {
       continue;
     }
     if (sawPrefix && !token.startsQuoted && token.value.startsWith("-")) {
+      // Consume the option's operand too when the prefix that introduced it
+      // takes one, so the operand is never mistaken for the program. `env -u
+      // parallel npm --version` must not read `parallel` as a spawning wrapper.
       index += 1;
+      if (lastPrefix !== undefined && PREFIX_OPTIONS_WITH_OPERAND.get(lastPrefix)?.has(token.value) === true) {
+        index += 1;
+      }
       continue;
     }
     // The YAML `run` key carries executable shell text as its value:
