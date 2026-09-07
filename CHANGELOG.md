@@ -6,6 +6,10 @@
 
 - An assignment the scanner cannot read leaves the previous binding standing, so a replaced provenance flag still attests the publish ([ops-3wbz](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3wbz.toon))
 
+### Other
+
+- Approve pm-cli 2026.9.7 as the development host, and track the merge rule it changes ([ops-f4uj](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-f4uj.toon))
+
 ## 2026.9.7 - 2026-09-07
 
 ### Fixed

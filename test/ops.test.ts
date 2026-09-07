@@ -2440,15 +2440,28 @@ test("ops merge-receipts --warn-only returns the pending receipt and exits 0", a
   assert.strictEqual(receipt.item_path_raw, expectedPath, "item_path_raw matches the normalized path after the #771 fix");
   assert.strictEqual(receipt.decisions.length, 1);
   assert.strictEqual(receipt.decisions[0].field, "description");
-  // Since pm-cli 2026.8.13 the item merge driver resolves scalar conflicts with
-  // the direction-independent `stable_value_order` contract: it retains the
-  // lexicographically first value regardless of the requested preference, so
-  // this merge of agent-a into agent-b retains "Agent A description" even
-  // though `requested_preference` is "ours" (agent-b). `preferred` in the view
-  // reports the requested side; the retained/discarded pair below reports the
-  // actual stable-order outcome.
-  assert.strictEqual(receipt.decisions[0].retained, "Agent A description", "the stable_value_order contract retained the lexicographically first scalar");
-  assert.strictEqual(receipt.decisions[0].discarded, "Agent B description");
+  // The scalar conflict rule CHANGED in the host, and this expectation tracks
+  // the change rather than being loosened to tolerate both.
+  //
+  // pm-cli 2026.8.13 through 2026.8.30 retained the lexicographically first
+  // value. That is direction-independent, but it means the OLDER write can win,
+  // which is what unbraind/pm-cli#1184 reported and pm-cli fixed on 2026-09-04.
+  // From 2026.9.7 the driver retains the more recent write.
+  //
+  // Measured on both hosts, same two-branch fixture, both merge directions:
+  //
+  //   2026.8.30  b->a and a->b  ->  "Agent A description"  (lexicographically first)
+  //   2026.9.7   b->a and a->b  ->  "Agent B description"  (the newer write)
+  //
+  // and disambiguated with a fixture whose newer write is lexicographically
+  // FIRST: 2026.9.7 retains the newer one, so the rule is recency, not order.
+  //
+  // Direction-independence — the property multi-agent merging depends on, since
+  // two agents must converge whichever way they merge — holds on both hosts.
+  // `preferred` in the view reports the requested side; the retained/discarded
+  // pair reports the actual outcome.
+  assert.strictEqual(receipt.decisions[0].retained, "Agent B description", "the driver retains the more recent write since pm-cli 2026.9.7");
+  assert.strictEqual(receipt.decisions[0].discarded, "Agent A description");
   await ext.deactivate();
 });
 
