@@ -2,17 +2,28 @@ id: ops-fcow
 title: "The release completeness audit reported a published version and its GitHub Release as missing, turning a successful release into a failed one"
 description: "The 2026.9.2 release published successfully: the package is on npm carrying the canonical shell-scan and attestation exports, the tag exists, and the GitHub Release exists. The workflow nonetheless reported failure, because the completeness audit that runs afterwards claimed two things about an older tag that are both false.\n\nIt reported that release tag v2026.08.28 has no corresponding published npm version, expecting 2026.8.28, and that it has no corresponding GitHub Release. Both exist. The npm versions list contains 2026.8.28, the GitHub Release exists at that exact tag, and there is no duplicate or alternate spelling of either the tag or the version that could explain a near miss.\n\nTwo independent lookups returning a false negative for the same tag, while newer tags pass, is the signature of a windowing or pagination fault rather than a data problem. This audit has already carried two defects of exactly that family: a paginated listing that was posted rather than fetched because a parameter turned the request into a POST, and a capped read that silently missed older releases. A third in the same place is the most economical explanation and is where to look first.\n\nThe consequence is not a blocked publish, since the publish had already happened. It is worse in a subtler way: a release that fully succeeded is reported as failed, which trains a reader to discount this workflow's verdict. A gate that cries wolf is on its way to being ignored."
 type: Issue
-status: open
+status: in_progress
 priority: 1
 tags[2]: "area:release","type:false-negative"
 created_at: "2026-09-02T21:06:27.413Z"
-updated_at: "2026-09-02T21:06:28.003Z"
+updated_at: "2026-09-07T23:03:54.195Z"
+assignee: codex-pm-release
+claim_principal: codex-pm-release
 author: "harness:claude-code"
 acceptance_criteria: "The audit reports no failure for a tag whose npm version and GitHub Release both exist; the fix is proven by a test that fails against the current implementation; the audit distinguishes could not determine from absent, so a lookup failure is never reported as a missing artefact"
 risk: medium
 severity: medium
 repro_steps: "Run the release workflow on pm-ops. The publish succeeds and the completeness audit then reports v2026.08.28 as having neither a published npm version nor a GitHub Release, both of which exist."
 component: scripts/verify-release-completeness.ts
-docs[1]{path,scope,note}:
+comments[2]{created_at,author,text}:
+  "2026-09-07T22:58:11.750Z",codex-pm-release,"Current live audit passes 34 complete release triples. Reproduced a remaining false-report path: malformed npm JSON and arrays with unreadable rows are treated as empty or partial inventories, leading to missing-artifact diagnostics. Implementing strict inventory parsing and explicit lookup-failure diagnostics with complete and genuinely missing controls; the historical September 2 false report is not yet attributed to this path."
+  "2026-09-07T23:03:52.845Z",codex-pm-release,"Validation: the regression suite failed before the fix and now passes 34/34 both directly and through pm test. Full coverage passes 100/100/100/100 across all 13 discovered production source files: 467 tests, 465 passed, 2 optional fleet-data tests skipped. All 184 declarations in the 13 files have docstrings. Typecheck, test compilation, production audit (0 vulnerabilities), package contents, deterministic pm-changelog generation, release date and publish-attestation gates pass. The live npm and GitHub release inventory passes all 34 real release triples. The original historical incident remains unproven, so this item stays in progress after fixing the reproduced unreadable-inventory path."
+files[2]{path,scope,note}:
+  scripts/verify-release-completeness.ts,project,Reject unreadable inventories and name failed lookup stages
+  test/verify-release-completeness.test.ts,project,Regression coverage for unreadable and complete inventory plus real absence
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/verify-release-completeness.test.ts,project,60,codex-pm-release,"2026-09-07T23:01:15.593Z",local_mutation,chore/approve-pm-cli-2026-9-7-as-the-development-host
+docs[2]{path,scope,note}:
   "https://github.com/unbraind/pm-ops/actions/runs/33682325840",project,the run that published successfully and then reported failure
+  "https://github.com/unbraind/pm-ops/pull/101",project,Reject unreadable release inventories and preserve CLI 2026.9.7 acceptance
 body: ""
