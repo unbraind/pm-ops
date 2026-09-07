@@ -1058,6 +1058,7 @@ interface ScalarAssignment {
 function leadingAssignments(line: string): ScalarAssignment[] {
   const found: ScalarAssignment[] = [];
   let index = 0;
+  let unterminated = false;
   for (;;) {
     const head = /^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=/.exec(line.slice(index));
     if (head === null) break;
@@ -1074,40 +1075,60 @@ function leadingAssignments(line: string): ScalarAssignment[] {
         index += 1;
         continue;
       }
-      if (char === "'" && !double && !backtick) {
+      if (char === "'" && !double) {
         single = !single;
         continue;
       }
-      if (char === '"' && !single && !backtick) {
+      if (char === '"' && !single) {
         double = !double;
         continue;
       }
-      if (!single && char === "`") {
+      // Inside single quotes bash resolves nothing: no substitution opens, no
+      // delimiter closes, no separator ends the word.
+      if (single) continue;
+      if (char === "`") {
         backtick = !backtick;
         readable = false;
         continue;
       }
-      if (!single && char === "$" && line[index + 1] === "(") {
+      if (char === "$" && line[index + 1] === "(") {
         substitutionDepth += 1;
         readable = false;
         index += 1;
         continue;
       }
+      if (char === "$") readable = false;
       if (substitutionDepth > 0) {
-        if (char === "(") substitutionDepth += 1;
-        else if (char === ")") substitutionDepth -= 1;
+        // A parenthesis inside quotes is literal text of the substituted
+        // command, not its delimiter. Counting one would close the
+        // substitution early and put the rest of the word outside it.
+        if (!double) {
+          if (char === "(") substitutionDepth += 1;
+          else if (char === ")") substitutionDepth -= 1;
+        }
         continue;
       }
       if (backtick) continue;
-      if (!single && !double && (/\s/.test(char) || char === ";")) break;
-      if (!single && /[$()]/.test(char)) readable = false;
+      // Inside double quotes a separator is part of the value.
+      if (double) continue;
+      if (/\s/.test(char) || char === ";") break;
+      if (/[()]/.test(char)) readable = false;
     }
-    // An unterminated quote or substitution means the word's own extent is a
-    // guess, so its value cannot be trusted either.
-    if (single || double || backtick || substitutionDepth > 0) readable = false;
+    if (single || double || backtick || substitutionDepth > 0) {
+      // The word's own extent is a guess, so neither its value nor what follows
+      // it can be read.
+      readable = false;
+      unterminated = true;
+    }
     const raw = line.slice(start, index);
     found.push(readable ? { name: head[1]!, value: literalShellWord(raw) } : { name: head[1]! });
+    if (unterminated) break;
   }
+  // A word whose extent could not be found makes the "is a command word next"
+  // question unanswerable. Reporting the assignments as unreadable retires the
+  // names, which is the fail-closed reading; reporting none would leave a
+  // replaced binding standing, the defect this whole parse exists to close.
+  if (unterminated) return found.map((assignment) => ({ name: assignment.name }));
   const rest = line.slice(index).replace(/^[ \t]*/, "");
   // A word that is not an assignment makes every preceding one that command's
   // environment, which the parent shell never sees.

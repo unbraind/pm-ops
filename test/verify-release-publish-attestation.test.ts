@@ -1406,3 +1406,40 @@ test("a command word after assignments makes them that command's environment, bi
 test("export applies to a run of assignments", () => {
   assert.deepEqual([...scalarAssignmentEvents("export A=1 B=2")], [["A", "1"], ["B", "2"]]);
 });
+
+/**
+ * A parenthesis inside quotes is text of the substituted command, not the
+ * substitution's closing delimiter.
+ *
+ * Counting one closed the substitution early, which put the rest of the word
+ * outside it and made the whole line look like an environment prefix to a
+ * command -- so no assignment was reported at all and the previous binding
+ * stood. Verified against bash: the script below leaves FLAG holding `) `, so
+ * the publish that expands it is unattested.
+ */
+test("a quoted parenthesis does not close a command substitution", () => {
+  assert.deepEqual([...scalarAssignmentEvents(String.raw`FLAG=$(printf ') ' )`)], [["FLAG", undefined]]);
+  assert.deepEqual([...scalarAssignmentEvents(String.raw`FLAG=$(echo ")")`)], [["FLAG", undefined]]);
+  const text = `#!/usr/bin/env bash\nFLAG=${ATTESTATION_FLAG}\nFLAG=$(printf ') ' )\nnpm publish $FLAG --access public\n`;
+  assert.equal(auditPublishAttestation([{ file: ".github/workflows/release.sh", text }]).failures.length, 1);
+});
+
+test("a word whose extent cannot be found still retires the name", () => {
+  // An unterminated quote or substitution makes "is a command word next?"
+  // unanswerable. Reporting no assignment would leave a replaced binding
+  // standing; reporting an unreadable one retires it, which is fail-closed.
+  assert.deepEqual([...scalarAssignmentEvents('FLAG="unterminated')], [["FLAG", undefined]]);
+  assert.deepEqual([...scalarAssignmentEvents("FLAG=$(unterminated")], [["FLAG", undefined]]);
+  const text = `#!/usr/bin/env bash\nFLAG=${ATTESTATION_FLAG}\nFLAG=$(unterminated\nnpm publish $FLAG --access public\n`;
+  assert.equal(auditPublishAttestation([{ file: ".github/workflows/release.sh", text }]).failures.length, 1);
+});
+
+test("quoting decides the word's extent without hiding an expansion", () => {
+  // A separator inside quotes belongs to the value, so the word does not end
+  // there; an expansion inside double quotes is still unreadable, and a single
+  // quoted literal is still readable.
+  assert.deepEqual([...scalarAssignmentEvents('FLAG="a b"')], [["FLAG", "a b"]]);
+  assert.deepEqual([...scalarAssignmentEvents("FLAG='literal'")], [["FLAG", "literal"]]);
+  assert.deepEqual([...scalarAssignmentEvents('FLAG="$X"')], [["FLAG", undefined]]);
+  assert.deepEqual([...scalarAssignmentEvents("FLAG='a;b'")], [["FLAG", undefined]]);
+});
