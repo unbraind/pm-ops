@@ -977,8 +977,14 @@ export function bashArrays(text) {
     return arrays;
 }
 /**
- * Parse text opening with one assignment, reading its value when it is a fully
- * literal shell word.
+ * Parse the run of assignments a line opens with, reading each value that is a
+ * fully literal shell word.
+ *
+ * Bash persists EVERY assignment of an assignment-only command, so
+ * `NOOP=x FLAG=$(true)` binds both names -- and leaves `FLAG` empty, not at
+ * whatever it held before. Reading only the first word missed the second and
+ * left the earlier binding standing, which is the same fail-open this parse
+ * exists to close, one word further along.
  *
  * The scan runs to the end of the assigned word even once the value is known to
  * be unreadable, because the word's end decides something independent of the
@@ -992,70 +998,77 @@ export function bashArrays(text) {
  * remainder looking like a trailing command and suppress the assignment event
  * entirely -- the precise shape whose suppression this parse exists to avoid.
  *
- * @param line - Text that may open with an assignment.
- * @returns The assignment made, or undefined when the text opens with none or
- *   the words form an environment prefix to another command.
+ * @param line - Text that may open with assignments.
+ * @returns Every assignment the line's opening words make, in order; empty when
+ *   it opens with none, or when a command word follows and makes them that
+ *   command's environment rather than the shell's own bindings.
  */
-function openingAssignment(line) {
-    const head = /^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=/.exec(line);
-    if (head === null)
-        return undefined;
-    const name = head[1];
-    let index = head[0].length;
-    const start = index;
-    let single = false;
-    let double = false;
-    let backtick = false;
-    let substitutionDepth = 0;
-    let readable = true;
-    for (; index < line.length; index += 1) {
-        const char = line[index];
-        if (char === "\\" && !single) {
-            index += 1;
-            continue;
-        }
-        if (char === "'" && !double && !backtick) {
-            single = !single;
-            continue;
-        }
-        if (char === '"' && !single && !backtick) {
-            double = !double;
-            continue;
-        }
-        if (!single && char === "`") {
-            backtick = !backtick;
-            readable = false;
-            continue;
-        }
-        if (!single && char === "$" && line[index + 1] === "(") {
-            substitutionDepth += 1;
-            readable = false;
-            index += 1;
-            continue;
-        }
-        if (substitutionDepth > 0) {
-            if (char === "(")
-                substitutionDepth += 1;
-            else if (char === ")")
-                substitutionDepth -= 1;
-            continue;
-        }
-        if (backtick)
-            continue;
-        if (!single && !double && (/\s/.test(char) || char === ";"))
+function leadingAssignments(line) {
+    const found = [];
+    let index = 0;
+    for (;;) {
+        const head = /^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=/.exec(line.slice(index));
+        if (head === null)
             break;
-        if (!single && /[$()]/.test(char))
+        index += head[0].length;
+        const start = index;
+        let single = false;
+        let double = false;
+        let backtick = false;
+        let substitutionDepth = 0;
+        let readable = true;
+        for (; index < line.length; index += 1) {
+            const char = line[index];
+            if (char === "\\" && !single) {
+                index += 1;
+                continue;
+            }
+            if (char === "'" && !double && !backtick) {
+                single = !single;
+                continue;
+            }
+            if (char === '"' && !single && !backtick) {
+                double = !double;
+                continue;
+            }
+            if (!single && char === "`") {
+                backtick = !backtick;
+                readable = false;
+                continue;
+            }
+            if (!single && char === "$" && line[index + 1] === "(") {
+                substitutionDepth += 1;
+                readable = false;
+                index += 1;
+                continue;
+            }
+            if (substitutionDepth > 0) {
+                if (char === "(")
+                    substitutionDepth += 1;
+                else if (char === ")")
+                    substitutionDepth -= 1;
+                continue;
+            }
+            if (backtick)
+                continue;
+            if (!single && !double && (/\s/.test(char) || char === ";"))
+                break;
+            if (!single && /[$()]/.test(char))
+                readable = false;
+        }
+        // An unterminated quote or substitution means the word's own extent is a
+        // guess, so its value cannot be trusted either.
+        if (single || double || backtick || substitutionDepth > 0)
             readable = false;
+        const raw = line.slice(start, index);
+        found.push(readable ? { name: head[1], value: literalShellWord(raw) } : { name: head[1] });
     }
-    // An unterminated quote or substitution means the word's own extent is a
-    // guess, so its value cannot be trusted either.
-    if (single || double || backtick || substitutionDepth > 0)
-        readable = false;
-    const raw = line.slice(start, index);
     const rest = line.slice(index).replace(/^[ \t]*/, "");
+    // A word that is not an assignment makes every preceding one that command's
+    // environment, which the parent shell never sees.
     if (!/^(?:[;#]|\r?$)/.test(rest))
-        return undefined;
-    return readable ? { name, value: literalShellWord(raw) } : { name };
+        return [];
+    return found;
 }
 /**
  * A bound value the scanner may inline, or undefined when inlining it would
@@ -1109,9 +1122,9 @@ function readableValue(value) {
  */
 export function scalarAssignmentEvents(segment) {
     const assignments = new Map();
-    const opening = openingAssignment(segment);
-    if (opening !== undefined)
+    for (const opening of leadingAssignments(segment)) {
         assignments.set(opening.name, readableValue(opening.value));
+    }
     if (segment.includes("$(") || segment.includes("`"))
         return assignments;
     const commands = tokenizeCommands(segment);

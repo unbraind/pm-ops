@@ -1373,3 +1373,36 @@ test("an assignment that is genuinely readable still attests the publish", () =>
   const text = `#!/usr/bin/env bash\nFLAG=${ATTESTATION_FLAG}\nnpm publish $FLAG --access public\n`;
   assert.deepEqual(auditPublishAttestation([{ file: ".github/workflows/release.sh", text }]).failures, []);
 });
+
+/**
+ * Bash persists every assignment of an assignment-only command, so a line's
+ * SECOND assignment binds as surely as its first.
+ *
+ * `NOOP=x FLAG=$(true)` leaves `FLAG` empty -- not at whatever it held before --
+ * so reading only the opening word left the earlier `--provenance` standing and
+ * attested a publish the shell runs unattested. Verified against bash itself:
+ * `bash -c 'FLAG=--provenance; NOOP=x FLAG=$(true); printf %s "$FLAG"'` prints
+ * nothing.
+ */
+test("a later assignment on an assignment-only line retires its own binding", () => {
+  const text = `#!/usr/bin/env bash\nFLAG=${ATTESTATION_FLAG}\nNOOP=x FLAG=$(true)\nnpm publish $FLAG --access public\n`;
+  assert.equal(auditPublishAttestation([{ file: ".github/workflows/release.sh", text }]).failures.length, 1);
+  assert.deepEqual([...scalarAssignmentEvents("NOOP=x FLAG=$(true)")], [["NOOP", "x"], ["FLAG", undefined]]);
+});
+
+test("a readable later assignment on an assignment-only line still attests", () => {
+  const text = `#!/usr/bin/env bash\nNOOP=x FLAG=${ATTESTATION_FLAG}\nnpm publish $FLAG --access public\n`;
+  assert.deepEqual(auditPublishAttestation([{ file: ".github/workflows/release.sh", text }]).failures, []);
+});
+
+test("a command word after assignments makes them that command's environment, binding nothing", () => {
+  // `NOOP=x true` is not an assignment-only command: the parent shell never
+  // sees NOOP, and an earlier FLAG binding is untouched rather than retired.
+  assert.deepEqual([...scalarAssignmentEvents("NOOP=x true")], []);
+  const text = `#!/usr/bin/env bash\nFLAG=${ATTESTATION_FLAG}\nNOOP=x true\nnpm publish $FLAG --access public\n`;
+  assert.deepEqual(auditPublishAttestation([{ file: ".github/workflows/release.sh", text }]).failures, []);
+});
+
+test("export applies to a run of assignments", () => {
+  assert.deepEqual([...scalarAssignmentEvents("export A=1 B=2")], [["A", "1"], ["B", "2"]]);
+});
