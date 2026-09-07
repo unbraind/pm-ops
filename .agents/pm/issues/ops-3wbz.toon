@@ -6,11 +6,13 @@ status: closed
 priority: 1
 tags[3]: attestation,fail-open,security
 created_at: "2026-09-07T09:40:50.515Z"
-updated_at: "2026-09-07T09:50:31.984Z"
+updated_at: "2026-09-07T09:54:57.400Z"
 closed_at: "2026-09-07T09:50:31.966Z"
 completed_at: "2026-09-07T09:50:31.966Z"
 claim_principal: claude
 author: claude
 acceptance_criteria: "A non-literal assignment to a name removes that name's binding, so a later expansion of it cannot supply --provenance; A literal assignment whose value carries a shell metacharacter also removes the binding rather than leaving the previous value standing; Reverting the production change makes the new regression tests fail"
+comments[1]{created_at,author,text}:
+  "2026-09-07T09:54:57.400Z",claude,"Fixing the reported defect surfaced a third of the same class, unreported until now. FLAG=\"--provenance;\" and FLAG='--provenance;' bind one literal word --provenance; which npm receives as a single unknown argument, so the publish is unattested. The scanner proves attestation by inlining the binding and re-reading the text, and the inlined ; splits the command, leaving a clean npm publish --provenance plus a phantom second command. Confirmed present on origin/main and closed by this change.\n\nThe metacharacter rule that would have caught it already existed, but only in shellScalarsByLine. attestation.ts maintains its own scope-aware binding map and never applied it. The rule now lives in one place, readableValue, on the path both consumers read, which is why one change closes both.\n\nA fourth shape was investigated and REJECTED: FLAG=--provenance\\; appeared to bypass, but the backslash was consumed by the probe's own JS string literal, so the line under test was the ordinary separator FLAG=--provenance; which correctly binds --provenance. Recorded because the artifact was convincing and would otherwise be rediscovered."
 close_reason: "Closed three fail-open constructions. Corpus verdict on this repository went from 2 wrong (nonliteral-overwrite, nonliteral-overwrite-cmdsub) to clean across 33 cases, and both reverts of the production change break the new tests: dropping unreadable assignments from the events map fails 9, and making attestation.ts read the literal projection again fails 6. Gates: typecheck pass, docstring 184/184, coverage 100/100/100/100, corpus clean."
 body: ""
