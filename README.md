@@ -43,12 +43,14 @@ For each repo `scan` checks:
 - `CHANGELOG.md` present
 - `.github/workflows/release.yml` and `ci.yml` present
 - `.agents/pm` workspace + open/in_progress item counts (`pm list --json`)
-- `pm-changelog` wired into devDependencies
+- `pm-changelog` declared in dependencies/devDependencies, or explicitly self-hosted by the generator package
 - `npm outdated` count
 - `npm audit --omit=dev` critical/high counts
 - open PRs/issues via `gh` (when the repo is a GitHub repo)
 
 A repo is `ready` when it has a package.json, strict TS, a changelog, both CI/release workflows, pm-changelog wired, and a successful audit with zero critical vulnerabilities. An unavailable or malformed online audit is reported and blocks readiness instead of being mistaken for a clean result. In explicit offline mode, network checks are skipped and do not gate file-based readiness.
+
+The JSON field `has_pm_changelog` records a declared dependency. `self_hosts_pm_changelog` separately identifies the generator package named `pm-changelog`, with bin `pm-changelog: dist/cli.js`, a `changelog:full` script starting with `node dist/cli.js`, and `changelog:check` set to `npm run changelog:full -- --check`. Scan and status accept either dependency wiring or this self-hosted configuration. These are structural checks; `ops verify-release` runs the actual release checks.
 
 **Flags**
 
@@ -66,11 +68,11 @@ A repo is `ready` when it has a package.json, strict TS, a changelog, both CI/re
 Validate a policy bundle against repos. The default policy (no file needed) checks:
 
 - **naming** — repo name matches `^pm-[a-z][a-z0-9-]*$` (no `pm-ext-` / `pm-preset-` prefixes)
-- **required-scripts** — `package.json` has `typecheck`, `test`, `build`, `release:check`, `changelog`, `changelog:check`
+- **required-scripts** — `package.json` has `typecheck`, `test`, `build`, `release:check`, `changelog`, `changelog:check`; the explicit self-hosted configuration above uses `changelog:full` in place of `changelog` (custom policy requirements remain exact)
 - **required-workflows** — `ci.yml` + `release.yml` present
 - **private-no-runners** — private repos must NOT use `runs-on: github-hosted` / `macos-` / `windows-` / `ubuntu-` (skipped for public repos)
 - **pm-duplicate-titles** — no two OPEN pm items share the same title
-- **pm-changelog-wired** — `pm-changelog` in devDeps AND a `changelog` script exists
+- **pm-changelog-wired** — `pm-changelog` in dependencies/devDependencies AND a `changelog` script exists, or the explicit self-hosted configuration above
 
 ```bash
 pm ops policy

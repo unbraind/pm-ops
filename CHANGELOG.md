@@ -109,6 +109,7 @@
 
 ### Fixed
 
+- merge-receipts labels two canonical fence patterns as stale, inviting someone to delete extension merge protection ([ops-github-db3225403a4b-44](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-44.toon))
 - A truncated list-all answer corrupts fleet throughput and cycle-time metrics ([ops-x3wc](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-x3wc.toon))
 
 ## 2026.8.16 - 2026-08-16

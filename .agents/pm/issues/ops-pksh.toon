@@ -1,0 +1,24 @@
+id: ops-pksh
+title: Self-hosted pm-changelog is reported not ready because it does not depend on itself
+description: "A real packed pm-ops scan of all 21 TypeScript package workspaces returned 20 ready and rejected only pm-changelog. That package generates and checks its own changelog through its declared local CLI, so requiring a dependency on itself produces a false readiness failure. Scan, status, and the default wiring policy must recognize the explicit self-hosted setup while preserving the dependency observation and refusing incomplete wiring."
+type: Issue
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-09-07T23:28:48.518Z"
+updated_at: "2026-09-07T23:38:40.186Z"
+assignee: codex-pm-release
+claim_principal: codex-pm-release
+author: codex-pm-release
+acceptance_criteria: The real self-hosted package passes changelog wiring in scan status and default policy; dependency metadata remains truthful; name-only and incomplete CLI generation/check configurations remain rejected; regression tests and exact all-source coverage pass.
+comments[1]{created_at,author,text}:
+  "2026-09-07T23:38:40.186Z",codex-pm-release,"Regression proof: the original packed package returned only 20 of 21 real TypeScript workspaces ready because pm-changelog has no self-dependency. The corrected packed package now returns 21 of 21 ready online; pm-changelog keeps has_pm_changelog=false and reports self_hosts_pm_changelog=true. Its real status is ready and all six default policy checks pass. Nine incomplete configurations and an explicit custom required-script policy are covered by the host harness; three malformed configurations were also rejected through the installed packed CLI. Full release:check passed 466 tests with zero failures and two optional real-data tests skipped, exact all-source 100/100/100/100 on 13 files, and docstrings on all 185 declarations. Types, production audit, package contents, changelog, release-date and publish-attestation gates passed. The manual fleet scan and metrics commands supplied the separate real-data evidence."
+files[3]{path,scope}:
+  index.ts,project
+  README.md,project
+  test/ops.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "node --test --test-name-pattern=\"self-hosted pm-changelog\" test/ops.test.ts",project,codex-pm-release,"2026-09-07T23:33:31.165Z",local_mutation,chore/approve-pm-cli-2026-9-7-as-the-development-host
+docs[1]{path,scope}:
+  README.md,project
+body: ""

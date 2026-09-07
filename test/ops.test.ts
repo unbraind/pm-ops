@@ -41,6 +41,7 @@ interface ScanRepo {
   has_release_workflow: boolean;
   has_ci: boolean;
   has_pm_changelog: boolean;
+  self_hosts_pm_changelog: boolean;
   pm_workspace: boolean;
   audit_critical: number | null;
   outdated_count: number | null;
@@ -1109,6 +1110,61 @@ test("ops policy accepts pm-changelog in dependencies", async () => {
 
   const scan = await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] });
   assert.strictEqual(scan.repos[0].has_pm_changelog, true);
+  await ext.deactivate();
+});
+
+test("self-hosted pm-changelog wiring is consistent across scan status and policy", async () => {
+  const ext = await harness();
+  const repo = join(tmpRoot, "pm-changelog-self-hosted");
+  mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
+  writeFileSync(join(repo, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: true } }));
+  writeFileSync(join(repo, "CHANGELOG.md"), "# Changelog\n");
+  for (const name of ["ci.yml", "release.yml"]) writeFileSync(join(repo, ".github", "workflows", name), "name: Fixture\n");
+  const scripts = {
+    typecheck: "true", test: "true", build: "true", "release:check": "true",
+    "changelog:full": "node dist/cli.js --mode replace --output CHANGELOG.md",
+    "changelog:check": "npm run changelog:full -- --check",
+  };
+  const pkg = { name: "pm-changelog", bin: { "pm-changelog": "dist/cli.js" }, scripts };
+  writeFileSync(join(repo, "package.json"), JSON.stringify(pkg));
+  const scan = await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] });
+  assert.strictEqual(scan.repos[0].has_pm_changelog, false, "self hosting must not fabricate a dependency");
+  assert.strictEqual(scan.repos[0].ready, true);
+  assert.strictEqual(scan.repos[0].self_hosts_pm_changelog, true);
+  const status = await runCmd<StatusResult>(ext, "ops status", { repos: [repo] });
+  assert.strictEqual(status.repos[0].ready, true);
+  assert.deepStrictEqual(status.repos[0].issues, []);
+  const policy = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo] });
+  assert.strictEqual(policy.summary.failed, 0, JSON.stringify(policy.repos[0].checks));
+  assert.match(policy.repos[0].checks.find((check) => check.id === "pm-changelog-wired")!.message, /self-hosted/);
+  const markdown = await runCmd<RenderedResult>(ext, "ops scan", { repos: [repo], format: "markdown" });
+  assert.match(markdown.output, /\| self \|/);
+  const customPolicy = join(repo, "policy.json");
+  writeFileSync(customPolicy, JSON.stringify({ checks: [{ id: "required-scripts", severity: "error", params: { scripts: ["changelog"] } }] }));
+  const custom = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo], policy: customPolicy });
+  assert.strictEqual(custom.summary.failed, 1, "explicit policy requirements must not be rewritten");
+
+  const incomplete = [
+    { ...pkg, name: "pm-other" },
+    { ...pkg, bin: undefined },
+    { ...pkg, bin: { "pm-changelog": "dist/other.js" } },
+    { ...pkg, scripts: undefined },
+    { ...pkg, scripts: { ...scripts, "changelog:full": undefined } },
+    { ...pkg, scripts: { ...scripts, "changelog:full": "echo node dist/cli.js --output CHANGELOG.md" } },
+    { ...pkg, scripts: { ...scripts, "changelog:full": "node dist/cli.js-other --output CHANGELOG.md" } },
+    { ...pkg, scripts: { ...scripts, "changelog:check": undefined } },
+    { ...pkg, scripts: { ...scripts, "changelog:check": "npm run changelog:full" } },
+  ];
+  for (const invalid of incomplete) {
+    writeFileSync(join(repo, "package.json"), JSON.stringify(invalid));
+    const rejected = await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] });
+    assert.strictEqual(rejected.repos[0].ready, false, JSON.stringify(invalid));
+    assert.strictEqual(rejected.repos[0].self_hosts_pm_changelog, false);
+    const rejectedStatus = await runCmd<StatusResult>(ext, "ops status", { repos: [repo] });
+    assert.ok(rejectedStatus.repos[0].issues.includes("pm-changelog not wired"));
+    const rejectedPolicy = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo] });
+    assert.strictEqual(rejectedPolicy.repos[0].checks.find((check) => check.id === "pm-changelog-wired")!.pass, false);
+  }
   await ext.deactivate();
 });
 

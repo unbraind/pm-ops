@@ -437,6 +437,7 @@ interface PkgJson {
   name?: string;
   version?: string;
   private?: boolean;
+  bin?: Record<string, string>;
   scripts?: Record<string, string>;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
@@ -448,6 +449,15 @@ function readPackageJson(repoPath: string): PkgJson | undefined {
 
 function hasPmChangelogDep(pkg: PkgJson | undefined): boolean {
   return Boolean((pkg?.devDependencies && "pm-changelog" in pkg.devDependencies) || (pkg?.dependencies && "pm-changelog" in pkg.dependencies));
+}
+
+/** Recognize the generator package's declared local CLI and generation/check script pair. */
+function selfHostsPmChangelog(pkg: PkgJson | undefined): boolean {
+  return pkg?.name === "pm-changelog"
+    && pkg.bin?.["pm-changelog"] === "dist/cli.js"
+    && typeof pkg.scripts?.["changelog:full"] === "string"
+    && /^node dist\/cli\.js(?:\s|$)/.test(pkg.scripts["changelog:full"])
+    && pkg.scripts["changelog:check"] === "npm run changelog:full -- --check";
 }
 
 interface TsConfigJson {
@@ -735,6 +745,7 @@ interface RepoScan {
   pm_open_items: number | null;
   pm_inprogress_items: number | null;
   has_pm_changelog: boolean;
+  self_hosts_pm_changelog: boolean;
   outdated_count: number | null;
   audit_critical: number | null;
   audit_high: number | null;
@@ -766,6 +777,7 @@ function scanRepo(repoPath: string): RepoScan {
       pm_open_items: null,
       pm_inprogress_items: null,
       has_pm_changelog: false,
+      self_hosts_pm_changelog: false,
       outdated_count: null,
       audit_critical: null,
       audit_high: null,
@@ -783,6 +795,7 @@ function scanRepo(repoPath: string): RepoScan {
   const has_release_workflow = existsSync(join(repoPath, ".github", "workflows", "release.yml"));
   const has_ci = existsSync(join(repoPath, ".github", "workflows", "ci.yml"));
   const has_pm_changelog = hasPmChangelogDep(pkg);
+  const self_hosts_pm_changelog = selfHostsPmChangelog(pkg);
 
   const items = readPmItems(repoPath);
   const pm_workspace = items !== null;
@@ -806,7 +819,7 @@ function scanRepo(repoPath: string): RepoScan {
 
   const has_pkg = Boolean(pkg);
   const auditGate = passesAuditGate(audit_critical, errors);
-  const ready = has_pkg && strict_ts && has_changelog && has_release_workflow && has_ci && has_pm_changelog && auditGate;
+  const ready = has_pkg && strict_ts && has_changelog && has_release_workflow && has_ci && (has_pm_changelog || self_hosts_pm_changelog) && auditGate;
 
   return {
     path: repoPath,
@@ -820,6 +833,7 @@ function scanRepo(repoPath: string): RepoScan {
     pm_open_items,
     pm_inprogress_items,
     has_pm_changelog,
+    self_hosts_pm_changelog,
     outdated_count,
     audit_critical,
     audit_high,
@@ -884,7 +898,7 @@ const DEFAULT_REQUIRED_WORKFLOWS = ["ci.yml", "release.yml"];
 const DEFAULT_POLICY: PolicyBundle = {
   checks: [
     { id: "naming", severity: "error" },
-    { id: "required-scripts", severity: "error", params: { scripts: DEFAULT_REQUIRED_SCRIPTS } },
+    { id: "required-scripts", severity: "error" },
     { id: "required-workflows", severity: "error", params: { workflows: DEFAULT_REQUIRED_WORKFLOWS } },
     { id: "private-no-runners", severity: "error" },
     { id: "pm-duplicate-titles", severity: "warning" },
@@ -1055,10 +1069,11 @@ function checkPmDuplicateTitles(items: PmItem[] | null): PolicyCheckResult {
   };
 }
 
-/** Confirm pm-changelog is present as a dependency and a changelog script. */
+/** Confirm dependency wiring or the generator package's explicit self-hosted script pair. */
 function checkPmChangelogWired(pkg: PkgJson | undefined): PolicyCheckResult {
   const hasDep = hasPmChangelogDep(pkg);
   const hasScript = Boolean(pkg?.scripts && typeof pkg.scripts["changelog"] === "string");
+  if (selfHostsPmChangelog(pkg)) return { id: "pm-changelog-wired", severity: "error", pass: true, message: "pm-changelog wired (self-hosted CLI + generation/check scripts)" };
   const pass = hasDep && hasScript;
   return {
     id: "pm-changelog-wired",
@@ -1076,7 +1091,7 @@ function runPolicyCheck(def: PolicyCheckDef, ctx: { repoPath: string; pkg: PkgJs
       result = checkNaming(ctx.pkg?.name ?? null);
       break;
     case "required-scripts":
-      result = checkRequiredScripts(ctx.pkg, (def.params?.scripts as string[]) ?? DEFAULT_REQUIRED_SCRIPTS);
+      result = checkRequiredScripts(ctx.pkg, (def.params?.scripts as string[]) ?? DEFAULT_REQUIRED_SCRIPTS.map((script) => script === "changelog" && selfHostsPmChangelog(ctx.pkg) ? "changelog:full" : script));
       break;
     case "required-workflows":
       result = checkRequiredWorkflows(ctx.repoPath, (def.params?.workflows as string[]) ?? DEFAULT_REQUIRED_WORKFLOWS);
@@ -1321,7 +1336,8 @@ async function collectStatus(repoPath: string): Promise<RepoStatus> {
   if (!has_ci) issues.push("no CI workflow");
 
   const has_pm_changelog = hasPmChangelogDep(pkg);
-  if (!has_pm_changelog) issues.push("pm-changelog not wired");
+  const self_hosts_pm_changelog = selfHostsPmChangelog(pkg);
+  if (!has_pm_changelog && !self_hosts_pm_changelog) issues.push("pm-changelog not wired");
 
   const outdated_count = countOutdated(repoPath);
 
@@ -2005,7 +2021,7 @@ function renderScanMarkdown(result: ScanResult): string {
       formatBool(r.has_changelog),
       formatBool(r.has_release_workflow),
       formatBool(r.has_ci),
-      formatBool(r.has_pm_changelog),
+      r.self_hosts_pm_changelog ? "self" : formatBool(r.has_pm_changelog),
       openItems,
       formatCount(r.outdated_count),
       formatCount(r.audit_critical),
