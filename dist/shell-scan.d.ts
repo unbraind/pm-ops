@@ -216,9 +216,27 @@ export declare function bashArrays(text: string): Map<string, string>;
  * commands. Tokenising finds command position without an anchored text pattern.
  *
  * The ordinary line-opening parser remains the more permissive path for quoted
- * and escaped literal values. A compound-position assignment is accepted only
- * when its token was wholly unquoted and substitution-free; uncertainty is left
- * unresolved so the auditor can refuse rather than invent a binding.
+ * and escaped literal values. A compound-position assignment is read only when
+ * its token was wholly unquoted and substitution-free.
+ *
+ * Uncertainty is reported, never dropped. An assignment whose value cannot be
+ * read maps its name to `undefined`, which says the shell replaced the binding
+ * with something unknown. Omitting such an assignment instead -- as reporting
+ * only literals did -- makes a replaced binding indistinguishable from a line
+ * that assigned nothing, and so leaves the OLD value standing: a `--provenance`
+ * the shell no longer passes goes on attesting the publish that expands it.
+ *
+ * @param segment - One segment returned by {@link segmentShellLine}.
+ * @returns Every name this segment binds, mapped to its literal value, or to
+ *   `undefined` when the assigned value could not be read.
+ */
+export declare function scalarAssignmentEvents(segment: string): Map<string, string | undefined>;
+/**
+ * Read persistent literal assignments from one control-operator-delimited segment.
+ *
+ * The literal projection of {@link scalarAssignmentEvents}: the names whose new
+ * value could be read. A caller maintaining a binding map must NOT use this
+ * alone, because the assignments it drops are the ones that retire a binding.
  *
  * @param segment - One segment returned by {@link segmentShellLine}.
  * @returns Literal scalar bindings made by assignment-only commands.
