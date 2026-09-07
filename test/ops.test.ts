@@ -2500,7 +2500,7 @@ test("ops merge-receipts --format markdown renders the current SDK receipt path"
   assert.match(result.output, /Scanned \*\*1\*\* repo\(s\): \*\*1\*\* pending receipt\(s\)/);
   assert.match(result.output, new RegExp(`\\| ${conflictingMergeLab.itemId} \\|`), "the item_id column should appear");
   assert.match(result.output, new RegExp(`\\| ${escapedPath} \\|`), "the SDK item_path should appear in the table");
-  assert.match(result.output, /Agent A description/, "the retained decision value is rendered for review");
+  assert.ok(result.output.split("\n").some((line) => line.endsWith("| description | Agent B description | Agent A description |")), "the decision row renders the newer value in retained and the older value in discarded");
   // The raw quoted path from #771 must never reach a committed-history-safe report.
   assert.doesNotMatch(result.output, /'\.agents\/pm\/tasks\//, "the quoted raw item_path must not appear in markdown");
   await ext.deactivate();
