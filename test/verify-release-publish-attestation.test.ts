@@ -35,6 +35,8 @@ import {
   commandCandidates,
   commandName,
   expandScalars,
+  literalScalarAssignments,
+  scalarAssignmentEvents,
   heredocBodyLines,
   heredocExpansionLines,
   shellScalars,
@@ -1292,4 +1294,82 @@ test("an unset later on the same line does not retroactively unbind an earlier u
     text: ["FLAG=--provenance", "unset FLAG; npm publish --access public $FLAG"].join("\n"),
   }]);
   assert.equal(unsetThenUse.failures.length, 1, "the direction that must never become a pass");
+});
+
+/**
+ * An assignment whose value cannot be read must retire the binding it replaces.
+ *
+ * The scanner only ever learned a binding from an assignment it could evaluate.
+ * An assignment it could not -- `FLAG=$OTHER`, `FLAG=$(cat file)`, a value
+ * carrying a metacharacter the tokeniser would act on -- produced no event at
+ * all, so the map kept the PREVIOUS value. That made "the shell replaced this
+ * binding with something unknown" indistinguishable from "this line assigned
+ * nothing", and a `--provenance` the shell had stopped passing went on
+ * attesting the publish that expanded it.
+ *
+ * Each case below is an unattested publish. Reverting the production change --
+ * making `scalarAssignmentEvents` omit unreadable assignments the way
+ * `literalScalarAssignments` did -- restores the stale binding and every one of
+ * them reports zero failures.
+ */
+for (const [name, replacement] of [
+  ["a parameter expansion", "$OTHER"],
+  ["a command substitution", "$(cat flags.txt)"],
+  ["a backtick substitution", "`cat flags.txt`"],
+  ["a quoted value carrying a metacharacter", '"--provenance;"'],
+  ["a single-quoted value carrying a metacharacter", "'--provenance;'"],
+  ["an empty value", ""],
+] as const) {
+  test(`an overwrite by ${name} stops the replaced flag attesting a publish`, () => {
+    const text = `#!/usr/bin/env bash\nFLAG=${ATTESTATION_FLAG}\nFLAG=${replacement}\nnpm publish $FLAG --access public\n`;
+    const result = auditPublishAttestation([{ file: ".github/workflows/release.sh", text }]);
+    assert.equal(result.failures.length, 1, `expected an unattested publish, got ${JSON.stringify(result.failures)}`);
+  });
+}
+
+test("a quoted metacharacter value is unreadable, so inlining cannot fake attestation", () => {
+  // bash binds this to the one literal word `--provenance;` and passes that one
+  // unknown argument to npm, so the publish is unattested. Inlining the value
+  // produces text the tokeniser splits at the `;`, leaving a clean
+  // `npm publish --provenance` and a phantom second command.
+  const text = `#!/usr/bin/env bash\nFLAG="${ATTESTATION_FLAG};"\nnpm publish $FLAG --access public\n`;
+  assert.equal(auditPublishAttestation([{ file: ".github/workflows/release.sh", text }]).failures.length, 1);
+  assert.deepEqual([...scalarAssignmentEvents(`FLAG="${ATTESTATION_FLAG};"`)], [["FLAG", undefined]]);
+});
+
+test("an unreadable assignment retires the binding rather than leaving the old value", () => {
+  assert.deepEqual([...scalarAssignmentEvents(`FLAG=${ATTESTATION_FLAG}`)], [["FLAG", ATTESTATION_FLAG]]);
+  // The name is present with no value: an assignment happened and its result is
+  // unknown. An absent key would instead mean no assignment happened at all.
+  assert.deepEqual([...scalarAssignmentEvents("FLAG=$OTHER")], [["FLAG", undefined]]);
+  assert.deepEqual([...scalarAssignmentEvents("FLAG=$(cat flags.txt)")], [["FLAG", undefined]]);
+  assert.deepEqual([...scalarAssignmentEvents("FLAG=`cat flags.txt`")], [["FLAG", undefined]]);
+  // An environment prefix binds nothing in the parent shell, so it is neither a
+  // readable assignment nor an unreadable one.
+  assert.deepEqual([...scalarAssignmentEvents("FLAG=$OTHER npm publish")], []);
+  assert.deepEqual([...scalarAssignmentEvents("npm publish")], []);
+});
+
+test("literalScalarAssignments still reports only the values it could read", () => {
+  const events = scalarAssignmentEvents(`FLAG=${ATTESTATION_FLAG}; OTHER=$X`);
+  assert.deepEqual([...events], [["FLAG", ATTESTATION_FLAG], ["OTHER", undefined]]);
+  assert.deepEqual([...literalScalarAssignments(`FLAG=${ATTESTATION_FLAG}; OTHER=$X`)], [["FLAG", ATTESTATION_FLAG]]);
+});
+
+test("a substitution containing a separator is still one assigned word", () => {
+  // `;` inside `$( )` belongs to the substitution. Breaking the word there
+  // would leave `b)` looking like a trailing command, which makes the whole
+  // line read as an environment prefix and suppresses the assignment event --
+  // the exact suppression this parse exists to prevent.
+  assert.deepEqual([...scalarAssignmentEvents("FLAG=$(a; b)")], [["FLAG", undefined]]);
+  const text = `#!/usr/bin/env bash\nFLAG=${ATTESTATION_FLAG}\nFLAG=$(a; b)\nnpm publish $FLAG --access public\n`;
+  assert.equal(auditPublishAttestation([{ file: ".github/workflows/release.sh", text }]).failures.length, 1);
+});
+
+test("an assignment that is genuinely readable still attests the publish", () => {
+  // The fail-closed direction must not swallow the legitimate shape: a flag
+  // bound once from a literal and expanded at the publish is an attested
+  // publish, and reporting it would be a false failure fleet-wide.
+  const text = `#!/usr/bin/env bash\nFLAG=${ATTESTATION_FLAG}\nnpm publish $FLAG --access public\n`;
+  assert.deepEqual(auditPublishAttestation([{ file: ".github/workflows/release.sh", text }]).failures, []);
 });

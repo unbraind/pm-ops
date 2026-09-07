@@ -20,7 +20,7 @@
 import { execFileSync } from "node:child_process";
 import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 import { resolve } from "node:path";
-import { bashArrays, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, dedentRunBlocks, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, joinContinuations, literalScalarAssignments, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
+import { bashArrays, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, dedentRunBlocks, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, joinContinuations, scalarAssignmentEvents, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
 /** The flag that attaches a build attestation to the published tarball. */
 export const ATTESTATION_FLAG = "--provenance";
 /** Publishers other than npm, which this repository has no attested path for. */
@@ -384,7 +384,12 @@ function publishInvocationsInShell(source, raw) {
                     scopes.push(new Map());
             }
             const resolved = expandScalars(expandArrays(segment, arrays), visibleScalars());
-            pendingAssignments = literalScalarAssignments(segment);
+            // Every assignment the segment makes, including the ones whose value
+            // could not be read. An unreadable assignment must reach the scope map as
+            // `undefined` so `visibleScalars` retires the name: dropping it would
+            // leave the previous binding visible, and a `--provenance` the shell has
+            // replaced would go on attesting the publish that expands it.
+            pendingAssignments = scalarAssignmentEvents(segment);
             pendingAssignmentEligible = assignmentEligible;
             const currentScope = scopes[scopes.length - 1];
             for (const command of tokenizeCommands(segment)) {

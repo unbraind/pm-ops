@@ -1,0 +1,16 @@
+id: ops-3wbz
+title: "An assignment the scanner cannot read leaves the previous binding standing, so a replaced provenance flag still attests the publish"
+description: "Measured against a 30-case bypass corpus run through verify() on a throwaway git repository, the canonical auditor admits two unattested publish shapes.\n\nFLAG=--provenance followed by FLAG=$OTHER, then npm publish $FLAG: the shell passes whatever $OTHER holds, but shellScalarsByLine only ever calls scalars.set for an assignment literalScalarAssignments could read. A non-literal right-hand side is not returned at all, and a literal one carrying a shell metacharacter is skipped by the metacharacter guard, so in both cases the loop never touches the map and the earlier --provenance binding survives the line that replaced it. The same holds for FLAG=$(cat file).\n\nThe defect is one rule applied in the wrong direction: an assignment the scanner cannot read is treated as binding-unchanged when the shell has made it binding-no-longer-known. Every other unknown in this scanner already fails closed - expandScalars leaves an unknown name in place precisely so that not-understood cannot read as carries-no-flags.\n\nCorpus verdicts, canonical implementation: nonliteral-overwrite=pass (expected fail), nonliteral-overwrite-cmdsub=pass (expected fail); the other 28 cases, including both node-script false-failure controls, are correct."
+type: Issue
+status: closed
+priority: 1
+tags[3]: attestation,fail-open,security
+created_at: "2026-09-07T09:40:50.515Z"
+updated_at: "2026-09-07T09:50:31.984Z"
+closed_at: "2026-09-07T09:50:31.966Z"
+completed_at: "2026-09-07T09:50:31.966Z"
+claim_principal: claude
+author: claude
+acceptance_criteria: "A non-literal assignment to a name removes that name's binding, so a later expansion of it cannot supply --provenance; A literal assignment whose value carries a shell metacharacter also removes the binding rather than leaving the previous value standing; Reverting the production change makes the new regression tests fail"
+close_reason: "Closed three fail-open constructions. Corpus verdict on this repository went from 2 wrong (nonliteral-overwrite, nonliteral-overwrite-cmdsub) to clean across 33 cases, and both reverts of the production change break the new tests: dropping unreadable assignments from the events map fails 9, and making attestation.ts read the literal projection again fails 6. Gates: typecheck pass, docstring 184/184, coverage 100/100/100/100, corpus clean."
+body: ""

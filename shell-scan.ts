@@ -1010,36 +1010,123 @@ export function bashArrays(text: string): Map<string, string> {
   return arrays;
 }
 
-/** Parse text opening with one assignment of a fully literal shell word. */
-function literalAssignment(line: string): [string, string] | undefined {
+/**
+ * One assignment the shell performs, and the value it leaves behind when that
+ * value can be read.
+ *
+ * An absent `value` is not "no assignment happened". It is the stronger
+ * statement that the shell REPLACED the binding with something this scanner
+ * cannot evaluate -- `FLAG=$OTHER`, `FLAG=$(cat file)`, a value carrying a
+ * metacharacter the tokeniser would act on. The distinction exists because the
+ * two states demand opposite handling: an unread assignment must retire the
+ * previous binding, while a line that assigns nothing must leave it standing.
+ */
+interface ScalarAssignment {
+  /** Name on the left of the `=`. */
+  name: string;
+  /** The literal the shell binds, or undefined when it cannot be read. */
+  value?: string;
+}
+
+/**
+ * Parse text opening with one assignment, reading its value when it is a fully
+ * literal shell word.
+ *
+ * The scan runs to the end of the assigned word even once the value is known to
+ * be unreadable, because the word's end decides something independent of the
+ * value: text after it makes this an environment prefix (`FLAG=x npm publish`),
+ * which binds nothing in the parent shell, while nothing after it makes the
+ * assignment persist. Returning early on the first `$` would conflate those.
+ *
+ * Command substitutions are tracked to their closing delimiter for the same
+ * reason. A `;` or space inside `$( ... )` or backticks belongs to the
+ * substitution, not to the enclosing command, so breaking on it would leave the
+ * remainder looking like a trailing command and suppress the assignment event
+ * entirely -- the precise shape whose suppression this parse exists to avoid.
+ *
+ * @param line - Text that may open with an assignment.
+ * @returns The assignment made, or undefined when the text opens with none or
+ *   the words form an environment prefix to another command.
+ */
+function openingAssignment(line: string): ScalarAssignment | undefined {
   const head = /^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=/.exec(line);
   if (head === null) return undefined;
+  const name = head[1]!;
   let index = head[0].length;
   const start = index;
   let single = false;
   let double = false;
+  let backtick = false;
+  let substitutionDepth = 0;
+  let readable = true;
   for (; index < line.length; index += 1) {
     const char = line[index]!;
     if (char === "\\" && !single) {
       index += 1;
       continue;
     }
-    if (char === "'" && !double) {
+    if (char === "'" && !double && !backtick) {
       single = !single;
       continue;
     }
-    if (char === '"' && !single) {
+    if (char === '"' && !single && !backtick) {
       double = !double;
       continue;
     }
+    if (!single && char === "`") {
+      backtick = !backtick;
+      readable = false;
+      continue;
+    }
+    if (!single && char === "$" && line[index + 1] === "(") {
+      substitutionDepth += 1;
+      readable = false;
+      index += 1;
+      continue;
+    }
+    if (substitutionDepth > 0) {
+      if (char === "(") substitutionDepth += 1;
+      else if (char === ")") substitutionDepth -= 1;
+      continue;
+    }
+    if (backtick) continue;
     if (!single && !double && (/\s/.test(char) || char === ";")) break;
-    if (!single && /[$`()]/.test(char)) return undefined;
+    if (!single && /[$()]/.test(char)) readable = false;
   }
-  if (single || double) return undefined;
+  // An unterminated quote or substitution means the word's own extent is a
+  // guess, so its value cannot be trusted either.
+  if (single || double || backtick || substitutionDepth > 0) readable = false;
   const raw = line.slice(start, index);
   const rest = line.slice(index).replace(/^[ \t]*/, "");
   if (!/^(?:[;#]|\r?$)/.test(rest)) return undefined;
-  return [head[1]!, literalShellWord(raw)];
+  return readable ? { name, value: literalShellWord(raw) } : { name };
+}
+
+/**
+ * A bound value the scanner may inline, or undefined when inlining it would
+ * change what the command means.
+ *
+ * The scanner proves attestation by substituting a binding into the command
+ * text and re-reading it. That is only sound while the substituted text is one
+ * shell word. A value carrying an operator or delimiter is not: bash binds
+ * `FLAG=--provenance\;` to the single literal word `--provenance;` and passes
+ * that one unknown argument to npm, but inlining it produces text the tokeniser
+ * splits at the `;`, leaving a clean `npm publish --provenance` and a phantom
+ * second command. The publish then reads as attested by a flag npm never
+ * received.
+ *
+ * The same characters the tokeniser treats as operators or structural
+ * delimiters are therefore refused, after escapes and quotes have been
+ * resolved: what matters is the text that would be re-tokenised, not the text
+ * as written.
+ *
+ * @param value - A resolved assignment value, or undefined when the assignment
+ *   was already unreadable.
+ * @returns The value when it is safe to inline, otherwise undefined.
+ */
+function readableValue(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  return /[$`"'(){};&|<>#]/u.test(value) ? undefined : value;
 }
 
 /**
@@ -1051,17 +1138,24 @@ function literalAssignment(line: string): [string, string] | undefined {
  * commands. Tokenising finds command position without an anchored text pattern.
  *
  * The ordinary line-opening parser remains the more permissive path for quoted
- * and escaped literal values. A compound-position assignment is accepted only
- * when its token was wholly unquoted and substitution-free; uncertainty is left
- * unresolved so the auditor can refuse rather than invent a binding.
+ * and escaped literal values. A compound-position assignment is read only when
+ * its token was wholly unquoted and substitution-free.
+ *
+ * Uncertainty is reported, never dropped. An assignment whose value cannot be
+ * read maps its name to `undefined`, which says the shell replaced the binding
+ * with something unknown. Omitting such an assignment instead -- as reporting
+ * only literals did -- makes a replaced binding indistinguishable from a line
+ * that assigned nothing, and so leaves the OLD value standing: a `--provenance`
+ * the shell no longer passes goes on attesting the publish that expands it.
  *
  * @param segment - One segment returned by {@link segmentShellLine}.
- * @returns Literal scalar bindings made by assignment-only commands.
+ * @returns Every name this segment binds, mapped to its literal value, or to
+ *   `undefined` when the assigned value could not be read.
  */
-export function literalScalarAssignments(segment: string): Map<string, string> {
-  const assignments = new Map<string, string>();
-  const opening = literalAssignment(segment);
-  if (opening !== undefined) assignments.set(opening[0], opening[1]);
+export function scalarAssignmentEvents(segment: string): Map<string, string | undefined> {
+  const assignments = new Map<string, string | undefined>();
+  const opening = openingAssignment(segment);
+  if (opening !== undefined) assignments.set(opening.name, readableValue(opening.value));
   if (segment.includes("$(") || segment.includes("`")) return assignments;
   const commands = tokenizeCommands(segment);
   const direct = commands.length === 1 ? commands[0] : undefined;
@@ -1071,8 +1165,9 @@ export function literalScalarAssignments(segment: string): Map<string, string> {
     // and must not enter the parent shell's scalar map.
     for (const token of direct) {
       const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/u.exec(token.value);
-      if (match === null || token.startsQuoted || token.unresolved === true || /[$`"'(){};&|<>#]/u.test(match[2]!)) continue;
-      assignments.set(match[1]!, match[2]!);
+      if (match === null) continue;
+      const unreadable = token.startsQuoted || token.unresolved === true;
+      assignments.set(match[1]!, unreadable ? undefined : readableValue(match[2]!));
     }
   }
   for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {
@@ -1086,10 +1181,28 @@ export function literalScalarAssignments(segment: string): Map<string, string> {
     const token = command[index];
     if (token === undefined || token.quoted || index !== command.length - 1) continue;
     const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/u.exec(token.value);
-    if (match === null || /[$`"'(){};&|<>#]/u.test(match[2]!)) continue;
-    assignments.set(match[1]!, match[2]!);
+    if (match === null) continue;
+    assignments.set(match[1]!, readableValue(match[2]!));
   }
   return assignments;
+}
+
+/**
+ * Read persistent literal assignments from one control-operator-delimited segment.
+ *
+ * The literal projection of {@link scalarAssignmentEvents}: the names whose new
+ * value could be read. A caller maintaining a binding map must NOT use this
+ * alone, because the assignments it drops are the ones that retire a binding.
+ *
+ * @param segment - One segment returned by {@link segmentShellLine}.
+ * @returns Literal scalar bindings made by assignment-only commands.
+ */
+export function literalScalarAssignments(segment: string): Map<string, string> {
+  const literal = new Map<string, string>();
+  for (const [name, value] of scalarAssignmentEvents(segment)) {
+    if (value !== undefined) literal.set(name, value);
+  }
+  return literal;
 }
 
 /** Resolve the quote and escape rules of one substitution-free shell word. */
@@ -1623,13 +1736,17 @@ export function shellScalarsByLine(text: string): Array<Map<string, string>> {
   const scalars = new Map<string, string>();
   return lines.map((line, index) => {
     if (!bodies[index]!) {
-      for (const [name, value] of literalScalarAssignments(line)) {
-        // Shell metacharacters that survive unescaping must not be inlined: an
-        // escaped `\;` becomes `;` here, and tokenizeCommands would split on it,
-        // so `FLAG=--provenance\;` would let an unattested publish borrow a flag
-        // the shell passes as a literal argument. Reject the same characters
-        // tokenizeCommands treats as operators or structural delimiters.
-        if (!/[$`"'(){};&|<>#]/.test(value)) scalars.set(name, value);
+      for (const [name, value] of scalarAssignmentEvents(line)) {
+        // An assignment always retires the previous binding, and only a value
+        // this scanner can read establishes a new one. Skipping an unreadable
+        // assignment instead would leave the OLD value in the map, so a
+        // `FLAG=--provenance` replaced by `FLAG=$OTHER` would go on attesting
+        // `npm publish $FLAG` with a flag the shell has stopped passing.
+        //
+        // A value carrying a metacharacter never arrives readable; see
+        // readableValue for why inlining one is unsound.
+        if (value === undefined) scalars.delete(name);
+        else scalars.set(name, value);
       }
       for (const command of tokenizeCommands(line)) {
         for (const name of unsetNames(command)) scalars.delete(name);

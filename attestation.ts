@@ -34,7 +34,7 @@ import {
   heredocBodyLines,
   heredocExpansionLines,
   joinContinuations,
-  literalScalarAssignments,
+  scalarAssignmentEvents,
   segmentShellLine,
   type ShellCommand,
   type SourceFile,
@@ -363,7 +363,7 @@ function publishInvocationsInShell(source: SourceFile, raw: string): PublishInvo
     const segments = segmentShellLine(line);
 
     let assignmentEligible = true;
-    let pendingAssignments = new Map<string, string>();
+    let pendingAssignments = new Map<string, string | undefined>();
     let pendingAssignmentEligible = false;
     const rendered = segments.map((segment) => {
       if (/^(?:;|&&?|\|\|?)$/.test(segment)) {
@@ -436,7 +436,12 @@ function publishInvocationsInShell(source: SourceFile, raw: string): PublishInvo
       }
 
       const resolved = expandScalars(expandArrays(segment, arrays), visibleScalars());
-      pendingAssignments = literalScalarAssignments(segment);
+      // Every assignment the segment makes, including the ones whose value
+      // could not be read. An unreadable assignment must reach the scope map as
+      // `undefined` so `visibleScalars` retires the name: dropping it would
+      // leave the previous binding visible, and a `--provenance` the shell has
+      // replaced would go on attesting the publish that expands it.
+      pendingAssignments = scalarAssignmentEvents(segment);
       pendingAssignmentEligible = assignmentEligible;
       const currentScope = scopes[scopes.length - 1]!;
       for (const command of tokenizeCommands(segment)) {
