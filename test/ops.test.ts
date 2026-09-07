@@ -687,15 +687,21 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
   // Exercise the distributed artifact. Installing the whole checkout copies
   // development dependencies and coverage output, whose cost depends on the
   // host's working tree size rather than the package's install contract.
+  const packEnv = { ...env };
+  // npm 10 can still run prepare during pack; it must resolve the source
+  // checkout, not inherit the isolated destination tracker from runPm.
+  delete packEnv.PM_PATH;
   const packed = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm",
     ["pack", "--ignore-scripts", "--json", "--pack-destination", root], {
-      cwd: process.cwd(), encoding: "utf-8", env, timeout: 30_000,
+      cwd: process.cwd(), encoding: "utf-8", env: packEnv, timeout: 30_000,
       shell: process.platform === "win32",
     });
   assertClean(packed, "npm pack pm-ops");
-  const tarballs = parseJson<{ filename: string }[]>(packed.stdout);
+  // npm 10 may prepend prepare output even with --json. Discover the one
+  // archive in the private output directory instead of parsing mixed stdout.
+  const tarballs = readdirSync(root).filter((name) => name.endsWith(".tgz"));
   assert.strictEqual(tarballs.length, 1, "npm pack must produce one installable artifact");
-  assertClean(runPm(["install", join(root, tarballs[0]!.filename), "--project", "--json"]), "pm install packed pm-ops");
+  assertClean(runPm(["install", join(root, tarballs[0]!), "--project", "--json"]), "pm install packed pm-ops");
   const doctor = runPm(["package", "doctor", "--project", "--json", "--detail", "deep"]);
   assertClean(doctor, "pm package doctor");
   interface DoctorPayload {
