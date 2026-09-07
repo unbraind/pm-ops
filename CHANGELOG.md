@@ -15,10 +15,6 @@
 - The auditor shell-tokenised every shebang file, so a Node script failed the gate on a template literal ([ops-3o3w](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3o3w.toon))
 - Audit xargs/parallel spawning wrappers that leave the publish argument list unresolved ([ops-3xs4](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3xs4.toon))
 
-### Security
-
-- An assignment the scanner cannot read leaves the previous binding standing, so a replaced provenance flag still attests the publish ([ops-3wbz](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3wbz.toon))
-
 ### Other
 
 - A same-day re-release is blocked because the pinned pm-changelog rejects the -N version suffix ([ops-tk0h](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-tk0h.toon))
