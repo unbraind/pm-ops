@@ -654,6 +654,11 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
     HOME: home,
     LOCALAPPDATA: localAppData,
     NPM_CONFIG_USERCONFIG: devNull,
+    // Isolate PM state and credentials while reusing npm's content cache.
+    // A fresh HOME otherwise forces a network download of every runtime
+    // dependency inside the 30-second routing assertion on every test run.
+    NPM_CONFIG_CACHE: process.env.NPM_CONFIG_CACHE ?? process.env.npm_config_cache ?? join(homedir(), ".npm"),
+    NPM_CONFIG_PREFER_OFFLINE: "true",
     PM_GLOBAL_PATH: join(root, "global-pm"),
     PM_OPS_OFFLINE: "1",
     PM_PATH: join(project, ".agents", "pm"),
@@ -679,7 +684,18 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
   };
 
   assertClean(runPm(["init", "--json"]), "pm init");
-  assertClean(runPm(["install", process.cwd(), "--project", "--json"]), "pm install pm-ops");
+  // Exercise the distributed artifact. Installing the whole checkout copies
+  // development dependencies and coverage output, whose cost depends on the
+  // host's working tree size rather than the package's install contract.
+  const packed = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm",
+    ["pack", "--ignore-scripts", "--json", "--pack-destination", root], {
+      cwd: process.cwd(), encoding: "utf-8", env, timeout: 30_000,
+      shell: process.platform === "win32",
+    });
+  assertClean(packed, "npm pack pm-ops");
+  const tarballs = parseJson<{ filename: string }[]>(packed.stdout);
+  assert.strictEqual(tarballs.length, 1, "npm pack must produce one installable artifact");
+  assertClean(runPm(["install", join(root, tarballs[0]!.filename), "--project", "--json"]), "pm install packed pm-ops");
   const doctor = runPm(["package", "doctor", "--project", "--json", "--detail", "deep"]);
   assertClean(doctor, "pm package doctor");
   interface DoctorPayload {
@@ -2448,7 +2464,9 @@ test("ops merge-receipts --warn-only returns the pending receipt and exits 0", a
   // which is what unbraind/pm-cli#1184 reported and pm-cli fixed on 2026-09-04.
   // From 2026.9.7 the driver retains the more recent write.
   //
-  // Measured on both hosts, same two-branch fixture, both merge directions:
+  // The manifest upgrade starts at 2026.8.31; the historical comparison
+  // below was measured separately on 2026.8.30, not on that manifest pin.
+  // Measured on both comparison hosts, same fixture, both merge directions:
   //
   //   2026.8.30  b->a and a->b  ->  "Agent A description"  (lexicographically first)
   //   2026.9.7   b->a and a->b  ->  "Agent B description"  (the newer write)

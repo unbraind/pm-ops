@@ -2,19 +2,22 @@ id: ops-gp0d
 title: "A thirty-five second CLI test fails on timing whenever the machine is busy, so the gate reports red for load rather than for code"
 description: "The test named installed pm CLI routes --repos values to every fleet command spawns the installed pm binary many times in sequence and takes roughly 30 to 35 seconds on an idle machine. On 2026-08-26 UTC it failed twice while six packages full gate suites ran in parallel, and passed when re-run alone on the same commit. It also passed on main under comparable parallel load. The conclusion is that the test is load sensitive rather than broken, so a red result from a parallel sweep must be re-run in isolation before it is believed."
 type: Issue
-status: open
+status: in_progress
 priority: 3
 tags[3]: ci,flake,test
 created_at: "2026-08-26T20:06:09.002Z"
-updated_at: "2026-08-26T22:15:54.161Z"
+updated_at: "2026-09-07T21:09:34.626Z"
 deadline: "2026-09-16T00:00:00.000Z"
-assignee: claude
+assignee: codex-pm-ecosystem
+claim_principal: codex-pm-ecosystem
 author: claude
 estimated_minutes: 90
 acceptance_criteria: "The test either bounds its own runtime independently of machine load, or spawns the CLI once and asserts over the batch rather than once per command, so that a busy machine cannot turn it red"
-comments[2]{created_at,author,text}:
+comments[4]{created_at,author,text}:
   "2026-08-26T20:06:09.002Z",claude,Not introduced by the trusted-publishing change; that change touches only release.yml and its own test file.
   "2026-08-26T22:15:54.161Z",claude,"Corrected an internal inconsistency this record carried: the description claimed the commit passed in isolation on both re-runs while the note recorded a single isolated pass among three observations. Those cannot both be right and I cannot re-derive which from the surviving evidence, so both now state only what is defensible - two failures under six-way parallel load, and a pass when re-run alone on the same commit - without asserting a count of isolated re-runs that the records disagree about. Inconsistent evidence is worse than less evidence, because it misleads flake triage."
+  "2026-09-07T21:04:03.704Z",codex-pm-ecosystem,"2026-09-07 UTC: reproduced the 30-second pm install timeout twice, including with a warm npm cache. The local-directory source copies development dependencies and generated files. Replaced that source with the actual npm-packed artifact and retained every installed CLI routing, SDK fallback, and package-doctor assertion plus both time limits. The packed test passes in 20.09 seconds (whole isolated file 56.48 seconds including setup). Reuses only the npm content cache; PM state and user configuration remain isolated. Full source gate pending."
+  "2026-09-07T21:09:34.626Z",codex-pm-ecosystem,"2026-09-07 UTC: the complete release gate passed on installed published CLI/SDK 2026.9.7 and pm-changelog 2026.9.6. Final test summary {'tests': '464', 'pass': '462', 'fail': '0', 'skipped': '2'}; report All files                              |     100 |      100 |     100 |     100 |                   . Complete four-dimensional source coverage remains a separately checked scope, not inferred from a green label. Exact-head reviews remain incomplete where free bots are unavailable; no publication or private hosted-data deployment is authorized by this result."
 notes[1]{created_at,author,text}:
   "2026-08-26T20:06:09.002Z",claude,"Observed three times on 2026-08-26: two failures under six-way parallel gate runs, one pass alone on the identical commit."
 learnings[1]{created_at,author,text}:
