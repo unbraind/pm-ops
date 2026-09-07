@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- An assignment the scanner cannot read leaves the previous binding standing, so a replaced provenance flag still attests the publish ([ops-3wbz](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3wbz.toon))
+
 ## 2026.9.7 - 2026-09-07
 
 ### Fixed
