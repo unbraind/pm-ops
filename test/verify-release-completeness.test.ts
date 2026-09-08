@@ -134,21 +134,15 @@ test("parseLines splits output into trimmed non-empty lines", () => {
   assert.deepEqual(parseLines(""), []);
 });
 
-test("parseNpmVersions reads the JSON array npm view prints, and tolerates a non-array reply", () => {
+test("parseNpmVersions requires the entire npm inventory to be readable", () => {
   assert.deepEqual(parseNpmVersions('["2026.8.31","2026.8.28"]'), ["2026.8.31", "2026.8.28"]);
-  assert.deepEqual(parseNpmVersions('["2026.8.31", 42, null, "2026.8.28"]'), ["2026.8.31", "2026.8.28"]);
-  assert.deepEqual(parseNpmVersions('{"version":"2026.8.31"}'), [], "a single-version object is not an array");
-  assert.deepEqual(parseNpmVersions("null"), []);
-
-  // A malformed reply must not throw. The docstring promised this and the
-  // implementation did not: JSON.parse raised a SyntaxError straight out of the
-  // parser, aborting `verify` before the audit and the report ran, with an
-  // error naming neither the package nor the registry call. Returning [] keeps
-  // the failure loud where it is readable - the audit then reports every
-  // release tag as missing its npm version.
-  assert.deepEqual(parseNpmVersions("npm ERR! code E404"), [], "a non-JSON reply yields nothing");
-  assert.deepEqual(parseNpmVersions('["2026.8.31"'), [], "a truncated reply yields nothing");
-  assert.deepEqual(parseNpmVersions(""), [], "an empty reply yields nothing");
+  assert.deepEqual(parseNpmVersions("[]"), [], "a certified empty array is an empty inventory");
+  for (const reply of ['["2026.8.31", 42, null]', '{"version":"2026.8.31"}', "null", '["2026.8.31", ""]']) {
+    assert.throws(() => parseNpmVersions(reply), /expected an array of non-empty version strings/, reply);
+  }
+  for (const reply of ["npm ERR! code E404", '["2026.8.31"', ""]) {
+    assert.throws(() => parseNpmVersions(reply), SyntaxError, reply);
+  }
 });
 
 test("a complete triple passes and is reported as a single summary note", () => {
@@ -330,6 +324,52 @@ test("verify gathers the three lists through the fetcher and audits them", () =>
   assert.deepEqual(result.failures, []);
   // The package name is read from the real manifest, so the fetcher is asked
   // for the real package's npm versions.
+});
+
+test("verify reports unreadable npm inventory without inventing missing releases", () => {
+  const root = resolve(import.meta.dirname, "..");
+  for (const reply of ['["2026.8.17", null]', "registry temporarily unavailable"]) {
+    const fetcher = fixedFetcher({ tags: COMPLETE_TAGS, githubReleases: COMPLETE_GH });
+    fetcher.npmVersions = () => parseNpmVersions(reply);
+    const result = verify(root, fetcher);
+    assert.equal(result.failures.length, 1);
+    assert.match(result.failures[0]!, /unable to determine release completeness while reading npm versions/);
+    assert.doesNotMatch(result.failures[0]!, /no corresponding|missing/);
+    assert.deepEqual(result.notes, []);
+  }
+});
+
+test("verify names a failed inventory source and never audits partial lists", () => {
+  const root = resolve(import.meta.dirname, "..");
+  for (const [method, source] of [
+    ["remoteUrl", "origin repository"], ["tags", "git tags"],
+    ["npmVersions", "npm versions"], ["githubReleases", "GitHub Releases"],
+  ] as const) {
+    const fetcher = fixedFetcher({ tags: COMPLETE_TAGS, npmVersions: COMPLETE_NPM, githubReleases: COMPLETE_GH });
+    fetcher[method] = () => { throw new Error("lookup failed"); };
+    assert.deepEqual(verify(root, fetcher), {
+      failures: [`unable to determine release completeness while reading ${source}: lookup failed`], notes: [],
+    });
+  }
+  const fetcher = fixedFetcher({ tags: COMPLETE_TAGS, npmVersions: COMPLETE_NPM });
+  fetcher.githubReleases = () => { throw "lookup interrupted"; };
+  assert.match(verify(root, fetcher).failures[0]!, /GitHub Releases: lookup interrupted$/);
+});
+
+test("verify refuses missing lookup identity before querying registries", () => {
+  const root = mkdtempSync(join(tmpdir(), "completeness-identity-"));
+  const fetcher = fixedFetcher({ tags: COMPLETE_TAGS, npmVersions: COMPLETE_NPM, githubReleases: COMPLETE_GH });
+  fetcher.npmVersions = () => assert.fail("no registry lookup is allowed without validated identity");
+  try {
+    assert.match(verify(root, fetcher).failures[0]!, /while reading package manifest/);
+    writeFileSync(join(root, "package.json"), "{}");
+    assert.match(verify(root, fetcher).failures[0]!, /package manifest: package name is missing/);
+    writeFileSync(join(root, "package.json"), '{"name":"pm-ops"}');
+    fetcher.remoteUrl = () => "https://notgithub.com/owner/repo";
+    assert.match(verify(root, fetcher).failures[0]!, /origin repository: origin does not identify a GitHub repository/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("verify derives the repo slug from the remote URL the fetcher returns", () => {

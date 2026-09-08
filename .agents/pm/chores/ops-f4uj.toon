@@ -1,0 +1,16 @@
+id: ops-f4uj
+title: "Approve pm-cli 2026.9.7 as the development host, and track the merge rule it changes"
+description: "The compatibility floor test exact-pins an approved host CLI, so a Dependabot bump can never be green on its own - approving a host is a deliberate decision, and this records the evidence for it.\n\nBumping 2026.8.31 to 2026.9.7 failed one test, and the failure was real rather than incidental: the item merge driver's scalar conflict rule changed.\n\nThe dependency manifest previously pinned 2026.8.31. The historical baseline experiment was performed separately on 2026.8.30, so it does not claim a measurement on the prior manifest pin. Compared 2026.8.30 and 2026.9.7 using the same two-branch fixture, in both merge directions:\n\n  2026.8.30   b into a, and a into b   ->  'Agent A description'   (lexicographically first)\n  2026.9.7    b into a, and a into b   ->  'Agent B description'   (the newer write)\n\nDisambiguated with a second fixture whose newer write is lexicographically FIRST: 2026.9.7 retains the newer one. So the new rule is recency, not lexical order.\n\nThis is not a regression. It is the fix for unbraind/pm-cli#1184 - which this fleet filed on 2026-09-03 and pm-cli closed on 2026-09-04 - reporting that lexicographic resolution let the OLDER write win regardless of preference or recency.\n\nThe property multi-agent merging actually depends on is direction-independence: two agents must converge on the same value whichever way they merge. That holds on BOTH hosts, verified in both directions. What changed is which of two conflicting writes survives, and the new answer is the better one.\n\nThe test expectation was updated to the new behaviour rather than loosened to accept either, and its comment now carries the measurement instead of the superseded stable_value_order description."
+type: Chore
+status: closed
+priority: 2
+tags[2]: host,merge-driver
+created_at: "2026-09-07T15:32:09.345Z"
+updated_at: "2026-09-07T21:04:02.192Z"
+closed_at: "2026-09-07T15:32:11.092Z"
+completed_at: "2026-09-07T15:32:11.092Z"
+claim_principal: claude
+author: claude
+acceptance_criteria: "The approved development host is the current published pm-cli; The merge rule change is recorded with the measurement, not with an assumption"
+close_reason: "Host approved at 2026.9.7. Merge rule change measured on both hosts and both directions; direction-independence verified intact. Gates: pm health --strict-exit pass, npm test 462 pass / 0 fail."
+body: ""

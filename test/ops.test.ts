@@ -41,6 +41,7 @@ interface ScanRepo {
   has_release_workflow: boolean;
   has_ci: boolean;
   has_pm_changelog: boolean;
+  self_hosts_pm_changelog: boolean;
   pm_workspace: boolean;
   audit_critical: number | null;
   outdated_count: number | null;
@@ -654,6 +655,11 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
     HOME: home,
     LOCALAPPDATA: localAppData,
     NPM_CONFIG_USERCONFIG: devNull,
+    // Isolate PM state and credentials while reusing npm's content cache.
+    // A fresh HOME otherwise forces a network download of every runtime
+    // dependency inside the 30-second routing assertion on every test run.
+    NPM_CONFIG_CACHE: process.env.NPM_CONFIG_CACHE ?? process.env.npm_config_cache ?? join(homedir(), ".npm"),
+    NPM_CONFIG_PREFER_OFFLINE: "true",
     PM_GLOBAL_PATH: join(root, "global-pm"),
     PM_OPS_OFFLINE: "1",
     PM_PATH: join(project, ".agents", "pm"),
@@ -679,7 +685,24 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
   };
 
   assertClean(runPm(["init", "--json"]), "pm init");
-  assertClean(runPm(["install", process.cwd(), "--project", "--json"]), "pm install pm-ops");
+  // Exercise the distributed artifact. Installing the whole checkout copies
+  // development dependencies and coverage output, whose cost depends on the
+  // host's working tree size rather than the package's install contract.
+  const packEnv = { ...env };
+  // npm 10 can still run prepare during pack; it must resolve the source
+  // checkout, not inherit the isolated destination tracker from runPm.
+  delete packEnv.PM_PATH;
+  const packed = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm",
+    ["pack", "--ignore-scripts", "--json", "--pack-destination", root], {
+      cwd: process.cwd(), encoding: "utf-8", env: packEnv, timeout: 30_000,
+      shell: process.platform === "win32",
+    });
+  assertClean(packed, "npm pack pm-ops");
+  // npm 10 may prepend prepare output even with --json. Discover the one
+  // archive in the private output directory instead of parsing mixed stdout.
+  const tarballs = readdirSync(root).filter((name) => name.endsWith(".tgz"));
+  assert.strictEqual(tarballs.length, 1, "npm pack must produce one installable artifact");
+  assertClean(runPm(["install", join(root, tarballs[0]!), "--project", "--json"]), "pm install packed pm-ops");
   const doctor = runPm(["package", "doctor", "--project", "--json", "--detail", "deep"]);
   assertClean(doctor, "pm package doctor");
   interface DoctorPayload {
@@ -1087,6 +1110,61 @@ test("ops policy accepts pm-changelog in dependencies", async () => {
 
   const scan = await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] });
   assert.strictEqual(scan.repos[0].has_pm_changelog, true);
+  await ext.deactivate();
+});
+
+test("self-hosted pm-changelog wiring is consistent across scan status and policy", async () => {
+  const ext = await harness();
+  const repo = join(tmpRoot, "pm-changelog-self-hosted");
+  mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
+  writeFileSync(join(repo, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: true } }));
+  writeFileSync(join(repo, "CHANGELOG.md"), "# Changelog\n");
+  for (const name of ["ci.yml", "release.yml"]) writeFileSync(join(repo, ".github", "workflows", name), "name: Fixture\n");
+  const scripts = {
+    typecheck: "true", test: "true", build: "true", "release:check": "true",
+    "changelog:full": "node dist/cli.js --mode replace --output CHANGELOG.md",
+    "changelog:check": "npm run changelog:full -- --check",
+  };
+  const pkg = { name: "pm-changelog", bin: { "pm-changelog": "dist/cli.js" }, scripts };
+  writeFileSync(join(repo, "package.json"), JSON.stringify(pkg));
+  const scan = await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] });
+  assert.strictEqual(scan.repos[0].has_pm_changelog, false, "self hosting must not fabricate a dependency");
+  assert.strictEqual(scan.repos[0].ready, true);
+  assert.strictEqual(scan.repos[0].self_hosts_pm_changelog, true);
+  const status = await runCmd<StatusResult>(ext, "ops status", { repos: [repo] });
+  assert.strictEqual(status.repos[0].ready, true);
+  assert.deepStrictEqual(status.repos[0].issues, []);
+  const policy = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo] });
+  assert.strictEqual(policy.summary.failed, 0, JSON.stringify(policy.repos[0].checks));
+  assert.match(policy.repos[0].checks.find((check) => check.id === "pm-changelog-wired")!.message, /self-hosted/);
+  const markdown = await runCmd<RenderedResult>(ext, "ops scan", { repos: [repo], format: "markdown" });
+  assert.match(markdown.output, /\| self \|/);
+  const customPolicy = join(repo, "policy.json");
+  writeFileSync(customPolicy, JSON.stringify({ checks: [{ id: "required-scripts", severity: "error", params: { scripts: ["changelog"] } }] }));
+  const custom = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo], policy: customPolicy });
+  assert.strictEqual(custom.summary.failed, 1, "explicit policy requirements must not be rewritten");
+
+  const incomplete = [
+    { ...pkg, name: "pm-other" },
+    { ...pkg, bin: undefined },
+    { ...pkg, bin: { "pm-changelog": "dist/other.js" } },
+    { ...pkg, scripts: undefined },
+    { ...pkg, scripts: { ...scripts, "changelog:full": undefined } },
+    { ...pkg, scripts: { ...scripts, "changelog:full": "echo node dist/cli.js --output CHANGELOG.md" } },
+    { ...pkg, scripts: { ...scripts, "changelog:full": "node dist/cli.js-other --output CHANGELOG.md" } },
+    { ...pkg, scripts: { ...scripts, "changelog:check": undefined } },
+    { ...pkg, scripts: { ...scripts, "changelog:check": "npm run changelog:full" } },
+  ];
+  for (const invalid of incomplete) {
+    writeFileSync(join(repo, "package.json"), JSON.stringify(invalid));
+    const rejected = await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] });
+    assert.strictEqual(rejected.repos[0].ready, false, JSON.stringify(invalid));
+    assert.strictEqual(rejected.repos[0].self_hosts_pm_changelog, false);
+    const rejectedStatus = await runCmd<StatusResult>(ext, "ops status", { repos: [repo] });
+    assert.ok(rejectedStatus.repos[0].issues.includes("pm-changelog not wired"));
+    const rejectedPolicy = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo] });
+    assert.strictEqual(rejectedPolicy.repos[0].checks.find((check) => check.id === "pm-changelog-wired")!.pass, false);
+  }
   await ext.deactivate();
 });
 
@@ -2440,15 +2518,30 @@ test("ops merge-receipts --warn-only returns the pending receipt and exits 0", a
   assert.strictEqual(receipt.item_path_raw, expectedPath, "item_path_raw matches the normalized path after the #771 fix");
   assert.strictEqual(receipt.decisions.length, 1);
   assert.strictEqual(receipt.decisions[0].field, "description");
-  // Since pm-cli 2026.8.13 the item merge driver resolves scalar conflicts with
-  // the direction-independent `stable_value_order` contract: it retains the
-  // lexicographically first value regardless of the requested preference, so
-  // this merge of agent-a into agent-b retains "Agent A description" even
-  // though `requested_preference` is "ours" (agent-b). `preferred` in the view
-  // reports the requested side; the retained/discarded pair below reports the
-  // actual stable-order outcome.
-  assert.strictEqual(receipt.decisions[0].retained, "Agent A description", "the stable_value_order contract retained the lexicographically first scalar");
-  assert.strictEqual(receipt.decisions[0].discarded, "Agent B description");
+  // The scalar conflict rule CHANGED in the host, and this expectation tracks
+  // the change rather than being loosened to tolerate both.
+  //
+  // pm-cli 2026.8.13 through 2026.8.30 retained the lexicographically first
+  // value. That is direction-independent, but it means the OLDER write can win,
+  // which is what unbraind/pm-cli#1184 reported and pm-cli fixed on 2026-09-04.
+  // From 2026.9.7 the driver retains the more recent write.
+  //
+  // The manifest upgrade starts at 2026.8.31; the historical comparison
+  // below was measured separately on 2026.8.30, not on that manifest pin.
+  // Measured on both comparison hosts, same fixture, both merge directions:
+  //
+  //   2026.8.30  b->a and a->b  ->  "Agent A description"  (lexicographically first)
+  //   2026.9.7   b->a and a->b  ->  "Agent B description"  (the newer write)
+  //
+  // and disambiguated with a fixture whose newer write is lexicographically
+  // FIRST: 2026.9.7 retains the newer one, so the rule is recency, not order.
+  //
+  // Direction-independence — the property multi-agent merging depends on, since
+  // two agents must converge whichever way they merge — holds on both hosts.
+  // `preferred` in the view reports the requested side; the retained/discarded
+  // pair reports the actual outcome.
+  assert.strictEqual(receipt.decisions[0].retained, "Agent B description", "the driver retains the more recent write since pm-cli 2026.9.7");
+  assert.strictEqual(receipt.decisions[0].discarded, "Agent A description");
   await ext.deactivate();
 });
 
@@ -2463,7 +2556,7 @@ test("ops merge-receipts --format markdown renders the current SDK receipt path"
   assert.match(result.output, /Scanned \*\*1\*\* repo\(s\): \*\*1\*\* pending receipt\(s\)/);
   assert.match(result.output, new RegExp(`\\| ${conflictingMergeLab.itemId} \\|`), "the item_id column should appear");
   assert.match(result.output, new RegExp(`\\| ${escapedPath} \\|`), "the SDK item_path should appear in the table");
-  assert.match(result.output, /Agent A description/, "the retained decision value is rendered for review");
+  assert.ok(result.output.split("\n").some((line) => line.endsWith("| description | Agent B description | Agent A description |")), "the decision row renders the newer value in retained and the older value in discarded");
   // The raw quoted path from #771 must never reach a committed-history-safe report.
   assert.doesNotMatch(result.output, /'\.agents\/pm\/tasks\//, "the quoted raw item_path must not appear in markdown");
   await ext.deactivate();

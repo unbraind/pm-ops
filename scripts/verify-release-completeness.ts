@@ -176,32 +176,22 @@ export function parseLines(output: string): string[] {
 }
 
 /**
- * Parse the JSON array `npm view <pkg> versions --json` emits.
+ * Parse the complete JSON array emitted by `npm view <pkg> versions --json`.
  *
- * npm prints a JSON array of version strings. A response that is not an array
- * (a single-version object, a malformed reply) yields nothing rather than
- * throwing, so a transient registry hiccup is reported by the gatherer's own
- * failure rather than crashing the parser.
+ * Reject malformed JSON and unreadable entries instead of dropping them. The
+ * caller must report an unavailable inventory separately from an empty one;
+ * otherwise a registry failure falsely describes existing releases as absent.
  *
  * @param output - Raw `npm view ... --json` output.
- * @returns The version strings found, in the order npm prints them.
+ * @returns Every version string from a successfully decoded inventory.
+ * @throws When the response is not JSON or not an array of non-empty strings.
  */
 export function parseNpmVersions(output: string): string[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(output);
-  } catch {
-    // The docstring above promised this and the code did not deliver it: a
-    // malformed reply threw a SyntaxError out of the parser, which aborted
-    // `verify` before the audit and the report ever ran. Returning [] keeps the
-    // failure loud in the right place - every release tag is then reported as
-    // missing its npm version, by the audit, with a readable report - instead
-    // of crashing with a JSON error that names neither the package nor the
-    // registry call that produced it.
-    return [];
+  const parsed: unknown = JSON.parse(output);
+  if (!Array.isArray(parsed) || parsed.some((entry: unknown) => typeof entry !== "string" || entry.length === 0)) {
+    throw new Error("expected an array of non-empty version strings");
   }
-  if (!Array.isArray(parsed)) return [];
-  return parsed.filter((entry): entry is string => typeof entry === "string");
+  return parsed as string[];
 }
 
 /**
@@ -372,19 +362,36 @@ export function makeFetcher(exec: (command: string, args: string[], options: { c
 export const realFetcher: CompletenessFetcher = makeFetcher(defaultExec);
 
 /**
- * Gather the three release lists and audit them.
+ * Gather the three release lists and audit them only when all reads succeed.
+ *
+ * A failed read names its source and makes no absence claims from partial data.
+ * Missing package or repository identity is rejected before any registry read.
  *
  * @param root - Repository root to verify.
  * @param fetcher - The source of the three lists.
  * @returns Failures and notes for the repository.
  */
 export function verify(root: string, fetcher: CompletenessFetcher): VerifierResult {
-  const pkgName = packageNameFromManifest(root);
-  const slug = repoSlugFromUrl(fetcher.remoteUrl(root));
-  const tags = fetcher.tags(root);
-  const npmVersions = fetcher.npmVersions(pkgName);
-  const githubReleases = fetcher.githubReleases(slug);
-  return auditReleaseCompleteness(tags, npmVersions, githubReleases);
+  let source = "package manifest";
+  try {
+    const pkgName = packageNameFromManifest(root);
+    if (!pkgName) throw new Error("package name is missing");
+    source = "origin repository";
+    const slug = repoSlugFromUrl(fetcher.remoteUrl(root));
+    if (!slug) throw new Error("origin does not identify a GitHub repository");
+    source = "git tags";
+    const tags = fetcher.tags(root);
+    source = "npm versions";
+    const npmVersions = fetcher.npmVersions(pkgName);
+    source = "GitHub Releases";
+    const githubReleases = fetcher.githubReleases(slug);
+    return auditReleaseCompleteness(tags, npmVersions, githubReleases);
+  } catch (error) {
+    return {
+      failures: [`unable to determine release completeness while reading ${source}: ${error instanceof Error ? error.message : String(error)}`],
+      notes: [],
+    };
+  }
 }
 
 /**
