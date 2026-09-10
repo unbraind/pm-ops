@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags[3]: "area:gates","area:supply-chain","type:security"
 created_at: "2026-08-29T10:26:18.894Z"
-updated_at: "2026-08-29T10:29:59.775Z"
+updated_at: "2026-09-10T21:08:43.115Z"
 closed_at: "2026-08-29T10:29:59.753Z"
 completed_at: "2026-08-29T10:29:59.753Z"
 author: "harness:claude-code"
@@ -14,6 +14,7 @@ acceptance_criteria: Heredoc bodies bind no scalar in any of the seven spellings
 risk: critical
 severity: critical
 repro_steps: Call auditPublishAttestation on a single source holding 'cat <<EOF' / 'FLAG=--provenance' / 'EOF' / 'npm publish --access public $FLAG'. The shell passes no flag; the audit returns no failures. Same for 'FLAG=--provenance' / 'unset FLAG' / 'npm publish --access public $FLAG'.
+resolution: "Eleven measured bypasses closed; heredoc bodies bind nothing, unset discards, and resolution is positional. Six regression tests verified failing on revert."
 expected_result: "Every file the shell would publish unattested from is reported as a failure, whatever spelling routes the flag."
 actual_result: "Eleven probe shapes returned zero failures: seven heredoc spellings and four unset spellings."
 component: "scripts/shell-command-scan.ts (shellScalarsByLine, heredocBodyLines)"

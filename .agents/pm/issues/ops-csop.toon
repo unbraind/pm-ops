@@ -6,13 +6,14 @@ status: closed
 priority: 0
 tags[4]: attestation,fail-open,security,supply-chain
 created_at: "2026-09-01T07:07:36.300Z"
-updated_at: "2026-09-01T07:17:52.050Z"
+updated_at: "2026-09-10T21:09:41.037Z"
 closed_at: "2026-09-01T07:17:29.642Z"
 completed_at: "2026-09-01T07:17:29.642Z"
 author: claude
 estimated_minutes: 30
 acceptance_criteria: "A binding made in a case arm that shares a segment with the case opener is not visible after esac; The auditor refuses the publish in both reported shapes rather than attesting it; Regression tests for both shapes are verified red on revert; The existing sibling-arm and compound-line regressions still pass, and no fleet workflow regresses"
 risk: critical
+repro_steps: "insideCase is computed for a segment before that segment increments caseDepth, so when a case opener and its first arm occupy one segment the arm boundary is never taken. A binding made in that arm stays visible after esac, and a later unconditional npm publish routed through it is reported as attested even though the arm may not have run."
 resolution: Compute each segment's case-depth change once and treat a positive change as already inside case for block-depth and arm-boundary handling.
 expected_result: A first-arm binding that shares the case opener's segment is unavailable after esac unless runtime execution keeps the publish in that arm.
 actual_result: Both reported shapes now produce one recognized unattested publish failure; focused tests pass 3/3 and the full suite passes 401 with 2 intentional skips.

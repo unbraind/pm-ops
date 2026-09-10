@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags[3]: "area:gates","area:supply-chain","type:security"
 created_at: "2026-09-02T18:38:27.455Z"
-updated_at: "2026-09-02T18:38:28.527Z"
+updated_at: "2026-09-10T21:11:54.596Z"
 closed_at: "2026-09-02T18:38:27.959Z"
 completed_at: "2026-09-02T18:38:27.959Z"
 author: pi-agent
@@ -14,6 +14,8 @@ acceptance_criteria: A binding made in an enclosing arm survives a nested case o
 risk: critical
 severity: critical
 repro_steps: "Audit a workflow whose case arm reads b) FLAG assignment then a nested case containing the publish, all on one line: it was refused though the shell attests it. Audit a workflow whose env block uses a double-quoted key and contains an inner run block with an attested publish: it returned no failures for a workflow that publishes nothing."
+resolution: "Arm labels are now attributed by position rather than presence, and the two block-scalar matchers are collapsed into one with the key deciding executability. Ten constructions verified by execution, including every earlier one, with no regression; both fixes revert-proof against their own guards. Full suite 425 passing, release:check green at 100 percent."
+expected_result: A binding made in an enclosing arm survives a nested case opened in the same segment; a label preceding the opener still resets the previous arm; a quoted key on a non-run block admits no phantom publish; a quoted run key remains executable; reverting either fix turns its own guard red
 component: "shell-scan.ts, attestation.ts"
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   ops-rsbn,related,"2026-09-02T18:38:28.478Z",pi-agent,"cli:update:dep",detected

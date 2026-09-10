@@ -6,13 +6,14 @@ status: closed
 priority: 1
 tags[3]: "area:release","area:supply-chain","type:defect"
 created_at: "2026-08-28T05:28:44.066Z"
-updated_at: "2026-08-28T19:59:05.820Z"
+updated_at: "2026-09-10T21:12:20.863Z"
 deadline: "2026-08-29T00:00:00.000Z"
 closed_at: "2026-08-28T05:39:56.527Z"
 completed_at: "2026-08-28T05:39:56.527Z"
 author: claude
 estimated_minutes: 30
 acceptance_criteria: The release step has no publish path that omits --provenance; three provenance attempts are made; a version that landed despite a reported error is reconciled instead of republished; exhausting the attempts fails the job rather than publishing unattested; the workflow YAML parses and every bash run script passes bash -n.
+repro_steps: After three failed provenance publish attempts the release step called an unattested publish and reported success. A transient registry failure therefore downgraded the package supply chain attestation permanently for that version. The release now fails closed and reconciles a late landing.
 resolution: "The publish step drops the unattested fallback and converges on pm-changelog's contract: three attested attempts, a reconcile read for a version that landed despite a reported error, then a failing job. A new verify:release-publish-attestation gate finds every npm publish this repository can run and requires --provenance on each; it is wired into release:check and into CI as its own step."
 expected_result: "No publish path omits --provenance, and a regression that reintroduces one fails a gate rather than shipping an unattested artifact."
 actual_result: "Restoring the fallback makes the gate exit 1 naming the command; removing it again exits 0. Gates: typecheck 0, docstring 0 (8 files, 110 declarations), coverage 100/100/100/100 across 8 files, verify:release-changelog-date 0, verify:release-publish-attestation 0, 18 new tests pass."

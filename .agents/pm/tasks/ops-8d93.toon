@@ -1,13 +1,14 @@
 id: ops-8d93
 title: CI + daily release workflow setup
-description: ""
+description: CI + daily release workflow setup
 type: Task
 status: closed
 priority: 1
 tags: []
 created_at: "2026-07-05T15:11:00.549Z"
-updated_at: "2026-07-05T15:17:33.771Z"
+updated_at: "2026-09-10T21:09:15.534Z"
 author: unknown
 parent: ops-bfg9
+resolution: Implemented in initial pm-ops package; verified with real pm fleet data.
 close_reason: Implemented in initial pm-ops package; verified with real pm fleet data.
 body: ""

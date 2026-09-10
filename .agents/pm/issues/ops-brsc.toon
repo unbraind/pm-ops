@@ -6,13 +6,14 @@ status: closed
 priority: 0
 tags[4]: attestation,fail-open,security,supply-chain
 created_at: "2026-09-01T06:29:34.267Z"
-updated_at: "2026-09-01T07:06:18.537Z"
+updated_at: "2026-09-10T21:09:36.240Z"
 closed_at: "2026-09-01T06:48:42.819Z"
 completed_at: "2026-09-01T06:48:42.819Z"
 claim_principal: pi-agent
 author: "harness:claude-code"
 acceptance_criteria: "A scalar bound only in a then-branch is not visible to a publish in the else-branch; the auditor refuses rather than attests; An assignment inside a one-line compound command is recorded, and the publish it routes is discovered; Each fix has a regression test verified to fail when the fix alone is reverted; No coverage or docstring regression; the gate stays at 100/100/100/100"
 risk: critical
+repro_steps: "The canonical auditor resolves shell scalars by numeric scope depth only, so a binding assigned in one branch of an if/else is visible in the mutually exclusive sibling branch, and its assignment matcher is anchored to the start of a line, so an assignment inside a one-line compound command is never recorded. Both make the gate attest a publish it has not proven: the first reports an unattested publish as carrying --provenance, the second hides the publish entirely and lets an attested sibling satisfy the non-vacuity guard."
 resolution: "Canonical attestation expansion now tracks sibling branch identity, applies scope transitions per shell segment, records provable compound assignments, and fails closed on unresolved publisher variables."
 expected_result: Sibling-arm bindings cannot attest each other; one-line compound assignments expose routed publishes; uncertainty refuses.
 actual_result: "Both reproduced bypasses now produce one failure; compound reproduction recognizes two publishes; branch, case, and uncertainty regressions pass."

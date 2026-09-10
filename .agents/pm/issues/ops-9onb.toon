@@ -6,10 +6,11 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-09-06T05:02:48.026Z"
-updated_at: "2026-09-06T05:22:29.137Z"
+updated_at: "2026-09-10T21:09:26.996Z"
 closed_at: "2026-09-06T05:22:28.504Z"
 completed_at: "2026-09-06T05:22:28.504Z"
 author: pi-agent
+repro_steps: "The canonical publish-attestation auditor false-passes braced variable commands, command substitutions, backticks, and whole-command expansions after multi-assignment binding because tokenizeCommands erases or shatters unresolved command-position evidence."
 resolution: "Preserve unresolved command-position provenance through tokenization, audit unresolved primary programs fail-closed, and persist all bindings only for assignment-only commands."
 expected_result: All 13 probe cases produce the expected catch/pass outcome without regressions.
 actual_result: ALL-CORRECT; dedicated revert tests fail against the prior source; mandatory pre-changelog gates pass.

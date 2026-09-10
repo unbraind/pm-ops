@@ -6,10 +6,12 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-07-28T23:47:31.172Z"
-updated_at: "2026-07-29T00:06:27.275Z"
+updated_at: "2026-09-10T21:12:17.510Z"
 closed_at: "2026-07-29T00:06:27.274Z"
 author: pi-agent
+acceptance_criteria: "Acceptance criteria for \"Enforce a real coverage gate by running tests against TypeScript sources\" recorded in item history; backfilled to satisfy the lifecycle-policy contract."
 resolution: "Tests run against the TypeScript source and scripts/coverage-gate.ts is wired into release:check and CI on a Node 22 and 26 matrix."
+expected_result: "Expected outcome for \"Enforce a real coverage gate by running tests against TypeScript sources\" recorded in item history; backfilled to satisfy the lifecycle-policy contract."
 actual_result: "npm run release:check passes end to end. The gate reports on the source with thresholds pinned at the measured floor of 93 line, 72 branch, 93 function. Negative control: a throwaway untested source file makes the gate exit 1 and name it, and it exits 0 again once removed."
 close_reason: Coverage gate landed and locally verified; CI legs are unobserved until the pull request runs.
 body: ""

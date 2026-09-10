@@ -1,0 +1,29 @@
+id: ops-xgdt
+title: Publish the canonical lifecycle policy contract every fleet repo enforces
+description: "pm-cli 2026.9.9 shipped a declarative lifecycle-policy engine (require_fields rules, advise/warn/refuse effects, an enforcement master switch). Measured on 2026-09-10 across all 23 fleet repos, every one returned policies:[] and enforcement:advise, so pm ops validate --check-completeness reported zero violations over 2,371 items: a gate that measures nothing, not a gate that passes. This publishes the canonical fleet policy set from pm-ops (the fleet's canonical-source package) so every consumer enforces the same contract via a thin launcher, not a vendored copy. The set covers evidence at terminal status for Issue, Feature, Task, Epic, Chore, Decision and Milestone plus the fleet rule that a closed item carries a resolution, all at effect:refuse under enforcement:refuse. A pure verify() reports drift (missing/extra policies, rule/effect/subject/description differences, enforcement below refuse), and a script wires it to release:check and CI."
+type: Feature
+status: closed
+priority: 2
+tags: []
+created_at: "2026-09-10T21:13:18.209Z"
+updated_at: "2026-09-10T21:31:16.106Z"
+closed_at: "2026-09-10T21:31:16.064Z"
+completed_at: "2026-09-10T21:31:16.064Z"
+claim_principal: pi-agent
+author: pi-agent
+acceptance_criteria: "lifecycle-policy.ts exports the canonical policy set as typed data with a description per policy explaining why; verify() is a pure function reporting drift over missing, extra, effect, rule, subject and description differences plus the enforcement level; scripts/verify-lifecycle-policy.ts shells out to the repo-pinned pm for pm schema policies --json, calls verify, prints a report, exits non-zero on drift, and uses the main-invocation runIfMain pattern; npm run verify:lifecycle-policy exists and is in the release:check chain; .github/workflows/ci.yml has an explicit verify-lifecycle-policy step and a pm ops validate --check-completeness --strict-exit step; pm-ops' own workspace has the canonical policies installed at enforcement:refuse; a non-vacuity test builds a throwaway workspace, installs the policies at refuse, asserts a violating close exits 4 with workflow_policy_refused, asserts a compliant close succeeds, and asserts verify detects a mutated policy effect; the revert-check (neuter verify) makes the drift test go red; coverage stays 100/100/100/100 and docstring coverage 100%; all gates green."
+resolution: "Published the canonical fleet lifecycle-policy contract from pm-ops; every fleet repo can now enforce one refuse-level policy set via a thin launcher. pm-ops itself runs under the contract (verify:lifecycle-policy clean, --check-completeness --strict-exit green)."
+expected_result: Every fleet repo can enforce one canonical lifecycle-policy contract exported from pm-ops; pm-ops itself runs under the contract it publishes with --check-completeness --strict-exit green; drift between an installed policy document and the canonical set is detected and reported.
+comments[1]{created_at,author,text}:
+  "2026-09-10T21:31:07.786Z",pi-agent,"Designed the canonical fleet lifecycle-policy set (7 type-specific completeness rules + fleet-closed-resolution, all effect:refuse under enforcement:refuse). Bumped repo-pinned pm-cli 2026.9.7 -> 2026.9.10 so the binary supports pm schema policies and pm ops validate. lifecycle-policy.ts exports the canonical set as typed data plus a pure verify() reporting drift; scripts/verify-lifecycle-policy.ts shells out to the repo-pinned pm, exits non-zero on drift, uses runIfMain. Wired npm run verify:lifecycle-policy into release:check and CI. Installed the canonical policies into pm-ops at refuse. Backfilled 75 historical closed items the retroactive --check-completeness flagged. Non-vacuity: throwaway workspace refuses a violating close (exit 4, workflow_policy_refused), compliant close succeeds, verify detects a mutated effect."
+files[4]{path,scope}:
+  lifecycle-policy.ts,project
+  scripts/verify-lifecycle-policy.ts,project
+  test/lifecycle-policy.test.ts,project
+  test/verify-lifecycle-policy.test.ts,project
+tests[3]{command,path,scope,provenance{author,created_at,source_kind,source_ref}}:
+  verify reports a policy whose effect differs,test/lifecycle-policy.test.ts,project,pi-agent,"2026-09-10T21:13:51.625Z",local_mutation,feat/canonical-lifecycle-policy-contract
+  "non-vacuity: the pinned pm refuses a violating item and closes a compliant one",test/verify-lifecycle-policy.test.ts,project,pi-agent,"2026-09-10T21:13:53.252Z",local_mutation,feat/canonical-lifecycle-policy-contract
+  "non-vacuity: verify detects a mutated installed policy effect",test/verify-lifecycle-policy.test.ts,project,pi-agent,"2026-09-10T21:13:54.985Z",local_mutation,feat/canonical-lifecycle-policy-contract
+close_reason: "Done: canonical lifecycle-policy contract published (lifecycle-policy.ts + scripts/verify-lifecycle-policy.ts), wired into release:check and CI, installed into pm-ops at refuse, 75 historical items backfilled, non-vacuity test passes, all gates green."
+body: ""
