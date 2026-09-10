@@ -34,7 +34,7 @@ const releaseWorkflow = readFileSync(resolve(repoRoot, ".github", "workflows", "
 
 const CLI = "@unbrained/pm-cli";
 const EXACT_VERSION = /^\d+\.\d+\.\d+$/;
-const REQUIRED_DEVELOPMENT_VERSION = "2026.9.7";
+const REQUIRED_DEVELOPMENT_VERSION = "2026.9.10";
 
 /**
  * Two independent systems enforce the pm CLI compatibility floor, and each reads

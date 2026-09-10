@@ -6,12 +6,13 @@ status: closed
 priority: 1
 tags[3]: "area:release","area:supply-chain","type:defect"
 created_at: "2026-08-28T13:17:05.003Z"
-updated_at: "2026-08-28T20:19:15.892Z"
+updated_at: "2026-09-10T21:11:06.851Z"
 closed_at: "2026-08-28T20:15:21.409Z"
 completed_at: "2026-08-28T20:15:21.409Z"
 claim_principal: pi-agent
 author: claude
 release: 2026.8.28
+repro_steps: "The guard decided whether any publish omits provenance by blanking quoted spans and splitting the remainder on three operators. Blanking deletes the very argument under audit, so a publish carrying an attestation reads as one without it, and the reverse is worse: an eval or a bash dash-c wrapping a publish disappears from the scan entirely, leaving an attested sibling elsewhere in the file to carry the audit to green. The operator split also misses a backgrounding ampersand, a pipe written without surrounding spaces, and command substitution. Replaced by a real tokeniser that resolves what each command actually runs."
 resolution: The scanner recognizes timeout wrappers and parses quoted Bash array members without dropping later attestation settings.
 expected_result: "Every executable publish path is discovered, including timeout wrappers and supported Bash arrays, and any unflagged path fails the audit."
 actual_result: The prior scanner could miss a publish behind timeout or truncate an array at a quoted closing parenthesis; both regression fixtures now fail without the fixes.

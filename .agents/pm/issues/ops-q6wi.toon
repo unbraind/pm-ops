@@ -6,10 +6,11 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-08-28T22:36:22.183Z"
-updated_at: "2026-08-29T06:10:41.317Z"
+updated_at: "2026-09-10T22:27:34.976Z"
 closed_at: "2026-08-29T03:50:38.221Z"
 completed_at: "2026-08-29T03:50:38.221Z"
 author: claude
+resolution: Defect fixed and verified across all 17 packages; fix shipped in this PR
 comments[1]{created_at,author,text}:
   "2026-08-29T06:10:41.317Z",claude,"Title corrected 2026-08-29 after a post-merge audit of PR #67.\n\nThe original title stated the failure backwards, and because pm-changelog generates the CHANGELOG entry from this item's title, the wrong direction shipped into the release notes for 2026.8.29.\n\nWAS: 'a comment can flag an unattested publish' -- reads as a FALSE POSITIVE, the gate raising a spurious alarm on an attested publish.\n\nIS:  'a comment could make an unattested publish pass the attestation gate' -- the actual defect, a FALSE NEGATIVE. Because scalar assignments were read from raw text, a comment-derived assignment satisfied the attestation check and an unattested publish went through. The gate failed OPEN.\n\nWhy the wording matters rather than being cosmetic: anyone auditing which releases were exposed would read the old entry and conclude the risk was noisy alerts, not unverified packages reaching npm. That inverts the severity and would justify skipping a re-check of published artifacts, which is exactly the wrong conclusion.\n\nCaught by coderabbitai on PR #67 at CHANGELOG.md:9. The thread was still unresolved when the PR merged because the agent working it lost its provider connection mid-run, so this was found in a post-merge sweep rather than before merge. Thread has been upvoted, answered and resolved."
 notes[2]{created_at,author,text}:

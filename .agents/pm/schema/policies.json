@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "enforcement": "refuse",
+  "policies": [
+    {
+      "id": "completeness-chore",
+      "rule": {
+        "kind": "require_fields",
+        "fields": [
+          "description"
+        ]
+      },
+      "subject": {
+        "types": [
+          "Chore"
+        ],
+        "statuses": [
+          "closed"
+        ]
+      },
+      "description": "A chore is maintenance with no acceptance criteria; closing it without a description leaves no record of what was maintained.",
+      "effect": "refuse"
+    },
+    {
+      "id": "completeness-decision",
+      "rule": {
+        "kind": "require_fields",
+        "fields": [
+          "body",
+          "resolution"
+        ]
+      },
+      "subject": {
+        "types": [
+          "Decision"
+        ],
+        "statuses": [
+          "closed"
+        ]
+      },
+      "description": "A decision is a commitment to a course; closing it without the body that presented the options and the resolution that chose one records that a decision happened, not what was decided.",
+      "effect": "refuse"
+    },
+    {
+      "id": "completeness-epic",
+      "rule": {
+        "kind": "require_fields",
+        "fields": [
+          "goal",
+          "objective",
+          "body"
+        ]
+      },
+      "subject": {
+        "types": [
+          "Epic"
+        ],
+        "statuses": [
+          "closed"
+        ]
+      },
+      "description": "An epic spans many items; closing it without its goal, objective and body loses the reason the work was undertaken and the scope it covered.",
+      "effect": "refuse"
+    },
+    {
+      "id": "completeness-feature",
+      "rule": {
+        "kind": "require_fields",
+        "fields": [
+          "acceptance_criteria",
+          "expected_result"
+        ]
+      },
+      "subject": {
+        "types": [
+          "Feature"
+        ],
+        "statuses": [
+          "closed"
+        ]
+      },
+      "description": "A feature is a promise of behaviour; closing it without acceptance criteria and the expected result closes a promise that was never made testable.",
+      "effect": "refuse"
+    },
+    {
+      "id": "completeness-issue",
+      "rule": {
+        "kind": "require_fields",
+        "fields": [
+          "repro_steps",
+          "expected_result"
+        ]
+      },
+      "subject": {
+        "types": [
+          "Issue"
+        ],
+        "statuses": [
+          "closed"
+        ]
+      },
+      "description": "An issue records a defect or gap; closing it without reproduction steps and the expected behaviour leaves no way to tell a fix from a disappearance.",
+      "effect": "refuse"
+    },
+    {
+      "id": "completeness-milestone",
+      "rule": {
+        "kind": "require_fields",
+        "fields": [
+          "description",
+          "acceptance_criteria"
+        ]
+      },
+      "subject": {
+        "types": [
+          "Milestone"
+        ],
+        "statuses": [
+          "closed"
+        ]
+      },
+      "description": "A milestone marks a point in time; closing it without a description and acceptance criteria makes a deadline that passed indistinguishable from one that was met.",
+      "effect": "refuse"
+    },
+    {
+      "id": "completeness-task",
+      "rule": {
+        "kind": "require_fields",
+        "fields": [
+          "description"
+        ]
+      },
+      "subject": {
+        "types": [
+          "Task"
+        ],
+        "statuses": [
+          "closed"
+        ]
+      },
+      "description": "A task is a unit of work; closing one with no description leaves a completed item indistinguishable from one that was abandoned.",
+      "effect": "refuse"
+    },
+    {
+      "id": "fleet-closed-resolution",
+      "rule": {
+        "kind": "require_fields",
+        "fields": [
+          "resolution"
+        ]
+      },
+      "subject": {
+        "statuses": [
+          "closed"
+        ]
+      },
+      "description": "A closed item carries a resolution so the history stream records the outcome, not only that the item stopped being open.",
+      "effect": "refuse"
+    }
+  ]
+}

@@ -6,10 +6,11 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-31T12:16:12.336Z"
-updated_at: "2026-08-31T12:16:13.989Z"
+updated_at: "2026-09-10T21:09:47.545Z"
 closed_at: "2026-08-31T12:16:13.978Z"
 completed_at: "2026-08-31T12:16:13.978Z"
 author: claude-orchestrator
+repro_steps: "Greptile flagged this as P1 on pull request 77 and it is correct. The paginated release listing added to fix the 500-entry truncation passed per_page and page through gh api using -f, and gh api selects POST as soon as any -f parameter is present. Verified against the live API rather than reasoned about: gh api repos/unbraind/pm-ops/releases -f per_page=2 -f page=1 returns HTTP 422 with the message tag_name was not supplied and a documentation link to the create-a-release endpoint. So the request was not merely failing, it was being understood as an attempt to CREATE a release, and it failed only because a required body field was absent. Adding --method GET makes the same call return the tag names. The existing pagination tests could not catch this because their injected executor ignores its arguments entirely, so they pass against either spelling; the new test asserts the constructed argv instead."
 resolution: "fetchGithubReleasesPaginated now names its HTTP method explicitly, and the suite asserts the argv rather than relying on an executor that ignores its arguments."
 expected_result: A paginated release listing performs a read against the releases endpoint.
 actual_result: "It performed a POST to the create-a-release endpoint, returning HTTP 422 because tag_name was absent, so the post-release completeness audit would have failed on every run."

@@ -1,13 +1,14 @@
 id: ops-hadw
 title: Real-data test suite against pm fleet
-description: ""
+description: Real-data test suite against pm fleet
 type: Task
 status: closed
 priority: 1
 tags: []
 created_at: "2026-07-05T15:11:00.917Z"
-updated_at: "2026-07-05T15:17:34.116Z"
+updated_at: "2026-09-10T21:10:44.745Z"
 author: unknown
 parent: ops-bfg9
+resolution: Implemented in initial pm-ops package; verified with real pm fleet data.
 close_reason: Implemented in initial pm-ops package; verified with real pm fleet data.
 body: ""

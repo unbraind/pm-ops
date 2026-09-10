@@ -6,11 +6,12 @@ status: closed
 priority: 2
 tags[2]: host,merge-driver
 created_at: "2026-09-07T15:32:09.345Z"
-updated_at: "2026-09-07T21:04:02.192Z"
+updated_at: "2026-09-10T21:09:53.257Z"
 closed_at: "2026-09-07T15:32:11.092Z"
 completed_at: "2026-09-07T15:32:11.092Z"
 claim_principal: claude
 author: claude
 acceptance_criteria: "The approved development host is the current published pm-cli; The merge rule change is recorded with the measurement, not with an assumption"
+resolution: "Host approved at 2026.9.7. Merge rule change measured on both hosts and both directions; direction-independence verified intact. Gates: pm health --strict-exit pass, npm test 462 pass / 0 fail."
 close_reason: "Host approved at 2026.9.7. Merge rule change measured on both hosts and both directions; direction-independence verified intact. Gates: pm health --strict-exit pass, npm test 462 pass / 0 fail."
 body: ""

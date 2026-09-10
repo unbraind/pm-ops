@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags[4]: correctness,metrics,multi-agent,pm-cli
 created_at: "2026-08-16T23:26:48.906Z"
-updated_at: "2026-08-16T23:53:02.495Z"
+updated_at: "2026-09-10T21:12:33.214Z"
 closed_at: "2026-08-16T23:36:06.096Z"
 completed_at: "2026-08-16T23:36:06.096Z"
 claim_principal: "harness:codex#c7606cd48ad166324f36f308"
@@ -16,6 +16,7 @@ acceptance_criteria: A real pm list-all envelope is accepted only when every com
 risk: high
 confidence: high
 severity: high
+repro_steps: "readAllPmItems consumes the items array from pm list-all without verifying the response completeness receipt. A host-side output budget or future regression can therefore make pm ops metrics report a smaller project as a valid result. The same generic reader also converts malformed envelopes and pm failures to null, which is legitimate for a missing/unreadable repository but must not let a successful incomplete list-all read look authoritative. Companion tracking: pm-cli-website-tv05 in unbraind/pm-cli-companion."
 resolution: "Every pm item-list reader now requests --full with an unbounded output budget. The shared envelope gate accepts list, list-all, and list-blocked rows only when typed counts, completeness, omission, pagination, and item identity signals all agree; otherwise the relevant workspace surface fails closed before caching or aggregation. The development CLI/SDK remains exact-pinned to 2026.8.16 with a >=2026.8.15 consumer floor matching manifest pm_min_version."
 expected_result: Every list-all metrics read either proves the envelope is complete before caching rows or returns an explicitly unavailable metric source; no partial row set may be reported as complete.
 actual_result: "Installed pm 2026.8.16 produced complete real envelopes for list, list-all, and list-blocked under --full --output-budget unbounded. Targeted tests prove malformed object receipts, numeric-string counts, partial active and blocked lists, pagination mismatches, omissions, and malformed rows fail closed; exact all-source validation is rerun after every review-fix commit."

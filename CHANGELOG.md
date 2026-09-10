@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Publish the canonical lifecycle policy contract every fleet repo enforces ([ops-xgdt](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-xgdt.toon))
+
+### Fixed
+
+- A retroactive completeness contract induced twelve placeholder evidence fields and then locked them in ([ops-utza](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-utza.toon))
+- Lifecycle policy gate measures nothing: 23 of 23 fleet repos declare zero policies ([ops-66ew](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-66ew.toon))
+- Fix pm-ops multi-repo path parsing and toolchain alignment ([ops-f4vp](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-f4vp.toon))
+
+### Other
+
+- Refresh pm-ops to latest pm CLI and changelog toolchain ([ops-xfit](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-xfit.toon))
+- Implement ops report command ([ops-u5t3](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-u5t3.toon))
+- Output rendering via renderer-override marker ([ops-kmjq](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/decisions/ops-kmjq.toon))
+- Implement ops scan command ([ops-jxpd](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-jxpd.toon))
+- Real-data test suite against pm fleet ([ops-hadw](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-hadw.toon))
+- Implement ops policy command ([ops-b9rl](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-b9rl.toon))
+- CI + daily release workflow setup ([ops-8d93](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-8d93.toon))
+- Implement ops verify-release command ([ops-621x](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-621x.toon))
+- Align Node engine with pm CLI runtime ([ops-45xp](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-45xp.toon))
+
 ## 2026.9.8 - 2026-09-08
 
 ### Security
@@ -269,18 +293,3 @@
 ### Fixed
 
 - Fix manifest: add schema capability so registerCommand flags load (extension failed to activate) ([ops-tg86](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-tg86.toon))
-- Fix pm-ops multi-repo path parsing and toolchain alignment ([ops-f4vp](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-f4vp.toon))
-
-## 2026.7.6 - 2026-07-06
-
-### Other
-
-- Align Node engine with pm CLI runtime ([ops-45xp](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-45xp.toon))
-- Refresh pm-ops to latest pm CLI and changelog toolchain ([ops-xfit](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-xfit.toon))
-- Output rendering via renderer-override marker ([ops-kmjq](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/decisions/ops-kmjq.toon))
-- Real-data test suite against pm fleet ([ops-hadw](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-hadw.toon))
-- CI + daily release workflow setup ([ops-8d93](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-8d93.toon))
-- Implement ops report command ([ops-u5t3](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-u5t3.toon))
-- Implement ops verify-release command ([ops-621x](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-621x.toon))
-- Implement ops policy command ([ops-b9rl](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-b9rl.toon))
-- Implement ops scan command ([ops-jxpd](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-jxpd.toon))

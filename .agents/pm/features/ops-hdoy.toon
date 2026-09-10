@@ -6,10 +6,12 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-07-27T15:42:37.962Z"
-updated_at: "2026-07-27T15:44:34.152Z"
+updated_at: "2026-09-10T21:10:47.410Z"
 closed_at: "2026-07-27T15:44:34.151Z"
 author: claude-code
 acceptance_criteria: "pm ops merge-receipts exits non-zero while any receipt is pending and exits 0 after pm merge reconcile, verified through the real CLI against a two-branch conflicting merge; --warn-only always exits 0; receipts report item_id, state, conflicting fields and retained/discarded values with the upstream #771 quoted item_path normalized and the raw value preserved; the driver and gitattributes fence are audited per repo; ops metrics emits pm_merge_receipts_pending, pm_merge_receipts_reconciled and pm_merge_driver_installed gauges with HELP and TYPE; ops status reports pending_receipts; 58 tests pass with zero any in index.ts."
+resolution: "Shipped: the fleet-wide merge-safety gate pm validate does not provide. Verified end to end against a real conflicting merge, including the post-reconcile pass, the Prometheus gauges and the ops status summary."
+expected_result: "pm ops merge-receipts exits non-zero while any receipt is pending and exits 0 after pm merge reconcile, verified through the real CLI against a two-branch conflicting merge; --warn-only always exits 0; receipts report item_id, state, conflicting fields and retained/discarded values with the upstream #771 quoted item_path normalized and the raw value preserved; the driver and gitattributes fence are audited per repo; ops metrics emits pm_merge_receipts_pending, pm_merge_receipts_reconciled and pm_merge_driver_installed gauges with HELP and TYPE; ops status reports pending_receipts; 58 tests pass with zero any in index.ts."
 notes[2]{created_at,author,text}:
   "2026-07-27T15:42:38.758Z",claude-code,"Production proof against a REAL two-branch conflicting merge, with the built extension installed into a separate throwaway workspace: gate exits 1 reporting 1 pending receipt, --warn-only exits 0, markdown renders the normalized .pm/tasks/<id>.toon path with retained Agent B and discarded Agent A values, and after pm merge reconcile the same gate exits 0. ops metrics emits pm_merge_receipts_pending, pm_merge_receipts_reconciled and pm_merge_driver_installed gauges each with HELP and TYPE. ops status reports pending_receipts."
   "2026-07-27T15:42:39.085Z",claude-code,"Gates: build, typecheck, check, 58 tests with 56 pass 2 skip 0 fail, changelog:full and changelog:check after git fetch --tags --force. Zero any in index.ts."

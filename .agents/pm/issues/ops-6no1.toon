@@ -6,12 +6,13 @@ status: closed
 priority: 2
 tags[1]: security
 created_at: "2026-09-03T17:50:28.655Z"
-updated_at: "2026-09-03T18:47:27.163Z"
+updated_at: "2026-09-10T21:08:57.651Z"
 closed_at: "2026-09-03T17:50:47.102Z"
 completed_at: "2026-09-03T17:50:47.102Z"
 author: pi-agent
 acceptance_criteria: "No execSync call in test/prepare-merge-driver.test.ts interpolates a path into a command string; the entrypoint is launched with an argument array so no shell parses the executable path; and the full suite plus the coverage gate still pass, since the entrypoint tests are the ones exercising the merge-driver preparation hook end to end"
 risk: medium
+repro_steps: "CodeQL alerts 1 and 2 report js/shell-command-injection-from-environment at test/prepare-merge-driver.test.ts lines 160 and 181. Both are the same construction: the direct-entrypoint test built a command string by interpolating process.execPath and the script path into a template and handing it to execSync, which runs it through a shell.\n\nTwo arguments were available for leaving this alone and both are weak. The first is that it is test code rather than production code, which lowers the blast radius but does not make the pattern correct. The second is that process.execPath is not attacker-controlled in practice, which is true on this runner and is exactly the reasoning that makes injection bugs survive review — the value is trusted until the day the path contains a space, a parenthesis or a dollar sign, and Windows runners routinely produce paths that a shell will re-tokenise.\n\nThe decisive argument is positional rather than technical. pm-ops is the canonical home of the shared attestation gate and of the shell-scalar scanner the fleet uses to find exactly this construction in nineteen other repositories. A dismissed alert here would mean the repository that publishes the rule keeps the pattern the rule forbids.\n\nFixed by passing an argument array to execFileSync rather than a command string to execSync, so the executable path reaches execve literally and no shell parses it. That removes the class rather than escaping around it: there is no quoting to get right when there is no shell."
 resolution: "Replaced the interpolated execSync command string with an execFileSync argument array, so the entrypoint path reaches execve verbatim and no shell parses it. The class is removed rather than escaped around."
 expected_result: "No execSync call in the file interpolates a path, the entrypoint tests still exercise the merge-driver preparation hook end to end, and the coverage gate holds at 100 percent."
 actual_result: "432 tests pass with 0 failures and the coverage gate reports 13 source files at 100 percent with thresholds met. The execSync import remains because it is still referenced as a type in three casts, not as a call."

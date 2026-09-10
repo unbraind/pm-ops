@@ -80,5 +80,9 @@ jobs:
       - name: Verify every publish invocation is attested
         run: npm run verify:release-publish-attestation
 
+      - name: Verify lifecycle policies match canonical and governed work carries its evidence
+        run: npm run verify:lifecycle-policy
+
+
       - name: Verify Bun can install the package graph
         run: bun install --no-save

@@ -1,12 +1,12 @@
 id: ops-xfit
 title: Refresh pm-ops to latest pm CLI and changelog toolchain
-description: ""
+description: "Context: pm-ops main already removed host-specific real-data paths by using PM_OPS_TEST_REPOS, but its package metadata still referenced older pm CLI and pm-changelog versions.\\n\\nScope: update peer/dev dependency pins to the current pm CLI 2026.7.5 and pm-changelog 2026.6.30, regenerate package-lock, run release checks, and refresh CHANGELOG.md."
 type: Task
 status: closed
 priority: 1
 tags: []
 created_at: "2026-07-06T00:01:27.545Z"
-updated_at: "2026-07-06T00:01:39.965Z"
+updated_at: "2026-09-10T21:12:41.416Z"
 author: unknown
 resolution: Updated peer/dev dependency pins and regenerated package-lock after confirming PM_OPS_TEST_REPOS based real-data tests are portable.
 expected_result: pm-ops release checks use @unbrained/pm-cli 2026.7.5 and pm-changelog 2026.6.30 without exposing local paths.

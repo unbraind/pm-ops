@@ -6,11 +6,12 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-15T09:56:50.258Z"
-updated_at: "2026-08-15T11:07:03.052Z"
+updated_at: "2026-09-10T21:09:30.157Z"
 closed_at: "2026-08-15T11:06:54.746Z"
 completed_at: "2026-08-15T11:06:54.746Z"
 claim_principal: pi-agent
 author: pi-agent
+acceptance_criteria: Provider measures coverage-percent/uncovered-files/docstring-percent/undocumented-symbols matching independent tool numbers; refuses stale reports; registers through the real host; all gates green.
 resolution: "Shipped the pm-ops-quality assurance measurement provider (four keys over lcov + canonical docstring analyzer, with a staleness refusal) registered through the services capability; carried the pm-cli 2026.8.13 peer-bump compatibility fixes."
 expected_result: Provider measures coverage-percent/uncovered-files/docstring-percent/undocumented-symbols matching independent tool numbers; refuses stale reports; registers through the real host; all gates green.
 actual_result: PR unbraind/pm-ops#45 open and green (test matrix + Greptile pass); coverage 100/100/100/100; docstrings 104/104; staleness refusal and real-host registration proven with real data.
