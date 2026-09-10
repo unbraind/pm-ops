@@ -6,14 +6,13 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-30T15:18:59.881Z"
-updated_at: "2026-09-10T21:08:23.295Z"
+updated_at: "2026-09-10T22:27:44.896Z"
 closed_at: "2026-08-30T15:19:05.023Z"
 completed_at: "2026-08-30T15:19:05.023Z"
 claim_principal: pi-agent
 author: pi-agent
 repro_steps: "The daily release committed CHANGELOG.md before creating its release tag, leaving stale headings that changelog:check rejects once the tag exists. Regenerate the committed changelog with the release tag present so main and pull request gates agree with generated output."
 resolution: "Regenerated CHANGELOG.md with the release tag present and verified npm run changelog:check passes."
-expected_result: "Expected outcome for \"The release changelog remained Unreleased after the release tag was created\" recorded in item history; backfilled to satisfy the lifecycle-policy contract."
 comments[1]{created_at,author,text}:
   "2026-08-30T15:19:04.056Z",pi-agent,"Confirmed npm run changelog:check fails because the committed headings differ from generation with the 2026.8.29 tag present."
 close_reason: "Regenerated CHANGELOG.md with the release tag present and verified npm run changelog:check passes."

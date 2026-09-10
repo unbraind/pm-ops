@@ -1,0 +1,33 @@
+id: ops-utza
+title: A retroactive completeness contract induced twelve placeholder evidence fields and then locked them in
+description: "Installing the canonical lifecycle policies at refuse turned the completeness validator red on items closed months before the contract existed, because the validator evaluates every closed item against the currently installed policies with no time scoping. The first response was to backfill the missing fields, which for twelve items produced text that restated the item title and stated that it existed to satisfy the contract. Because the policies are installed at refuse, the engine then refused pm update --unset on those same fields, so the placeholder text could not be removed without first lowering enforcement to advise."
+type: Issue
+status: closed
+priority: 1
+tags: []
+created_at: "2026-09-10T22:36:38.428Z"
+updated_at: "2026-09-10T22:36:52.964Z"
+closed_at: "2026-09-10T22:36:52.951Z"
+completed_at: "2026-09-10T22:36:52.951Z"
+claim_principal: claude-orchestrator
+author: claude-orchestrator
+repro_steps: "Install the canonical policy set with pm schema policy-put and set pm schema policy-mode refuse in a repository holding items closed before that moment. Run pm ops validate --check-completeness --strict-exit: it exits non-zero naming historical items. Add any value to a missing required field to clear it, then attempt pm update <id> --unset <field>: the mutation is refused with workflow_policy_refused, including with --force."
+resolution: "Scoped the completeness gate by adoption date instead of backfilling history, and removed the placeholder evidence the retroactive gate induced."
+expected_result: "A contract adopted today governs work done from today. Historical items that never recorded the evidence a rule asks for are reported as a visible backlog, and no field is filled with text that carries no information."
+files[3]{path,scope}:
+  .github/workflows/ci.yml,project
+  scripts/verify-lifecycle-policy.ts,project
+  test/verify-lifecycle-policy.test.ts,project
+tests[1]:
+  - command: node --test test/verify-lifecycle-policy.test.ts
+    scope: project
+    timeout_seconds: 900
+    provenance:
+      author: claude-orchestrator
+      created_at: "2026-09-10T22:36:52.317Z"
+      source_kind: local_mutation
+      source_ref: feat/canonical-lifecycle-policy-contract
+    assert_stdout_contains[1]: adoption scoping fails governed work and reports pre-adoption work as backlog
+    note: Six scoping tests including both fail-open directions; the assertion names the governed-failure test so a silently skipped suite cannot report as a pass
+close_reason: "Removed all twelve placeholder fields (16 values across ops-042o, ops-3ete, ops-5mv7, ops-62d1, ops-94me, ops-emii, ops-mjnd, ops-q6wi, ops-ud1m, ops-vll0, ops-vtit, ops-xmb6), which required lowering enforcement to advise first because the refuse contract blocked its own cleanup, then restoring refuse. Replaced the retroactive CI step with adoption-date scoping in scripts/verify-lifecycle-policy.ts: violations on work that reached a terminal status at or after CONTRACT_ADOPTED_AT fail the gate, earlier ones are printed as a named backlog. The refuse policies are untouched and still act at transition time, so no new close can omit its evidence. The gate now reports twelve backlog items and exits zero. Coverage is back to 100/100/100/100 per file and the docstring gate passes over 196 declarations."
+body: ""

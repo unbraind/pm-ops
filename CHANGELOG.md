@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- A retroactive completeness contract induced twelve placeholder evidence fields and then locked them in ([ops-utza](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-utza.toon))
 - Lifecycle policy gate measures nothing: 23 of 23 fleet repos declare zero policies ([ops-66ew](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-66ew.toon))
 - Fix pm-ops multi-repo path parsing and toolchain alignment ([ops-f4vp](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-f4vp.toon))
 

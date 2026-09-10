@@ -208,6 +208,144 @@ export function verifyRepo(
 }
 
 /**
+ * The instant the canonical contract was adopted, as an ISO-8601 timestamp.
+ *
+ * The completeness validator is retroactive: it evaluates every closed item
+ * against the currently installed policies, including items closed long before
+ * those policies existed. Those items cannot satisfy the contract honestly —
+ * the evidence a rule asks for was never recorded, and inventing it produces a
+ * field that restates the title and says nothing. A first attempt at this
+ * contract did exactly that in twelve items, and because the policies are
+ * installed at `refuse`, the engine then blocked removing the placeholder text
+ * it had induced. Fabricated evidence in a tracker is worse than absent
+ * evidence, because absent evidence is legible as absent.
+ *
+ * So the gate is scoped in time rather than applied retroactively. Work that
+ * reached a terminal status at or after this instant must carry its declared
+ * evidence and fails CI when it does not; work that closed before it is
+ * reported as a backlog and does not fail. The `refuse` policies themselves are
+ * untouched by this scoping — they act at transition time, so no NEW close can
+ * omit its evidence regardless of what this verifier reports.
+ */
+export const CONTRACT_ADOPTED_AT = "2026-09-10T21:00:00.000Z";
+
+/** One completeness violation as `pm ops validate --check-completeness` reports it. */
+export interface CompletenessViolation {
+  /** The offending item's id. */
+  readonly id: string;
+  /** The item type the policy matched on. */
+  readonly type: string;
+  /** The lifecycle status the item is in. */
+  readonly status: string;
+  /** The policy decision, including which required fields are missing. */
+  readonly decision?: { readonly missing_fields?: readonly string[] };
+}
+
+/** A completeness result partitioned by whether the contract governs the item. */
+export interface ScopedCompleteness {
+  /** Violations on work that closed at or after adoption. These fail the gate. */
+  readonly governed: readonly CompletenessViolation[];
+  /** Violations on work that closed before adoption. Reported, not failed. */
+  readonly predating: readonly CompletenessViolation[];
+}
+
+/**
+ * Split completeness violations into the governed set and the pre-adoption backlog.
+ *
+ * An item is governed when its terminal timestamp is known and is not earlier
+ * than `adoptedAt`. An item whose terminal timestamp is **unknown** is treated
+ * as governed: the alternative fails open, and a missing timestamp is exactly
+ * what a workspace edit that bypassed the CLI would produce.
+ *
+ * @param violations - Violations as the validator reported them.
+ * @param terminalAtById - Each violating item's terminal timestamp, by id.
+ * @param adoptedAt - The adoption instant, ISO-8601.
+ * @returns The violations split into governed and predating.
+ */
+export function scopeCompletenessByAdoption(
+  violations: readonly CompletenessViolation[],
+  terminalAtById: ReadonlyMap<string, string | undefined>,
+  adoptedAt: string = CONTRACT_ADOPTED_AT,
+): ScopedCompleteness {
+  const boundary = Date.parse(adoptedAt);
+  const governed: CompletenessViolation[] = [];
+  const predating: CompletenessViolation[] = [];
+  for (const violation of violations) {
+    const terminalAt = terminalAtById.get(violation.id);
+    const closedAt = terminalAt === undefined ? Number.NaN : Date.parse(terminalAt);
+    if (Number.isNaN(closedAt) || closedAt >= boundary) governed.push(violation);
+    else predating.push(violation);
+  }
+  return { governed, predating };
+}
+
+/**
+ * Render a scoped completeness result and choose the exit code.
+ *
+ * @param scoped - The partitioned violations.
+ * @param write - Sink for each report line.
+ * @param setExitCode - Sink for the process exit code.
+ */
+export function reportCompleteness(
+  scoped: ScopedCompleteness,
+  write: (line: string) => void,
+  setExitCode: (code: number) => void,
+): void {
+  for (const violation of scoped.predating) {
+    const missing = violation.decision?.missing_fields?.join(", ") ?? "unknown fields";
+    write(`backlog - ${violation.id} closed before the contract and is missing ${missing}`);
+  }
+  if (scoped.predating.length > 0) {
+    write(
+      `note - ${scoped.predating.length} item(s) closed before ${CONTRACT_ADOPTED_AT}; `
+      + "these are reported, not failed, because the evidence they lack was never recorded",
+    );
+  }
+  for (const violation of scoped.governed) {
+    const missing = violation.decision?.missing_fields?.join(", ") ?? "unknown fields";
+    write(`fail - ${violation.id} (${violation.type}, ${violation.status}) is missing ${missing}`);
+  }
+  if (scoped.governed.length > 0) {
+    write(`verify-lifecycle-policy: ${scoped.governed.length} governed item(s) lack declared evidence.`);
+    setExitCode(1);
+    return;
+  }
+  write("verify-lifecycle-policy: every item governed by the contract carries its declared evidence.");
+}
+
+/**
+ * Run the completeness validator and scope its violations by adoption date.
+ *
+ * Each violating item's terminal timestamp is read with `pm get`, one call per
+ * violation, so the cost is bounded by the number of violations rather than by
+ * the corpus. `completed_at` is preferred over `closed_at` because a cancelled
+ * item carries only the latter.
+ *
+ * @param root - Repository root to validate.
+ * @param exec - The executor to run `pm`; defaults to {@link defaultExec}.
+ * @param adoptedAt - The adoption instant; defaults to {@link CONTRACT_ADOPTED_AT}.
+ * @returns The violations split into governed and predating.
+ */
+export function readScopedCompleteness(
+  root: string,
+  exec: PolicyExecutor = defaultExec,
+  adoptedAt: string = CONTRACT_ADOPTED_AT,
+): ScopedCompleteness {
+  const pm = resolvePmBinary(root);
+  const raw = exec(pm, ["ops", "validate", "--check-completeness", "--all-affected-ids", "--json"], { cwd: root });
+  const parsed = JSON.parse(raw) as { checks?: ReadonlyArray<{ details?: { violations?: readonly CompletenessViolation[] } }> };
+  const violations = parsed.checks?.[0]?.details?.violations ?? [];
+  const terminalAtById = new Map<string, string | undefined>();
+  for (const violation of violations) {
+    const item = JSON.parse(exec(pm, ["get", violation.id, "--json"], { cwd: root })) as {
+      item?: { completed_at?: string; closed_at?: string };
+    };
+    terminalAtById.set(violation.id, item.item?.completed_at ?? item.item?.closed_at);
+  }
+  return scopeCompletenessByAdoption(violations, terminalAtById, adoptedAt);
+}
+
+/**
  * Verify and report, but only when this module is the process entry point.
  *
  * The guard is a function rather than a bare `if` at module scope so the suite
@@ -227,11 +365,10 @@ export function runIfMain(
   exec: PolicyExecutor = defaultExec,
 ): boolean {
   if (!isMainInvocation(argv, moduleUrl)) return false;
-  report(
-    verifyRepo(root, exec),
-    (line) => process.stdout.write(`${line}\n`),
-    (code) => { process.exitCode = code; },
-  );
+  const write = (line: string): void => { process.stdout.write(`${line}\n`); };
+  const fail = (code: number): void => { process.exitCode = code; };
+  report(verifyRepo(root, exec), write, fail);
+  reportCompleteness(readScopedCompleteness(root, exec), write, fail);
   return true;
 }
 

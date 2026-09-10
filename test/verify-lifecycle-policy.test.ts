@@ -28,6 +28,9 @@ import {
 import {
   defaultExec,
   parsePoliciesOutput,
+  readScopedCompleteness,
+  reportCompleteness,
+  scopeCompletenessByAdoption,
   readInstalledPolicies,
   resolvePmBinary,
   runIfMain,
@@ -349,4 +352,127 @@ test("non-vacuity: the repo's own installed policies match the canonical contrac
   // own installed document must report no drift.
   const drift = verifyRepo(repoRoot);
   assert.deepEqual(drift.failures, [], `pm-ops must satisfy its own contract: ${drift.failures.join("; ")}`);
+});
+test("adoption scoping fails governed work and reports pre-adoption work as backlog", () => {
+  const violations = [
+    { id: "old-1", type: "Issue", status: "closed", decision: { missing_fields: ["expected_result"] } },
+    { id: "new-1", type: "Issue", status: "closed", decision: { missing_fields: ["repro_steps"] } },
+  ];
+  const scoped = scopeCompletenessByAdoption(
+    violations,
+    new Map([
+      ["old-1", "2026-08-01T00:00:00.000Z"],
+      ["new-1", "2026-09-11T00:00:00.000Z"],
+    ]),
+    "2026-09-10T21:00:00.000Z",
+  );
+  assert.deepEqual(scoped.predating.map((v) => v.id), ["old-1"]);
+  assert.deepEqual(scoped.governed.map((v) => v.id), ["new-1"]);
+
+  const lines: string[] = [];
+  let exitCode = 0;
+  reportCompleteness(scoped, (line) => lines.push(line), (code) => { exitCode = code; });
+  assert.equal(exitCode, 1, "a governed violation must fail the gate");
+  assert.ok(lines.some((l) => l.startsWith("fail - new-1")), "the governed violation must be named as a failure");
+  assert.ok(lines.some((l) => l.startsWith("backlog - old-1")), "the pre-adoption item must be reported as backlog");
+});
+
+test("adoption scoping exits zero when only pre-adoption work is incomplete", () => {
+  // The state this repository is actually in: twelve items closed under the
+  // previous rules, none of them fabricated to look complete.
+  const scoped = scopeCompletenessByAdoption(
+    [{ id: "old-1", type: "Issue", status: "closed", decision: { missing_fields: ["expected_result"] } }],
+    new Map([["old-1", "2026-08-01T00:00:00.000Z"]]),
+    "2026-09-10T21:00:00.000Z",
+  );
+  const lines: string[] = [];
+  let exitCode = 0;
+  reportCompleteness(scoped, (line) => lines.push(line), (code) => { exitCode = code; });
+  assert.equal(exitCode, 0);
+  assert.ok(lines.some((l) => l.includes("every item governed by the contract carries its declared evidence")));
+});
+
+test("an item with no terminal timestamp is governed, so the scoping cannot fail open", () => {
+  // A missing timestamp is what a workspace edit that bypassed the CLI leaves
+  // behind. Treating it as pre-adoption would let exactly that case through.
+  const scoped = scopeCompletenessByAdoption(
+    [{ id: "no-date", type: "Issue", status: "closed", decision: { missing_fields: ["expected_result"] } }],
+    new Map([["no-date", undefined]]),
+    "2026-09-10T21:00:00.000Z",
+  );
+  assert.deepEqual(scoped.governed.map((v) => v.id), ["no-date"]);
+  assert.deepEqual(scoped.predating, []);
+});
+
+test("an unparseable terminal timestamp is governed for the same reason", () => {
+  const scoped = scopeCompletenessByAdoption(
+    [{ id: "bad-date", type: "Issue", status: "closed", decision: { missing_fields: ["expected_result"] } }],
+    new Map([["bad-date", "not-a-date"]]),
+    "2026-09-10T21:00:00.000Z",
+  );
+  assert.deepEqual(scoped.governed.map((v) => v.id), ["bad-date"]);
+});
+
+test("an item closed exactly at the adoption instant is governed", () => {
+  // The boundary is inclusive: work closed in the same instant the contract
+  // was adopted is work done under it.
+  const scoped = scopeCompletenessByAdoption(
+    [{ id: "boundary", type: "Issue", status: "closed", decision: { missing_fields: ["expected_result"] } }],
+    new Map([["boundary", "2026-09-10T21:00:00.000Z"]]),
+    "2026-09-10T21:00:00.000Z",
+  );
+  assert.deepEqual(scoped.governed.map((v) => v.id), ["boundary"]);
+});
+
+test("a violation with no decision detail still reports a readable line", () => {
+  const lines: string[] = [];
+  let exitCode = 0;
+  reportCompleteness(
+    { governed: [{ id: "bare", type: "Issue", status: "closed" }], predating: [{ id: "bare-old", type: "Issue", status: "closed" }] },
+    (line) => lines.push(line),
+    (code) => { exitCode = code; },
+  );
+  assert.equal(exitCode, 1);
+  assert.ok(lines.some((l) => l === "fail - bare (Issue, closed) is missing unknown fields"));
+  assert.ok(lines.some((l) => l === "backlog - bare-old closed before the contract and is missing unknown fields"));
+});
+
+test("readScopedCompleteness reads violations and each item's terminal timestamp", () => {
+  // Driven through an injected executor rather than this repository, so the
+  // reader is exercised on shapes this checkout does not happen to contain:
+  // an item whose terminal instant is completed_at, one that carries only
+  // closed_at, and one that carries neither.
+  const calls: string[][] = [];
+  const exec: PolicyExecutor = (_command, args) => {
+    calls.push([...args]);
+    if (args[0] === "ops") {
+      return JSON.stringify({
+        checks: [{
+          details: {
+            violations: [
+              { id: "done-old", type: "Issue", status: "closed", decision: { missing_fields: ["expected_result"] } },
+              { id: "cancelled-new", type: "Issue", status: "canceled", decision: { missing_fields: ["repro_steps"] } },
+              { id: "no-stamp", type: "Issue", status: "closed", decision: { missing_fields: ["expected_result"] } },
+            ],
+          },
+        }],
+      });
+    }
+    if (args[1] === "done-old") return JSON.stringify({ item: { completed_at: "2026-08-01T00:00:00.000Z" } });
+    if (args[1] === "cancelled-new") return JSON.stringify({ item: { closed_at: "2026-09-11T00:00:00.000Z" } });
+    return JSON.stringify({ item: {} });
+  };
+
+  const scoped = readScopedCompleteness(repoRoot, exec, "2026-09-10T21:00:00.000Z");
+  assert.deepEqual(scoped.predating.map((v) => v.id), ["done-old"]);
+  assert.deepEqual(scoped.governed.map((v) => v.id).sort(), ["cancelled-new", "no-stamp"]);
+  assert.equal(calls.length, 4, "one validate call plus one get per violation");
+  assert.deepEqual(calls[0], ["ops", "validate", "--check-completeness", "--all-affected-ids", "--json"]);
+});
+
+test("readScopedCompleteness treats a validator envelope with no checks as no violations", () => {
+  const exec: PolicyExecutor = () => JSON.stringify({});
+  const scoped = readScopedCompleteness(repoRoot, exec, "2026-09-10T21:00:00.000Z");
+  assert.deepEqual(scoped.governed, []);
+  assert.deepEqual(scoped.predating, []);
 });
