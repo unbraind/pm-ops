@@ -47,6 +47,10 @@ function pm(
     cwd,
     encoding: "utf-8",
     maxBuffer: 64 * 1024 * 1024,
+    // Suppress Node's own warning preamble (e.g. `(node:NNNN) ExperimentalWarning`
+    // under the floor Node 22) so a refusal's `--json` error envelope on stderr
+    // parses cleanly rather than colliding with a warning line.
+    env: { ...process.env, NODE_NO_WARNINGS: "1" },
   });
   return {
     status: result.status ?? 1,
