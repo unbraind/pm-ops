@@ -2061,7 +2061,7 @@ function renderDocstringsMarkdown(result) {
 const defineExtension = (module) => module;
 export default defineExtension({
     name: "pm-ops",
-    version: "2026.9.9",
+    version: "2026.9.11",
     activate(api) {
         if (typeof api.registerRenderer === "function") {
             // Derived from OPS_COMMAND_PATHS rather than restated. A literal copy is
