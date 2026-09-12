@@ -1,0 +1,15 @@
+id: ops-k9iv
+title: "pm CLI 2026.9.11 drops every pm-ops command, because its new core ops group collides at group level"
+description: "Measured 2026-09-12 while certifying pm CLI 2026.9.12. From 2026.9.11, pm-cli registers a core ops command group (stats, health, validate, gc, telemetry, eval, test-all), and extension collision is decided per group, not per leaf. All ten pm-ops commands (ops audit, docstrings, merge-receipts, metrics, outdated, policy, report, scan, status, verify-release) are dropped with extension_command_collision and core command preserved, although none of those leaves exists in core. Reproduced by installing this package into a fresh project: pm ops metrics prints usage on 2026.9.10 and fails with Unknown command metrics on 2026.9.11 and 2026.9.12. The package test 'installed pm CLI routes --repos values to every fleet command' fails on 2026.9.12 for exactly this reason. Library consumers that import pm-ops/attestation are unaffected, so the fleet's release gates keep working; the pm command surface is what breaks. Filed upstream as unbraind/pm-cli#1249."
+type: Issue
+status: blocked
+priority: 0
+tags: []
+created_at: "2026-09-12T21:25:15.228Z"
+updated_at: "2026-09-12T21:25:15.797Z"
+author: claude-orchestrator
+acceptance_criteria: "Either pm-cli ships leaf-level collision detection, so pm ops metrics works with pm-ops installed on a CLI that has the core ops group, and this repository then certifies that CLI with its routing test passing unchanged; or pm-ops moves its commands to a namespace core does not own, with a documented migration path and the routing test updated to the new paths"
+blocked_reason: "Waiting on unbraind/pm-cli#1249: leaf-level extension collision under core command groups"
+docs[1]{path,scope,note}:
+  "https://github.com/unbraind/pm-cli/issues/1249",project,upstream issue for the group-level collision
+body: ""
