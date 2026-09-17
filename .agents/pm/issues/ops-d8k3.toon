@@ -1,0 +1,14 @@
+id: ops-d8k3
+title: "Readiness checks treat a Rust crate as an unready npm package, so pm-rust is the only repo marked not-ready for three checks that cannot apply"
+description: "pm ops status and pm ops scan apply TypeScript/npm-only readiness checks to every repository in the fleet, including pm-rust, which is a Rust crate with no package.json and no npm lockfile. Measured 2026-09-17 across all 22 fleet repositories: 21 report ready and pm-rust reports NOT ready, with the issues column reading 'strict TS not enabled; pm-changelog not wired; audit unavailable: npm audit failed: [ENOLOCK] This command requires an existing lockfile.' None of those three can be true of a Rust crate. The consequence is not cosmetic: pm-rust's real gates are cargo clippy with -D warnings, cargo test, cargo audit and a 100% coverage floor, and none of them are measured here, so the one repository the tool singles out as unready is also the one whose actual release-readiness it reports nothing about. A fleet gate built on this column would block pm-rust permanently while staying blind to whether it is releasable."
+type: Issue
+status: open
+priority: 2
+tags[3]: fleet,readiness,rust
+created_at: "2026-09-17T20:53:55.613Z"
+updated_at: "2026-09-17T20:55:25.235Z"
+author: claude-orchestrator
+acceptance_criteria: "pm ops status and pm ops scan detect a repository's ecosystem rather than assuming npm; for a Rust crate they either run the cargo equivalents (clippy, test, audit) or declare the check not-applicable, and in neither case report it as not-ready for a check that cannot apply; the census over the 22 fleet repositories reports pm-rust's readiness from gates it actually runs"
+comments[1]{created_at,author,text}:
+  "2026-09-17T20:55:25.217Z",claude-orchestrator,"author=claude-orchestrator,text=Measured with pm-ops 2026.9.13 under pm CLI 2026.9.17, running pm ops status over all 22 fleet repositories. The table reported 21 ready / 1 not ready / 5 issues. pm-rust's row is: version '-', ready 'no', critical '?', high '?', issues 'strict TS not enabled; pm-changelog not wired; audit unavailable: npm audit failed: [ENOLOCK] This command requires an existing lockfile.' The '?' in the vulnerability columns is the same blindness in a second place: because npm audit cannot run, the scan reports neither zero nor a count, and a reader scanning the column for non-zero values sees nothing to act on. pm-rust does run cargo audit in CI, and it was clean in the same session's certify run alongside 82/82 tests and 100% coverage across lines, functions, regions and branches."
+body: ""
