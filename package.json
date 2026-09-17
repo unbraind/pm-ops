@@ -80,7 +80,7 @@
     "@types/node": "^26.2.0",
     "@unbrained/pm-cli": "2026.9.10",
     "c8": "^12.0.0",
-    "pm-changelog": "2026.9.6"
+    "pm-changelog": "2026.9.13"
   },
   "keywords": [
     "pm-cli",
