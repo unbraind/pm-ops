@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- pm CLI 2026.9.11 drops every pm-ops command, because its new core ops group collides at group level ([ops-k9iv](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-k9iv.toon))
+
+### Other
+
+- Certify pm CLI 2026.9.17 ([ops-xz9q](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-xz9q.toon))
+
 ## 2026.9.11 - 2026-09-11
 
 ### Added

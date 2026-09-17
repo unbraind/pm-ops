@@ -1,0 +1,25 @@
+id: ops-xz9q
+title: Certify pm CLI 2026.9.17
+description: Pin @unbrained/pm-cli to 2026.9.17 (current npm latest) and move pm-changelog to latest. Close ops-k9iv after reproducing the leaf registration proof. Update REQUIRED_DEVELOPMENT_VERSION in compatibility-floor test.
+type: Chore
+status: closed
+priority: 2
+tags: []
+created_at: "2026-09-17T19:53:47.233Z"
+updated_at: "2026-09-17T19:53:54.971Z"
+closed_at: "2026-09-17T19:53:54.941Z"
+completed_at: "2026-09-17T19:53:54.941Z"
+claim_principal: pi-agent
+author: pi-agent
+acceptance_criteria: "package.json pins @unbrained/pm-cli at exactly 2026.9.17; package-lock.json resolves 2026.9.17; release:check exits 0 with 505/505 active tests passing (2 skipped) and 100% coverage; ops-k9iv closed with proof"
+resolution: "Pinned @unbrained/pm-cli to 2026.9.17, pm-changelog to 2026.9.16. Updated REQUIRED_DEVELOPMENT_VERSION in compatibility-floor test from 2026.9.10 to 2026.9.17. Closed ops-k9iv after reproducing leaf registration proof."
+expected_result: "release:check exits 0, all gates pass, 505/505 active tests pass (2 skipped) with 100% coverage"
+actual_result: "release:check passed: 505/505 active tests pass (2 skipped), 100% coverage. ops-k9iv closed: 10/10 pm-ops leaves registered alongside 7/7 core ops, extension health ok, activation_failure_count=0."
+files[3]{path,scope}:
+  package.json,project
+  package-lock.json,project
+  test/compatibility-floor.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "npm run release:check",project,pi-agent,"2026-09-17T19:53:54.055Z",local_mutation,chore/certify-pm-cli-2026-9-17
+close_reason: All acceptance criteria verified at close time
+body: ""
