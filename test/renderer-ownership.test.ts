@@ -120,12 +120,13 @@ test("declines its own marked result on a foreign command (commands ownership re
 
 test("declines when both command and result are foreign (belt-and-braces)", async () => {
   const ext = await harness();
-  for (const format of ["toon", "json"] as const) {
+  const formats = ["toon", "json"] as const;
+  for (const format of formats) {
     const context: RendererOverrideContext = { format, command: foreignCommand, result: foreignResult };
     const rendered = await ext.runRendererOverride(context);
-    assert.equal(rendered.overridden, false, `${format} renderer should decline a foreign result under a foreign command`);
-    assert.equal(rendered.rendered, null, `${format} should leave native rendering intact`);
-    assert.deepEqual(rendered.warnings, [], `${format} should produce no warnings`);
+    assert.strictEqual(false, rendered.overridden, `${format} renderer should decline a foreign result under a foreign command`);
+    assert.strictEqual(null, rendered.rendered, `${format} should leave native rendering intact`);
+    assert.deepStrictEqual([], rendered.warnings, `${format} should produce no warnings`);
   }
   await ext.deactivate();
 });

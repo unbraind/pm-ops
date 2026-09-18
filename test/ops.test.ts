@@ -304,7 +304,7 @@ function buildFixture(root: string): string {
   "extends": ["./tsconfig.base.json"],
   "compilerOptions": {
   },
-  "fixtureLabel": "quoted \\\"value\\\"",
+  "fixtureLabel": "quoted ${String.fromCharCode(92)}"value${String.fromCharCode(92)}"",
 }
 `);
   writeFileSync(join(repo, "CHANGELOG.md"), "# Changelog\n\n## 2026.7.5\n\n- fixture\n");

@@ -287,12 +287,14 @@ test("fetchGithubReleasesPaginated stops when a page returns fewer than a full p
 
 test("fetchGithubReleasesPaginated stops when a page returns nothing", () => {
   let pageCalls = 0;
-  const mockExec = (command: string, args: string[], _options: { cwd?: string }): string => {
-    if (args[0] === "api") {
-      pageCalls++;
-      return pageCalls === 1 ? Array.from({ length: 100 }, (_, i) => `v2026.01.${String(i + 1).padStart(2, "0")}`).join("\n") + "\n" : "";
-    }
-    return "";
+  const mockExec = (_command: string, args: string[], _options: { cwd?: string }): string => {
+    if (args[0] !== "api") return "";
+    pageCalls += 1;
+    const page = Array.from(
+      { length: pageCalls === 1 ? 100 : 0 },
+      (_, index) => `v2026.01.${String(index + 1).padStart(2, "0")}`,
+    );
+    return page.join("\n") + (page.length > 0 ? "\n" : "");
   };
   const releases = fetchGithubReleasesPaginated(mockExec, "owner/repo");
   assert.equal(releases.length, 100, "a full page followed by an empty page yields exactly one page");

@@ -1,0 +1,114 @@
+/**
+ * Canonical strict flat configuration for every fleet TypeScript repository.
+ *
+ * Babel supplies the ESLint parser because typescript-eslint rejects the
+ * TypeScript 7 compiler peer range used by part of the fleet. TypeScript stays
+ * the authoritative compiler; Babel only supplies ESLint's ESTree syntax tree.
+ */
+
+import babelParser from "@babel/eslint-parser";
+import { defineConfig } from "eslint/config";
+import type { Linter } from "eslint";
+
+/** Inputs for constructing a reusable flat policy in a consumer package. */
+export interface FleetEslintConfigOptions {
+  /** Additional repository-relative ignore globs appended to the fleet defaults. */
+  readonly ignores?: readonly string[];
+}
+
+const forbiddenSyntax = [
+  { selector: "TSAnyKeyword", message: "Use a precise type instead of explicit any." },
+  { selector: "ImportExpression", message: "Dynamic imports are forbidden; use a top-level import." },
+  { selector: "TSImportType", message: "Inline type imports are forbidden; use a top-level type import." },
+  { selector: "TSParameterProperty", message: "Parameter properties require non-erasable emit." },
+  { selector: "TSEnumDeclaration", message: "Enums require non-erasable emit; use literal unions." },
+  { selector: "TSModuleDeclaration", message: "Namespaces and TypeScript modules are forbidden." },
+  { selector: "TSImportEqualsDeclaration", message: "Import-equals syntax is forbidden." },
+  { selector: "TSExportAssignment", message: "Export-equals syntax is forbidden." },
+] as const;
+
+const defaultIgnores = [
+  ".agents/**",
+  "coverage/**",
+  "dist/**",
+  "dist-test/**",
+  "node_modules/**",
+] as const;
+
+const rules: Linter.RulesRecord = {
+  "constructor-super": "error",
+  "eqeqeq": ["error", "always"],
+  "no-array-constructor": "error",
+  "no-async-promise-executor": "error",
+  "no-constant-binary-expression": "error",
+  "no-constructor-return": "error",
+  "no-debugger": "error",
+  "no-dupe-args": "error",
+  "no-dupe-class-members": "error",
+  "no-dupe-else-if": "error",
+  "no-duplicate-imports": ["error", { allowSeparateTypeImports: true }],
+  "no-fallthrough": "error",
+  "no-import-assign": "error",
+  "no-new-native-nonconstructor": "error",
+  "no-promise-executor-return": "error",
+  "no-restricted-syntax": ["error", ...forbiddenSyntax],
+  "no-self-assign": "error",
+  "no-setter-return": "error",
+  "no-shadow-restricted-names": "error",
+  "no-sparse-arrays": "error",
+  "no-unexpected-multiline": "error",
+  "no-unmodified-loop-condition": "error",
+  "no-unreachable": "error",
+  "no-unreachable-loop": "error",
+  "no-unsafe-finally": "error",
+  "no-unsafe-negation": "error",
+  "no-unsafe-optional-chaining": "error",
+  "no-unused-private-class-members": "error",
+  "no-useless-backreference": "error",
+  "no-useless-catch": "error",
+  "no-useless-escape": "error",
+  "no-var": "error",
+  "prefer-const": "error",
+  "prefer-object-has-own": "error",
+  "require-atomic-updates": "error",
+  "use-isnan": "error",
+  "valid-typeof": "error",
+};
+
+/**
+ * Build the fleet's strict, TypeScript-aware ESLint flat configuration.
+ *
+ * The returned array is intentionally a fresh flat-config value, so a
+ * consumer can append its own project-specific config without mutating the
+ * canonical policy or another ESLint invocation.
+ *
+ * @param options - Optional additional ignore globs for generated files.
+ * @returns ESLint flat-config entries ready for `ESLint` or `eslint`.
+ */
+export function fleetEslintConfig(
+  options: FleetEslintConfigOptions = {},
+): Linter.Config[] {
+  return defineConfig([
+    {
+      ignores: [...defaultIgnores, ...(options.ignores ?? [])],
+    },
+    {
+      files: ["**/*.ts"],
+      languageOptions: {
+        ecmaVersion: "latest",
+        sourceType: "module",
+        parser: babelParser,
+        parserOptions: {
+          requireConfigFile: false,
+          babelOptions: {
+            plugins: [["@babel/plugin-syntax-typescript", { disallowAmbiguousJSXLike: true }]],
+          },
+        },
+      },
+      linterOptions: {
+        reportUnusedDisableDirectives: "error",
+      },
+      rules,
+    },
+  ]);
+}

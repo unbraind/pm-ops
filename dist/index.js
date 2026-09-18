@@ -154,7 +154,7 @@ function expandHome(path) {
     return path.startsWith("~/") || path.startsWith("~\\") ? join(homedir(), path.slice(2)) : path;
 }
 function hasGlob(path) {
-    return /[*?\[]/.test(path);
+    return /[*?[]/.test(path);
 }
 function escapeRegexChar(char) {
     return /[.+^${}()|[\]\\]/.test(char) ? `\\${char}` : char;

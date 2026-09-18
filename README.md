@@ -309,6 +309,69 @@ process.exitCode = runPrepareMergeDriver();
 - **Windows** — honours quoted PATH entries and PATHEXT shims, and sets `shell: true` only on `win32` so `.cmd` launchers run; the POSIX path is never faked
 
 This repository's own `prepare` script is that launcher (with an `isMainInvocation` guard so the suite can import it). To (re)run manually: `npm run merge:install`.
+## Canonical code-quality exports
+
+The package publishes one strict ESLint flat-config factory and one
+programmatic jscpd gate. Both are TypeScript-only and work with the fleet's
+TypeScript 5 and TypeScript 7 consumers because parsing is supplied by Babel,
+not typescript-eslint.
+
+```ts
+import { fleetEslintConfig } from "pm-ops/eslint";
+
+export default fleetEslintConfig({ ignores: ["generated/**"] });
+```
+
+The exact three-line lint launcher a consumer can add is:
+
+```ts
+import { ESLint } from "eslint";
+import { fleetEslintConfig } from "pm-ops/eslint";
+const results = await new ESLint({ overrideConfigFile: true, overrideConfig: fleetEslintConfig() }).lintFiles(["."]); process.exitCode = results.some(({ errorCount, warningCount }) => errorCount + warningCount > 0) ? 1 : 0;
+```
+
+The duplication export reads `package.json`, scans `**/*.ts` by default (including
+root sources, `scripts/`, and tests), reports every clone pair with both file
+line ranges, and fails when the measured percentage is above the configured
+threshold. `globs` and `minTokens` can be overridden for direct analysis;
+the gate uses `minTokens: 50` when the field is omitted.
+
+```ts
+import { analyzeDuplication, runDuplicationGate } from "pm-ops/duplication";
+
+const report = await analyzeDuplication({ globs: ["src/**/*.ts", "test/**/*.ts"] });
+await runDuplicationGate();
+```
+
+A consumer adds these package fields (the launcher paths may be named
+otherwise, but must remain thin imports of the canonical exports):
+
+```json
+{
+  "scripts": {
+    "lint": "node scripts/lint.ts",
+    "duplication": "node scripts/duplication-gate.ts",
+    "release:check": "npm run lint && npm run duplication && ..."
+  },
+  "devDependencies": {
+    "@babel/eslint-parser": "^8.0.5",
+    "@babel/plugin-syntax-typescript": "^8.0.3",
+    "eslint": "^10.10.0",
+    "jscpd": "^4.3.0",
+    "pm-ops": "<current pm-ops version>"
+  },
+  "duplicationGate": {
+    "threshold": 0,
+    "minTokens": 50
+  }
+}
+```
+
+The canonical ESLint factory enforces the eight forbidden syntax selectors
+(`TSAnyKeyword`, `ImportExpression`, `TSImportType`, `TSParameterProperty`,
+`TSEnumDeclaration`, `TSModuleDeclaration`, `TSImportEqualsDeclaration`, and
+`TSExportAssignment`) plus the fleet's correctness rules. It ignores generated
+and dependency output by default; pass `ignores` to add project-specific paths.
 
 ## License
 

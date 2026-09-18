@@ -62,6 +62,12 @@ jobs:
       - name: Docstring coverage gate
         run: npm run docstring
 
+      - name: Canonical ESLint gate
+        run: npm run lint
+
+      - name: Duplication gate
+        run: npm run duplication
+
       - name: Test with coverage gate
         run: npm run coverage
 

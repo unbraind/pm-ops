@@ -192,7 +192,7 @@ function expandHome(path: string): string {
 }
 
 function hasGlob(path: string): boolean {
-  return /[*?\[]/.test(path);
+  return /[*?[]/.test(path);
 }
 
 function escapeRegexChar(char: string): string {
