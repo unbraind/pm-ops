@@ -1,6 +1,6 @@
 {
   "name": "pm-ops",
-  "version": "2026.9.13",
+  "version": "2026.9.18",
   "description": "Multi-repo fleet operations for pm-cli",
   "repository": {
     "type": "git",
@@ -96,11 +96,21 @@
     "jscpd": "^4.3.0"
   },
   "peerDependenciesMeta": {
-    "@babel/eslint-parser": { "optional": true },
-    "@babel/plugin-syntax-typescript": { "optional": true },
-    "eslint": { "optional": true },
-    "fast-glob": { "optional": true },
-    "jscpd": { "optional": true }
+    "@babel/eslint-parser": {
+      "optional": true
+    },
+    "@babel/plugin-syntax-typescript": {
+      "optional": true
+    },
+    "eslint": {
+      "optional": true
+    },
+    "fast-glob": {
+      "optional": true
+    },
+    "jscpd": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@babel/eslint-parser": "^8.0.5",
