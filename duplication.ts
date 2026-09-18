@@ -6,7 +6,7 @@
  * aggregate percentage for machine-readable callers.
  */
 
-import { globSync } from "fast-glob";
+import fastGlob from "fast-glob";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
@@ -135,7 +135,7 @@ function combineGlobs(globs: readonly string[]): string {
 
 /** Match the files jscpd is expected to analyze with the same scope and ignores. */
 function globMatchedSources(repoRoot: string, pattern: string): string[] {
-  return globSync(pattern, {
+  return fastGlob.sync(pattern, {
     absolute: true,
     cwd: repoRoot,
     dot: true,
