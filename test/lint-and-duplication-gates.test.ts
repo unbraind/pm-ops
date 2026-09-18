@@ -8,7 +8,7 @@ import test, { after, before } from "node:test";
 import { ESLint } from "eslint";
 
 import { analyzeDuplication, runDuplicationGate } from "../duplication.ts";
-import { fleetEslintConfig } from "../eslint.ts";
+import { fleetEslintConfig, runLintGate } from "../eslint.ts";
 
 let root: string;
 
@@ -135,6 +135,7 @@ test("fleet ESLint config accepts clean TypeScript and appends consumer ignores"
   const eslint = new ESLint({ cwd: directory, overrideConfigFile: true, overrideConfig: config });
   const results = await eslint.lintFiles(["."]);
   assert.deepEqual(results.flatMap((result) => result.messages), []);
+  assert.equal(await runLintGate({ cwd: directory, files: ["."], ignores: ["generated/**"] }), 0);
 });
 
 test("duplication analyzer finds clone ranges and honors multiple source globs", async () => {
@@ -321,6 +322,7 @@ test("direct gate launchers preserve success and failure statuses", () => {
   mkdirSync(lintDirty);
   symlinkSync(resolve(import.meta.dirname, "../node_modules"), join(lintDirty, "node_modules"), "dir");
   writeFileSync(join(lintDirty, "index.ts"), "export const value: any = 1;\n");
+  assert.equal(await runLintGate({ cwd: lintDirty, files: ["."] }), 1);
   const lintFailure = spawnSync(process.execPath, [lintScript], { cwd: lintDirty, encoding: "utf8" });
   assert.equal(lintFailure.status, 1);
   assert.match(lintFailure.stderr, /Use a precise type instead of explicit any/);

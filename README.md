@@ -322,13 +322,15 @@ import { fleetEslintConfig } from "pm-ops/eslint";
 export default fleetEslintConfig({ ignores: ["generated/**"] });
 ```
 
-The exact three-line lint launcher a consumer can add is:
+The lint launcher a consumer can add is:
 
 ```ts
-import { ESLint } from "eslint";
-import { fleetEslintConfig } from "pm-ops/eslint";
-const results = await new ESLint({ overrideConfigFile: true, overrideConfig: fleetEslintConfig() }).lintFiles(["."]); process.exitCode = results.some(({ errorCount, warningCount }) => errorCount + warningCount > 0) ? 1 : 0;
+import { runLintGate } from "pm-ops/eslint";
+process.exitCode = await runLintGate();
 ```
+
+`runLintGate` uses the canonical policy, prints stylish diagnostics to stderr, and
+returns `0` or `1` for use as the process exit code.
 
 The duplication export reads `package.json`, scans `**/*.ts` by default (including
 root sources, `scripts/`, and tests), reports every clone pair with both file
