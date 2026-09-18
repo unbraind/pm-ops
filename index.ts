@@ -142,6 +142,7 @@ function opsExamples(command: string, examples: readonly string[]): string[] {
   return [`pm ops ${command}`, ...examples];
 }
 
+/** Build the shared output-format and output-file flag definitions. */
 function formatOutputFlags(outputDescription: string) {
   return [
     { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
@@ -267,6 +268,7 @@ function expandSimpleGlob(pattern: string): string[] {
   return candidates.length > 0 ? [...candidates].sort() : [absolute];
 }
 
+/** Normalize command context into the repository paths and output routing inputs. */
 function resolveCommandInputs(ctx: CommandHandlerContext): {
   options: Record<string, unknown>;
   repos: string[];
@@ -770,6 +772,7 @@ function readRepoPackageInfo(repoPath: string): RepoPackageInfo {
   return { pkg, name: pkg?.name ?? null, version: pkg?.version ?? null };
 }
 
+/** Read npm audit severity counts and report unavailable audits to the caller. */
 function readAuditCounts(repoPath: string, onError: (message: string) => void): { critical: number | null; high: number | null } {
   try {
     const audit = readAudit(repoPath);
