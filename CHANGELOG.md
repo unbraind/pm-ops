@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Ship the merge-driver install step as the canonical pm-ops/merge-driver export ([ops-crgk](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-crgk.toon))
+
 ### Fixed
 
 - pm CLI 2026.9.11 drops every pm-ops command, because its new core ops group collides at group level ([ops-k9iv](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-k9iv.toon))

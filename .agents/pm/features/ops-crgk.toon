@@ -1,0 +1,32 @@
+id: ops-crgk
+title: Ship the merge-driver install step as the canonical pm-ops/merge-driver export
+description: "Every fleet package installs pm field-aware git merge drivers from its npm prepare script because Git never clones .git/config. Twelve consumer repos currently vendor a byte-identical untyped untested JavaScript prepare-merge-driver.mjs, which the TypeScript-only rule forbids. pm-ops already solved this shape for publish attestation: one canonical implementation, thin per-repo launchers. This feature makes merge-driver install the same: a typed, tested pm-ops/merge-driver export that resolves the real pm launcher, skips cleanly when pm is absent, fails loudly when a present CLI cannot install, and honours Windows PATHEXT/quoting through an injectable process boundary."
+type: Feature
+status: closed
+priority: 2
+tags: []
+created_at: "2026-09-18T03:46:00.556Z"
+updated_at: "2026-09-18T03:53:24.866Z"
+closed_at: "2026-09-18T03:53:24.796Z"
+completed_at: "2026-09-18T03:53:24.796Z"
+claim_principal: pi-agent
+author: pi-agent
+acceptance_criteria: "package.json exports ./merge-driver with types ./dist/merge-driver.d.ts and default ./dist/merge-driver.js; runPrepareMergeDriver is the documented export: missing pm exits 0 with a one-line notice; a present CLI whose pm merge install fails exits non-zero with that command's output; Windows PATH quoting and PATHEXT shims are honoured via the injectable installer and platform parameter without faking the POSIX path; tests create temp git repos under mkdtempSync(join(tmpdir(), \"pm-ops-merge-\" )), run against the real pinned node_modules/.bin/pm binary, and assert merge.*.driver git config entries appear; tests cover missing-pm, non-executable-candidate, directory-candidate, broken-pm (a real script that exits 1), and Windows-shim paths; coverage remains 100/100/100/100 and the docstring gate reports zero violations"
+resolution: "Exported runPrepareMergeDriver from pm-ops/merge-driver, replaced the vendored prepare hook with a thin launcher, and covered skip/install/fail plus a real pinned-pm git config write."
+expected_result: package.json exports ./merge-driver; missing pm exits 0 with a notice; broken pm exits non-zero; Windows shims use the injectable boundary; temp git repos show merge.*.driver; coverage 100/100/100/100; docstring gate clean.
+actual_result: "509 tests passed, 0 failed, 2 pre-existing skips; coverage 100/100/100/100 across 16 source files; docstring-gate 16 files, 196 declarations documented; merge-driver tests 10/10."
+comments[1]{created_at,author,text}:
+  "2026-09-18T03:50:42.577Z",pi-agent,"Baseline: 12 consumer repos still vendor scripts/prepare-merge-driver.mjs (pm-brief, pm-context, pm-csv, pm-gantt-chart, pm-github, pm-jira, pm-linear, pm-slack, pm-slack-standup, pm-starter, pm-todos, pm-web). They migrate after this export publishes. Added merge-driver.ts, the ./merge-driver package export, a thin scripts/prepare-merge-driver.ts launcher, and tests against the pinned node_modules/.bin/pm in temp git repos."
+files[6]{path,scope,note}:
+  merge-driver.ts,project,Canonical merge-driver installer
+  package.json,project,merge-driver export
+  README.md,project,Export and launcher documentation
+  scripts/prepare-merge-driver.ts,project,Thin prepare launcher
+  test/coverage-gate.test.ts,project,Package-root coverage fixtures
+  test/merge-driver.test.ts,project,Behavioral merge-driver tests
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  npm run coverage,project,pi-agent,"2026-09-18T03:53:03.566Z",local_mutation,feat/canonical-merge-driver-install
+docs[1]{path,scope,note}:
+  README.md,project,Canonical merge-driver export
+close_reason: Canonical typed merge-driver install lives in pm-ops/merge-driver; twelve consumer repos can migrate after publish.
+body: ""
