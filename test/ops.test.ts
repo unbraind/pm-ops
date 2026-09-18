@@ -680,6 +680,33 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
   // archive in the private output directory instead of parsing mixed stdout.
   const tarballs = readdirSync(root).filter((name) => name.endsWith(".tgz"));
   assert.strictEqual(tarballs.length, 1, "npm pack must produce one installable artifact");
+
+  const consumer = join(root, "runtime-consumer");
+  mkdirSync(consumer);
+  writeFileSync(join(consumer, "package.json"), '{"name":"runtime-consumer","private":true,"type":"module"}\n');
+  const consumerInstall = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", [
+    "install", "--omit=dev", "--legacy-peer-deps", "--ignore-scripts", join(root, tarballs[0]!),
+  ], { cwd: consumer, encoding: "utf-8", env, timeout: 60_000, shell: process.platform === "win32" });
+  assertClean(consumerInstall, "npm install pm-ops runtime dependencies");
+  const installedManifest = JSON.parse(readFileSync(join(consumer, "node_modules", "pm-ops", "package.json"), "utf-8")) as {
+    dependencies?: Record<string, string>;
+  };
+  assert.deepEqual(Object.keys(installedManifest.dependencies ?? {}).sort(), ["@toon-format/toon", "typescript"],
+    "the extension package must keep gate tooling out of runtime dependencies");
+  for (const gateTool of ["eslint", "jscpd", "@babel/eslint-parser", "@babel/plugin-syntax-typescript"]) {
+    assert.equal(existsSync(join(consumer, "node_modules", gateTool)), false,
+      `${gateTool} must not be installed for the main extension surface`);
+  }
+  // The host supplies pm-cli as pm-ops's required peer; it is not part of the
+  // extension's own runtime dependency set or of this gate-tooling probe.
+  const hostPeer = join(consumer, "node_modules", "@unbrained", "pm-cli");
+  mkdirSync(join(consumer, "node_modules", "@unbrained"), { recursive: true });
+  symlinkSync(join(process.cwd(), "node_modules", "@unbrained", "pm-cli"), hostPeer, "junction");
+  const mainImport = spawnSync(process.execPath, ["--input-type=module", "-e", "await import('pm-ops');"], {
+    cwd: consumer, encoding: "utf-8", env, timeout: 30_000,
+  });
+  assertClean(mainImport, "import pm-ops without gate tooling");
+
   assertClean(runPm(["install", join(root, tarballs[0]!), "--project", "--json"]), "pm install packed pm-ops");
   const doctor = runPm(["package", "doctor", "--project", "--json", "--detail", "deep"]);
   assertClean(doctor, "pm package doctor");
