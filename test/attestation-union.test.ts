@@ -42,6 +42,20 @@ function onlyCommand(text: string): ReturnType<typeof tokenizeCommands>[number] 
 const ATTESTED = `npm publish --access public ${ATTESTATION_FLAG} --ignore-scripts`;
 const UNATTESTED = "npm publish --access public --ignore-scripts";
 
+function assertUnattestedSmuggle(smuggled: string): void {
+  const failures = auditPublishAttestation([
+    { file: "release.yml", text: `          ${ATTESTED}\n          ${smuggled}` },
+  ]).failures;
+  assert.equal(failures.length, 1, `${smuggled} -> ${JSON.stringify(failures)}`);
+}
+
+function assertCaseBindingCannotLeak(text: string): void {
+  const result = auditPublishAttestation([{ file: "release.yml", text }]);
+  assert.deepEqual(result.recognition, { kind: "recognized", count: 1 }, "the publish is recognised");
+  assert.equal(result.failures.length, 1, "the first arm may not execute, so its binding is unavailable after esac");
+  assert.match(result.failures[0]!, /does not enable --provenance/);
+}
+
 /** Builds a throwaway git repository holding the given tracked files. */
 function trackedFixture(files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), "attestation-"));
@@ -243,10 +257,7 @@ test("an unattested publish smuggled through an interpreter or a substitution is
     "output=`npm publish --access public`",
     `echo hi && eval "${UNATTESTED}"`,
   ]) {
-    const failures = auditPublishAttestation([
-      { file: "release.yml", text: `          ${ATTESTED}\n          ${smuggled}` },
-    ]).failures;
-    assert.equal(failures.length, 1, `${smuggled} -> ${JSON.stringify(failures)}`);
+    assertUnattestedSmuggle(smuggled);
   }
 });
 
@@ -361,10 +372,7 @@ test("a substitution inside double quotes is scanned, because the shell runs it 
     "message=\"`npm publish --access public`\"",
     `message="prefix $(${UNATTESTED}) suffix"`,
   ]) {
-    const failures = auditPublishAttestation([
-      { file: "release.yml", text: `          ${ATTESTED}\n          ${smuggled}` },
-    ]).failures;
-    assert.equal(failures.length, 1, `${smuggled} -> ${JSON.stringify(failures)}`);
+    assertUnattestedSmuggle(smuggled);
   }
 });
 
@@ -1145,23 +1153,11 @@ test("a scalar is taken only from a line that is exactly one literal assignment"
 });
 
 test("a case opener and first arm on one line do not leak the arm binding past esac", () => {
-  const result = auditPublishAttestation([{
-    file: "release.yml",
-    text: 'case "$X" in a) FLAG=--provenance ;; esac\nnpm publish $FLAG',
-  }]);
-  assert.deepEqual(result.recognition, { kind: "recognized", count: 1 }, "the publish is recognised");
-  assert.equal(result.failures.length, 1, "the first arm may not execute, so its binding is unavailable after esac");
-  assert.match(result.failures[0]!, /does not enable --provenance/);
+  assertCaseBindingCannotLeak('case "$X" in a) FLAG=--provenance ;; esac\nnpm publish $FLAG');
 });
 
 test("a case opener sharing its first-arm segment does not leak across a later esac line", () => {
-  const result = auditPublishAttestation([{
-    file: "release.yml",
-    text: 'case "$X" in a) FLAG=--provenance ;;\nesac\nnpm publish $FLAG',
-  }]);
-  assert.deepEqual(result.recognition, { kind: "recognized", count: 1 }, "the publish is recognised");
-  assert.equal(result.failures.length, 1, "the first arm may not execute, so its binding is unavailable after esac");
-  assert.match(result.failures[0]!, /does not enable --provenance/);
+  assertCaseBindingCannotLeak('case "$X" in a) FLAG=--provenance ;;\nesac\nnpm publish $FLAG');
 });
 
 test("case-arm scope neighbours remain conservatively refused", () => {
