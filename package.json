@@ -34,6 +34,10 @@
       "types": "./dist/attestation.d.ts",
       "default": "./dist/attestation.js"
     },
+    "./merge-driver": {
+      "types": "./dist/merge-driver.d.ts",
+      "default": "./dist/merge-driver.js"
+    },
     "./lifecycle-policy": {
       "types": "./dist/lifecycle-policy.d.ts",
       "default": "./dist/lifecycle-policy.js"

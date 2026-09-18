@@ -290,6 +290,26 @@ Fleet totals are intentionally **not** pre-aggregated — expose per-repo series
 
 ---
 
+## Canonical merge-driver install (`pm-ops/merge-driver`)
+
+Git never clones `.git/config`, so every fleet package has to run `pm merge install` from its
+npm `prepare` script or concurrent agents conflict on tracker files. This package is the one
+canonical implementation. Consumers ship a one-line launcher instead of vendoring JavaScript:
+
+```ts
+// scripts/prepare-merge-driver.ts
+import { runPrepareMergeDriver } from "pm-ops/merge-driver";
+process.exitCode = runPrepareMergeDriver();
+```
+
+`runPrepareMergeDriver` resolves the real `pm` launcher on the supplied PATH/platform, then:
+
+- **missing `pm`** — exits `0` and prints one notice line, so production / `--omit=dev` installs are not broken
+- **present `pm` whose `pm merge install` fails** — non-zero exit with that command's output
+- **Windows** — honours quoted PATH entries and PATHEXT shims, and sets `shell: true` only on `win32` so `.cmd` launchers run; the POSIX path is never faked
+
+This repository's own `prepare` script is that launcher (with an `isMainInvocation` guard so the suite can import it). To (re)run manually: `npm run merge:install`.
+
 ## License
 
 MIT © unbrained
@@ -299,10 +319,8 @@ MIT © unbrained
 This repo tracks its project management in `.agents/pm/` and ships a committed `.gitattributes`
 that maps those tracker artifacts to pm-cli's field-aware Git merge drivers, so concurrent-branch
 tracker edits merge cleanly instead of hard-conflicting. The driver **definitions** live in
-per-clone Git config; `npm install` / `npm ci` wires them automatically via the `prepare` script (a portable Node guard, `scripts/prepare-merge-driver.mjs`: it runs
-`pm merge install` only when the `pm` CLI is on `PATH`, and no-ops cleanly otherwise so
-production / `--omit=dev` installs are not broken; being Node-based it behaves identically
-on POSIX shells and Windows `cmd.exe`). To (re)run manually: `npm run merge:install`.
+per-clone Git config; `npm install` / `npm ci` wires them automatically via the `prepare` script
+(`scripts/prepare-merge-driver.ts`, a thin launcher over [`pm-ops/merge-driver`](#canonical-merge-driver-install-pm-opsmerge-driver)). To (re)run manually: `npm run merge:install`.
 
 After merging a branch that touched `.agents/pm/`, reconcile any residual history-hash drift with
 **`pm merge reconcile`** (pm-cli ≥ 2026.7.22): preview with `pm merge reconcile --dry-run`, apply with
