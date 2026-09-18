@@ -104,7 +104,7 @@ export function fleetEslintConfig(
             babelrc: false,
             configFile: false,
             parserOpts: {
-              plugins: [["@babel/plugin-syntax-typescript", { disallowAmbiguousJSXLike: true }]],
+              plugins: [["typescript", { disallowAmbiguousJSXLike: true }]],
             },
           },
         },
