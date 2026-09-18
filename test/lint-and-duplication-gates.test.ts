@@ -64,6 +64,24 @@ function duplicateSources(directory: string, secondDirectory = "src"): void {
   writeFileSync(join(directory, secondDirectory, "second.ts"), source);
 }
 
+/** Build a clone-containing source file larger than jscpd's historical line limit. */
+function largeDuplicateSources(directory: string): void {
+  const block = [
+    "export function largeRepeatedValue(): number {",
+    "  const firstLargeValue = 1;",
+    "  const secondLargeValue = 2;",
+    "  const thirdLargeValue = 3;",
+    "  return firstLargeValue + secondLargeValue + thirdLargeValue;",
+    "}",
+  ].join("\n");
+  const filler = Array.from(
+    { length: 1500 },
+    (_, index) => `export const fillerValue${index} = ${index};`,
+  ).join("\n");
+  writeFileSync(join(directory, "src", "large.ts"), `${filler}\n${block}\n${block}\n`);
+  writeFileSync(join(directory, "src", "large-companion.ts"), `${block}\n`);
+}
+
 /** Create one TypeScript file for each syntax selector in the canonical policy. */
 function forbiddenSyntaxFixture(directory: string): void {
   const fixtures: Record<string, string> = {
@@ -127,6 +145,8 @@ test("duplication analyzer finds clone ranges and honors multiple source globs",
     minTokens: 20,
   });
   assert.ok(report.percentage > 0);
+  assert.equal(report.sources, 2);
+  assert.deepEqual(report.skippedSources, []);
   assert.equal(report.cloneCount, 1);
   assert.equal(report.clones[0]?.first.file, "src/first.ts");
   assert.equal(report.clones[0]?.second.file, "test/second.ts");
@@ -162,6 +182,41 @@ test("duplication gate fails with both clone ranges and passes a clean fixture",
   const cleanLogs: string[] = [];
   await runDuplicationGate({ repoRoot: clean, log: (message) => cleanLogs.push(message) });
   assert.match(cleanLogs.join("\n"), /0% duplicated lines/);
+});
+
+test("duplication gate analyzes large files and rejects empty scopes", async () => {
+  const large = packageFixture("large-clone", { threshold: 0, minTokens: 20 });
+  largeDuplicateSources(large);
+  const largeLogs: string[] = [];
+  const largeErrors: string[] = [];
+  await assert.rejects(
+    runDuplicationGate({
+      repoRoot: large,
+      log: (message) => largeLogs.push(message),
+      error: (message) => largeErrors.push(message),
+      exit: (code) => {
+        throw new GateExit(code);
+      },
+    }),
+    (error: unknown) => error instanceof GateExit && error.code === 1,
+  );
+  assert.match(largeLogs.join("\n"), /2 source\(s\)/);
+  assert.match(largeErrors.join("\n"), /exceeds the configured 0% threshold/);
+
+  const empty = packageFixture("empty-scope", { threshold: 0 });
+  const emptyErrors: string[] = [];
+  await assert.rejects(
+    runDuplicationGate({
+      repoRoot: empty,
+      globs: ["src/**/*.ts"],
+      error: (message) => emptyErrors.push(message),
+      exit: (code) => {
+        throw new GateExit(code);
+      },
+    }),
+    (error: unknown) => error instanceof GateExit && error.code === 1,
+  );
+  assert.match(emptyErrors.join("\n"), /no TypeScript sources were analyzed/);
 });
 
 test("duplication gate fails closed for missing, malformed, unreadable, and empty glob configuration", async () => {
