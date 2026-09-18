@@ -89,10 +89,23 @@ export function runPrepareMergeDriver(environment = process.env, platform = proc
         // metacharacters (`&`, `|`, `^`, `%`) inject into it. cmd resolves `pm`
         // from the same PATH and PATHEXT that discovery just validated. POSIX
         // executes the validated absolute path directly, with no shell at all.
+        //
+        // cmd.exe also searches the CURRENT directory before PATH, so a `pm.cmd`
+        // committed at the repository root (the prepare hook's cwd) would replace
+        // the validated launcher (CWE-426). NoDefaultCurrentDirectoryInExePath
+        // turns that search off for the child; any case variant already in the
+        // environment is dropped first, because Windows treats names
+        // case-insensitively and a stale `nodefaultcurrentdirectoryinexepath=`
+        // could otherwise shadow the one set here.
         const windows = platform === "win32";
         install(windows ? "pm" : executable, ["merge", "install"], {
             stdio: "inherit",
-            env: environment,
+            env: windows
+                ? {
+                    ...Object.fromEntries(Object.entries(environment).filter(([name]) => name.toLowerCase() !== "nodefaultcurrentdirectoryinexepath")),
+                    NoDefaultCurrentDirectoryInExePath: "1",
+                }
+                : environment,
             shell: windows,
         });
         return 0;

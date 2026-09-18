@@ -164,7 +164,11 @@ test("Windows hands cmd.exe only the constant command, never the resolved shim p
   const windows = join(root, "Program Files & calc ^ %PATH%");
   mkdirSync(windows, { recursive: true });
   writeFileSync(join(windows, "pm.CMD"), "@echo off\r\n");
-  const environment = { PATH: `"${windows}"`, PATHEXT: ".CMD;.EXE" };
+  const environment = {
+    PATH: `"${windows}"`,
+    PATHEXT: ".CMD;.EXE",
+    nodefaultcurrentdirectoryinexepath: "",
+  };
   let observed: {
     executable: string;
     arguments_: string[];
@@ -177,7 +181,11 @@ test("Windows hands cmd.exe only the constant command, never the resolved shim p
   assert.deepEqual(observed, {
     executable: "pm",
     arguments_: ["merge", "install"],
-    options: { stdio: "inherit", env: environment, shell: true },
+    options: {
+      stdio: "inherit",
+      env: { PATH: `"${windows}"`, PATHEXT: ".CMD;.EXE", NoDefaultCurrentDirectoryInExePath: "1" },
+      shell: true,
+    },
   });
   assert.ok(
     ![observed?.executable, ...(observed?.arguments_ ?? [])].join(" ").includes("calc"),
@@ -245,10 +253,23 @@ test("install failures preserve numeric status and normalize other throws", (con
   assert.equal(runPrepareMergeDriver(environment, "linux", nullThrow), 1);
 });
 
+/**
+ * Write a real `pm` launcher in the host's executable format that prints
+ * `message` to stderr and exits with `code`: a batch `pm.CMD` on Windows
+ * (found through PATHEXT), an executable shell script elsewhere.
+ */
+function brokenPm(directory: string, message: string, code: number): void {
+  if (process.platform === "win32") {
+    writeFileSync(join(directory, "pm.CMD"), `@echo ${message} 1>&2\r\n@exit /b ${code}\r\n`);
+    return;
+  }
+  executable(join(directory, "pm"), `echo ${message} >&2\nexit ${code}`);
+}
+
 test("a real broken pm script exits non-zero with its output", () => {
   const bin = join(root, "broken-bin");
   mkdirSync(bin, { recursive: true });
-  executable(join(bin, "pm"), "echo broken-pm >&2\nexit 1");
+  brokenPm(bin, "broken-pm", 1);
   const code = runPrepareMergeDriver({ PATH: bin }, process.platform);
   assert.equal(code, 1);
 });
@@ -306,7 +327,7 @@ test("prepare hook direct entrypoint skips absence and fails loudly for a broken
 
   const bin = join(root, "broken-launcher-bin");
   mkdirSync(bin, { recursive: true });
-  executable(join(bin, "pm"), "echo broken-launcher >&2\nexit 7");
+  brokenPm(bin, "broken-launcher", 7);
   const broken = runLauncher({
     cwd,
     env: isolatedEnv(bin),
