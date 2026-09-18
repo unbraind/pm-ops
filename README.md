@@ -2,7 +2,7 @@
 
 Multi-repo fleet operations for [pm-cli](https://github.com/unbraind/pm-cli).
 
-`pm-ops` gives coding agents one command surface for operating across **many** `pm-*` repositories: audit release readiness, enforce naming/workflow policies, run a release-gate matrix, and emit concise fleet reports. Zero external runtime dependencies — Node built-ins only.
+`pm-ops` gives coding agents one command surface for operating across **many** `pm-*` repositories: audit release readiness, enforce naming/workflow policies, run a release-gate matrix, and emit concise fleet reports. Its optional lint and duplication toolchains stay out of the extension's runtime dependencies.
 
 > Philosophy: _project management = context management_, applied to a **fleet** of repos.
 
@@ -270,7 +270,7 @@ Fleet totals are intentionally **not** pre-aggregated — expose per-repo series
 - **Failure diagnostics.** `verify-release` writes the full per-check matrix to stdout _then_ throws a non-zero exit on failure, so agents get both the diagnostics and the exit code.
 - **Offline mode.** Set `PM_OPS_OFFLINE=1` to skip `npm outdated` / `npm audit` / `gh` calls (useful in air-gapped CI); file-based checks still run.
 - **No shell injection.** All subprocess calls (`pm`, `npm`, `gh`) pass args as arrays via `spawnSync` — never through a shell.
-- **Zero runtime deps.** Only Node built-ins, so the package installs fast and audits clean.
+- **Small runtime surface.** The extension keeps only its main command dependencies in `dependencies`; optional lint and duplication tooling is supplied by consumers that use those exports.
 
 ### Output formats
 
@@ -338,6 +338,16 @@ line ranges, and fails when the measured percentage is above the configured
 threshold. `globs` and `minTokens` can be overridden for direct analysis;
 the gate uses `minTokens: 50` when the field is omitted.
 
+### Consumers
+
+The quality exports use optional peer dependencies so installing `pm-ops` as a
+`pm` extension does not download tooling that the extension surface does not
+run. A repository importing `pm-ops/eslint` adds these exact `devDependencies`:
+`@babel/eslint-parser`, `@babel/plugin-syntax-typescript`, and `eslint`. A
+repository importing `pm-ops/duplication` adds `fast-glob` and `jscpd`. A
+repository using both exports adds all five packages, using the version ranges
+shown in `package.json`.
+
 ```ts
 import { analyzeDuplication, runDuplicationGate } from "pm-ops/duplication";
 
@@ -359,6 +369,7 @@ otherwise, but must remain thin imports of the canonical exports):
     "@babel/eslint-parser": "^8.0.5",
     "@babel/plugin-syntax-typescript": "^8.0.3",
     "eslint": "^10.10.0",
+    "fast-glob": "^3.3.3",
     "jscpd": "^4.3.0",
     "pm-ops": "<current pm-ops version>"
   },

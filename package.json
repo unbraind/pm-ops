@@ -84,21 +84,33 @@
     "verify:lifecycle-policy": "node scripts/verify-lifecycle-policy.ts"
   },
   "dependencies": {
-    "@babel/eslint-parser": "^8.0.5",
     "@toon-format/toon": "^4.1.0",
-    "eslint": "^10.10.0",
-    "fast-glob": "^3.3.3",
-    "jscpd": "^4.3.0",
     "typescript": "7.0.2"
   },
   "peerDependencies": {
-    "@unbrained/pm-cli": ">=2026.8.20"
+    "@babel/eslint-parser": "^8.0.5",
+    "@babel/plugin-syntax-typescript": "^8.0.3",
+    "@unbrained/pm-cli": ">=2026.8.20",
+    "eslint": "^10.10.0",
+    "fast-glob": "^3.3.3",
+    "jscpd": "^4.3.0"
+  },
+  "peerDependenciesMeta": {
+    "@babel/eslint-parser": { "optional": true },
+    "@babel/plugin-syntax-typescript": { "optional": true },
+    "eslint": { "optional": true },
+    "fast-glob": { "optional": true },
+    "jscpd": { "optional": true }
   },
   "devDependencies": {
+    "@babel/eslint-parser": "^8.0.5",
     "@babel/plugin-syntax-typescript": "^8.0.3",
     "@types/node": "^26.2.0",
     "@unbrained/pm-cli": "2026.9.17",
     "c8": "^12.0.0",
+    "eslint": "^10.10.0",
+    "fast-glob": "^3.3.3",
+    "jscpd": "^4.3.0",
     "pm-changelog": "^2026.9.16"
   },
   "keywords": [
