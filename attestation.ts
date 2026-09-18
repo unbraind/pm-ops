@@ -44,6 +44,7 @@ import {
   unsetNames,
   type VerifierResult,
 } from "./shell-scan.ts";
+import { tallyFlaggedInvocations } from "./invocation-audit.ts";
 
 /** The flag that attaches a build attestation to the published tarball. */
 export const ATTESTATION_FLAG = "--provenance";
@@ -574,34 +575,25 @@ export function renderCommand(command: ShellCommand): string {
  */
 export function auditPublishAttestation(sources: SourceFile[]): PublishAttestationResult {
   const invocations = sources.flatMap(publishInvocationsIn);
-  const failures: string[] = [];
-  const counted = new Map<string, { total: number; unflagged: number }>();
-  invocations.forEach((invocation) => {
-    const summary = counted.get(invocation.file) ?? { total: 0, unflagged: 0 };
-    summary.total += 1;
-    if (invocation.program !== "npm") {
-      summary.unflagged += 1;
-      failures.push(
-        `${invocation.file}: \`${invocation.program} publish\` is a publish path with no attested`
-        + ` equivalent configured in this repository: ${renderCommand(invocation.command)}`,
-      );
-    } else if (!attestationEnabled(invocation.command)) {
-      summary.unflagged += 1;
-      failures.push(
-        `${invocation.file}: a publish invocation does not enable ${ATTESTATION_FLAG}, so it would`
-        + ` publish an unattested artifact: ${renderCommand(invocation.command)}`,
-      );
-    }
-    counted.set(invocation.file, summary);
-  });
-  if (invocations.length === 0) {
-    failures.push("no npm publish invocation was found in any tracked file - the scan is looking in the wrong place");
-  }
-  const notes: string[] = [];
-  for (const [file, tally] of counted) {
-    if (tally.unflagged > 0) continue;
-    notes.push(`ok - ${file}: ${tally.total} publish invocation(s), each carrying ${ATTESTATION_FLAG}`);
-  }
+  const { failures, notes } = tallyFlaggedInvocations(
+    invocations,
+    (invocation) => {
+      if (invocation.program !== "npm") {
+        return `${invocation.file}: \`${invocation.program} publish\` is a publish path with no attested`
+          + ` equivalent configured in this repository: ${renderCommand(invocation.command)}`;
+      }
+      if (!attestationEnabled(invocation.command)) {
+        return `${invocation.file}: a publish invocation does not enable ${ATTESTATION_FLAG}, so it would`
+          + ` publish an unattested artifact: ${renderCommand(invocation.command)}`;
+      }
+      return null;
+    },
+    {
+      noun: "publish",
+      flag: ATTESTATION_FLAG,
+      emptyScan: "no npm publish invocation was found in any tracked file - the scan is looking in the wrong place",
+    },
+  );
   return {
     failures,
     notes,
