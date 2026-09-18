@@ -13,9 +13,14 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-import { bashArrays, dedentRunBlocks, expandArrays, joinContinuations } from "../shell-scan.ts";
+import { bashArrays, dedentRunBlocks, expandArrays, joinContinuations, tokenizeCommands } from "../shell-scan.ts";
 import { auditPublishAttestation } from "../attestation.ts";
 import { isMainInvocation } from "../scripts/main-invocation.ts";
+
+test("quoted YAML command values are recursively tokenized", () => {
+  const commands = tokenizeCommands('run: "npm publish --access public"');
+  assert.ok(commands.some((command) => command.map((token) => token.value).join(" ") === "npm publish --access public"));
+});
 
 test("an unknown array reference is left in place rather than erased", () => {
   // Erasing it would turn "this scan does not understand the command" into

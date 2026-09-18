@@ -30,6 +30,10 @@ export interface DuplicationReport {
     readonly totalLines: number;
     /** Lines counted as duplicated by jscpd. */
     readonly duplicatedLines: number;
+    /** Number of TypeScript source files actually analyzed by jscpd. */
+    readonly sources: number;
+    /** In-scope files matched by the globs but skipped by jscpd. */
+    readonly skippedSources: readonly string[];
     /** Number of clone pairs returned by jscpd. */
     readonly cloneCount: number;
     /** Every clone pair, including pairs below the configured threshold. */
@@ -56,6 +60,9 @@ export interface DuplicationGateOptions {
  * @param options - Repository root and optional source globs.
  * @returns Aggregate percentage and every clone pair found by jscpd.
  */
+/** Return the fail-closed diagnostic for an empty or partially analyzed scope. */
+export declare function duplicationGateDiagnostic(report: Pick<DuplicationReport, "sources" | "skippedSources">): string | undefined;
+/** Analyze a repository's TypeScript sources with jscpd's programmatic API. */
 export declare function analyzeDuplication(options?: Pick<DuplicationGateOptions, "repoRoot" | "globs" | "minTokens">): Promise<DuplicationReport>;
 /**
  * Run the configured duplication threshold gate and print every clone pair.

@@ -7,7 +7,7 @@ import test, { after, before } from "node:test";
 
 import { ESLint } from "eslint";
 
-import { analyzeDuplication, runDuplicationGate } from "../duplication.ts";
+import { analyzeDuplication, duplicationGateDiagnostic, runDuplicationGate } from "../duplication.ts";
 import { fleetEslintConfig, runLintGate } from "../eslint.ts";
 
 let root: string;
@@ -158,6 +158,18 @@ test("duplication analyzer finds clone ranges and honors multiple source globs",
   assert.ok(defaultRootReport.totalLines > 0);
   const defaultTokenReport = await analyzeDuplication({ repoRoot: directory, globs: ["src/**/*.ts"] });
   assert.ok(defaultTokenReport.totalLines > 0);
+});
+
+test("duplication scope diagnostics fail closed for empty and skipped sources", () => {
+  assert.equal(
+    duplicationGateDiagnostic({ sources: 0, skippedSources: [] }),
+    "duplication-gate: no TypeScript sources were analyzed for the configured glob scope.",
+  );
+  assert.equal(
+    duplicationGateDiagnostic({ sources: 1, skippedSources: ["src/skipped.ts", "test/skipped.ts"] }),
+    "duplication-gate: jscpd skipped 2 in-scope file(s):\n  src/skipped.ts\n  test/skipped.ts",
+  );
+  assert.equal(duplicationGateDiagnostic({ sources: 1, skippedSources: [] }), undefined);
 });
 
 test("duplication gate fails with both clone ranges and passes a clean fixture", async () => {

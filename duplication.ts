@@ -166,6 +166,18 @@ function duplicationOptions(repoRoot: string, pattern: string, minTokens: number
   };
 }
 
+/** Return the fail-closed diagnostic for an empty or partially analyzed scope. */
+export function duplicationGateDiagnostic(
+  report: Pick<DuplicationReport, "sources" | "skippedSources">,
+): string | undefined {
+  if (report.sources === 0) return "duplication-gate: no TypeScript sources were analyzed for the configured glob scope.";
+  if (report.skippedSources.length > 0) {
+    return `duplication-gate: jscpd skipped ${report.skippedSources.length} in-scope file(s):\n`
+      + report.skippedSources.map((source) => `  ${source}`).join("\n");
+  }
+  return undefined;
+}
+
 /**
  * Analyze a repository's TypeScript sources with jscpd's programmatic API.
  *
@@ -244,15 +256,9 @@ export async function runDuplicationGate(
   log(
     `duplication-gate: ${report.percentage}% duplicated lines (${report.duplicatedLines}/${report.totalLines}), ${report.sources} source(s), ${report.cloneCount} clone pair(s), threshold ${config.threshold}%`,
   );
-  if (report.sources === 0) {
-    error("duplication-gate: no TypeScript sources were analyzed for the configured glob scope.");
-    return exit(1);
-  }
-  if (report.skippedSources.length > 0) {
-    error(
-      `duplication-gate: jscpd skipped ${report.skippedSources.length} in-scope file(s):\n`
-      + report.skippedSources.map((source) => `  ${source}`).join("\n"),
-    );
+  const scopeDiagnostic = duplicationGateDiagnostic(report);
+  if (scopeDiagnostic) {
+    error(scopeDiagnostic);
     return exit(1);
   }
   for (const clone of report.clones) {

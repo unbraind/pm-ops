@@ -30,7 +30,7 @@ import {
   trackedPublishSources,
   verify,
 } from "../scripts/verify-release-publish-attestation.ts";
-import { commandArguments, commandCandidates, commandName, expandScalars, shellScalars, tokenizeCommands } from "../scripts/shell-command-scan.ts";
+import { commandArguments, commandCandidates, commandName, expandScalars, heredocBodyLines, shellScalars, tokenizeCommands, unsetNames } from "../scripts/shell-command-scan.ts";
 
 /** Tokenises one command and returns it, asserting the text held exactly one. */
 function onlyCommand(text: string): ReturnType<typeof tokenizeCommands>[number] {
@@ -273,6 +273,17 @@ test("every shell separator ends a command, so a flagged publish cannot cover an
       `separator ${JSON.stringify(separator)}`,
     );
   }
+});
+
+test("command -p unset removes an attestation binding", () => {
+  assert.deepEqual(unsetNames(onlyCommand("command -p unset FLAG")), ["FLAG"]);
+  assert.deepEqual(unsetNames(onlyCommand("builtin unset FLAG")), ["FLAG"]);
+  const result = auditPublishAttestation([{
+    file: "release.yml",
+    text: "echo ready & FLAG=--provenance\ncommand -p unset FLAG\nnpm publish --access public $FLAG",
+  }]);
+  assert.equal(result.failures.length, 1);
+  assert.match(result.failures[0]!, /does not enable --provenance/);
 });
 
 test("a publisher other than npm is refused rather than searched for a flag it has no equivalent of", () => {
@@ -941,6 +952,12 @@ test("a publish routed through an unquoted scalar is audited, not hidden by an a
   assert.match(result.failures[0]!, /does not enable --provenance/);
 });
 
+test("unset parsing retires scalar bindings", () => {
+  assert.deepEqual(unsetNames(onlyCommand("unset -f FLAG")), []);
+  assert.deepEqual(unsetNames(onlyCommand("unset FLAG=ignored")), []);
+  assert.equal(shellScalars("FLAG=--provenance\nunset FLAG\n").get("FLAG"), undefined);
+});
+
 test("an assignment the shell never makes is not indexed", () => {
   // Scalars used to be read straight out of the raw text, which indexed three
   // things the shell does not assign. The middle one is a gate bypass: a name
@@ -972,6 +989,7 @@ test("an assignment the shell never makes is not indexed", () => {
 test("a scalar is taken only from a line that is exactly one literal assignment", () => {
   assert.equal(shellScalars("NPM=npm\n").get("NPM"), "npm");
   assert.equal(shellScalars('CMD="npm publish"\n').get("CMD"), "npm publish");
+  assert.equal(shellScalars('ESCAPED="a\\\\b"\n').get("ESCAPED"), "a\\b");
   assert.equal(shellScalars("OTHER='npm publish --provenance'\n").get("OTHER"), "npm publish --provenance");
   assert.equal(shellScalars("NPM=npm\\ publish\n").get("NPM"), "npm publish",
     "an escape is honoured, so one word can still hold a command");
@@ -1150,6 +1168,18 @@ test("a scalar is taken only from a line that is exactly one literal assignment"
     assert.equal(result.failures.length, 1, `a publish flagged only by ${text[0]!.trim()} is unattested`);
     assert.match(result.failures[0]!, /does not enable --provenance/);
   }
+});
+
+test("quoted heredoc delimiters are scanned as literal terminators", () => {
+  assert.deepEqual(heredocBodyLines(["cat <<'EOF'", "FLAG=--provenance", "EOF"]), [false, true, true]);
+  assert.deepEqual(heredocBodyLines(["cat <<<word", "FLAG=--provenance"]), [false, false]);
+  assert.deepEqual(heredocBodyLines(["(( 1 + (2) ))", "FLAG=--provenance"]), [false, false]);
+  assert.deepEqual(heredocBodyLines(["cat <<- EOF", "payload", "EOF"]), [false, true, true]);
+  assert.deepEqual(heredocBodyLines(["cat <<EOF\\", "payload", "EOF"]), [false, true, true]);
+  assert.deepEqual(heredocBodyLines(["echo $((1 << 2))", "FLAG=--provenance"]), [false, false]);
+  assert.deepEqual(heredocBodyLines(["cat <<'EO\"F'", "payload", "EOF"]), [false, true, true]);
+  assert.deepEqual(heredocBodyLines(["cat <<EOF; echo hi", "payload", "EOF"]), [false, true, true]);
+  assert.deepEqual(heredocBodyLines(["cat <<'EOF", "payload"]), [false, false]);
 });
 
 test("a case opener and first arm on one line do not leak the arm binding past esac", () => {

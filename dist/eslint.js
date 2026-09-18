@@ -6,6 +6,7 @@
  * the authoritative compiler; Babel only supplies ESLint's ESTree syntax tree.
  */
 import babelParser from "@babel/eslint-parser";
+import { ESLint } from "eslint";
 import { defineConfig } from "eslint/config";
 const forbiddenSyntax = [
     { selector: "TSAnyKeyword", message: "Use a precise type instead of explicit any." },
@@ -87,7 +88,11 @@ export function fleetEslintConfig(options = {}) {
                 parserOptions: {
                     requireConfigFile: false,
                     babelOptions: {
-                        plugins: [["@babel/plugin-syntax-typescript", { disallowAmbiguousJSXLike: true }]],
+                        babelrc: false,
+                        configFile: false,
+                        parserOpts: {
+                            plugins: [["typescript", { disallowAmbiguousJSXLike: true }]],
+                        },
                     },
                 },
             },
@@ -97,5 +102,24 @@ export function fleetEslintConfig(options = {}) {
             rules,
         },
     ]);
+}
+/**
+ * Run the canonical lint policy, print stylish diagnostics, and return a status.
+ *
+ * @param options - Optional project root, lint paths, and additional ignores.
+ * @returns `0` for a clean result and `1` when ESLint reports findings.
+ */
+export async function runLintGate(options = {}) {
+    const eslint = new ESLint({
+        cwd: options.cwd,
+        overrideConfigFile: true,
+        overrideConfig: fleetEslintConfig({ ignores: options.ignores }),
+    });
+    const results = await eslint.lintFiles([...(options.files ?? ["."])]);
+    const formatter = await eslint.loadFormatter("stylish");
+    const output = formatter.format(results);
+    if (output)
+        console.error(output);
+    return results.some(({ errorCount, warningCount }) => errorCount + warningCount > 0) ? 1 : 0;
 }
 //# sourceMappingURL=eslint.js.map

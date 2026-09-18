@@ -5,12 +5,23 @@
  * consumer launchers small while preserving the detector's clone locations and
  * aggregate percentage for machine-readable callers.
  */
+import fastGlob from "fast-glob";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 /** Default TypeScript glob scanned by the duplication gate. */
 export const DEFAULT_DUPLICATION_GLOBS = ["**/*.ts"];
 const defaultRepoRoot = process.cwd();
+const MAX_DUPLICATION_LINES = Number.MAX_SAFE_INTEGER;
+const MAX_DUPLICATION_SIZE = `${Number.MAX_SAFE_INTEGER}b`;
+const DUPLICATION_IGNORES = [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/dist-test/**",
+    "**/coverage/**",
+    "**/.git/**",
+    "**/*.d.ts",
+];
 const require = createRequire(import.meta.url);
 const jscpd = require("jscpd");
 /** Return whether an unknown JSON value is a record with string keys. */
@@ -59,37 +70,70 @@ function combineGlobs(globs) {
         throw new Error("duplication-gate: at least one source glob is required");
     return globs.length === 1 ? globs[0] : `{${globs.join(",")}}`;
 }
+/** Match the files jscpd is expected to analyze with the same scope and ignores. */
+function globMatchedSources(repoRoot, pattern) {
+    return fastGlob.sync(pattern, {
+        absolute: true,
+        cwd: repoRoot,
+        dot: true,
+        followSymbolicLinks: true,
+        ignore: [...DUPLICATION_IGNORES],
+        onlyFiles: true,
+    })
+        .filter((source) => source.endsWith(".ts") && !source.endsWith(".d.ts"))
+        .map((source) => relativeSource(repoRoot, source))
+        .sort();
+}
+/** Build the bounded jscpd options shared by matching and actual analysis. */
+function duplicationOptions(repoRoot, pattern, minTokens) {
+    return {
+        path: [repoRoot],
+        pattern,
+        minTokens,
+        minLines: 1,
+        maxLines: MAX_DUPLICATION_LINES,
+        maxSize: MAX_DUPLICATION_SIZE,
+        format: ["typescript"],
+        ignore: [...DUPLICATION_IGNORES],
+        absolute: true,
+        gitignore: false,
+        reporters: [],
+        silent: true,
+    };
+}
 /**
  * Analyze a repository's TypeScript sources with jscpd's programmatic API.
  *
  * @param options - Repository root and optional source globs.
  * @returns Aggregate percentage and every clone pair found by jscpd.
  */
+/** Return the fail-closed diagnostic for an empty or partially analyzed scope. */
+export function duplicationGateDiagnostic(report) {
+    if (report.sources === 0)
+        return "duplication-gate: no TypeScript sources were analyzed for the configured glob scope.";
+    if (report.skippedSources.length > 0) {
+        return `duplication-gate: jscpd skipped ${report.skippedSources.length} in-scope file(s):\n`
+            + report.skippedSources.map((source) => `  ${source}`).join("\n");
+    }
+    return undefined;
+}
+/** Analyze a repository's TypeScript sources with jscpd's programmatic API. */
 export async function analyzeDuplication(options = {}) {
     const repoRoot = options.repoRoot ?? defaultRepoRoot;
     const pattern = combineGlobs(options.globs ?? DEFAULT_DUPLICATION_GLOBS);
-    const result = await jscpd.detectClonesAndStatistic({
-        path: [repoRoot],
-        pattern,
-        minTokens: options.minTokens ?? 50,
-        format: ["typescript"],
-        ignore: [
-            "**/node_modules/**",
-            "**/dist/**",
-            "**/dist-test/**",
-            "**/coverage/**",
-            "**/.git/**",
-            "**/*.d.ts",
-        ],
-        absolute: true,
-        gitignore: false,
-        reporters: [],
-        silent: true,
-    });
+    const minTokens = options.minTokens ?? 50;
+    const result = await jscpd.detectClonesAndStatistic(duplicationOptions(repoRoot, pattern, minTokens));
+    const matchedSources = globMatchedSources(repoRoot, pattern);
+    const analyzedSources = Object.keys(result.statistic.formats.typescript?.sources ?? {})
+        .map((source) => relativeSource(repoRoot, source))
+        .sort();
+    const analyzed = new Set(analyzedSources);
     return {
         percentage: result.statistic.total.percentage,
         totalLines: result.statistic.total.lines,
         duplicatedLines: result.statistic.total.duplicatedLines,
+        sources: result.statistic.total.sources,
+        skippedSources: matchedSources.filter((source) => !analyzed.has(source)),
         cloneCount: result.clones.length,
         clones: result.clones.map((clone) => mapClone(repoRoot, clone)),
     };
@@ -136,7 +180,12 @@ export async function runDuplicationGate(options = {}) {
         error(`duplication-gate: jscpd analysis failed: ${String(cause)}`);
         return exit(1);
     }
-    log(`duplication-gate: ${report.percentage}% duplicated lines (${report.duplicatedLines}/${report.totalLines}), ${report.cloneCount} clone pair(s), threshold ${config.threshold}%`);
+    log(`duplication-gate: ${report.percentage}% duplicated lines (${report.duplicatedLines}/${report.totalLines}), ${report.sources} source(s), ${report.cloneCount} clone pair(s), threshold ${config.threshold}%`);
+    const scopeDiagnostic = duplicationGateDiagnostic(report);
+    if (scopeDiagnostic) {
+        error(scopeDiagnostic);
+        return exit(1);
+    }
     for (const clone of report.clones) {
         log(`  ${clone.first.file}:${clone.first.startLine}-${clone.first.endLine} <-> ${clone.second.file}:${clone.second.startLine}-${clone.second.endLine}`);
     }
