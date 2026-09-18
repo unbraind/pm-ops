@@ -334,23 +334,24 @@ test("coverage gate rejects absent and incomplete lcov reports", (context) => {
 
   const absent = fixture("absent-report");
   const noReport = (() => spawnResult()) as unknown as typeof spawnSync;
+  const before = messages.length;
   assert.throws(
     () => runCoverageGate({ repoRoot: absent, spawn: noReport, exit }),
     GateExit,
   );
-  assert.match(messages.at(-1) ?? "", /no coverage report/);
+  assertSingleDiagnostic(messages, before, /no coverage report/);
 
   const incomplete = fixture("incomplete-report");
   const omitted = (() => {
     writeLcov(incomplete, ["src/index.ts"]);
     return spawnResult();
   }) as unknown as typeof spawnSync;
-  const before = messages.length;
+  const incompleteBefore = messages.length;
   assert.throws(
     () => runCoverageGate({ repoRoot: incomplete, spawn: omitted, exit }),
     GateExit,
   );
-  assertSingleDiagnostic(messages, before, /never loaded during the run/);
+  assertSingleDiagnostic(messages, incompleteBefore, /never loaded during the run/);
 });
 
 test("coverage gate verifies type-only ignores against effective compiler output", (context) => {
