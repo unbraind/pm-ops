@@ -302,7 +302,7 @@ test("duplication gate fails closed for missing, malformed, unreadable, and empt
   assert.match(messages.join("\n"), /at least one source glob/);
 });
 
-test("direct gate launchers preserve success and failure statuses", () => {
+test("direct gate launchers preserve success and failure statuses", async () => {
   const duplicationScript = resolve(import.meta.dirname, "../scripts/duplication-gate.ts");
   const clean = packageFixture("launcher-pass", { threshold: 0 });
   writeFileSync(join(clean, "src", "one.ts"), "export const one = 1;\n");
