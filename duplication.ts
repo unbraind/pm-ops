@@ -154,6 +154,7 @@ function duplicationOptions(repoRoot: string, pattern: string, minTokens: number
     path: [repoRoot],
     pattern,
     minTokens,
+    minLines: 1,
     maxLines: MAX_DUPLICATION_LINES,
     maxSize: MAX_DUPLICATION_SIZE,
     format: ["typescript"],
