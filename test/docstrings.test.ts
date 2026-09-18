@@ -3,10 +3,10 @@ import test, { before, after } from "node:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import type { GlobalOptions } from "@unbrained/pm-cli/sdk";
+import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import { decode } from "@toon-format/toon";
 
+import { runCmd } from "./command-test-helpers.ts";
 import extension from "../index.ts";
 import {
   analyzeSource,
@@ -873,22 +873,6 @@ after(() => {
   rmSync(tmpRoot, { recursive: true, force: true });
 });
 
-async function runCmd<T>(
-  ext: ExtensionTestHarness,
-  command: string,
-  options: Record<string, unknown> = {},
-  args: readonly string[] = [],
-  globalOverride: Partial<GlobalOptions> = {},
-): Promise<T> {
-  const { result } = await ext.runCommand({
-    command,
-    options,
-    args,
-    global: { json: false, quiet: true, noPager: true, ...globalOverride },
-  });
-  return result as T;
-}
-
 interface DocstringsRepoResult {
   repo: string;
   name: string;
@@ -903,6 +887,11 @@ interface DocstringsCommandResult {
   summary: { total: number; with_violations: number; total_violations: number };
 }
 
+async function assertDocstringFailure(repo: string, options: Record<string, unknown> = {}): Promise<void> {
+  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser", "services"] });
+  await assert.rejects(() => runCmd(ext, "ops docstrings", { repos: repo, ...options }), /repo\(s\) with violations/);
+}
+
 test("pm ops docstrings reports a clean repo with zero violations", async () => {
   const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser", "services"] });
   assert.deepEqual(ext.activation.failed, [], "activation must not fail (a host-flag collision would drop sibling commands)");
@@ -912,13 +901,11 @@ test("pm ops docstrings reports a clean repo with zero violations", async () => 
 });
 
 test("pm ops docstrings exits non-zero when a repo has violations", async () => {
-  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser", "services"] });
-  await assert.rejects(() => runCmd(ext, "ops docstrings", { repos: dirtyRepo }), /repo\(s\) with violations/);
+  await assertDocstringFailure(dirtyRepo);
 });
 
 test("pm ops docstrings renders markdown and still fails on violations", async () => {
-  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser", "services"] });
-  await assert.rejects(() => runCmd(ext, "ops docstrings", { repos: dirtyRepo, format: "markdown" }), /repo\(s\) with violations/);
+  await assertDocstringFailure(dirtyRepo, { format: "markdown" });
 });
 
 test("pm ops docstrings writes the report to a file before failing", async () => {
@@ -943,9 +930,8 @@ test("pm ops docstrings writes format-correct structured reports before failing"
 });
 
 test("pm ops docstrings reports a repo with no source as an error and fails", async () => {
-  const ext = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser", "services"] });
-  await assert.rejects(() => runCmd(ext, "ops docstrings", { repos: emptyRepo }), /repo\(s\) with violations/);
-  await assert.rejects(() => runCmd(ext, "ops docstrings", { repos: emptyRepo, format: "markdown" }), /repo\(s\) with violations/);
+  await assertDocstringFailure(emptyRepo);
+  await assertDocstringFailure(emptyRepo, { format: "markdown" });
 });
 
 test("pm ops docstrings renders a clean repo as markdown and as a written file", async () => {

@@ -18,7 +18,7 @@ import {
   verify as canonicalVerify,
 } from "../attestation.ts";
 import type { SourceFile } from "../shell-scan.ts";
-import { isMainInvocation } from "./main-invocation.ts";
+import { runVerifierIfMain } from "./main-invocation.ts";
 
 export * from "../attestation.ts";
 
@@ -47,9 +47,7 @@ export function verify(root: string): PublishAttestationResult {
  * @returns True when verification ran.
  */
 export function runIfMain(argv: string[], moduleUrl: string, root: string): boolean {
-  if (!isMainInvocation(argv, moduleUrl)) return false;
-  report(verify(root), (line) => process.stdout.write(`${line}\n`), (code) => { process.exitCode = code; });
-  return true;
+  return runVerifierIfMain(argv, moduleUrl, () => verify(root), report);
 }
 
 runIfMain(process.argv, import.meta.url, resolve(import.meta.dirname, ".."));

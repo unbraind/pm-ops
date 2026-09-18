@@ -138,6 +138,17 @@ function reposFlag(description: string) {
   };
 }
 
+function opsExamples(command: string, examples: readonly string[]): string[] {
+  return [`pm ops ${command}`, ...examples];
+}
+
+function formatOutputFlags(outputDescription: string) {
+  return [
+    { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
+    { long: "--output", value_name: "file", description: outputDescription },
+  ];
+}
+
 /** Extract every --repos value that follows a command path in the raw argv array. */
 function cliRepoFlagValues(commandPath: string, argv: readonly string[] = process.argv.slice(2)): string[] {
   const commandTokens = commandPath.split(" ");
@@ -254,6 +265,21 @@ function expandSimpleGlob(pattern: string): string[] {
   // them) are deterministic across filesystems whose readdir order is not
   // guaranteed — important for stable, diff-friendly agent output.
   return candidates.length > 0 ? [...candidates].sort() : [absolute];
+}
+
+function resolveCommandInputs(ctx: CommandHandlerContext): {
+  options: Record<string, unknown>;
+  repos: string[];
+  format: ReturnType<typeof resolveFormat>;
+  outputPath: string | undefined;
+} {
+  const options = ctx.options;
+  return {
+    options,
+    repos: resolveRepos(options, ctx.args),
+    format: resolveFormat(options, ctx.global),
+    outputPath: readString(options, "output"),
+  };
 }
 
 function resolveRepos(options: Record<string, unknown>, args: unknown[] = []): string[] {
@@ -733,6 +759,27 @@ function ghOpenCount(repoPath: string, kind: "pr" | "issue"): number | null {
 // scan
 // ---------------------------------------------------------------------------
 
+interface RepoPackageInfo {
+  pkg: PkgJson | undefined;
+  name: string | null;
+  version: string | null;
+}
+
+function readRepoPackageInfo(repoPath: string): RepoPackageInfo {
+  const pkg = readPackageJson(repoPath);
+  return { pkg, name: pkg?.name ?? null, version: pkg?.version ?? null };
+}
+
+function readAuditCounts(repoPath: string, onError: (message: string) => void): { critical: number | null; high: number | null } {
+  try {
+    const audit = readAudit(repoPath);
+    return { critical: audit.critical, high: audit.high };
+  } catch (error) {
+    onError(auditUnavailable(error));
+    return { critical: null, high: null };
+  }
+}
+
 interface RepoScan {
   path: string;
   name: string | null;
@@ -787,9 +834,7 @@ function scanRepo(repoPath: string): RepoScan {
       errors,
     };
   }
-  const pkg = readPackageJson(repoPath);
-  const name = pkg?.name ?? null;
-  const version = pkg?.version ?? null;
+  const { pkg, name, version } = readRepoPackageInfo(repoPath);
   const strict_ts = readTsConfigStrict(repoPath);
   const has_changelog = existsSync(join(repoPath, "CHANGELOG.md"));
   const has_release_workflow = existsSync(join(repoPath, ".github", "workflows", "release.yml"));
@@ -804,15 +849,9 @@ function scanRepo(repoPath: string): RepoScan {
 
   const outdated_count = countOutdated(repoPath);
 
-  let audit_critical: number | null = null;
-  let audit_high: number | null = null;
-  try {
-    const a = readAudit(repoPath);
-    audit_critical = a.critical;
-    audit_high = a.high;
-  } catch (err) {
-    errors.push(auditUnavailable(err));
-  }
+  const audit = readAuditCounts(repoPath, (message) => errors.push(message));
+  const audit_critical = audit.critical;
+  const audit_high = audit.high;
 
   const open_prs = ghOpenCount(repoPath, "pr");
   const open_issues = ghOpenCount(repoPath, "issue");
@@ -1254,6 +1293,11 @@ function verifyRelease(repos: string[], progress: (msg: string) => void): Verify
   };
 }
 
+function throwVerifyReleaseFailure(result: VerifyReleaseResult): never {
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  throw new CommandError(`verify-release: ${result.summary.failed} repo(s) failed`, EXIT_CODE.GENERIC_FAILURE);
+}
+
 /** Render the verify-release result as a markdown table of checks per repo. */
 function renderVerifyReleaseMarkdown(result: VerifyReleaseResult): string {
   const lines: string[] = [
@@ -1318,9 +1362,7 @@ async function collectStatus(repoPath: string): Promise<RepoStatus> {
       pending_receipts: null,
     };
   }
-  const pkg = readPackageJson(repoPath);
-  const name = pkg?.name ?? null;
-  const version = pkg?.version ?? null;
+  const { pkg, name, version } = readRepoPackageInfo(repoPath);
   const issues: string[] = [];
 
   const strict_ts = readTsConfigStrict(repoPath);
@@ -1341,15 +1383,9 @@ async function collectStatus(repoPath: string): Promise<RepoStatus> {
 
   const outdated_count = countOutdated(repoPath);
 
-  let audit_critical: number | null = null;
-  let audit_high: number | null = null;
-  try {
-    const a = readAudit(repoPath);
-    audit_critical = a.critical;
-    audit_high = a.high;
-  } catch (err) {
-    issues.push(auditUnavailable(err));
-  }
+  const audit = readAuditCounts(repoPath, (message) => issues.push(message));
+  const audit_critical = audit.critical;
+  const audit_high = audit.high;
 
   // Critical vulnerabilities gate readiness (matching scanRepo's
   // audit gate). High-severity findings are still pushed to issues for
@@ -2567,23 +2603,18 @@ export default defineExtension({
         "(comma-separated or repeatable). --json emits clean JSON; --format markdown emits a table.",
       intent: "audit release readiness across many pm repositories",
       arguments: additionalRepoArguments(),
-      examples: [
-        "pm ops scan",
+      examples: opsExamples("scan", [
         "pm ops scan --repos ./pm-csv ./pm-github",
         "pm ops scan --repos ./pm-csv,./pm-github --json",
         "pm ops scan --format markdown",
         "pm ops scan --repos ~/container/pm-* --format markdown --output FLEET.md",
-      ],
+      ]),
       flags: [
         reposFlag("Repo paths to scan (comma-separated or repeatable; default: current dir)"),
-        { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
-        { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
+        ...formatOutputFlags("Write the rendered output to a file instead of stdout"),
       ],
       async run(ctx: CommandHandlerContext) {
-        const options = ctx.options;
-        const repos = resolveRepos(options, ctx.args);
-        const format = resolveFormat(options, ctx.global);
-        const outputPath = readString(options, "output");
+        const { repos, format, outputPath } = resolveCommandInputs(ctx);
         console.error(`pm-ops scan: ${repos.length} repo(s)`);
         const result = scanRepos(repos, (m) => console.error(`  ${m}`));
         console.error(`scan: ${result.summary.ready}/${result.summary.total} ready`);
@@ -2601,25 +2632,20 @@ export default defineExtension({
         "({ checks: [{ id, severity, repo_filter?, params? }] }). --strict exits non-zero on any failure.",
       intent: "enforce naming/workflow/pm policies across many pm repositories",
       arguments: additionalRepoArguments(),
-      examples: [
-        "pm ops policy",
+      examples: opsExamples("policy", [
         "pm ops policy --repos ./pm-csv ./pm-github",
         "pm ops policy --policy ./fleet-policy.json --strict",
         "pm ops policy --format markdown",
-      ],
+      ]),
       flags: [
         reposFlag("Repo paths to check (comma-separated or repeatable; default: current dir)"),
         { long: "--policy", value_name: "file", description: "JSON policy bundle overriding the default checks" },
-        { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
+        ...formatOutputFlags("Write the rendered output to a file instead of stdout"),
         { long: "--strict", description: "Exit non-zero on any failed check (any severity)" },
-        { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
       ],
       async run(ctx: CommandHandlerContext) {
-        const options = ctx.options;
-        const repos = resolveRepos(options, ctx.args);
-        const format = resolveFormat(options, ctx.global);
+        const { options, repos, format, outputPath } = resolveCommandInputs(ctx);
         const strict = readBool(options, "strict");
-        const outputPath = readString(options, "output");
         let bundle = DEFAULT_POLICY;
         const policyFile = readString(options, "policy");
         if (policyFile) {
@@ -2656,22 +2682,17 @@ export default defineExtension({
         "Exits non-zero if any repo fails. --output writes the report to a file.",
       intent: "run a release gate matrix across many pm repositories",
       arguments: additionalRepoArguments(),
-      examples: [
-        "pm ops verify-release",
+      examples: opsExamples("verify-release", [
         "pm ops verify-release --repos ./pm-csv ./pm-github",
         "pm ops verify-release --json",
         "pm ops verify-release --format markdown --output RELEASE.md",
-      ],
+      ]),
       flags: [
         reposFlag("Repo paths to verify (comma-separated or repeatable; default: current dir)"),
-        { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
-        { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
+        ...formatOutputFlags("Write the rendered output to a file instead of stdout"),
       ],
       async run(ctx: CommandHandlerContext) {
-        const options = ctx.options;
-        const repos = resolveRepos(options, ctx.args);
-        const format = resolveFormat(options, ctx.global);
-        const outputPath = readString(options, "output");
+        const { repos, format, outputPath } = resolveCommandInputs(ctx);
         console.error(`pm-ops verify-release: ${repos.length} repo(s)`);
         const result = verifyRelease(repos, (m) => console.error(`  ${m}`));
         console.error(`verify-release: ${result.summary.passed}/${result.summary.total} repos passed`);
@@ -2694,10 +2715,7 @@ export default defineExtension({
           return { written_to: outputPath, format };
         }
         if (format === "json") {
-          if (failed) {
-            process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-            throw new CommandError(`verify-release: ${result.summary.failed} repo(s) failed`, EXIT_CODE.GENERIC_FAILURE);
-          }
+          if (failed) throwVerifyReleaseFailure(result);
           return renderedCommandResult(`${JSON.stringify(result, null, 2)}\n`);
         }
         if (format === "markdown") {
@@ -2708,10 +2726,7 @@ export default defineExtension({
           }
           return renderedCommandResult(md);
         }
-        if (failed) {
-          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-          throw new CommandError(`verify-release: ${result.summary.failed} repo(s) failed`, EXIT_CODE.GENERIC_FAILURE);
-        }
+        if (failed) throwVerifyReleaseFailure(result);
         return result;
       },
     });
@@ -2725,25 +2740,20 @@ export default defineExtension({
         "--output writes the report to a file. Default stdout TOON.",
       intent: "produce a concise fleet report across many pm repositories",
       arguments: additionalRepoArguments(),
-      examples: [
-        "pm ops report",
+      examples: opsExamples("report", [
         "pm ops report --repos ./pm-csv ./pm-github --format markdown",
         "pm ops report --format markdown --output FLEET.md",
         "pm ops report --format markdown --include-release --output FLEET.md",
         "pm ops report --json",
-      ],
+      ]),
       flags: [
         reposFlag("Repo paths to report on (comma-separated or repeatable; default: current dir)"),
-        { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
-        { long: "--output", value_name: "file", description: "Write the rendered report to a file instead of stdout" },
+        ...formatOutputFlags("Write the rendered report to a file instead of stdout"),
         { long: "--include-release", description: "Also run verify-release and include results in the report" },
       ],
       async run(ctx: CommandHandlerContext) {
-        const options = ctx.options;
-        const repos = resolveRepos(options, ctx.args);
-        const format = resolveFormat(options, ctx.global);
-        const outputPath = readString(options, "output");
-        const includeRelease = readBool(options, "includeRelease", "include-release");
+        const { repos, format, outputPath } = resolveCommandInputs(ctx);
+        const includeRelease = readBool(ctx.options, "includeRelease", "include-release");
         console.error(`pm-ops report: ${repos.length} repo(s)${includeRelease ? " (+release)" : ""}`);
         const result = buildReport(repos, (m) => console.error(`  ${m}`), includeRelease);
         console.error(`report: scan ${result.scan.summary.ready}/${result.scan.summary.total} ready; policy ${result.policy.summary.failed} failed${result.release ? `; release ${result.release.summary.passed}/${result.release.summary.total} passed` : ""}`);
@@ -2762,21 +2772,16 @@ export default defineExtension({
         "emits a compact table.",
       intent: "get a quick fleet health overview across many pm repositories",
       arguments: additionalRepoArguments(),
-      examples: [
-        "pm ops status",
+      examples: opsExamples("status", [
         "pm ops status --repos ./pm-csv ./pm-github",
         "pm ops status --format markdown",
-      ],
+      ]),
       flags: [
         reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
-        { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
-        { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
+        ...formatOutputFlags("Write the rendered output to a file instead of stdout"),
       ],
       async run(ctx: CommandHandlerContext) {
-        const options = ctx.options;
-        const repos = resolveRepos(options, ctx.args);
-        const format = resolveFormat(options, ctx.global);
-        const outputPath = readString(options, "output");
+        const { repos, format, outputPath } = resolveCommandInputs(ctx);
         console.error(`pm-ops status: ${repos.length} repo(s)`);
         const result = await collectStatusAll(repos, (m) => console.error(`  ${m}`));
         console.error(`status: ${result.summary.ready}/${result.summary.total} ready, ${result.summary.total_issues} issue(s)`);
@@ -2792,21 +2797,16 @@ export default defineExtension({
         "by repo with per-package current/wanted/latest columns.",
       intent: "check dependency freshness across many pm repositories",
       arguments: additionalRepoArguments(),
-      examples: [
-        "pm ops outdated",
+      examples: opsExamples("outdated", [
         "pm ops outdated --repos ./pm-csv ./pm-github",
         "pm ops outdated --format markdown",
-      ],
+      ]),
       flags: [
         reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
-        { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
-        { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
+        ...formatOutputFlags("Write the rendered output to a file instead of stdout"),
       ],
       async run(ctx: CommandHandlerContext) {
-        const options = ctx.options;
-        const repos = resolveRepos(options, ctx.args);
-        const format = resolveFormat(options, ctx.global);
-        const outputPath = readString(options, "output");
+        const { repos, format, outputPath } = resolveCommandInputs(ctx);
         console.error(`pm-ops outdated: ${repos.length} repo(s)`);
         const result = collectOutdatedAll(repos, (m) => console.error(`  ${m}`));
         console.error(`outdated: ${result.summary.repos_with_outdated}/${result.summary.total} repos with outdated, ${result.summary.total_outdated} total`);
@@ -2822,21 +2822,16 @@ export default defineExtension({
         "fleet-wide vulnerability table.",
       intent: "audit security vulnerabilities across many pm repositories",
       arguments: additionalRepoArguments(),
-      examples: [
-        "pm ops audit",
+      examples: opsExamples("audit", [
         "pm ops audit --repos ./pm-csv ./pm-github",
         "pm ops audit --format markdown",
-      ],
+      ]),
       flags: [
         reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
-        { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
-        { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
+        ...formatOutputFlags("Write the rendered output to a file instead of stdout"),
       ],
       async run(ctx: CommandHandlerContext) {
-        const options = ctx.options;
-        const repos = resolveRepos(options, ctx.args);
-        const format = resolveFormat(options, ctx.global);
-        const outputPath = readString(options, "output");
+        const { repos, format, outputPath } = resolveCommandInputs(ctx);
         console.error(`pm-ops audit: ${repos.length} repo(s)`);
         const result = collectAuditAll(repos, (m) => console.error(`  ${m}`));
         console.error(`audit: ${result.summary.clean}/${result.summary.total} clean, ${result.summary.total_critical} critical, ${result.summary.total_high} high`);
@@ -2855,12 +2850,11 @@ export default defineExtension({
         "exposition format; --output writes a .prom file for the node_exporter textfile collector.",
       intent: "expose pm workspace metrics to Prometheus/Grafana across many pm repositories",
       arguments: additionalRepoArguments(),
-      examples: [
-        "pm ops metrics",
+      examples: opsExamples("metrics", [
         "pm ops metrics --repos ./pm-csv ./pm-github",
         "pm ops metrics --output /var/lib/node_exporter/pm.prom",
         "pm ops metrics --stale-days 7 --format json",
-      ],
+      ]),
       flags: [
         reposFlag("Repo paths (comma-separated or repeatable; default: current dir)"),
         { long: "--stale-days", value_name: "days", description: "Age (days) after which an active item counts as stale (default: 14)" },
@@ -2933,26 +2927,21 @@ export default defineExtension({
         "--warn-only reports identically but always exits 0.",
       intent: "gate fleet merges on clone-local decision receipts and merge-driver safety",
       arguments: additionalRepoArguments(),
-      examples: [
-        "pm ops merge-receipts",
+      examples: opsExamples("merge-receipts", [
         "pm ops merge-receipts --repos ./pm-csv ./pm-github",
         "pm ops merge-receipts --json",
         "pm ops merge-receipts --warn-only",
         "pm ops merge-receipts --include-reconciled --format markdown",
         "pm ops merge-receipts --repos ~/container/pm-* --format markdown --output MERGE.md",
-      ],
+      ]),
       flags: [
         reposFlag("Repo paths to audit (comma-separated or repeatable; default: current dir)"),
-        { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
-        { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
+        ...formatOutputFlags("Write the rendered output to a file instead of stdout"),
         { long: "--warn-only", description: "Report identically but always exit 0 (never fail the gate)" },
         { long: "--include-reconciled", description: "Include receipts already represented in committed history (default: pending only)" },
       ],
       async run(ctx: CommandHandlerContext) {
-        const options = ctx.options;
-        const repos = resolveRepos(options, ctx.args);
-        const format = resolveFormat(options, ctx.global);
-        const outputPath = readString(options, "output");
+        const { options, repos, format, outputPath } = resolveCommandInputs(ctx);
         const warnOnly = readBool(options, "warnOnly", "warn-only");
         const includeReconciled = readBool(options, "includeReconciled", "include-reconciled");
         console.error(`pm-ops merge-receipts: ${repos.length} repo(s)${includeReconciled ? " (+reconciled)" : ""}${warnOnly ? " [warn-only]" : ""}`);
@@ -3005,22 +2994,17 @@ export default defineExtension({
         "commented-out lines cannot satisfy it. Exits non-zero when any repo has violations.",
       intent: "enforce docstring coverage across many pm repositories",
       arguments: additionalRepoArguments(),
-      examples: [
-        "pm ops docstrings",
+      examples: opsExamples("docstrings", [
         "pm ops docstrings --repos ./pm-csv ./pm-github",
         "pm ops docstrings --format markdown",
         "pm ops docstrings --repos ./pm-csv --json",
-      ],
+      ]),
       flags: [
         reposFlag("Repo paths to audit (comma-separated or repeatable; default: current dir)"),
-        { long: "--format", value_name: "toon|json|markdown", description: "Output format (default: toon)" },
-        { long: "--output", value_name: "file", description: "Write the rendered output to a file instead of stdout" },
+        ...formatOutputFlags("Write the rendered output to a file instead of stdout"),
       ],
       async run(ctx: CommandHandlerContext) {
-        const options = ctx.options;
-        const repos = resolveRepos(options, ctx.args);
-        const format = resolveFormat(options, ctx.global);
-        const outputPath = readString(options, "output");
+        const { repos, format, outputPath } = resolveCommandInputs(ctx);
         console.error(`pm-ops docstrings: ${repos.length} repo(s)`);
         const result = collectDocstringsAll(repos, (m) => console.error(`  ${m}`));
         console.error(`docstrings: ${result.summary.total_violations} violation(s) across ${result.summary.with_violations}/${result.summary.total} repo(s)`);

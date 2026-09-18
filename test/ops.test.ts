@@ -6,10 +6,10 @@ import { basename, delimiter, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import type { GlobalOptions } from "@unbrained/pm-cli/sdk";
 import { listMergeReceipts, markMergeReceiptReconciled } from "@unbrained/pm-cli/sdk/merge";
 import { decode, encode } from "@toon-format/toon";
 
+import { runCmd } from "./command-test-helpers.ts";
 import extension, { disambiguateRepoLabels, receiptPreferredSide, renderMergeReceiptsMarkdown } from "../index.ts";
 
 // ---------------------------------------------------------------------------
@@ -465,28 +465,6 @@ async function harness(): Promise<ExtensionTestHarness> {
   });
   assert.deepEqual(created.activation.failed, [], "activation must not fail");
   return created;
-}
-
-/**
- * Run a command through the real dispatch engine. Defaults to no-JSON global
- * (matching the old hand-rolled helper which passed `global: {}`) so tests
- * that want structured (toon) output or --format markdown get the right
- * format. Pass `globalOverride: { json: true }` for JSON output.
- */
-async function runCmd<T>(
-  ext: ExtensionTestHarness,
-  command: string,
-  options: Record<string, unknown> = {},
-  args: readonly string[] = [],
-  globalOverride: Partial<GlobalOptions> = {},
-): Promise<T> {
-  const { result } = await ext.runCommand({
-    command,
-    options,
-    args,
-    global: { json: false, quiet: true, noPager: true, ...globalOverride },
-  });
-  return result as T;
 }
 
 /** Typed JSON parse for spawn-based tests. */

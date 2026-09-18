@@ -1165,11 +1165,7 @@ test("case-arm scope neighbours remain conservatively refused", () => {
     'if true; then case "$X" in a) FLAG=--provenance ;; esac; fi\nnpm publish $FLAG',
     'case "$X" in a) FLAG=--provenance ;;& *) : ;; esac\nnpm publish $FLAG',
   ];
-  for (const text of neighbours) {
-    const result = auditPublishAttestation([{ file: "release.yml", text }]);
-    assert.deepEqual(result.recognition, { kind: "recognized", count: 1 }, "the publish is recognised");
-    assert.equal(result.failures.length, 1, "an arm-local binding cannot attest the later publish");
-  }
+  for (const text of neighbours) assertCaseBindingCannotLeak(text);
 });
 
 test("a read-write redirection does not turn its target into the command", () => {

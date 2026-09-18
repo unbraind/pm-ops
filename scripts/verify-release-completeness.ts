@@ -27,7 +27,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { isMainInvocation } from "./main-invocation.ts";
+import { runVerifierIfMain } from "./main-invocation.ts";
 import type { VerifierResult } from "./shell-command-scan.ts";
 
 /** A release tag matches a calendar version, optionally with a `-N` suffix. */
@@ -439,9 +439,7 @@ export function runIfMain(
   root: string,
   fetcher: CompletenessFetcher = realFetcher,
 ): boolean {
-  if (!isMainInvocation(argv, moduleUrl)) return false;
-  report(verify(root, fetcher), (line) => process.stdout.write(`${line}\n`), (code) => { process.exitCode = code; });
-  return true;
+  return runVerifierIfMain(argv, moduleUrl, () => verify(root, fetcher), report);
 }
 
 runIfMain(process.argv, import.meta.url, resolve(import.meta.dirname, ".."));

@@ -49,3 +49,15 @@ export function isMainInvocation(argv: readonly string[], moduleUrl: string): bo
   if (entry === undefined) return false;
   return realpathSync(entry) === realpathSync(fileURLToPath(moduleUrl));
 }
+
+/** Run a verifier's shared entry-point wiring without allowing imports to execute it. */
+export function runVerifierIfMain<T>(
+  argv: readonly string[],
+  moduleUrl: string,
+  verify: () => T,
+  report: (result: T, write: (line: string) => void, exit: (code: number) => void) => void,
+): boolean {
+  if (!isMainInvocation(argv, moduleUrl)) return false;
+  report(verify(), (line) => process.stdout.write(`${line}\n`), (code) => { process.exitCode = code; });
+  return true;
+}
