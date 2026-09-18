@@ -129,6 +129,7 @@ test("fleet ESLint config accepts clean TypeScript and appends consumer ignores"
   mkdirSync(join(directory, "generated"), { recursive: true });
   writeFileSync(join(directory, "index.ts"), "export const value: string = \"clean\";\n");
   writeFileSync(join(directory, "generated", "bad.ts"), "export const value: any = 1;\n");
+  writeFileSync(join(directory, "babel.config.json"), JSON.stringify({ plugins: ["./missing-babel-plugin.cjs"] }));
   const config = fleetEslintConfig({ ignores: ["generated/**"] });
   assert.deepEqual(config[0]?.ignores, [".agents/**", "coverage/**", "dist/**", "dist-test/**", "node_modules/**", "generated/**"]);
   const eslint = new ESLint({ cwd: directory, overrideConfigFile: true, overrideConfig: config });
