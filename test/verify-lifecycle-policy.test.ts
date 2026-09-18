@@ -41,6 +41,13 @@ import {
 const repoRoot = resolve(import.meta.dirname, "..");
 const PM_BIN = resolvePmBinary(repoRoot);
 
+function reportScopedResult(scoped: Parameters<typeof reportCompleteness>[0]): { lines: string[]; exitCode: number } {
+  const lines: string[] = [];
+  let exitCode = 0;
+  reportCompleteness(scoped, (line) => lines.push(line), (code) => { exitCode = code; });
+  return { lines, exitCode };
+}
+
 /** Run the pinned pm binary in a directory, returning status and stdout. */
 function pm(
   cwd: string,
@@ -369,12 +376,10 @@ test("adoption scoping fails governed work and reports pre-adoption work as back
   assert.deepEqual(scoped.predating.map((v) => v.id), ["old-1"]);
   assert.deepEqual(scoped.governed.map((v) => v.id), ["new-1"]);
 
-  const lines: string[] = [];
-  let exitCode = 0;
-  reportCompleteness(scoped, (line) => lines.push(line), (code) => { exitCode = code; });
-  assert.equal(exitCode, 1, "a governed violation must fail the gate");
-  assert.ok(lines.some((l) => l.startsWith("fail - new-1")), "the governed violation must be named as a failure");
-  assert.ok(lines.some((l) => l.startsWith("backlog - old-1")), "the pre-adoption item must be reported as backlog");
+  const result = reportScopedResult(scoped);
+  assert.equal(result.exitCode, 1, "a governed violation must fail the gate");
+  assert.ok(result.lines.some((l) => l.startsWith("fail - new-1")), "the governed violation must be named as a failure");
+  assert.ok(result.lines.some((l) => l.startsWith("backlog - old-1")), "the pre-adoption item must be reported as backlog");
 });
 
 test("adoption scoping exits zero when only pre-adoption work is incomplete", () => {
@@ -385,11 +390,9 @@ test("adoption scoping exits zero when only pre-adoption work is incomplete", ()
     new Map([["old-1", "2026-08-01T00:00:00.000Z"]]),
     "2026-09-10T21:00:00.000Z",
   );
-  const lines: string[] = [];
-  let exitCode = 0;
-  reportCompleteness(scoped, (line) => lines.push(line), (code) => { exitCode = code; });
-  assert.equal(exitCode, 0);
-  assert.ok(lines.some((l) => l.includes("every item governed by the contract carries its declared evidence")));
+  const result = reportScopedResult(scoped);
+  assert.equal(result.exitCode, 0);
+  assert.ok(result.lines.some((l) => l.includes("every item governed by the contract carries its declared evidence")));
 });
 
 test("an item with no terminal timestamp is governed, so the scoping cannot fail open", () => {
