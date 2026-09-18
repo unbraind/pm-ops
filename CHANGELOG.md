@@ -4,6 +4,7 @@
 
 ### Added
 
+- Ship canonical strict ESLint and duplication gates from pm-ops ([ops-4phd](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-4phd.toon))
 - Ship the merge-driver install step as the canonical pm-ops/merge-driver export ([ops-crgk](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-crgk.toon))
 
 ### Fixed

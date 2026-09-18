@@ -27,7 +27,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { isMainInvocation } from "./main-invocation.ts";
+import { runVerifierIfMain } from "./main-invocation.ts";
 import type { VerifierResult } from "./shell-command-scan.ts";
 
 /** A release tag matches a calendar version, optionally with a `-N` suffix. */
@@ -406,14 +406,18 @@ export function report(
   write: (line: string) => void,
   exit: (code: number) => void,
 ): void {
-  for (const note of result.notes) write(note);
-  for (const failure of result.failures) write(`FAIL - ${failure}`);
-  if (result.failures.length > 0) {
-    write(`verify-release-completeness: ${result.failures.length} failure(s).`);
-    exit(1);
+  const lines = [
+    ...result.notes,
+    ...result.failures.map((failure) => `FAIL - ${failure}`),
+  ];
+  for (const line of lines) write(line);
+  const failureCount = result.failures.length;
+  if (failureCount === 0) {
+    write("verify-release-completeness: every release tag has a published npm version and a GitHub Release.");
     return;
   }
-  write("verify-release-completeness: every release tag has a published npm version and a GitHub Release.");
+  write(`verify-release-completeness: ${failureCount} failure(s).`);
+  exit(1);
 }
 
 /**
@@ -435,9 +439,7 @@ export function runIfMain(
   root: string,
   fetcher: CompletenessFetcher = realFetcher,
 ): boolean {
-  if (!isMainInvocation(argv, moduleUrl)) return false;
-  report(verify(root, fetcher), (line) => process.stdout.write(`${line}\n`), (code) => { process.exitCode = code; });
-  return true;
+  return runVerifierIfMain(argv, moduleUrl, () => verify(root, fetcher), report);
 }
 
 runIfMain(process.argv, import.meta.url, resolve(import.meta.dirname, ".."));

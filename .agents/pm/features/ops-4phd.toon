@@ -1,0 +1,40 @@
+id: ops-4phd
+title: Ship canonical strict ESLint and duplication gates from pm-ops
+description: "The fleet mandate requires ESLint and jscpd, but only 3 of 21 packages run private ESLint policies and 0 of 21 run jscpd. Publish one canonical strict ESLint flat-config factory and one programmatic duplication gate from pm-ops, then dogfood both here."
+type: Feature
+status: closed
+priority: 2
+tags: []
+created_at: "2026-09-18T04:24:50.286Z"
+updated_at: "2026-09-18T05:32:03.651Z"
+closed_at: "2026-09-18T05:06:19.924Z"
+completed_at: "2026-09-18T05:06:19.924Z"
+claim_principal: pi-agent
+author: pi-agent
+acceptance_criteria: "pm-ops exports fleetEslintConfig and runDuplicationGate from documented subpaths; the ESLint export contains the union of the eight forbidden-syntax selectors and all fleet correctness rules; consumer launchers are exactly three lines and package.json fields are documented; pm-ops lint reports 0 errors and 0 warnings; pm-ops duplication passes at threshold 0% with every clone pair reported; real temp-fixture tests cover all forbidden syntax and duplication pass/fail/missing-config behavior; npm run release:check exits 0; coverage reports 100% statements, branches, functions, and lines; changelog:check exits 0."
+resolution: "Published fleetEslintConfig and programmatic duplication exports, wired both dogfood gates into pm-ops release and CI, removed all existing clone pairs, and documented the 20-repo rollout."
+expected_result: The canonical exports are consumable by TypeScript 5/7 fleet packages; pm-ops lint and duplication pass; all real behavior tests and release checks pass.
+actual_result: "37 ESLint rules including 8 forbidden selectors; lint 0 errors and 0 warnings; duplication 0/10448 lines and 0 clone pairs at threshold 0%; coverage 100% statements, branches, functions, and lines; 513 tests with 511 passed and 2 pre-existing skips; npm run release:check exited 0."
+comments[8]{created_at,author,text}:
+  "2026-09-18T04:25:00.395Z",pi-agent,"Baseline milestone: measured fleet mandate is ESLint in 3 of 21 packages (pm-csv, pm-rl, pm-vcs), each with a private config, and jscpd in 0 of 21. Dedicated worktree is on feat/canonical-lint-and-duplication-gates from origin/main; npm ci completed successfully with 0 vulnerabilities."
+  "2026-09-18T05:02:26.483Z",pi-agent,"ESLint milestone: added eslint.ts and package export pm-ops/eslint. fleetEslintConfig returns a fresh Linter.Config[] using @babel/eslint-parser for TypeScript 5/7 compatibility, with 37 correctness rules plus all 8 forbidden selectors and exact fleet messages. The self-lint launcher and CI/release wiring are in place; npm run lint reports 0 errors and 0 warnings."
+  "2026-09-18T05:02:27.211Z",pi-agent,"Duplication milestone: added duplication.ts and package export pm-ops/duplication using jscpd 4.3.0's detectClonesAndStatistic API. It reads duplicationGate.threshold/minTokens from package.json, defaults minTokens to 50, supports overridable TypeScript globs, reports every clone pair with both line ranges, and fails closed when configuration is absent or invalid."
+  "2026-09-18T05:02:27.912Z",pi-agent,"Dead-code/duplication cleanup milestone: removed the seven existing jscpd clone pairs (the two repeated assurance LCOV fixtures, repeated renderer assertions, repeated coverage setup, repeated pagination setup, and duplicated attestation/completeness gate loops) without deleting or weakening assertions. Invariant: the same behaviors remain covered, and the canonical gate now measures 0/10,448 duplicated lines, 0 clone pairs at threshold 0%."
+  "2026-09-18T05:02:28.648Z",pi-agent,"Documentation and rollout milestone: README documents both exports, the exact three-line lint launcher, duplication launcher usage, and package fields. The 20 next consumer repos are pm-ado, pm-beads, pm-brief, pm-changelog, pm-context, pm-csv, pm-gantt-chart, pm-github, pm-graph, pm-jira, pm-linear, pm-presets, pm-rl, pm-slack, pm-slack-standup, pm-starter, pm-todos, pm-ts-starter, pm-vcs, and pm-web. All 20 declare TypeScript 7; pm-cli is the core repo and is not an pm-ops consumer."
+  "2026-09-18T05:02:29.350Z",pi-agent,"Behavioral test milestone: real ESLint temp fixtures cover explicit any, dynamic import, inline import type, parameter properties, enum, namespace, import-equals, and export-equals with exact messages. Real jscpd fixtures cover clone failure with both ranges, clean pass, missing config failure, malformed config, custom globs, and launcher exit statuses."
+  "2026-09-18T05:07:28.797Z",pi-agent,"Correction to the close-time measurement: after the final branch-coverage fixture was added, the final duplication launcher measured 0/10463 duplicated lines and 0 clone pairs at threshold 0%; the percentage remains 0%. All other close-time results remain unchanged."
+  "2026-09-18T05:32:03.651Z",pi-agent,"Final post-rebase evidence: origin/main included the merge-driver export and its five tests, so the rebased branch now reports 518 tests with 516 passed and 2 pre-existing skips. The final npm run release:check exits 0; lint remains 0 errors and 0 warnings; coverage remains 100/100/100/100; duplication is 0/10609 lines and 0 clone pairs at threshold 0%; production audit reports 0 vulnerabilities. PR CI and CodeQL also pass."
+files[9]{path,scope}:
+  eslint.ts,project
+  duplication.ts,project
+  scripts/lint.ts,project
+  scripts/duplication-gate.ts,project
+  package.json,project
+  package-lock.json,project
+  .github/workflows/ci.yml,project
+  README.md,project
+  test/lint-and-duplication-gates.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "npm run release:check EXIT 0; coverage 100/100/100/100; lint 0 errors and 0 warnings; duplication 0 lines and 0 clone pairs",project,pi-agent,"2026-09-18T05:06:08.306Z",local_mutation,feat/canonical-lint-and-duplication-gates
+close_reason: All acceptance criteria were measured locally in the dedicated worktree.
+body: ""

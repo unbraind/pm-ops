@@ -21,6 +21,7 @@ import { execFileSync } from "node:child_process";
 import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 import { resolve } from "node:path";
 import { bashArrays, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, dedentRunBlocks, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, joinContinuations, scalarAssignmentEvents, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
+import { tallyFlaggedInvocations } from "./invocation-audit.js";
 /** The flag that attaches a build attestation to the published tarball. */
 export const ATTESTATION_FLAG = "--provenance";
 /** Publishers other than npm, which this repository has no attested path for. */
@@ -522,32 +523,21 @@ export function renderCommand(command) {
  */
 export function auditPublishAttestation(sources) {
     const invocations = sources.flatMap(publishInvocationsIn);
-    const failures = [];
-    const counted = new Map();
-    for (const invocation of invocations) {
-        const tally = counted.get(invocation.file) ?? { total: 0, unflagged: 0 };
-        tally.total += 1;
+    const { failures, notes } = tallyFlaggedInvocations(invocations, (invocation) => {
         if (invocation.program !== "npm") {
-            tally.unflagged += 1;
-            failures.push(`${invocation.file}: \`${invocation.program} publish\` is a publish path with no attested`
-                + ` equivalent configured in this repository: ${renderCommand(invocation.command)}`);
+            return `${invocation.file}: \`${invocation.program} publish\` is a publish path with no attested`
+                + ` equivalent configured in this repository: ${renderCommand(invocation.command)}`;
         }
-        else if (!attestationEnabled(invocation.command)) {
-            tally.unflagged += 1;
-            failures.push(`${invocation.file}: a publish invocation does not enable ${ATTESTATION_FLAG}, so it would`
-                + ` publish an unattested artifact: ${renderCommand(invocation.command)}`);
+        if (!attestationEnabled(invocation.command)) {
+            return `${invocation.file}: a publish invocation does not enable ${ATTESTATION_FLAG}, so it would`
+                + ` publish an unattested artifact: ${renderCommand(invocation.command)}`;
         }
-        counted.set(invocation.file, tally);
-    }
-    if (invocations.length === 0) {
-        failures.push("no npm publish invocation was found in any tracked file - the scan is looking in the wrong place");
-    }
-    const notes = [];
-    for (const [file, tally] of counted) {
-        if (tally.unflagged > 0)
-            continue;
-        notes.push(`ok - ${file}: ${tally.total} publish invocation(s), each carrying ${ATTESTATION_FLAG}`);
-    }
+        return null;
+    }, {
+        noun: "publish",
+        flag: ATTESTATION_FLAG,
+        emptyScan: "no npm publish invocation was found in any tracked file - the scan is looking in the wrong place",
+    });
     return {
         failures,
         notes,

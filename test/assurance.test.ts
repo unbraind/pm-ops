@@ -392,52 +392,11 @@ test("coverage_percent refuses a stale report after a real source edit, and a re
   // that covers the edited file. Its mtime now post-dates the edit, so the
   // same measurement resolves — with numbers that moved because the report
   // moved (a.ts gained one covered line: lines 4/6 instead of 3/5).
-  writeFileSync(
-    lcov,
-    [
-      "SF:src/a.ts",
-      "FN:1,foo",
-      "FNDA:1,foo",
-      "FN:2,added",
-      "FNDA:1,added",
-      "FNF:2",
-      "FNH:2",
-      "DA:1,1",
-      "DA:2,1",
-      "DA:3,0",
-      "DA:4,1",
-      "LF:4",
-      "LH:3",
-      "BRDA:1,0,0,1",
-      "BRDA:1,0,1,0",
-      "BRF:2",
-      "BRH:1",
-      "end_of_record",
-      "SF:src/b.ts",
-      "FN:1,bar",
-      "FNDA:0,bar",
-      "FNF:1",
-      "FNH:0",
-      "DA:1,0",
-      "LF:1",
-      "LH:0",
-      "BRF:0",
-      "BRH:0",
-      "end_of_record",
-      "SF:src/c.ts",
-      "FN:1,baz",
-      "FNDA:1,baz",
-      "FNF:1",
-      "FNH:1",
-      "DA:1,1",
-      "LF:1",
-      "LH:1",
-      "BRF:0",
-      "BRH:0",
-      "end_of_record",
-      "",
-    ].join("\n"),
+  const regenerated = readFileSync(lcov, "utf8").replace(
+    "FN:1,foo\nFNDA:1,foo\nFNF:1\nFNH:1\nDA:1,1\nDA:2,0\nDA:3,1\nLF:3\nLH:2",
+    "FN:1,foo\nFNDA:1,foo\nFN:2,added\nFNDA:1,added\nFNF:2\nFNH:2\nDA:1,1\nDA:2,1\nDA:3,0\nDA:4,1\nLF:4\nLH:3",
   );
+  writeFileSync(lcov, regenerated);
   const freshReportMtime = statSync(lcov).mtimeMs;
   assert.ok(
     freshReportMtime >= editedMtime,
@@ -512,13 +471,13 @@ test("docstring_percent honours an explicit absolute root path", () => {
 });
 
 test("docstring_percent reports 100 over a tree whose files declare nothing documentable", () => {
-  const base = freshWorkspace("doc-empty");
-  writeFileSync(join(base, "empty.ts"), "// nothing declared\n1 + 1;\n");
-  const result = resolve(base, "docstring-percent");
-  assert.strictEqual(result.value, 100);
-  assert.strictEqual(result.population_size, 0);
-  assert.strictEqual(result.cost, 0);
-  assert.deepStrictEqual(result.contributors, []);
+  const workspace = freshWorkspace("doc-empty");
+  writeFileSync(join(workspace, "empty.ts"), "// nothing declared\n1 + 1;\n");
+  const measurement = resolve(workspace, "docstring-percent");
+  assert.strictEqual(measurement.value, 100);
+  assert.strictEqual(measurement.population_size, 0);
+  assert.strictEqual(measurement.cost, 0);
+  assert.deepStrictEqual(measurement.contributors, []);
 });
 
 test("undocumented_symbols lists the path:symbol labels missing a docstring", () => {

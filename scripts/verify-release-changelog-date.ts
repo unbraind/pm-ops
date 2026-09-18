@@ -28,6 +28,7 @@ import {
   type VerifierResult,
 } from "./shell-command-scan.ts";
 import { isMainInvocation } from "./main-invocation.ts";
+import { tallyFlaggedInvocations } from "../invocation-audit.ts";
 
 /** Every spelling that tells the generator which version it is rendering.
  *
@@ -130,29 +131,18 @@ export function invocationsIn(source: SourceFile): Invocation[] {
  */
 export function auditInvocations(sources: SourceFile[]): VerifierResult {
   const invocations = sources.flatMap(invocationsIn);
-  const failures: string[] = [];
-  const counted = new Map<string, { total: number; unflagged: number }>();
-  for (const invocation of invocations) {
-    const tally = counted.get(invocation.file) ?? { total: 0, unflagged: 0 };
-    tally.total += 1;
-    if (!invocation.command.includes(DATE_FLAG)) {
-      tally.unflagged += 1;
-      failures.push(
-        `${invocation.file}: a generator invocation carries a version input but not ${DATE_FLAG}: `
+  return tallyFlaggedInvocations(
+    invocations,
+    (invocation) => invocation.command.includes(DATE_FLAG)
+      ? null
+      : `${invocation.file}: a generator invocation carries a version input but not ${DATE_FLAG}: `
         + invocation.command.trim().slice(0, 160),
-      );
-    }
-    counted.set(invocation.file, tally);
-  }
-  if (invocations.length === 0) {
-    failures.push("no generator invocation was found in any tracked file - the scan is looking in the wrong place");
-  }
-  const notes: string[] = [];
-  for (const [file, tally] of counted) {
-    if (tally.unflagged > 0) continue;
-    notes.push(`ok - ${file}: ${tally.total} generator invocation(s), each carrying ${DATE_FLAG}`);
-  }
-  return { failures, notes };
+    {
+      noun: "generator",
+      flag: DATE_FLAG,
+      emptyScan: "no generator invocation was found in any tracked file - the scan is looking in the wrong place",
+    },
+  );
 }
 
 /** A generator run's first `## ` heading, or why there was none. */

@@ -2,7 +2,7 @@
 
 Multi-repo fleet operations for [pm-cli](https://github.com/unbraind/pm-cli).
 
-`pm-ops` gives coding agents one command surface for operating across **many** `pm-*` repositories: audit release readiness, enforce naming/workflow policies, run a release-gate matrix, and emit concise fleet reports. Zero external runtime dependencies — Node built-ins only.
+`pm-ops` gives coding agents one command surface for operating across **many** `pm-*` repositories: audit release readiness, enforce naming/workflow policies, run a release-gate matrix, and emit concise fleet reports. Its optional lint and duplication toolchains stay out of the extension's runtime dependencies.
 
 > Philosophy: _project management = context management_, applied to a **fleet** of repos.
 
@@ -270,7 +270,7 @@ Fleet totals are intentionally **not** pre-aggregated — expose per-repo series
 - **Failure diagnostics.** `verify-release` writes the full per-check matrix to stdout _then_ throws a non-zero exit on failure, so agents get both the diagnostics and the exit code.
 - **Offline mode.** Set `PM_OPS_OFFLINE=1` to skip `npm outdated` / `npm audit` / `gh` calls (useful in air-gapped CI); file-based checks still run.
 - **No shell injection.** All subprocess calls (`pm`, `npm`, `gh`) pass args as arrays via `spawnSync` — never through a shell.
-- **Zero runtime deps.** Only Node built-ins, so the package installs fast and audits clean.
+- **Small runtime surface.** The extension keeps only its main command dependencies in `dependencies`; optional lint and duplication tooling is supplied by consumers that use those exports.
 
 ### Output formats
 
@@ -309,6 +309,82 @@ process.exitCode = runPrepareMergeDriver();
 - **Windows** — honours quoted PATH entries and PATHEXT shims, and sets `shell: true` only on `win32` so `.cmd` launchers run; the POSIX path is never faked
 
 This repository's own `prepare` script is that launcher (with an `isMainInvocation` guard so the suite can import it). To (re)run manually: `npm run merge:install`.
+## Canonical code-quality exports
+
+The package publishes one strict ESLint flat-config factory and one
+programmatic jscpd gate. Both are TypeScript-only and work with the fleet's
+TypeScript 5 and TypeScript 7 consumers because parsing is supplied by Babel,
+not typescript-eslint.
+
+```ts
+import { fleetEslintConfig } from "pm-ops/eslint";
+
+export default fleetEslintConfig({ ignores: ["generated/**"] });
+```
+
+The lint launcher a consumer can add is:
+
+```ts
+import { runLintGate } from "pm-ops/eslint";
+process.exitCode = await runLintGate();
+```
+
+`runLintGate` uses the canonical policy, prints stylish diagnostics to stderr, and
+returns `0` or `1` for use as the process exit code.
+
+The duplication export reads `package.json`, scans `**/*.ts` by default (including
+root sources, `scripts/`, and tests), reports every clone pair with both file
+line ranges, and fails when the measured percentage is above the configured
+threshold. `globs` and `minTokens` can be overridden for direct analysis;
+the gate uses `minTokens: 50` when the field is omitted.
+
+### Consumers
+
+The quality exports use optional peer dependencies so installing `pm-ops` as a
+`pm` extension does not download tooling that the extension surface does not
+run. A repository importing `pm-ops/eslint` adds these exact `devDependencies`:
+`@babel/eslint-parser`, `@babel/plugin-syntax-typescript`, and `eslint`. A
+repository importing `pm-ops/duplication` adds `fast-glob` and `jscpd`. A
+repository using both exports adds all five packages, using the version ranges
+shown in `package.json`.
+
+```ts
+import { analyzeDuplication, runDuplicationGate } from "pm-ops/duplication";
+
+const report = await analyzeDuplication({ globs: ["src/**/*.ts", "test/**/*.ts"] });
+await runDuplicationGate();
+```
+
+A consumer adds these package fields (the launcher paths may be named
+otherwise, but must remain thin imports of the canonical exports):
+
+```json
+{
+  "scripts": {
+    "lint": "node scripts/lint.ts",
+    "duplication": "node scripts/duplication-gate.ts",
+    "release:check": "npm run lint && npm run duplication && ..."
+  },
+  "devDependencies": {
+    "@babel/eslint-parser": "^8.0.5",
+    "@babel/plugin-syntax-typescript": "^8.0.3",
+    "eslint": "^10.10.0",
+    "fast-glob": "^3.3.3",
+    "jscpd": "^4.3.0",
+    "pm-ops": "<current pm-ops version>"
+  },
+  "duplicationGate": {
+    "threshold": 0,
+    "minTokens": 50
+  }
+}
+```
+
+The canonical ESLint factory enforces the eight forbidden syntax selectors
+(`TSAnyKeyword`, `ImportExpression`, `TSImportType`, `TSParameterProperty`,
+`TSEnumDeclaration`, `TSModuleDeclaration`, `TSImportEqualsDeclaration`, and
+`TSExportAssignment`) plus the fleet's correctness rules. It ignores generated
+and dependency output by default; pass `ignores` to add project-specific paths.
 
 ## License
 

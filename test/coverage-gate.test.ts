@@ -133,8 +133,13 @@ test("coverage gate defaults to its package root and native process boundaries",
       "shell-scan.ts",
       "docstrings.ts",
       "assurance.ts",
+      "invocation-audit.ts",
       "merge-driver.ts",
+      "eslint.ts",
+      "duplication.ts",
       "scripts/coverage-gate.ts",
+      "scripts/lint.ts",
+      "scripts/duplication-gate.ts",
       "scripts/docstring-gate.ts",
       "scripts/main-invocation.ts",
       "scripts/prepare-merge-driver.ts",
@@ -193,12 +198,14 @@ test("coverage gate direct entrypoint executes against an explicit package root"
   if (process.platform === "win32") {
     writeFileSync(
       join(bin, "npx.cmd"),
-      `@echo off\r\nmkdir coverage 2>nul\r\n(echo SF:index.ts& echo end_of_record& echo SF:attestation.ts& echo end_of_record& echo SF:shell-scan.ts& echo end_of_record& echo SF:docstrings.ts& echo end_of_record& echo SF:assurance.ts& echo end_of_record& echo SF:merge-driver.ts& echo end_of_record& echo SF:scripts/coverage-gate.ts& echo end_of_record& echo SF:scripts/docstring-gate.ts& echo end_of_record& echo SF:scripts/main-invocation.ts& echo end_of_record& echo SF:scripts/prepare-merge-driver.ts& echo end_of_record& echo SF:scripts/shell-command-scan.ts& echo end_of_record& echo SF:scripts/verify-release-changelog-date.ts& echo end_of_record& echo SF:scripts/verify-release-completeness.ts& echo end_of_record& echo SF:scripts/verify-release-publish-attestation.ts& echo end_of_record& echo SF:lifecycle-policy.ts& echo end_of_record& echo SF:scripts/verify-lifecycle-policy.ts& echo end_of_record)>coverage\\lcov.info\r\n`,
+      `@echo off\r\nmkdir coverage 2>nul\r\n(echo SF:index.ts& echo end_of_record& echo SF:attestation.ts& echo end_of_record& echo SF:shell-scan.ts& echo end_of_record& echo SF:docstrings.ts& echo end_of_record& echo SF:assurance.ts& echo end_of_record& echo SF:invocation-audit.ts& echo end_of_record& echo SF:merge-driver.ts& echo end_of_record& echo SF:eslint.ts& echo end_of_record& echo SF:duplication.ts& echo end_of_record& echo SF:scripts/coverage-gate.ts& echo end_of_record& echo SF:scripts/lint.ts& echo end_of_record& echo SF:scripts/duplication-gate.ts& echo end_of_record& echo SF:scripts/docstring-gate.ts& echo end_of_record& echo SF:scripts/main-invocation.ts& echo end_of_record& echo SF:scripts/prepare-merge-driver.ts& echo end_of_record& echo SF:scripts/shell-command-scan.ts& echo end_of_record& echo SF:scripts/verify-release-changelog-date.ts& echo end_of_record& echo SF:scripts/verify-release-completeness.ts& echo end_of_record& echo SF:scripts/verify-release-publish-attestation.ts& echo end_of_record& echo SF:lifecycle-policy.ts& echo end_of_record& echo SF:scripts/verify-lifecycle-policy.ts& echo end_of_record)>coverage\\lcov.info\r\n`,
+
     );
   } else {
     writeFileSync(
       join(bin, "npx"),
-      "#!/usr/bin/env sh\nmkdir -p coverage\nprintf 'SF:index.ts\\nend_of_record\\nSF:attestation.ts\\nend_of_record\\nSF:shell-scan.ts\\nend_of_record\\nSF:docstrings.ts\\nend_of_record\\nSF:assurance.ts\\nend_of_record\\nSF:merge-driver.ts\\nend_of_record\\nSF:scripts/coverage-gate.ts\\nend_of_record\\nSF:scripts/docstring-gate.ts\\nend_of_record\\nSF:scripts/main-invocation.ts\\nend_of_record\\nSF:scripts/prepare-merge-driver.ts\\nend_of_record\\nSF:scripts/shell-command-scan.ts\\nend_of_record\\nSF:scripts/verify-release-changelog-date.ts\\nend_of_record\\nSF:scripts/verify-release-completeness.ts\\nend_of_record\\nSF:scripts/verify-release-publish-attestation.ts\\nend_of_record\\nSF:lifecycle-policy.ts\\nend_of_record\\nSF:scripts/verify-lifecycle-policy.ts\\nend_of_record\\n' > coverage/lcov.info\n",
+      "#!/usr/bin/env sh\nmkdir -p coverage\nprintf 'SF:index.ts\\nend_of_record\\nSF:attestation.ts\\nend_of_record\\nSF:shell-scan.ts\\nend_of_record\\nSF:docstrings.ts\\nend_of_record\\nSF:assurance.ts\\nend_of_record\\nSF:invocation-audit.ts\\nend_of_record\\nSF:merge-driver.ts\\nend_of_record\\nSF:eslint.ts\\nend_of_record\\nSF:duplication.ts\\nend_of_record\\nSF:scripts/coverage-gate.ts\\nend_of_record\\nSF:scripts/lint.ts\\nend_of_record\\nSF:scripts/duplication-gate.ts\\nend_of_record\\nSF:scripts/docstring-gate.ts\\nend_of_record\\nSF:scripts/main-invocation.ts\\nend_of_record\\nSF:scripts/prepare-merge-driver.ts\\nend_of_record\\nSF:scripts/shell-command-scan.ts\\nend_of_record\\nSF:scripts/verify-release-changelog-date.ts\\nend_of_record\\nSF:scripts/verify-release-completeness.ts\\nend_of_record\\nSF:scripts/verify-release-publish-attestation.ts\\nend_of_record\\nSF:lifecycle-policy.ts\\nend_of_record\\nSF:scripts/verify-lifecycle-policy.ts\\nend_of_record\\n' > coverage/lcov.info\n",
+
     );
   }
   const packageRoot = resolve(import.meta.dirname, "..");
@@ -327,7 +334,7 @@ test("coverage gate rejects absent and incomplete lcov reports", (context) => {
 
   const absent = fixture("absent-report");
   const noReport = (() => spawnResult()) as unknown as typeof spawnSync;
-  let before = messages.length;
+  const before = messages.length;
   assert.throws(
     () => runCoverageGate({ repoRoot: absent, spawn: noReport, exit }),
     GateExit,
@@ -339,21 +346,19 @@ test("coverage gate rejects absent and incomplete lcov reports", (context) => {
     writeLcov(incomplete, ["src/index.ts"]);
     return spawnResult();
   }) as unknown as typeof spawnSync;
-  before = messages.length;
+  const incompleteBefore = messages.length;
   assert.throws(
     () => runCoverageGate({ repoRoot: incomplete, spawn: omitted, exit }),
     GateExit,
   );
-  assertSingleDiagnostic(messages, before, /never loaded during the run/);
+  assertSingleDiagnostic(messages, incompleteBefore, /never loaded during the run/);
 });
 
 test("coverage gate verifies type-only ignores against effective compiler output", (context) => {
-  const messages: string[] = [];
-  context.mock.method(
-    console,
-    "error",
-    (...args: unknown[]) => messages.push(args.join(" ")),
-  );
+  const messages = Array<string>();
+  context.mock.method(console, "error", (...args: unknown[]) => {
+    messages.push(args.map(String).join(" "));
+  });
   const config = {
     sources: ["src"],
     tests: [],

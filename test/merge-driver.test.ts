@@ -118,7 +118,7 @@ test("pmOnPath mirrors POSIX empty entries and Windows quoting plus PATHEXT", ()
   const shim = join(windows, "pm.CMD");
   writeFileSync(shim, "@echo off\r\n");
   assert.equal(
-    pmOnPath({ PATH: `;\"${windows}\"`, PATHEXT: ";.EXE;.CMD;" }, "win32"),
+    pmOnPath({ PATH: `;"${windows}"`, PATHEXT: ";.EXE;.CMD;" }, "win32"),
     shim,
   );
   assert.equal(pmOnPath({ PATH: windows, PATHEXT: " ; .CMD ; " }, "win32"), shim);
