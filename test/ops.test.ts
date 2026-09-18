@@ -844,13 +844,7 @@ test("ops scan --format markdown emits a well-formed table", async () => {
 });
 
 test("ops scan reports a clear error for missing repo paths", async () => {
-  const ext = await harness();
-  const missingRepo = join(tmpRoot, "pm-missing");
-  const result = await runCmd<ScanResult>(ext, "ops scan", { repos: [missingRepo] });
-  assert.strictEqual(result.repos.length, 1);
-  assert.strictEqual(result.repos[0].ready, false);
-  assert.deepStrictEqual(result.repos[0].errors, ["repository directory does not exist"]);
-  await ext.deactivate();
+  await assertMissingRepo(join(tmpRoot, "pm-missing"));
 });
 
 test("ops scan does not report ready when an online security audit is unavailable", async () => {
@@ -919,25 +913,29 @@ test("ops scan fails closed across malformed, cyclic, and package-style tsconfig
   const repo = join(tmpRoot, "pm-tsconfig-errors");
   mkdirSync(repo, { recursive: true });
   writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "pm-tsconfig-errors" }) + "\n");
+  const assertStrictTs = async (expected: boolean): Promise<void> => {
+    const result = await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] });
+    assert.strictEqual(result.repos[0].strict_ts, expected);
+  };
 
   writeFileSync(join(repo, "tsconfig.json"), "{ invalid jsonc\n");
-  assert.strictEqual((await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] })).repos[0].strict_ts, false);
+  await assertStrictTs(false);
 
   writeFileSync(join(repo, "tsconfig.json"), JSON.stringify({ extends: "./tsconfig" }) + "\n");
-  assert.strictEqual((await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] })).repos[0].strict_ts, false);
+  await assertStrictTs(false);
 
   writeFileSync(join(repo, "tsconfig.json"), JSON.stringify({ extends: "missing-package-config" }) + "\n");
-  assert.strictEqual((await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] })).repos[0].strict_ts, false);
+  await assertStrictTs(false);
 
   writeFileSync(join(repo, "tsconfig.json"), "{}\n");
-  assert.strictEqual((await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] })).repos[0].strict_ts, false);
+  await assertStrictTs(false);
 
   writeFileSync(join(repo, "tsconfig.json"), JSON.stringify({ extends: ["missing-package-config", 42] }) + "\n");
-  assert.strictEqual((await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] })).repos[0].strict_ts, false);
+  await assertStrictTs(false);
 
   writeFileSync(join(repo, "strict.json"), JSON.stringify({ compilerOptions: { strict: true } }) + "\n");
   writeFileSync(join(repo, "tsconfig.json"), JSON.stringify({ extends: ["./strict", "missing-package-config", 42] }) + "\n");
-  assert.strictEqual((await runCmd<ScanResult>(ext, "ops scan", { repos: [repo] })).repos[0].strict_ts, true);
+  await assertStrictTs(true);
   await ext.deactivate();
 });
 
@@ -989,12 +987,7 @@ test("ops scan expands wildcard, home, default, and platform-absolute paths dete
 });
 
 test("ops scan handles malformed bracket globs without crashing", async () => {
-  const ext = await harness();
-  const result = await runCmd<ScanResult>(ext, "ops scan", { repos: [join(tmpRoot, "pm-[")] });
-  assert.strictEqual(result.repos.length, 1);
-  assert.strictEqual(result.repos[0].ready, false);
-  assert.deepStrictEqual(result.repos[0].errors, ["repository directory does not exist"]);
-  await ext.deactivate();
+  await assertMissingRepo(join(tmpRoot, "pm-["));
 });
 
 test("ops scan selects Windows command shims when the host platform is win32", { skip: process.platform === "win32" }, async () => {
@@ -1168,14 +1161,29 @@ test("self-hosted pm-changelog wiring is consistent across scan status and polic
   await ext.deactivate();
 });
 
-test("ops policy private runner check only scans the runs-on value block", async () => {
+async function assertMissingRepo(repoPath: string): Promise<void> {
   const ext = await harness();
-  const repo = join(tmpRoot, "pm-private-self-hosted");
-  const bin = join(tmpRoot, "bin");
+  const result = await runCmd<ScanResult>(ext, "ops scan", { repos: [repoPath] });
+  assert.strictEqual(result.repos.length, 1);
+  assert.strictEqual(result.repos[0].ready, false);
+  assert.deepStrictEqual(result.repos[0].errors, ["repository directory does not exist"]);
+  await ext.deactivate();
+}
+
+async function assertPrivateRunnerPolicy(
+  name: string,
+  ciWorkflow: string,
+  expectedPass: boolean,
+  expectedMessage?: RegExp,
+  additionalFiles: Record<string, string> = {},
+): Promise<void> {
+  const ext = await harness();
+  const repo = join(tmpRoot, name);
+  const bin = join(tmpRoot, `${name}-bin`);
   mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
   mkdirSync(bin, { recursive: true });
   writeFileSync(join(repo, "package.json"), JSON.stringify({
-    name: "pm-private-self-hosted",
+    name,
     version: "2026.7.6",
     scripts: {
       typecheck: "true",
@@ -1187,7 +1195,35 @@ test("ops policy private runner check only scans the runs-on value block", async
     },
     devDependencies: { "pm-changelog": "^2026.7.6" },
   }) + "\n");
-  writeFileSync(join(repo, ".github", "workflows", "ci.yml"), `name: CI
+  writeFileSync(join(repo, ".github", "workflows", "ci.yml"), ciWorkflow);
+  writeFileSync(join(repo, ".github", "workflows", "release.yml"), "name: Release\n");
+  for (const [file, contents] of Object.entries(additionalFiles)) {
+    writeFileSync(join(repo, ".github", "workflows", file), contents);
+  }
+  writeFileSync(join(bin, "gh"), "#!/usr/bin/env sh\nprintf 'true\\n'\n");
+  chmodSync(join(bin, "gh"), 0o755);
+
+  const previousOffline = process.env.PM_OPS_OFFLINE;
+  const previousPath = process.env.PATH;
+  delete process.env.PM_OPS_OFFLINE;
+  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  try {
+    const result = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo] });
+    const check = result.repos[0].checks.find((entry) => entry.id === "private-no-runners");
+    assert.ok(check, "private-no-runners check should exist");
+    assert.strictEqual(check.pass, expectedPass);
+    if (expectedMessage) assert.match(check.message, expectedMessage);
+  } finally {
+    process.env.PM_OPS_OFFLINE = previousOffline;
+    process.env.PATH = previousPath;
+    await ext.deactivate();
+  }
+}
+
+test("ops policy private runner check only scans the runs-on value block", async () => {
+  await assertPrivateRunnerPolicy(
+    "pm-private-self-hosted",
+    `name: CI
 on: [push]
 jobs:
   test:
@@ -1201,47 +1237,15 @@ jobs:
         os: [ubuntu-latest]
     steps:
       - run: echo hi
-`);
-  writeFileSync(join(repo, ".github", "workflows", "release.yml"), "name: Release\n");
-  writeFileSync(join(bin, "gh"), "#!/usr/bin/env sh\nprintf 'true\\n'\n");
-  chmodSync(join(bin, "gh"), 0o755);
-
-  const previousOffline = process.env.PM_OPS_OFFLINE;
-  const previousPath = process.env.PATH;
-  delete process.env.PM_OPS_OFFLINE;
-  process.env.PATH = `${bin}:${previousPath ?? ""}`;
-  try {
-    const result = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo] });
-    const check = result.repos[0].checks.find((entry) => entry.id === "private-no-runners");
-    assert.ok(check, "private-no-runners check should exist");
-    assert.strictEqual(check.pass, true);
-  } finally {
-    process.env.PM_OPS_OFFLINE = previousOffline;
-    process.env.PATH = previousPath;
-  }
-  await ext.deactivate();
+`,
+    true,
+  );
 });
 
 test("ops policy private runner check flags direct GitHub-hosted runners", async () => {
-  const ext = await harness();
-  const repo = join(tmpRoot, "pm-private-github-hosted");
-  const bin = join(tmpRoot, "bin-gh-hosted");
-  mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
-  mkdirSync(bin, { recursive: true });
-  writeFileSync(join(repo, "package.json"), JSON.stringify({
-    name: "pm-private-github-hosted",
-    version: "2026.7.6",
-    scripts: {
-      typecheck: "true",
-      test: "true",
-      build: "true",
-      "release:check": "true",
-      changelog: "true",
-      "changelog:check": "true",
-    },
-    devDependencies: { "pm-changelog": "^2026.7.6" },
-  }) + "\n");
-  writeFileSync(join(repo, ".github", "workflows", "ci.yml"), `name: CI
+  await assertPrivateRunnerPolicy(
+    "pm-private-github-hosted",
+    `name: CI
 on: [push]
 jobs:
   test:
@@ -1249,48 +1253,16 @@ jobs:
       - ubuntu-latest
     steps:
       - run: echo hi
-`);
-  writeFileSync(join(repo, ".github", "workflows", "release.yml"), "name: Release\n");
-  writeFileSync(join(bin, "gh"), "#!/usr/bin/env sh\nprintf 'true\\n'\n");
-  chmodSync(join(bin, "gh"), 0o755);
-
-  const previousOffline = process.env.PM_OPS_OFFLINE;
-  const previousPath = process.env.PATH;
-  delete process.env.PM_OPS_OFFLINE;
-  process.env.PATH = `${bin}:${previousPath ?? ""}`;
-  try {
-    const result = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo] });
-    const check = result.repos[0].checks.find((entry) => entry.id === "private-no-runners");
-    assert.ok(check, "private-no-runners check should exist");
-    assert.strictEqual(check.pass, false);
-    assert.match(check.message, /GitHub-hosted/);
-  } finally {
-    process.env.PM_OPS_OFFLINE = previousOffline;
-    process.env.PATH = previousPath;
-  }
-  await ext.deactivate();
+`,
+    false,
+    /GitHub-hosted/,
+  );
 });
 
 test("ops policy private runner check flags object labels using GitHub-hosted runners", async () => {
-  const ext = await harness();
-  const repo = join(tmpRoot, "pm-private-github-hosted-labels");
-  const bin = join(tmpRoot, "bin-gh-hosted-labels");
-  mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
-  mkdirSync(bin, { recursive: true });
-  writeFileSync(join(repo, "package.json"), JSON.stringify({
-    name: "pm-private-github-hosted-labels",
-    version: "2026.7.6",
-    scripts: {
-      typecheck: "true",
-      test: "true",
-      build: "true",
-      "release:check": "true",
-      changelog: "true",
-      "changelog:check": "true",
-    },
-    devDependencies: { "pm-changelog": "^2026.7.6" },
-  }) + "\n");
-  writeFileSync(join(repo, ".github", "workflows", "ci.yml"), `name: CI
+  await assertPrivateRunnerPolicy(
+    "pm-private-github-hosted-labels",
+    `name: CI
 on: [push]
 jobs:
   test:
@@ -1307,74 +1279,26 @@ jobs:
       labels: ubuntu-latest
     steps:
       - run: echo scalar
-`);
-  writeFileSync(join(repo, ".github", "workflows", "release.yml"), "name: Release\n");
-  writeFileSync(join(repo, ".github", "workflows", "README.txt"), "not a workflow\n");
-  writeFileSync(join(bin, "gh"), "#!/usr/bin/env sh\nprintf 'true\\n'\n");
-  chmodSync(join(bin, "gh"), 0o755);
-
-  const previousOffline = process.env.PM_OPS_OFFLINE;
-  const previousPath = process.env.PATH;
-  delete process.env.PM_OPS_OFFLINE;
-  process.env.PATH = `${bin}:${previousPath ?? ""}`;
-  try {
-    const result = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo] });
-    const check = result.repos[0].checks.find((entry) => entry.id === "private-no-runners");
-    assert.ok(check, "private-no-runners check should exist");
-    assert.strictEqual(check.pass, false);
-    assert.match(check.message, /GitHub-hosted/);
-  } finally {
-    process.env.PM_OPS_OFFLINE = previousOffline;
-    process.env.PATH = previousPath;
-  }
-  await ext.deactivate();
+`,
+    false,
+    /GitHub-hosted/,
+    { "README.txt": "not a workflow\n" },
+  );
 });
 
 test("ops policy private runner check accepts flow labels with self-hosted", async () => {
-  const ext = await harness();
-  const repo = join(tmpRoot, "pm-private-flow-self-hosted");
-  const bin = join(tmpRoot, "bin-flow-self-hosted");
-  mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
-  mkdirSync(bin, { recursive: true });
-  writeFileSync(join(repo, "package.json"), JSON.stringify({
-    name: "pm-private-flow-self-hosted",
-    version: "2026.7.6",
-    scripts: {
-      typecheck: "true",
-      test: "true",
-      build: "true",
-      "release:check": "true",
-      changelog: "true",
-      "changelog:check": "true",
-    },
-    devDependencies: { "pm-changelog": "^2026.7.6" },
-  }) + "\n");
-  writeFileSync(join(repo, ".github", "workflows", "ci.yml"), `name: CI
+  await assertPrivateRunnerPolicy(
+    "pm-private-flow-self-hosted",
+    `name: CI
 on: [push]
 jobs:
   test:
     runs-on: { labels: [self-hosted, ubuntu-latest] }
     steps:
       - run: echo hi
-`);
-  writeFileSync(join(repo, ".github", "workflows", "release.yml"), "name: Release\n");
-  writeFileSync(join(bin, "gh"), "#!/usr/bin/env sh\nprintf 'true\\n'\n");
-  chmodSync(join(bin, "gh"), 0o755);
-
-  const previousOffline = process.env.PM_OPS_OFFLINE;
-  const previousPath = process.env.PATH;
-  delete process.env.PM_OPS_OFFLINE;
-  process.env.PATH = `${bin}:${previousPath ?? ""}`;
-  try {
-    const result = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo] });
-    const check = result.repos[0].checks.find((entry) => entry.id === "private-no-runners");
-    assert.ok(check, "private-no-runners check should exist");
-    assert.strictEqual(check.pass, true);
-  } finally {
-    process.env.PM_OPS_OFFLINE = previousOffline;
-    process.env.PATH = previousPath;
-  }
-  await ext.deactivate();
+`,
+    true,
+  );
 });
 
 test("ops policy reports unreadable private workflow entries", { skip: process.platform === "win32" }, async () => {
