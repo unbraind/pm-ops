@@ -882,19 +882,7 @@ test("ops scan respects later tsconfig array extends overrides", async () => {
   const ext = await harness();
   const repo = join(tmpRoot, "pm-tsconfig-override");
   mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
-  writeFileSync(join(repo, "package.json"), JSON.stringify({
-    name: "pm-tsconfig-override",
-    version: "2026.7.6",
-    scripts: {
-      typecheck: "true",
-      test: "true",
-      build: "true",
-      "release:check": "true",
-      changelog: "true",
-      "changelog:check": "true",
-    },
-    devDependencies: { "pm-changelog": "^2026.7.6" },
-  }) + "\n");
+  writeStandardPackage(repo, "pm-tsconfig-override");
   writeFileSync(join(repo, "tsconfig.strict.json"), JSON.stringify({ compilerOptions: { strict: true } }) + "\n");
   writeFileSync(join(repo, "tsconfig.loose.json"), JSON.stringify({ compilerOptions: { strict: false } }) + "\n");
   writeFileSync(join(repo, "tsconfig.json"), JSON.stringify({ extends: ["./tsconfig.strict.json", "./tsconfig.loose.json"] }) + "\n");
@@ -1161,6 +1149,112 @@ test("self-hosted pm-changelog wiring is consistent across scan status and polic
   await ext.deactivate();
 });
 
+function writeStandardPackage(repo: string, name: string): void {
+  writeFileSync(join(repo, "package.json"), JSON.stringify({
+    name,
+    version: "2026.7.6",
+    scripts: {
+      typecheck: "true",
+      test: "true",
+      build: "true",
+      "release:check": "true",
+      changelog: "true",
+      "changelog:check": "true",
+    },
+    devDependencies: { "pm-changelog": "^2026.7.6" },
+  }) + "\n");
+}
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
+async function withPath<T>(path: string, callback: () => Promise<T>): Promise<T> {
+  const previousPath = process.env.PATH;
+  process.env.PATH = path;
+  try {
+    return await callback();
+  } finally {
+    restoreEnv("PATH", previousPath);
+  }
+}
+
+async function assertMetricsUnavailable(ext: ExtensionTestHarness, path: string): Promise<void> {
+  await withPath(path, async () => {
+    const payload = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
+    assert.strictEqual(payload.repos[0].available, false);
+  });
+}
+
+async function withAuditEnv<T>(bin: string, callback: () => Promise<T>): Promise<T> {
+  const previousOffline = process.env.PM_OPS_OFFLINE;
+  const previousPath = process.env.PATH;
+  delete process.env.PM_OPS_OFFLINE;
+  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  try {
+    return await callback();
+  } finally {
+    restoreEnv("PM_OPS_OFFLINE", previousOffline);
+    restoreEnv("PATH", previousPath);
+  }
+}
+
+async function withAuditFailureBin<T>(name: string, callback: (bin: string) => Promise<T>): Promise<T> {
+  const bin = createAuditFailureBin(name, true);
+  return withAuditEnv(bin, () => callback(bin));
+}
+
+async function withScenarioBin<T>(name: string, callback: (bin: string) => Promise<T>): Promise<T> {
+  const bin = createAuditFailureBin(name, true, "success");
+  const previousOffline = process.env.PM_OPS_OFFLINE;
+  const previousPath = process.env.PATH;
+  const previousScenario = process.env.PM_OPS_FAKE_SCENARIO;
+  delete process.env.PM_OPS_OFFLINE;
+  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  try {
+    return await callback(bin);
+  } finally {
+    restoreEnv("PM_OPS_OFFLINE", previousOffline);
+    restoreEnv("PATH", previousPath);
+    restoreEnv("PM_OPS_FAKE_SCENARIO", previousScenario);
+  }
+}
+
+type ScenarioEnvironment = { bin: string; offline?: string; path?: string; scenario?: string };
+
+function installScenarioBin(name: string): ScenarioEnvironment {
+  const environment: ScenarioEnvironment = {
+    bin: createAuditFailureBin(name, true, "success"),
+    offline: process.env.PM_OPS_OFFLINE,
+    path: process.env.PATH,
+    scenario: process.env.PM_OPS_FAKE_SCENARIO,
+  };
+  delete process.env.PM_OPS_OFFLINE;
+  process.env.PATH = `${environment.bin}${delimiter}${environment.path ?? ""}`;
+  return environment;
+}
+
+function restoreScenarioBin(environment: ScenarioEnvironment): void {
+  restoreEnv("PM_OPS_OFFLINE", environment.offline);
+  restoreEnv("PATH", environment.path);
+  restoreEnv("PM_OPS_FAKE_SCENARIO", environment.scenario);
+}
+
+function assertReportSummary(result: { repos: unknown[]; summary: object }, key: string): void {
+  assert.ok(result, "report should return a result");
+  assert.ok(Array.isArray(result.repos));
+  assert.strictEqual(result.repos.length, 1);
+  assert.ok(typeof (result.summary as Record<string, unknown>)[key] === "number");
+}
+
+function assertWrittenOutput(result: WrittenResult, outFile: string, patterns: RegExp[]): void {
+  assert.ok(result?.written_to, "should return a written_to summary");
+  assert.strictEqual(result.written_to, outFile);
+  const body = readFileSync(outFile, "utf-8");
+  for (const pattern of patterns) assert.match(body, pattern);
+}
+
 async function assertMissingRepo(repoPath: string): Promise<void> {
   const ext = await harness();
   const result = await runCmd<ScanResult>(ext, "ops scan", { repos: [repoPath] });
@@ -1182,19 +1276,7 @@ async function assertPrivateRunnerPolicy(
   const bin = join(tmpRoot, `${name}-bin`);
   mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
   mkdirSync(bin, { recursive: true });
-  writeFileSync(join(repo, "package.json"), JSON.stringify({
-    name,
-    version: "2026.7.6",
-    scripts: {
-      typecheck: "true",
-      test: "true",
-      build: "true",
-      "release:check": "true",
-      changelog: "true",
-      "changelog:check": "true",
-    },
-    devDependencies: { "pm-changelog": "^2026.7.6" },
-  }) + "\n");
+  writeStandardPackage(repo, name);
   writeFileSync(join(repo, ".github", "workflows", "ci.yml"), ciWorkflow);
   writeFileSync(join(repo, ".github", "workflows", "release.yml"), "name: Release\n");
   for (const [file, contents] of Object.entries(additionalFiles)) {
@@ -1203,19 +1285,15 @@ async function assertPrivateRunnerPolicy(
   writeFileSync(join(bin, "gh"), "#!/usr/bin/env sh\nprintf 'true\\n'\n");
   chmodSync(join(bin, "gh"), 0o755);
 
-  const previousOffline = process.env.PM_OPS_OFFLINE;
-  const previousPath = process.env.PATH;
-  delete process.env.PM_OPS_OFFLINE;
-  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
   try {
-    const result = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo] });
-    const check = result.repos[0].checks.find((entry) => entry.id === "private-no-runners");
-    assert.ok(check, "private-no-runners check should exist");
-    assert.strictEqual(check.pass, expectedPass);
-    if (expectedMessage) assert.match(check.message, expectedMessage);
+    await withAuditEnv(bin, async () => {
+      const result = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo] });
+      const check = result.repos[0].checks.find((entry) => entry.id === "private-no-runners");
+      assert.ok(check, "private-no-runners check should exist");
+      assert.strictEqual(check.pass, expectedPass);
+      if (expectedMessage) assert.match(check.message, expectedMessage);
+    });
   } finally {
-    process.env.PM_OPS_OFFLINE = previousOffline;
-    process.env.PATH = previousPath;
     await ext.deactivate();
   }
 }
@@ -1307,26 +1385,16 @@ test("ops policy reports unreadable private workflow entries", { skip: process.p
   mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
   writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "pm-private-broken-workflow" }) + "\n");
   symlinkSync(join(repo, "missing-workflow-target"), join(repo, ".github", "workflows", "broken.yml"));
-  const bin = createAuditFailureBin("bin-private-broken-workflow", true, "success");
-  const previousOffline = process.env.PM_OPS_OFFLINE;
-  const previousPath = process.env.PATH;
-  const previousScenario = process.env.PM_OPS_FAKE_SCENARIO;
-  delete process.env.PM_OPS_OFFLINE;
-  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
-  process.env.PM_OPS_FAKE_SCENARIO = "private";
   try {
-    const result = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo] });
-    const runner = result.repos[0].checks.find(({ id }) => id === "private-no-runners");
-    assert.strictEqual(runner?.pass, false);
-    assert.match(runner?.message ?? "", /private repo uses GitHub-hosted runners/);
-    assert.match(runner?.details?.join("\n") ?? "", /broken\.yml: unable to read workflow/);
+    await withScenarioBin("bin-private-broken-workflow", async () => {
+      process.env.PM_OPS_FAKE_SCENARIO = "private";
+      const result = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo] });
+      const runner = result.repos[0].checks.find(({ id }) => id === "private-no-runners");
+      assert.strictEqual(runner?.pass, false);
+      assert.match(runner?.message ?? "", /private repo uses GitHub-hosted runners/);
+      assert.match(runner?.details?.join("\n") ?? "", /broken\.yml: unable to read workflow/);
+    });
   } finally {
-    if (previousOffline === undefined) delete process.env.PM_OPS_OFFLINE;
-    else process.env.PM_OPS_OFFLINE = previousOffline;
-    if (previousPath === undefined) delete process.env.PATH;
-    else process.env.PATH = previousPath;
-    if (previousScenario === undefined) delete process.env.PM_OPS_FAKE_SCENARIO;
-    else process.env.PM_OPS_FAKE_SCENARIO = previousScenario;
     await ext.deactivate();
   }
 });
@@ -1481,11 +1549,7 @@ test("ops verify-release --output writes to a file", async () => {
   const ext = await harness();
   const outFile = join(tmpRoot, "verify-release.md");
   const result = await runCmd<WrittenResult>(ext, "ops verify-release", { repos: [fixtureRepo], format: "markdown", output: outFile });
-  assert.ok(result?.written_to, "should return a written_to summary");
-  assert.strictEqual(result.written_to, outFile);
-  const body = readFileSync(outFile, "utf-8");
-  assert.match(body, /pm-ops verify-release/);
-  assert.match(body, /\| pm-fixture \|/);
+  assertWrittenOutput(result, outFile, [/pm-ops verify-release/, /\| pm-fixture \|/]);
   await ext.deactivate();
 });
 
@@ -1564,11 +1628,7 @@ test("ops report --output writes to a file and returns a summary", async () => {
   const ext = await harness();
   const outFile = join(tmpRoot, "fleet-report.md");
   const result = await runCmd<WrittenResult>(ext, "ops report", { repos: [fixtureRepo], format: "markdown", output: outFile });
-  assert.ok(result?.written_to, "should return a written_to summary");
-  assert.strictEqual(result.written_to, outFile);
-  const body = readFileSync(outFile, "utf-8");
-  assert.match(body, /pm-ops scan/);
-  assert.match(body, /pm-ops policy/);
+  assertWrittenOutput(result, outFile, [/pm-ops scan/, /pm-ops policy/]);
   await ext.deactivate();
 });
 
@@ -1618,12 +1678,7 @@ test("ops status reports a clear error for missing repo paths", async () => {
 test("ops status does not report ready when an online security audit is unavailable", async () => {
   const ext = await harness();
   const bin = createAuditFailureBin("bin-status-audit-unavailable");
-
-  const previousOffline = process.env.PM_OPS_OFFLINE;
-  const previousPath = process.env.PATH;
-  delete process.env.PM_OPS_OFFLINE;
-  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
-  try {
+  await withAuditEnv(bin, async () => {
     const result = await runCmd<StatusResult>(ext, "ops status", { repos: [fixtureRepo] });
     assert.strictEqual(result.repos[0].ready, false);
     assert.match(result.repos[0].issues.join("\n"), /audit unavailable: npm audit failed: \[EAI_AGAIN\] registry unavailable/);
@@ -1631,10 +1686,7 @@ test("ops status does not report ready when an online security audit is unavaila
     const offline = await runCmd<StatusResult>(ext, "ops status", { repos: [fixtureRepo] });
     assert.strictEqual(offline.repos[0].ready, true);
     assert.strictEqual(offline.repos[0].issues.length, 0);
-  } finally {
-    process.env.PM_OPS_OFFLINE = previousOffline;
-    process.env.PATH = previousPath;
-  }
+  });
   await ext.deactivate();
 });
 
@@ -1709,10 +1761,7 @@ test("ops status surfaces pending merge receipts without making them the readine
 test("ops audit produces a vulnerability summary", async () => {
   const ext = await harness();
   const result = await runCmd<AuditResult>(ext, "ops audit", { repos: [fixtureRepo] });
-  assert.ok(result, "audit should return a result");
-  assert.ok(Array.isArray(result.repos));
-  assert.strictEqual(result.repos.length, 1);
-  assert.ok(typeof result.summary.total === "number");
+  assertReportSummary(result, "total");
   assert.ok(typeof result.summary.clean === "number");
   assert.ok(typeof result.summary.unknown === "number");
   await ext.deactivate();
@@ -1736,11 +1785,7 @@ test("ops audit --format markdown emits a vulnerability table", async () => {
 test("ops outdated produces a dependency freshness report", async () => {
   const ext = await harness();
   const result = await runCmd<OutdatedResult>(ext, "ops outdated", { repos: [fixtureRepo] });
-  assert.ok(result, "outdated should return a result");
-  assert.ok(Array.isArray(result.repos));
-  assert.strictEqual(result.repos.length, 1);
-  assert.ok(typeof result.summary.total === "number");
-  assert.ok(typeof result.summary.total_outdated === "number");
+  assertReportSummary(result, "total_outdated");
   await ext.deactivate();
 });
 
@@ -1756,12 +1801,8 @@ test("ops outdated --format markdown emits a well-formed report", async () => {
 
 test("online audit and outdated reports preserve actionable npm and GitHub data", async () => {
   const ext = await harness();
-  const bin = createAuditFailureBin("bin-fleet-success", true, "success");
-  const previousOffline = process.env.PM_OPS_OFFLINE;
-  const previousPath = process.env.PATH;
-  const previousScenario = process.env.PM_OPS_FAKE_SCENARIO;
-  delete process.env.PM_OPS_OFFLINE;
-  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  const environment = installScenarioBin("bin-fleet-success");
+  const { bin } = environment;
   try {
     process.env.PM_OPS_FAKE_SCENARIO = "outdated";
     const outdated = await runCmd<OutdatedResult>(ext, "ops outdated", { repos: [fixtureRepo] });
@@ -1897,12 +1938,7 @@ test("online audit and outdated reports preserve actionable npm and GitHub data"
       await assert.rejects(runCmd(ext, "ops verify-release", { repos: [fixtureRepo] }), /failed/);
     }
   } finally {
-    if (previousOffline === undefined) delete process.env.PM_OPS_OFFLINE;
-    else process.env.PM_OPS_OFFLINE = previousOffline;
-    if (previousPath === undefined) delete process.env.PATH;
-    else process.env.PATH = previousPath;
-    if (previousScenario === undefined) delete process.env.PM_OPS_FAKE_SCENARIO;
-    else process.env.PM_OPS_FAKE_SCENARIO = previousScenario;
+    restoreScenarioBin(environment);
     await ext.deactivate();
   }
 });
@@ -2000,14 +2036,9 @@ test("ops metrics rejects a stale pm list envelope instead of treating it as ite
     writeFileSync(join(bin, "pm"), "#!/usr/bin/env sh\nprintf '{\"results\":[]}\\n'\n");
     chmodSync(join(bin, "pm"), 0o755);
   }
-  const previousPath = process.env.PATH;
-  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
   try {
-    const payload = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
-    assert.strictEqual(payload.repos[0].available, false);
+    await assertMetricsUnavailable(ext, `${bin}${delimiter}${process.env.PATH ?? ""}`);
   } finally {
-    if (previousPath === undefined) delete process.env.PATH;
-    else process.env.PATH = previousPath;
     await ext.deactivate();
   }
 });
@@ -2186,14 +2217,9 @@ test("pm workspace readers expose a present but non-executable PATH override", {
   const bin = join(tmpRoot, "bin-non-executable-pm");
   mkdirSync(bin, { recursive: true });
   writeFileSync(join(bin, "pm"), "#!/usr/bin/env sh\nexit 0\n", { mode: 0o644 });
-  const previousPath = process.env.PATH;
-  process.env.PATH = bin;
   try {
-    const payload = await runCmd<MetricsResult>(ext, "ops metrics", { repos: [fixtureRepo] }, [], { json: true });
-    assert.strictEqual(payload.repos[0].available, false);
+    await assertMetricsUnavailable(ext, bin);
   } finally {
-    if (previousPath === undefined) delete process.env.PATH;
-    else process.env.PATH = previousPath;
     await ext.deactivate();
   }
 });
