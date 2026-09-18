@@ -54,15 +54,14 @@ export interface DuplicationGateOptions {
     /** Exit boundary used to assert fail-closed behavior without ending a test process. */
     readonly exit?: (code: number) => never;
 }
+/** Return the fail-closed diagnostic for an empty or partially analyzed scope. */
+export declare function duplicationGateDiagnostic(report: Pick<DuplicationReport, "sources" | "skippedSources">): string | undefined;
 /**
  * Analyze a repository's TypeScript sources with jscpd's programmatic API.
  *
  * @param options - Repository root and optional source globs.
  * @returns Aggregate percentage and every clone pair found by jscpd.
  */
-/** Return the fail-closed diagnostic for an empty or partially analyzed scope. */
-export declare function duplicationGateDiagnostic(report: Pick<DuplicationReport, "sources" | "skippedSources">): string | undefined;
-/** Analyze a repository's TypeScript sources with jscpd's programmatic API. */
 export declare function analyzeDuplication(options?: Pick<DuplicationGateOptions, "repoRoot" | "globs" | "minTokens">): Promise<DuplicationReport>;
 /**
  * Run the configured duplication threshold gate and print every clone pair.

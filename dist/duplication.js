@@ -101,12 +101,6 @@ function duplicationOptions(repoRoot, pattern, minTokens) {
         silent: true,
     };
 }
-/**
- * Analyze a repository's TypeScript sources with jscpd's programmatic API.
- *
- * @param options - Repository root and optional source globs.
- * @returns Aggregate percentage and every clone pair found by jscpd.
- */
 /** Return the fail-closed diagnostic for an empty or partially analyzed scope. */
 export function duplicationGateDiagnostic(report) {
     if (report.sources === 0)
@@ -117,7 +111,12 @@ export function duplicationGateDiagnostic(report) {
     }
     return undefined;
 }
-/** Analyze a repository's TypeScript sources with jscpd's programmatic API. */
+/**
+ * Analyze a repository's TypeScript sources with jscpd's programmatic API.
+ *
+ * @param options - Repository root and optional source globs.
+ * @returns Aggregate percentage and every clone pair found by jscpd.
+ */
 export async function analyzeDuplication(options = {}) {
     const repoRoot = options.repoRoot ?? defaultRepoRoot;
     const pattern = combineGlobs(options.globs ?? DEFAULT_DUPLICATION_GLOBS);
