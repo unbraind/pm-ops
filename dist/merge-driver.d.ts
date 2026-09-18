@@ -18,8 +18,9 @@
 /**
  * Process boundary that runs `pm merge install` at a resolved launcher path.
  *
- * Tests inject this to prove Windows `.cmd` shims request `shell: true` without
- * executing a POSIX binary under a fake Windows PATH. Production uses
+ * Tests inject this to prove Windows hands cmd.exe only the constant command
+ * `pm merge install` (never an interpolated path) without executing a POSIX
+ * binary under a fake Windows PATH. Production uses
  * `execFileSync` so a broken CLI's status and output reach the npm prepare hook.
  */
 export type MergeInstaller = (executable: string, arguments_: string[], options: {

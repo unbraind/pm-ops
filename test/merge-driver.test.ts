@@ -157,11 +157,13 @@ test("missing, directory, and non-executable PATH candidates skip with a notice"
   }
 });
 
-test("Windows shims resolve the quoted PATHEXT path and request shell", () => {
-  const windows = join(root, "windows-shim");
+test("Windows hands cmd.exe only the constant command, never the resolved shim path", () => {
+  // Adversarial PATH: a directory whose name contains a space and cmd
+  // metacharacters. Interpolated into a shell line it would split the command
+  // and run `calc` after `&`; only the constant `pm` may reach the shell.
+  const windows = join(root, "Program Files & calc ^ %PATH%");
   mkdirSync(windows, { recursive: true });
-  const shim = join(windows, "pm.CMD");
-  writeFileSync(shim, "@echo off\r\n");
+  writeFileSync(join(windows, "pm.CMD"), "@echo off\r\n");
   const environment = { PATH: `"${windows}"`, PATHEXT: ".CMD;.EXE" };
   let observed: {
     executable: string;
@@ -173,10 +175,25 @@ test("Windows shims resolve the quoted PATHEXT path and request shell", () => {
   };
   assert.equal(runPrepareMergeDriver(environment, "win32", install), 0);
   assert.deepEqual(observed, {
-    executable: shim,
+    executable: "pm",
     arguments_: ["merge", "install"],
     options: { stdio: "inherit", env: environment, shell: true },
   });
+  assert.ok(
+    ![observed?.executable, ...(observed?.arguments_ ?? [])].join(" ").includes("calc"),
+    "no PATH text may reach the shell command line",
+  );
+});
+
+test("Windows without a discoverable shim skips instead of asking cmd.exe to guess", () => {
+  const empty = join(root, "windows-empty");
+  mkdirSync(empty, { recursive: true });
+  let called = false;
+  const install: MergeInstaller = () => {
+    called = true;
+  };
+  assert.equal(runPrepareMergeDriver({ PATH: `"${empty}"`, PATHEXT: ".CMD" }, "win32", install), 0);
+  assert.equal(called, false);
 });
 
 test("POSIX success uses execFile without a shell at the resolved path", () => {

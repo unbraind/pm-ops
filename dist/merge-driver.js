@@ -82,12 +82,18 @@ export function runPrepareMergeDriver(environment = process.env, platform = proc
         return 0;
     }
     try {
-        install(executable, ["merge", "install"], {
+        // Node cannot execFile a Windows .cmd shim, so Windows has to go through
+        // cmd.exe. Only the constant command `pm merge install` may cross that
+        // boundary: interpolating the resolved path would let a PATH directory
+        // containing spaces split the command line, or one containing cmd
+        // metacharacters (`&`, `|`, `^`, `%`) inject into it. cmd resolves `pm`
+        // from the same PATH and PATHEXT that discovery just validated. POSIX
+        // executes the validated absolute path directly, with no shell at all.
+        const windows = platform === "win32";
+        install(windows ? "pm" : executable, ["merge", "install"], {
             stdio: "inherit",
             env: environment,
-            // Node cannot launch .cmd shims through execFile on Windows. Discovery
-            // validated this exact path before it crosses the command-shell boundary.
-            shell: platform === "win32",
+            shell: windows,
         });
         return 0;
     }

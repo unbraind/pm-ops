@@ -23,8 +23,9 @@ import { join } from "node:path";
 /**
  * Process boundary that runs `pm merge install` at a resolved launcher path.
  *
- * Tests inject this to prove Windows `.cmd` shims request `shell: true` without
- * executing a POSIX binary under a fake Windows PATH. Production uses
+ * Tests inject this to prove Windows hands cmd.exe only the constant command
+ * `pm merge install` (never an interpolated path) without executing a POSIX
+ * binary under a fake Windows PATH. Production uses
  * `execFileSync` so a broken CLI's status and output reach the npm prepare hook.
  */
 export type MergeInstaller = (
@@ -103,12 +104,18 @@ export function runPrepareMergeDriver(
     return 0;
   }
   try {
-    install(executable, ["merge", "install"], {
+    // Node cannot execFile a Windows .cmd shim, so Windows has to go through
+    // cmd.exe. Only the constant command `pm merge install` may cross that
+    // boundary: interpolating the resolved path would let a PATH directory
+    // containing spaces split the command line, or one containing cmd
+    // metacharacters (`&`, `|`, `^`, `%`) inject into it. cmd resolves `pm`
+    // from the same PATH and PATHEXT that discovery just validated. POSIX
+    // executes the validated absolute path directly, with no shell at all.
+    const windows = platform === "win32";
+    install(windows ? "pm" : executable, ["merge", "install"], {
       stdio: "inherit",
       env: environment,
-      // Node cannot launch .cmd shims through execFile on Windows. Discovery
-      // validated this exact path before it crosses the command-shell boundary.
-      shell: platform === "win32",
+      shell: windows,
     });
     return 0;
   } catch (error) {
