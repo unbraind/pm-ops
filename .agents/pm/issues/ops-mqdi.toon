@@ -1,0 +1,18 @@
+id: ops-mqdi
+title: "Guarded merge-driver launcher: omit-dev clone installs complete instead of failing on the devDependency import"
+description: "The canonical consumer launcher statically imports pm-ops/merge-driver, but pm-ops is a devDependency. npm install --omit=dev with scripts enabled (a source checkout) fails with ERR_MODULE_NOT_FOUND in prepare before any fallback runs. Raised by CodeRabbit on pm-web#156 and Greptile on pm-slack-standup#89 and pm-changelog#207; hub item pm-cli-website-xy19."
+type: Issue
+status: in_progress
+priority: 1
+tags[4]: fleet,launcher,merge-driver,omit-dev
+created_at: "2026-09-22T20:52:55.599Z"
+updated_at: "2026-09-22T20:53:02.793Z"
+author: claude-hub
+acceptance_criteria: "templates/prepare-merge-driver.ts ships in the package and imports only node builtins; pm-ops/merge-driver/prepare is an exported entry; fixture tests run the shipped template for: pm-ops absent (exit 0, exactly one notice), current (runs pm merge install), failing pm (status propagated), stale pm-ops without the export and pm-ops with a missing entry file (both fail loudly); release:check exits 0 with 100/100/100/100 coverage"
+files[3]{path,scope}:
+  merge-driver-prepare.ts,project
+  templates/prepare-merge-driver.ts,project
+  test/merge-driver-launcher.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/merge-driver-launcher.test.ts,project,claude-hub,"2026-09-22T20:53:02.768Z",local_mutation,guarded-merge-driver-launcher-omit-dev
+body: ""
