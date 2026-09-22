@@ -707,7 +707,7 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
   });
   assertClean(mainImport, "import pm-ops without gate tooling");
 
-  assertClean(runPm(["install", join(root, tarballs[0]!), "--project", "--json"]), "pm install packed pm-ops");
+  assertClean(runPm(["package", "install", join(root, tarballs[0]!), "--project", "--json"]), "pm package install packed pm-ops");
   const doctor = runPm(["package", "doctor", "--project", "--json", "--detail", "deep"]);
   assertClean(doctor, "pm package doctor");
   interface DoctorPayload {

@@ -1,0 +1,32 @@
+id: ops-wwu1
+title: "Certify pm CLI 2026.9.21 and move onto the canonical pm-ops merge-driver, lint and duplication gates"
+description: "Wave 2026-09-22, companion epic pm-cli-website-5s6z. pm-ops IS the canonical source: it already ships the launcher prepare-merge-driver.ts, pm-ops/eslint and pm-ops/duplication, so this wave for pm-ops is (a) pin @unbrained/pm-cli 2026.9.21 + pm-changelog 2026.9.18 in devDependencies, (b) add the CI 'pm merge install' step and --require-merge-drivers on the health command, (c) absorb Dependabot #117 (jscpd 4.3.0 -> 5.2.1) and #116 (@types/node), (d) verify and fix scripts/duplication.ts against the real jscpd 5 programmatic API, widen the optional peer to ^4.3.0 || ^5.2.1, prove both majors report identical clone pairs and install without ERESOLVE, (e) verify eslint 10.x runs cleanly."
+type: Task
+status: in_progress
+priority: 1
+tags[4]: certify,multi-agent,pm-cli-2026.9.21,quality
+created_at: "2026-09-22T04:53:15.143Z"
+updated_at: "2026-09-22T19:37:25.260Z"
+assignee: pi-agent
+claim_principal: pi-agent
+author: pi-agent
+acceptance_criteria: "package.json + package-lock.json pin @unbrained/pm-cli 2026.9.21 and pm-changelog 2026.9.18 in devDependencies; peerDependencies floor unchanged; CI runs pm merge install before pm health --strict-exit --require-merge-drivers; health exits 0 locally; jscpd 5.2.1 devDependency; duplication.ts works against the real jscpd 5 programmatic API with 100/100/100/100 coverage and real tests (no mocks of jscpd); optional peer jscpd widened to ^4.3.0 || ^5.2.1; README Consumers states both majors supported; functional proof in jscpd-proof scratch projects: runDuplicationGate/analyzeDuplication report the same clone pairs on a real fleet .ts tree with jscpd@4.3.0 and jscpd@5.2.1; npm install of the built tarball with jscpd 5.2.1 has no ERESOLVE; release:check exits 0 after changelog:full"
+comments[3]{created_at,author,text}:
+  "2026-09-22T05:02:21.449Z",pi-agent,"jscpd 5 has NO Node.js API: node_modules/jscpd@5.2.1 and 5.3.1 contain only run-jscpd.js + platform-map.js (Rust binary wrapper; README: 'Programming API ... no Node.js API' for v5). Rewrote duplication.ts to dispatch on installed major: v4 programmatic API (unchanged semantics) vs v5 binary run via node run-jscpd.js --reporters json, parsed + validated fail-closed. Percentage now computed as duplicatedLines/totalLines*100 for both majors (v4 rounded to 1 decimal, masking e.g. 0.44% as 0.4). v5 sources = in-scope matched files (v5's statistics.total.sources drops sub-minTokens files which cannot hold a minTokens clone; garbage files are still analyzed, verified)."
+  "2026-09-22T19:12:44.945Z",pi-glm-pmops,"Root cause of npm test failure: the jscpd peer dependency \"^4.3.0 || ^5.2.1\" contains pipe characters (|) which the pm CLI rejects as shell metacharacters during pm package install (error code extension_dependency_version_unsafe). Fixed by changing the peer to \">=4.3.0 <6.0.0\" which covers both jscpd 4.x and 5.x without any shell metacharacters. npm test now passes 433/433 (2 skipped), release:check exits 0 with 100/100/100/100 coverage, pm health --strict-exit exits 0. Also updated README Consumers section to state both jscpd majors are supported and show the new version range."
+  "2026-09-22T19:37:25.260Z",claude-hub,"CodeRabbit on #118: parseJscpdReport accepted impossible totals (lines 0, duplicatedLines 1 -> 0% pass). Fixed fail-closed with 4 malformed-report test cases; release:check exit 0, 433 pass, coverage 100/100/100/100."
+files[11]{path,scope}:
+  docstrings.ts,project
+  duplication.ts,project
+  package.json,project
+  README.md,project
+  shell-scan.ts,project
+  test/attestation-union.test.ts,project
+  test/command-test-helpers.ts,project
+  test/compatibility-floor.test.ts,project
+  test/lint-and-duplication-gates.test.ts,project
+  test/ops.test.ts,project
+  test/verify-release-completeness.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "npm run release:check",project,pi-glm-pmops,"2026-09-22T19:13:01.126Z",local_mutation,pm-cli-2026-9-21-canonical-pm-ops-gates
+body: ""

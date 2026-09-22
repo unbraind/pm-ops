@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test, { after, before } from "node:test";
 
 import { ESLint } from "eslint";
 
-import { analyzeDuplication, duplicationGateDiagnostic, runDuplicationGate } from "../duplication.ts";
+import { analyzeDuplication, duplicationGateDiagnostic, parseJscpdReport, runDuplicationGate } from "../duplication.ts";
 import { fleetEslintConfig, runLintGate } from "../eslint.ts";
 
 let root: string;
@@ -30,6 +30,31 @@ class GateExit extends Error {
     super(`gate exited ${code}`);
     this.code = code;
   }
+}
+
+/**
+ * Run the duplication gate on a repository, assert it requests exit code 1
+ * through the gate exit boundary, and return its collected output.
+ */
+async function gateFailureOutput(
+  repoRoot: string,
+  options: { readonly globs?: readonly string[] } = {},
+): Promise<{ logs: string; errors: string }> {
+  const logs: string[] = [];
+  const errors: string[] = [];
+  await assert.rejects(
+    runDuplicationGate({
+      repoRoot,
+      globs: options.globs,
+      log: (message) => logs.push(message),
+      error: (message) => errors.push(message),
+      exit: (code) => {
+        throw new GateExit(code);
+      },
+    }),
+    (error: unknown) => error instanceof GateExit && error.code === 1,
+  );
+  return { logs: logs.join("\n"), errors: errors.join("\n") };
 }
 
 /** Create a package fixture with the requested duplication configuration. */
@@ -175,21 +200,9 @@ test("duplication scope diagnostics fail closed for empty and skipped sources", 
 test("duplication gate fails with both clone ranges and passes a clean fixture", async () => {
   const duplicate = packageFixture("clone-failure", { threshold: 0, minTokens: 20 });
   duplicateSources(duplicate);
-  const logs: string[] = [];
-  const errors: string[] = [];
-  await assert.rejects(
-    runDuplicationGate({
-      repoRoot: duplicate,
-      log: (message) => logs.push(message),
-      error: (message) => errors.push(message),
-      exit: (code) => {
-        throw new GateExit(code);
-      },
-    }),
-    (error: unknown) => error instanceof GateExit && error.code === 1,
-  );
-  assert.match(logs.join("\n"), /src\/first\.ts:1-11 <-> src\/second\.ts:1-11/);
-  assert.match(errors.join("\n"), /exceeds the configured 0% threshold/);
+  const failure = await gateFailureOutput(duplicate);
+  assert.match(failure.logs, /src\/first\.ts:1-11 <-> src\/second\.ts:1-11/);
+  assert.match(failure.errors, /exceeds the configured 0% threshold/);
 
   const clean = packageFixture("clone-pass", { threshold: 0 });
   writeFileSync(join(clean, "src", "one.ts"), "export const one = 1;\n");
@@ -201,117 +214,123 @@ test("duplication gate fails with both clone ranges and passes a clean fixture",
 test("duplication gate analyzes large files and rejects empty scopes", async () => {
   const large = packageFixture("large-clone", { threshold: 0, minTokens: 20 });
   largeDuplicateSources(large);
-  const largeLogs: string[] = [];
-  const largeErrors: string[] = [];
-  await assert.rejects(
-    runDuplicationGate({
-      repoRoot: large,
-      log: (message) => largeLogs.push(message),
-      error: (message) => largeErrors.push(message),
-      exit: (code) => {
-        throw new GateExit(code);
-      },
-    }),
-    (error: unknown) => error instanceof GateExit && error.code === 1,
-  );
-  assert.match(largeLogs.join("\n"), /2 source\(s\)/);
-  assert.match(largeErrors.join("\n"), /exceeds the configured 0% threshold/);
+  const largeFailure = await gateFailureOutput(large);
+  assert.match(largeFailure.logs, /2 source\(s\)/);
+  assert.match(largeFailure.errors, /exceeds the configured 0% threshold/);
 
   const empty = packageFixture("empty-scope", { threshold: 0 });
-  const emptyErrors: string[] = [];
-  await assert.rejects(
-    runDuplicationGate({
-      repoRoot: empty,
-      globs: ["src/**/*.ts"],
-      error: (message) => emptyErrors.push(message),
-      exit: (code) => {
-        throw new GateExit(code);
-      },
-    }),
-    (error: unknown) => error instanceof GateExit && error.code === 1,
-  );
-  assert.match(emptyErrors.join("\n"), /no TypeScript sources were analyzed/);
+  const emptyFailure = await gateFailureOutput(empty, { globs: ["src/**/*.ts"] });
+  assert.match(emptyFailure.errors, /no TypeScript sources were analyzed/);
 });
 
 test("duplication gate fails closed for missing, malformed, unreadable, and empty glob configuration", async () => {
-  const missing = packageFixture("missing-duplication-config", undefined);
   const messages: string[] = [];
-  await assert.rejects(
-    runDuplicationGate({
-      repoRoot: missing,
-      error: (message) => messages.push(message),
-      exit: (code) => {
-        throw new GateExit(code);
-      },
-    }),
-    (error: unknown) => error instanceof GateExit && error.code === 1,
-  );
+  const missing = packageFixture("missing-duplication-config", undefined);
+  messages.push((await gateFailureOutput(missing)).errors);
   assert.match(messages.join("\n"), /no `duplicationGate` block/);
 
   const malformed = packageFixture("malformed-duplication-config", { threshold: -1 });
-  await assert.rejects(
-    runDuplicationGate({
-      repoRoot: malformed,
-      error: (message) => messages.push(message),
-      exit: (code) => {
-        throw new GateExit(code);
-      },
-    }),
-    GateExit,
-  );
+  messages.push((await gateFailureOutput(malformed)).errors);
   assert.match(messages.join("\n"), /invalid `duplicationGate`/);
 
   const invalidShape = packageFixture("invalid-duplication-shape", null);
-  await assert.rejects(
-    runDuplicationGate({
-      repoRoot: invalidShape,
-      error: (message) => messages.push(message),
-      exit: (code) => {
-        throw new GateExit(code);
-      },
-    }),
-    GateExit,
-  );
+  messages.push((await gateFailureOutput(invalidShape)).errors);
 
   const invalidTokens = packageFixture("invalid-min-tokens", { threshold: 0, minTokens: 0 });
-  await assert.rejects(
-    runDuplicationGate({
-      repoRoot: invalidTokens,
-      error: (message) => messages.push(message),
-      exit: (code) => {
-        throw new GateExit(code);
-      },
-    }),
-    GateExit,
-  );
+  messages.push((await gateFailureOutput(invalidTokens)).errors);
 
   const missingManifest = join(root, "missing-manifest");
   mkdirSync(missingManifest);
-  await assert.rejects(
-    runDuplicationGate({
-      repoRoot: missingManifest,
-      error: (message) => messages.push(message),
-      exit: (code) => {
-        throw new GateExit(code);
-      },
-    }),
-    GateExit,
-  );
+  messages.push((await gateFailureOutput(missingManifest)).errors);
   assert.match(messages.join("\n"), /could not read package\.json/);
 
   const emptyGlob = packageFixture("empty-glob", { threshold: 0 });
-  await assert.rejects(
-    runDuplicationGate({
-      repoRoot: emptyGlob,
-      globs: [],
-      error: (message) => messages.push(message),
-      exit: (code) => {
-        throw new GateExit(code);
-      },
-    }),
-    GateExit,
-  );
+  messages.push((await gateFailureOutput(emptyGlob, { globs: [] })).errors);
   assert.match(messages.join("\n"), /at least one source glob/);
+});
+
+
+/** Create a package fixture whose `jscpd` dependency is the real jscpd 4 package. */
+function jscpd4Fixture(name: string, duplicationGate: Record<string, unknown>): string {
+  const directory = packageFixture(name, duplicationGate);
+  mkdirSync(join(directory, "node_modules"), { recursive: true });
+  symlinkSync(
+    resolve(import.meta.dirname, "../node_modules/jscpd4"),
+    join(directory, "node_modules", "jscpd"),
+    "dir",
+  );
+  return directory;
+}
+
+test("duplication analyzer reports the same clone pairs through the real jscpd 4 and jscpd 5 engines", async () => {
+  const v4 = jscpd4Fixture("engine-parity-v4", { threshold: 0, minTokens: 20 });
+  duplicateSources(v4, "test");
+  const v5 = packageFixture("engine-parity-v5", { threshold: 0, minTokens: 20 });
+  duplicateSources(v5, "test");
+  const globs = ["src/**/*.ts", "test/**/*.ts"];
+  const report4 = await analyzeDuplication({ repoRoot: v4, globs, minTokens: 20 });
+  const report5 = await analyzeDuplication({ repoRoot: v5, globs, minTokens: 20 });
+  assert.deepEqual(report5.clones, report4.clones);
+  assert.equal(report4.cloneCount, 1);
+  assert.equal(report4.sources, 2);
+  assert.equal(report5.sources, 2);
+  assert.deepEqual(report4.skippedSources, []);
+  assert.deepEqual(report5.skippedSources, []);
+  assert.equal(report4.clones[0]?.first.startLine, 1);
+  assert.equal(report4.clones[0]?.second.endLine, 11);
+
+  const empty4 = await analyzeDuplication({ repoRoot: v4, globs: ["nope/**/*.ts"] });
+  assert.equal(empty4.sources, 0);
+  assert.deepEqual(empty4.skippedSources, []);
+  assert.equal(empty4.percentage, 0);
+
+  const gate = await gateFailureOutput(v4, { globs });
+  assert.match(gate.errors, /exceeds the configured 0% threshold/);
+});
+
+test("duplication gate fails closed when the real jscpd 5 binary package is missing", async () => {
+  const broken = packageFixture("jscpd5-missing-platform", { threshold: 0 });
+  mkdirSync(join(broken, "node_modules"), { recursive: true });
+  cpSync(
+    resolve(import.meta.dirname, "../node_modules/jscpd"),
+    join(broken, "node_modules", "jscpd"),
+    { recursive: true },
+  );
+  writeFileSync(join(broken, "src", "first.ts"), "export const one = 1;\n");
+  const gate = await gateFailureOutput(broken);
+  assert.match(gate.errors, /jscpd analysis failed/);
+  assert.match(gate.errors, /exited with status 1/);
+});
+
+test("jscpd 5 report parsing accepts a real report shape and fails closed for malformed ones", () => {
+  const clone = {
+    firstFile: { name: "/repo/src/first.ts", start: 1, end: 11 },
+    secondFile: { name: "/repo/test/second.ts", start: 1, end: 11 },
+  };
+  const statistics = { total: { lines: 22, duplicatedLines: 11 } };
+  const parsed = parseJscpdReport({ duplicates: [clone], statistics });
+  assert.equal(parsed.duplicates.length, 1);
+  assert.equal(parsed.duplicates[0]?.firstFile.name, "/repo/src/first.ts");
+  assert.equal(parsed.statistics.total.lines, 22);
+  const malformed: unknown[] = [
+    null,
+    "report",
+    { duplicates: "no", statistics },
+    { duplicates: [null], statistics },
+    { duplicates: [{ firstFile: null, secondFile: clone.secondFile }], statistics },
+    { duplicates: [{ firstFile: { name: 1, start: 1, end: 2 }, secondFile: clone.secondFile }], statistics },
+    { duplicates: [{ firstFile: { name: "a.ts", start: "1", end: 2 }, secondFile: clone.secondFile }], statistics },
+    { duplicates: [{ firstFile: { name: "a.ts", start: Number.NaN, end: 2 }, secondFile: clone.secondFile }], statistics },
+    { duplicates: [clone], statistics: null },
+    { duplicates: [clone], statistics: { total: null } },
+    { duplicates: [clone], statistics: { total: { lines: "22", duplicatedLines: 11 } } },
+    { duplicates: [clone], statistics: { total: { lines: 22 } } },
+    { duplicates: [clone], statistics: { total: { lines: 0, duplicatedLines: 1 } } },
+    { duplicates: [clone], statistics: { total: { lines: 22, duplicatedLines: -1 } } },
+    { duplicates: [clone], statistics: { total: { lines: 22.5, duplicatedLines: 11 } } },
+    { duplicates: [clone], statistics: { total: { lines: 22, duplicatedLines: 1.5 } } },
+  ];
+  for (const report of malformed) assert.throws(() => parseJscpdReport(report), /jscpd report/);
 });
 
 test("direct gate launchers preserve success and failure statuses", async () => {

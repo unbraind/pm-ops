@@ -37,6 +37,7 @@ import {
   verify,
   type CompletenessFetcher,
 } from "../scripts/verify-release-completeness.ts";
+import { assertCleanReport, assertFailingReport } from "./command-test-helpers.ts";
 
 /** A fetcher that returns fixed lists, so no test reaches the network. */
 function fixedFetcher(lists: {
@@ -399,19 +400,15 @@ test("packageNameFromManifest reads the name, and yields empty when the manifest
 });
 
 test("report prints notes then failures and asks for a failing exit code", () => {
-  const lines: string[] = [];
-  const codes: number[] = [];
-  report({ failures: ["bad"], notes: ["fine"] }, (line) => lines.push(line), (code) => codes.push(code));
-  assert.deepEqual(lines, ["fine", "FAIL - bad", "verify-release-completeness: 1 failure(s)."]);
-  assert.deepEqual(codes, [1]);
+  assertFailingReport(report, "verify-release-completeness: 1 failure(s).");
 });
 
 test("report on a clean result says so and asks for no exit code", () => {
-  const lines: string[] = [];
-  const codes: number[] = [];
-  report({ failures: [], notes: ["ok - 1 release tag(s), each with a published npm version and a GitHub Release"] }, (line) => lines.push(line), (code) => codes.push(code));
-  assert.deepEqual(lines, ["ok - 1 release tag(s), each with a published npm version and a GitHub Release", "verify-release-completeness: every release tag has a published npm version and a GitHub Release."]);
-  assert.deepEqual(codes, []);
+  assertCleanReport(
+    report,
+    ["ok - 1 release tag(s), each with a published npm version and a GitHub Release"],
+    "verify-release-completeness: every release tag has a published npm version and a GitHub Release.",
+  );
 });
 
 test("runIfMain runs only as the entry point, and verifies with the fetcher it is given", () => {
