@@ -344,9 +344,10 @@ The quality exports use optional peer dependencies so installing `pm-ops` as a
 `pm` extension does not download tooling that the extension surface does not
 run. A repository importing `pm-ops/eslint` adds these exact `devDependencies`:
 `@babel/eslint-parser`, `@babel/plugin-syntax-typescript`, and `eslint`. A
-repository importing `pm-ops/duplication` adds `fast-glob` and `jscpd`. A
-repository using both exports adds all five packages, using the version ranges
-shown in `package.json`.
+repository importing `pm-ops/duplication` adds `fast-glob` and `jscpd` (either
+jscpd 4.3.0 or 5.2.1 — both majors are supported). A repository using both
+exports adds all five packages, using the version ranges shown in
+`package.json`.
 
 ```ts
 import { analyzeDuplication, runDuplicationGate } from "pm-ops/duplication";
@@ -370,7 +371,7 @@ otherwise, but must remain thin imports of the canonical exports):
     "@babel/plugin-syntax-typescript": "^8.0.3",
     "eslint": "^10.10.0",
     "fast-glob": "^3.3.3",
-    "jscpd": "^4.3.0",
+    "jscpd": ">=4.3.0 <6.0.0",
     "pm-ops": "<current pm-ops version>"
   },
   "duplicationGate": {

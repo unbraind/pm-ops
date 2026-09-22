@@ -656,11 +656,8 @@ class SourceAnalyzer {
         this.failClosed(this.cur(), "unrecognized declaration form");
         this.skipUntilSemicolon();
     }
-    /** Parse a `function` declaration or expression at the current token. */
-    parseFunction(opts) {
-        this.i++; // function
-        if (this.at(SyntaxKind.AsteriskToken))
-            this.i++; // generator
+    /** Consume the declaration's optional identifier name and type parameter list. */
+    takeNameAndTypeParams() {
         let name;
         if (this.at(SyntaxKind.Identifier)) {
             name = this.cur().text;
@@ -668,9 +665,26 @@ class SourceAnalyzer {
         }
         if (this.at(SyntaxKind.LessThanToken))
             this.skipTypeParams();
+        return name;
+    }
+    /**
+     * Skip a callable's optional type parameters and parameter list, then locate
+     * its body: a body-less signature is an overload or ambient declaration.
+     */
+    findCallableBody() {
+        if (this.at(SyntaxKind.LessThanToken))
+            this.skipTypeParams();
         if (this.at(SyntaxKind.OpenParenToken))
             this.skipGroup();
-        const body = this.findFunctionBody();
+        return this.findFunctionBody();
+    }
+    /** Parse a `function` declaration or expression at the current token. */
+    parseFunction(opts) {
+        this.i++; // function
+        if (this.at(SyntaxKind.AsteriskToken))
+            this.i++; // generator
+        const name = this.takeNameAndTypeParams();
+        const body = this.findCallableBody();
         if (body.kind === "body") {
             const open = this.tokens[body.openIdx];
             const closeIdx = this.matchingClose(body.openIdx);
@@ -685,13 +699,7 @@ class SourceAnalyzer {
     /** Parse a `class` declaration or expression at the current token. */
     parseClass(opts) {
         this.i++; // class
-        let name;
-        if (this.at(SyntaxKind.Identifier)) {
-            name = this.cur().text;
-            this.i++;
-        }
-        if (this.at(SyntaxKind.LessThanToken))
-            this.skipTypeParams();
+        const name = this.takeNameAndTypeParams();
         const bodyIdx = this.findClassBody();
         if (opts.exported)
             this.judge(opts.head, name ?? "default");
@@ -959,13 +967,11 @@ class SourceAnalyzer {
             let hasInitializer = false;
             let hasNextDeclarator = false;
             while (this.i < this.tokens.length) {
+                if (this.consumeIfAt(SyntaxKind.SemicolonToken))
+                    return;
+                if (this.at(SyntaxKind.CloseBraceToken))
+                    return;
                 const k = this.cur().kind;
-                if (k === SyntaxKind.SemicolonToken) {
-                    this.i++;
-                    return;
-                }
-                if (k === SyntaxKind.CloseBraceToken)
-                    return;
                 if (k === SyntaxKind.CommaToken) {
                     this.i++;
                     hasNextDeclarator = true;
@@ -987,10 +993,8 @@ class SourceAnalyzer {
                     this.skipTypeParams();
                     continue;
                 }
-                if (k === SyntaxKind.OpenBraceToken || k === SyntaxKind.OpenParenToken || k === SyntaxKind.OpenBracketToken) {
-                    this.skipGroup();
+                if (this.skipGroupIfOpen())
                     continue;
-                }
                 this.i++;
             }
             if (!hasNextDeclarator)
@@ -999,69 +1003,63 @@ class SourceAnalyzer {
     }
     /** Skip a callable's optional type parameters, parameter list, and body. */
     skipCallable() {
-        if (this.at(SyntaxKind.LessThanToken))
-            this.skipTypeParams();
-        if (this.at(SyntaxKind.OpenParenToken))
-            this.skipGroup();
-        const body = this.findFunctionBody();
+        const body = this.findCallableBody();
         if (body.kind === "body")
             this.descendBlock(body.openIdx);
     }
     /** Skip a member's trailing type or initializer to its terminating `;`. */
     skipMemberRest() {
         while (this.i < this.tokens.length) {
-            const k = this.cur().kind;
-            if (k === SyntaxKind.SemicolonToken) {
-                this.i++;
+            if (this.consumeIfAt(SyntaxKind.SemicolonToken))
                 return;
-            }
-            if (k === SyntaxKind.CloseBraceToken)
+            if (this.at(SyntaxKind.CloseBraceToken))
                 return;
             const previous = this.tokens[this.i - 1];
             if (previous &&
                 this.lineOf[this.cur().start] > this.lineOf[previous.start] &&
                 DIVISION_PREVIOUS.has(previous.kind) &&
-                MEMBER_STARTS.has(k)) {
+                MEMBER_STARTS.has(this.cur().kind)) {
                 return;
             }
-            if (k === SyntaxKind.OpenBraceToken || k === SyntaxKind.OpenParenToken || k === SyntaxKind.OpenBracketToken) {
-                this.skipGroup();
+            if (this.skipGroupIfOpen())
                 continue;
-            }
             this.i++;
         }
+    }
+    /** Consume the token at the cursor when it is `kind`; report whether it was consumed. */
+    consumeIfAt(kind) {
+        if (this.at(kind)) {
+            this.i++;
+            return true;
+        }
+        return false;
+    }
+    /** Skip the balanced group at the cursor when it opens one; report whether it did. */
+    skipGroupIfOpen() {
+        const k = this.cur().kind;
+        if (k === SyntaxKind.OpenBraceToken || k === SyntaxKind.OpenParenToken || k === SyntaxKind.OpenBracketToken) {
+            this.skipGroup();
+            return true;
+        }
+        return false;
     }
     /** Skip tokens to the next `;` at group-depth zero, balancing nested groups. */
     skipUntilSemicolon() {
-        while (this.i < this.tokens.length) {
-            const k = this.cur().kind;
-            if (k === SyntaxKind.SemicolonToken) {
-                this.i++;
-                return;
-            }
-            if (k === SyntaxKind.CloseBraceToken)
-                return;
-            if (k === SyntaxKind.OpenBraceToken || k === SyntaxKind.OpenParenToken || k === SyntaxKind.OpenBracketToken) {
-                this.skipGroup();
-                continue;
-            }
-            this.i++;
-        }
+        this.skipUntilToken(SyntaxKind.SemicolonToken);
     }
     /** Skip tokens to the next `:` at group-depth zero (a `case` label). */
     skipUntilColon() {
+        this.skipUntilToken(SyntaxKind.ColonToken);
+    }
+    /** Skip tokens to `terminator` at group-depth zero, balancing nested groups. */
+    skipUntilToken(terminator) {
         while (this.i < this.tokens.length) {
-            const k = this.cur().kind;
-            if (k === SyntaxKind.ColonToken) {
-                this.i++;
+            if (this.consumeIfAt(terminator))
                 return;
-            }
-            if (k === SyntaxKind.CloseBraceToken)
+            if (this.at(SyntaxKind.CloseBraceToken))
                 return;
-            if (k === SyntaxKind.OpenBraceToken || k === SyntaxKind.OpenParenToken || k === SyntaxKind.OpenBracketToken) {
-                this.skipGroup();
+            if (this.skipGroupIfOpen())
                 continue;
-            }
             this.i++;
         }
     }
@@ -1131,14 +1129,11 @@ class SourceAnalyzer {
      */
     skipExpressionStatement() {
         while (this.i < this.tokens.length) {
-            const k = this.cur().kind;
-            if (k === SyntaxKind.SemicolonToken) {
-                this.i++;
+            if (this.consumeIfAt(SyntaxKind.SemicolonToken))
                 return;
-            }
-            if (k === SyntaxKind.CloseBraceToken)
+            if (this.at(SyntaxKind.CloseBraceToken))
                 return;
-            if (k === SyntaxKind.OpenBraceToken) {
+            if (this.at(SyntaxKind.OpenBraceToken)) {
                 const prev = this.tokens[this.i - 1]?.kind;
                 if (prev === SyntaxKind.CloseParenToken || prev === SyntaxKind.EqualsGreaterThanToken) {
                     this.descendBlock(this.i);
@@ -1148,7 +1143,7 @@ class SourceAnalyzer {
                 }
                 continue;
             }
-            if (k === SyntaxKind.OpenParenToken || k === SyntaxKind.OpenBracketToken) {
+            if (this.at(SyntaxKind.OpenParenToken) || this.at(SyntaxKind.OpenBracketToken)) {
                 this.skipGroup();
                 continue;
             }

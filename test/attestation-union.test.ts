@@ -31,6 +31,7 @@ import {
   verify,
 } from "../scripts/verify-release-publish-attestation.ts";
 import { commandArguments, commandCandidates, commandName, expandScalars, heredocBodyLines, shellScalars, tokenizeCommands, unsetNames } from "../scripts/shell-command-scan.ts";
+import { assertCleanReport, assertFailingReport } from "./command-test-helpers.ts";
 
 /** Tokenises one command and returns it, asserting the text held exactly one. */
 function onlyCommand(text: string): ReturnType<typeof tokenizeCommands>[number] {
@@ -606,19 +607,11 @@ test("verify reads the tracked files and fails on an unattested one", () => {
 });
 
 test("report prints notes then failures and asks for a failing exit code", () => {
-  const lines: string[] = [];
-  const codes: number[] = [];
-  report({ failures: ["bad"], notes: ["fine"] }, (line) => lines.push(line), (code) => codes.push(code));
-  assert.deepEqual(lines, ["fine", "FAIL - bad", "verify-release-publish-attestation: 1 failure(s)."]);
-  assert.deepEqual(codes, [1]);
+  assertFailingReport(report, "verify-release-publish-attestation: 1 failure(s).");
 });
 
 test("report on a clean result says so and asks for no exit code", () => {
-  const lines: string[] = [];
-  const codes: number[] = [];
-  report({ failures: [], notes: [] }, (line) => lines.push(line), (code) => codes.push(code));
-  assert.deepEqual(lines, ["verify-release-publish-attestation: every publish invocation is attested."]);
-  assert.deepEqual(codes, []);
+  assertCleanReport(report, [], "verify-release-publish-attestation: every publish invocation is attested.");
 });
 
 test("runIfMain runs only as the entry point, and reports when it does", () => {

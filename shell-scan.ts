@@ -1028,6 +1028,55 @@ interface ScalarAssignment {
   value?: string;
 }
 
+/** The tracked single- and double-quote state of one shell word scan. */
+interface TrackedQuotes {
+  single: boolean;
+  double: boolean;
+}
+
+/** The next character of a shell word scan that quoting itself does not consume. */
+interface NextBareChar {
+  /** The processable character, or undefined when quoting consumes the rest of the line. */
+  readonly char: string | undefined;
+  /** The scan index of `char`, or past the line's end at end of line. */
+  readonly index: number;
+}
+
+/**
+ * Advance a shell word scan past the characters quoting itself consumes.
+ *
+ * A backslash outside single quotes consumes the character after it, and
+ * each quote character toggles its own state while the other quote kind is
+ * inactive; both loops that read shell words advance over exactly these
+ * characters and read everything else themselves.
+ *
+ * @param quotes - The mutable quote state of the word scan.
+ * @param line - The line being scanned.
+ * @param index - The scan index to advance from.
+ * @returns The first character quoting does not consume, and its index.
+ */
+function nextBareChar(quotes: TrackedQuotes, line: string, index: number): NextBareChar {
+  while (index < line.length) {
+    const char = line[index]!;
+    if (char === "\\" && !quotes.single) {
+      index += 2;
+      continue;
+    }
+    if (char === "'" && !quotes.double) {
+      quotes.single = !quotes.single;
+      index += 1;
+      continue;
+    }
+    if (char === '"' && !quotes.single) {
+      quotes.double = !quotes.double;
+      index += 1;
+      continue;
+    }
+    return { char, index };
+  }
+  return { char: undefined, index };
+}
+
 /**
  * Parse the run of assignments a line opens with, reading each value that is a
  * fully literal shell word.
@@ -1064,28 +1113,18 @@ function leadingAssignments(line: string): ScalarAssignment[] {
     if (head === null) break;
     index += head[0].length;
     const start = index;
-    let single = false;
-    let double = false;
+    const quotes: TrackedQuotes = { single: false, double: false };
     let backtick = false;
     let substitutionDepth = 0;
     let readable = true;
     for (; index < line.length; index += 1) {
-      const char = line[index]!;
-      if (char === "\\" && !single) {
-        index += 1;
-        continue;
-      }
-      if (char === "'" && !double) {
-        single = !single;
-        continue;
-      }
-      if (char === '"' && !single) {
-        double = !double;
-        continue;
-      }
+      const next = nextBareChar(quotes, line, index);
+      index = next.index;
+      if (next.char === undefined) break;
+      const char = next.char;
       // Inside single quotes bash resolves nothing: no substitution opens, no
       // delimiter closes, no separator ends the word.
-      if (single) continue;
+      if (quotes.single) continue;
       if (char === "`") {
         backtick = !backtick;
         readable = false;
@@ -1102,7 +1141,7 @@ function leadingAssignments(line: string): ScalarAssignment[] {
         // A parenthesis inside quotes is literal text of the substituted
         // command, not its delimiter. Counting one would close the
         // substitution early and put the rest of the word outside it.
-        if (!double) {
+        if (!quotes.double) {
           if (char === "(") substitutionDepth += 1;
           else if (char === ")") substitutionDepth -= 1;
         }
@@ -1110,11 +1149,11 @@ function leadingAssignments(line: string): ScalarAssignment[] {
       }
       if (backtick) continue;
       // Inside double quotes a separator is part of the value.
-      if (double) continue;
+      if (quotes.double) continue;
       if (/\s/.test(char) || char === ";") break;
       if (/[()]/.test(char)) readable = false;
     }
-    if (single || double || backtick || substitutionDepth > 0) {
+    if (quotes.single || quotes.double || backtick || substitutionDepth > 0) {
       // The word's own extent is a guess, so neither its value nor what follows
       // it can be read.
       readable = false;
@@ -1546,16 +1585,14 @@ export function segmentShellLine(line: string): string[] {
  */
 function unquotedText(line: string): string {
   let bare = "";
-  let single = false;
-  let double = false;
+  const quotes: TrackedQuotes = { single: false, double: false };
   for (let index = 0; index < line.length; index += 1) {
-    const char = line[index]!;
-    if (char === "\\" && !single) { index += 1; continue; }
-    if (char === "'" && !double) { single = !single; continue; }
-    if (char === '"' && !single) { double = !double; continue; }
-    if (single || double) continue;
-    if (char === "#" && (index === 0 || /\s/u.test(line[index - 1]!))) break;
-    bare += char;
+    const next = nextBareChar(quotes, line, index);
+    index = next.index;
+    if (next.char === undefined) break;
+    if (quotes.single || quotes.double) continue;
+    if (next.char === "#" && (next.index === 0 || /\s/u.test(line[next.index - 1]!))) break;
+    bare += next.char;
   }
   return bare;
 }
