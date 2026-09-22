@@ -38,6 +38,10 @@
       "types": "./dist/merge-driver.d.ts",
       "default": "./dist/merge-driver.js"
     },
+    "./merge-driver/prepare": {
+      "types": "./dist/merge-driver-prepare.d.ts",
+      "default": "./dist/merge-driver-prepare.js"
+    },
     "./lifecycle-policy": {
       "types": "./dist/lifecycle-policy.d.ts",
       "default": "./dist/lifecycle-policy.js"
@@ -53,6 +57,7 @@
   },
   "files": [
     "dist/",
+    "templates/",
     "manifest.json",
     "README.md",
     "CHANGELOG.md"

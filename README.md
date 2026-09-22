@@ -294,19 +294,28 @@ Fleet totals are intentionally **not** pre-aggregated — expose per-repo series
 
 Git never clones `.git/config`, so every fleet package has to run `pm merge install` from its
 npm `prepare` script or concurrent agents conflict on tracker files. This package is the one
-canonical implementation. Consumers ship a one-line launcher instead of vendoring JavaScript:
+canonical implementation.
 
-```ts
-// scripts/prepare-merge-driver.ts
-import { runPrepareMergeDriver } from "pm-ops/merge-driver";
-process.exitCode = runPrepareMergeDriver();
-```
+Consumers copy [`templates/prepare-merge-driver.ts`](templates/prepare-merge-driver.ts) unchanged to
+`scripts/prepare-merge-driver.ts` and set `"prepare": "node scripts/prepare-merge-driver.ts"`. The
+template imports **nothing** from pm-ops. pm-ops is a devDependency, so a checkout installed with
+`npm install --omit=dev` (scripts enabled) does not have it, and a static
+`import … from "pm-ops/merge-driver"` would fail at module load, before any fallback could run.
+Dynamic `import()` is forbidden by the fleet lint gate. Instead the template resolves
+`pm-ops/merge-driver/prepare` from the package root and runs it in a child process:
 
-`runPrepareMergeDriver` resolves the real `pm` launcher on the supplied PATH/platform, then:
+- **pm-ops not installed** (`--omit=dev`): exits `0` after exactly one notice line
+- **pm-ops too old to export the entry, or its entry file missing**: fails the install loudly, and never skips
+- **pm-ops installed**: runs `runPrepareMergeDriver` (below) and propagates its exit status
 
-- **missing `pm`** — exits `0` and prints one notice line, so production / `--omit=dev` installs are not broken
-- **present `pm` whose `pm merge install` fails** — non-zero exit with that command's output
-- **Windows** — honours quoted PATH entries and PATHEXT shims, and sets `shell: true` only on `win32` so `.cmd` launchers run; the POSIX path is never faked
+Fixture tests in `test/merge-driver-launcher.test.ts` execute the shipped template against each of
+those consumer layouts with a stub `pm` on PATH.
+
+`runPrepareMergeDriver` (also exported from `pm-ops/merge-driver`) resolves the real `pm` launcher on the supplied PATH/platform, then:
+
+- **missing `pm`**: exits `0` and prints one notice line
+- **present `pm` whose `pm merge install` fails**: non-zero exit with that command's output
+- **Windows**: honours quoted PATH entries and PATHEXT shims, and sets `shell: true` only on `win32` so `.cmd` launchers run; the POSIX path is never faked
 
 This repository's own `prepare` script is that launcher (with an `isMainInvocation` guard so the suite can import it). To (re)run manually: `npm run merge:install`.
 ## Canonical code-quality exports
