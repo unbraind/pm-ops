@@ -210,15 +210,19 @@ export function parseJscpdReport(report: unknown): ReportedAnalysis {
   });
   const statistics = expectRecord(root.statistics, "statistics");
   const total = expectRecord(statistics.total, "statistics.total");
-  return {
-    duplicates: clones,
-    statistics: {
-      total: {
-        lines: expectNumber(total, "lines", "statistics.total.lines"),
-        duplicatedLines: expectNumber(total, "duplicatedLines", "statistics.total.duplicatedLines"),
-      },
-    },
-  };
+  const lines = expectNumber(total, "lines", "statistics.total.lines");
+  const duplicatedLines = expectNumber(total, "duplicatedLines", "statistics.total.duplicatedLines");
+  // An impossible count (negative, fractional, or more duplicated than total lines)
+  // would compute a passing percentage, so it fails closed like a missing field.
+  if (
+    !Number.isInteger(lines) ||
+    !Number.isInteger(duplicatedLines) ||
+    duplicatedLines < 0 ||
+    duplicatedLines > lines
+  ) {
+    throw new Error("duplication: jscpd report statistics.total contains impossible line counts");
+  }
+  return { duplicates: clones, statistics: { total: { lines, duplicatedLines } } };
 }
 
 /** Parse and validate the package-level duplication gate contract. */

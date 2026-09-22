@@ -325,6 +325,10 @@ test("jscpd 5 report parsing accepts a real report shape and fails closed for ma
     { duplicates: [clone], statistics: { total: null } },
     { duplicates: [clone], statistics: { total: { lines: "22", duplicatedLines: 11 } } },
     { duplicates: [clone], statistics: { total: { lines: 22 } } },
+    { duplicates: [clone], statistics: { total: { lines: 0, duplicatedLines: 1 } } },
+    { duplicates: [clone], statistics: { total: { lines: 22, duplicatedLines: -1 } } },
+    { duplicates: [clone], statistics: { total: { lines: 22.5, duplicatedLines: 11 } } },
+    { duplicates: [clone], statistics: { total: { lines: 22, duplicatedLines: 1.5 } } },
   ];
   for (const report of malformed) assert.throws(() => parseJscpdReport(report), /jscpd report/);
 });
