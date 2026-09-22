@@ -18,16 +18,22 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 
 // npm runs `prepare` from the package root, so pm-ops is resolved from there.
-// A missing package names the specifier; a pm-ops whose entry file is missing
-// names the absolute path instead, and must fail rather than skip.
-const specifier = "pm-ops/merge-driver/prepare";
+const resolver = createRequire(join(process.cwd(), "package.json"));
 let installer: string | undefined;
 try {
-  installer = createRequire(join(process.cwd(), "package.json")).resolve(specifier);
+  installer = resolver.resolve("pm-ops/merge-driver/prepare");
 } catch (error) {
-  const packageMissing = error instanceof Error && "code" in error && error.code === "MODULE_NOT_FOUND" &&
-    error.message.startsWith(`Cannot find module '${specifier}'`);
-  if (!packageMissing) throw error;
+  // Only an absent pm-ops package may skip. Probing its package.json tells that
+  // apart from an installed pm-ops that cannot serve the entry (exports without
+  // it, no exports map, a missing file): those resolve or fail differently, and
+  // the original error is rethrown.
+  let packagePresent = true;
+  try {
+    resolver.resolve("pm-ops/package.json");
+  } catch (probe) {
+    packagePresent = !(probe instanceof Error && "code" in probe && probe.code === "MODULE_NOT_FOUND");
+  }
+  if (packagePresent) throw error;
 }
 if (installer === undefined) {
   console.error("pm-ops is not installed (omit-dev install); skipping merge-driver install");

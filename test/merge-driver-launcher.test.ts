@@ -123,6 +123,16 @@ test("a pm-ops whose entry file is missing fails loudly instead of skipping", { 
   assert.throws(() => readFileSync(record, "utf8"), /ENOENT/);
 });
 
+test("an installed pm-ops without an exports map fails loudly instead of skipping", { skip: process.platform === "win32" }, () => {
+  const directory = consumer("no-exports", "stale");
+  writeFileSync(join(directory, "node_modules", "pm-ops", "package.json"), JSON.stringify({ name: "pm-ops" }));
+  const { bin, record } = stubPm("no-exports", 0);
+  const result = run(directory, template, bin);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Cannot find module 'pm-ops\/merge-driver\/prepare'/);
+  assert.throws(() => readFileSync(record, "utf8"), /ENOENT/);
+});
+
 test("the prepare entry itself skips with a notice when pm is not on PATH", { skip: process.platform === "win32" }, () => {
   const empty = join(root, "empty-bin");
   mkdirSync(empty);
