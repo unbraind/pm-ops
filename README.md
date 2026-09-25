@@ -306,6 +306,7 @@ Dynamic `import()` is forbidden by the fleet lint gate. Instead the template res
 
 - **pm-ops not installed** (`--omit=dev`): exits `0` after exactly one notice line
 - **pm-ops too old to export the entry, or its entry file missing**: fails the install loudly, and never skips
+- **a broken install** (`node_modules/pm-ops` left as a directory without its `package.json`, or as a dangling link): fails the install loudly; resolution fails there with the same `MODULE_NOT_FOUND` an omit-dev install produces, so the template also looks for that entry before skipping
 - **pm-ops installed**: runs `runPrepareMergeDriver` (below) and propagates its exit status
 
 Fixture tests in `test/merge-driver-launcher.test.ts` execute the shipped template against each of
