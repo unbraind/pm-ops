@@ -2,13 +2,19 @@ id: ops-eyi8
 title: The guarded launcher template reads a pm-ops directory without package.json as an omit-dev install and skips the merge drivers
 description: "Greptile P2 on pm-slack#117 and pm-starter#115 (2026-09-25), companion hub item pm-cli-website-dqg7. templates/prepare-merge-driver.ts treated MODULE_NOT_FOUND from the pm-ops/package.json probe as proof that pm-ops is absent. A broken install that leaves node_modules/pm-ops as a directory with no package.json, or as a dangling link, fails the probe the same way, so the launcher printed the omit-dev notice, exited 0 and left the clone without merge drivers. The next multi-agent merge would then hard-conflict on tracker files. The fix: an entry at node_modules/pm-ops (lstat, so a dangling link counts) also means present, and the original resolution error is rethrown."
 type: Issue
-status: in_progress
+status: closed
 priority: 1
 tags[3]: fail-open,merge-driver,multi-agent
 created_at: "2026-09-25T08:58:07.579Z"
-updated_at: "2026-09-25T09:08:34.801Z"
+updated_at: "2026-09-25T09:09:42.145Z"
+closed_at: "2026-09-25T09:09:40.290Z"
+completed_at: "2026-09-25T09:09:40.290Z"
 author: claude-hub
 acceptance_criteria: "A consumer whose node_modules/pm-ops is a directory without package.json, or a dangling link, fails the prepare hook without the skip notice; An absent pm-ops still skips with exactly one notice; Both new fixture cases fail against the previous template"
+repro_steps: "1. In a consumer checkout, create node_modules/pm-ops as an empty directory (or a dangling symlink). 2. Run node scripts/prepare-merge-driver.ts (the npm prepare hook). 3. Observe: 'pm-ops is not installed (omit-dev install); skipping merge-driver install', exit 0, no merge.* entries in git config."
+resolution: The launcher template fails a broken pm-ops install instead of reading it as an omit-dev install
+expected_result: A clone whose node_modules/pm-ops is broken fails the prepare hook; an absent pm-ops still skips with one notice
+actual_result: "10/10 launcher fixture cases pass, the two new ones fail on the previous template; release:check exits 0"
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   ops-mqdi,related,"2026-09-25T08:58:07.579Z",claude-hub,"cli:create:dep",asserted
 files[3]{path,scope}:
@@ -18,4 +24,5 @@ files[3]{path,scope}:
 tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/merge-driver-launcher.test.ts,project,claude-hub,"2026-09-25T08:58:18.761Z",local_mutation,guard-launcher-against-broken-pm-ops-install
   "npm run release:check",project,claude-hub,"2026-09-25T08:58:18.761Z",local_mutation,guard-launcher-against-broken-pm-ops-install
+close_reason: "templates/prepare-merge-driver.ts now counts an entry at node_modules/pm-ops (lstat, so a dangling link counts) as present when the package.json probe fails with MODULE_NOT_FOUND, and rethrows the original resolution error. Two new fixture cases in test/merge-driver-launcher.test.ts fail against the previous template and pass now; the omit-dev case still skips with exactly one notice. node --test test/merge-driver-launcher.test.ts: 10/10; npm run release:check exits 0."
 body: ""
