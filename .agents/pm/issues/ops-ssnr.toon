@@ -1,0 +1,23 @@
+id: ops-ssnr
+title: A publish that npm accepts late is reported as failed and the GitHub Release is skipped on bun mirror lag
+description: "Companion item pm-cli-website-3y5d. pm-csv 2026.9.23 is the live case: npm accepted the publish with provenance and the tag was pushed, but bun still answered No version matching after 4 minutes, so the job failed before creating the GitHub Release. This repository's own release.yml gets a 10-minute npm visibility window with --prefer-online reads and an honest never-visible message, a ~10-minute bun window, and a GitHub Release that depends only on the publish and tag-push outcomes, with a gate step that fails the job visibly when bun verification failed."
+type: Issue
+status: closed
+priority: 1
+tags[2]: release,reliability
+created_at: "2026-09-25T08:25:19.778Z"
+updated_at: "2026-09-25T09:11:00.157Z"
+closed_at: "2026-09-25T09:10:49.485Z"
+completed_at: "2026-09-25T09:10:49.485Z"
+author: fleet-wave-script
+acceptance_criteria: "A publish npm accepts late is waited for (10 minutes) and never reported as a publish failure; The GitHub Release is created whenever the publish and the tag push succeeded, and a bun failure still fails the job visibly"
+repro_steps: "1. A Daily Release publishes to npm and pushes the tag. 2. bun's registry mirror still answers No version matching after 8 attempts (4 minutes), as it did for pm-csv 2026.9.23. 3. The job fails before Create GitHub release, leaving the tag without a Release; or npm serves the version late and the 2.5-minute npm window reports a false publish failure."
+resolution: "10-minute npm visibility window with fresh reads, an ~11-minute bun backoff, and a GitHub Release gated only on the publish and tag push, with a visible bun gate step"
+expected_result: "A late-visible publish is reconciled, and a bun failure no longer skips the GitHub Release but still fails the job"
+actual_result: "The patched workflow carries those conditions; actionlint shows no new findings and release:check exits 0"
+files[1]{path,scope}:
+  .github/workflows/release.yml,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "npm run release:check",project,fleet-wave-script,"2026-09-25T08:25:53.072Z",local_mutation,certify-pm-cli-2026-9-23-and-roll-out-guarded-merge-driver-launcher
+close_reason: "Applied to this repository's own release.yml by anchored replacements (identity asserted: it names only unbraind/pm-ops); actionlint reports no new findings; release:check exits 0."
+body: ""

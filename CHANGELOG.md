@@ -4,7 +4,12 @@
 
 ### Fixed
 
+- A publish that npm accepts late is reported as failed and the GitHub Release is skipped on bun mirror lag ([ops-ssnr](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-ssnr.toon))
 - The guarded launcher template reads a pm-ops directory without package.json as an omit-dev install and skips the merge drivers ([ops-eyi8](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-eyi8.toon))
+
+### Other
+
+- Certify pm CLI 2026.9.23 and adopt the guarded pm-ops merge-driver launcher ([ops-me3v](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-me3v.toon))
 
 ## 2026.9.18 - 2026-09-18
 
