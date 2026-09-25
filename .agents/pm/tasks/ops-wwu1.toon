@@ -6,8 +6,7 @@ status: canceled
 priority: 1
 tags[4]: certify,multi-agent,pm-cli-2026.9.21,quality
 created_at: "2026-09-22T04:53:15.143Z"
-updated_at: "2026-09-25T08:25:15.523Z"
-claim_principal: pi-agent
+updated_at: "2026-09-25T09:02:19.550Z"
 author: pi-agent
 acceptance_criteria: "package.json + package-lock.json pin @unbrained/pm-cli 2026.9.21 and pm-changelog 2026.9.18 in devDependencies; peerDependencies floor unchanged; CI runs pm merge install before pm health --strict-exit --require-merge-drivers; health exits 0 locally; jscpd 5.2.1 devDependency; duplication.ts works against the real jscpd 5 programmatic API with 100/100/100/100 coverage and real tests (no mocks of jscpd); optional peer jscpd widened to ^4.3.0 || ^5.2.1; README Consumers states both majors supported; functional proof in jscpd-proof scratch projects: runDuplicationGate/analyzeDuplication report the same clone pairs on a real fleet .ts tree with jscpd@4.3.0 and jscpd@5.2.1; npm install of the built tarball with jscpd 5.2.1 has no ERESOLVE; release:check exits 0 after changelog:full"
 comments[4]{created_at,author,text}:
