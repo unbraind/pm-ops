@@ -123,6 +123,32 @@ test("a pm-ops whose entry file is missing fails loudly instead of skipping", { 
   assert.throws(() => readFileSync(record, "utf8"), /ENOENT/);
 });
 
+test("a pm-ops directory left without its package.json fails loudly instead of skipping", { skip: process.platform === "win32" }, () => {
+  // A broken install (an interrupted extraction, a manual rm) can leave the
+  // package directory behind with no package.json. Resolution then fails with
+  // MODULE_NOT_FOUND exactly as for an omit-dev install, so the launcher must
+  // not read that as absence and skip the drivers.
+  const directory = consumer("broken", "absent");
+  mkdirSync(join(directory, "node_modules", "pm-ops"), { recursive: true });
+  const { bin, record } = stubPm("broken", 0);
+  const result = run(directory, template, bin);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Cannot find module 'pm-ops\/merge-driver\/prepare'/);
+  assert.doesNotMatch(result.stderr, /skipping merge-driver install/);
+  assert.throws(() => readFileSync(record, "utf8"), /ENOENT/);
+});
+
+test("a dangling pm-ops link fails loudly instead of skipping", { skip: process.platform === "win32" }, () => {
+  const directory = consumer("dangling", "absent");
+  mkdirSync(join(directory, "node_modules"));
+  symlinkSync(join(directory, "gone"), join(directory, "node_modules", "pm-ops"), "dir");
+  const { bin, record } = stubPm("dangling", 0);
+  const result = run(directory, template, bin);
+  assert.notEqual(result.status, 0);
+  assert.doesNotMatch(result.stderr, /skipping merge-driver install/);
+  assert.throws(() => readFileSync(record, "utf8"), /ENOENT/);
+});
+
 test("an installed pm-ops without an exports map fails loudly instead of skipping", { skip: process.platform === "win32" }, () => {
   const directory = consumer("no-exports", "stale");
   writeFileSync(join(directory, "node_modules", "pm-ops", "package.json"), JSON.stringify({ name: "pm-ops" }));

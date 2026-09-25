@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- The guarded launcher template reads a pm-ops directory without package.json as an omit-dev install and skips the merge drivers ([ops-eyi8](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-eyi8.toon))
+
 ## 2026.9.18 - 2026-09-18
 
 ### Added
