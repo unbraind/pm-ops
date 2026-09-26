@@ -121,13 +121,13 @@
     "@babel/eslint-parser": "^8.0.5",
     "@babel/plugin-syntax-typescript": "^8.0.3",
     "@types/node": "^26.2.0",
-    "@unbrained/pm-cli": "2026.9.23",
+    "@unbrained/pm-cli": "2026.9.26",
     "c8": "^12.0.0",
     "eslint": "^10.10.0",
     "fast-glob": "^3.3.3",
     "jscpd": "^5.2.1",
     "jscpd4": "npm:jscpd@4.3.0",
-    "pm-changelog": "2026.9.23"
+    "pm-changelog": "2026.9.25"
   },
   "keywords": [
     "pm-cli",

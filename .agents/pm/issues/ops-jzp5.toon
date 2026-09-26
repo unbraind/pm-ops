@@ -1,0 +1,26 @@
+id: ops-jzp5
+title: Hoisted broken pm-ops can bypass merge-driver install guard
+description: "Greptile found that the canonical prepare launcher searches only the consumer checkout node_modules/pm-ops after a MODULE_NOT_FOUND resolution. Node also resolves packages from ancestor node_modules. If a hoisted pm-ops directory exists but lacks package.json, the launcher treats it as an omit-dev install and silently skips field-aware merge-driver registration. This extends the local broken-install guard in ops-eyi8 to the full Node lookup path."
+type: Issue
+status: in_progress
+priority: 0
+tags: []
+created_at: "2026-09-26T16:43:46.361Z"
+updated_at: "2026-09-26T16:57:51.563Z"
+assignee: codex
+claim_principal: codex
+author: codex
+acceptance_criteria: "A real child checkout with an empty ancestor node_modules/pm-ops fails the prepare hook without the omit-dev skip notice; a truly absent package still skips once; an intact hoisted pm-ops runs the installer; the regression fails on the old template, full release:check and strict PM health pass; consumer copies update only after a canonical pm-ops release."
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  ops-eyi8,related,"2026-09-26T16:43:51.944Z",codex,"cli:update:dep",detected
+notes[2]{created_at,author,text}:
+  "2026-09-26T16:54:48.620Z","harness:codex","TDD: the hoisted broken-install child checkout failed on the old template and passed after checking every Node lookup path. The intact hoisted install and omit-dev absence also pass. Initial full release gate passed at 100/100/100/100; after pinning CLI 2026.9.26, the exact-version contract test was updated and the complete gate is being rerun."
+  "2026-09-26T16:57:51.543Z","harness:codex","Final gate with exact @unbrained/pm-cli 2026.9.26 and pm-changelog 2026.9.25: npm run release:check exit 0, 446 tests (444 passed, 2 pre-existing skips), 100/100/100/100 measured coverage, 0 production vulnerabilities, 0 clone pairs, 221/221 declarations documented, changelog/attestation/lifecycle gates pass. pm health --strict-exit --json ok=true with stale_in_progress_items:3 advisory. Canonical release and consumer publication remain pending PR review."
+files[4]{path,scope,note}:
+  templates/prepare-merge-driver.ts,project,Canonical Node lookup path guard
+  test/merge-driver-launcher.test.ts,project,Real child checkout cases for local and hoisted installs
+  package.json,project,Latest PM CLI and changelog pins
+  test/compatibility-floor.test.ts,project,Current host version contract
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/merge-driver-launcher.test.ts,project,120,"harness:codex","2026-09-26T16:54:49.210Z",local_mutation,fix/pm-ops-hoisted-merge-driver-guard-2026-09-26
+body: ""

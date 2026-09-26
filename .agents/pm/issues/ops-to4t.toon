@@ -1,0 +1,27 @@
+id: ops-to4t
+title: Duplication gate scans generated PM extension copies
+description: "The real pm-ops release gate reports thousands of clone pairs against .agents/pm/extensions/pm-ops after PM extension installation, despite the directory being ignored runtime state. This blocks an otherwise clean release and makes local and CI results depend on extension activation."
+type: Issue
+status: in_progress
+priority: 1
+tags: []
+created_at: "2026-09-26T16:52:31.639Z"
+updated_at: "2026-09-26T16:57:52.392Z"
+assignee: codex
+author: "harness:codex"
+acceptance_criteria: A real generated extension copy is excluded from the duplication scan; a fixture proves the tracked source remains in scope; npm run duplication reports 0 clone pairs and the full release gate passes.
+repro_steps: "Install or activate pm-ops into .agents/pm/extensions/pm-ops, then run npm run duplication; jscpd reports source versus generated extension clone pairs."
+expected_result: "The duplication gate scans tracked TypeScript source and tests, excludes generated PM extension cache, and still fails for real tracked clones."
+actual_result: "Before the fix, 38.34% duplicated lines were reported from generated extension copies; after excluding that directory, the tracked source scan reports zero clones."
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  ops-jzp5,related,"2026-09-26T16:55:01.199Z","harness:codex","cli:update:dep",detected
+notes[2]{created_at,author,text}:
+  "2026-09-26T16:55:01.199Z","harness:codex","The initial full release gate failed at 38.34% duplicated lines when the installed PM extension cache was scanned. After excluding only .agents/pm/extensions, the real jscpd gate reported 0% duplicated lines, 43 tracked TypeScript sources, and 0 clone pairs. The fixture proves tracked source is still analyzed."
+  "2026-09-26T16:57:52.338Z","harness:codex","Final npm run release:check exit 0: 0% duplicated lines across 43 TypeScript sources; fixture verifies ignored generated extension cache and analyzed tracked source; measured all-source coverage 100/100/100/100. npm audit --omit=dev reports 0 vulnerabilities."
+files[3]{path,scope,note}:
+  duplication.ts,project,Generated extension path excluded in both jscpd backends
+  test/lint-and-duplication-gates.test.ts,project,Real jscpd fixture proves extension copy ignored and tracked source kept
+  dist/duplication.js,project,Tracked compiled distribution output
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/lint-and-duplication-gates.test.ts,project,120,"harness:codex","2026-09-26T16:55:02.088Z",local_mutation,fix/pm-ops-hoisted-merge-driver-guard-2026-09-26
+body: ""
