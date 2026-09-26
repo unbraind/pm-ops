@@ -211,6 +211,19 @@ test("duplication gate fails with both clone ranges and passes a clean fixture",
   assert.match(cleanLogs.join("\n"), /0% duplicated lines/);
 });
 
+test("duplication gate excludes generated PM extension copies but keeps tracked source in scope", async () => {
+  const directory = packageFixture("installed-pm-extension", { threshold: 0, minTokens: 20 });
+  duplicateSources(directory, ".agents/pm/extensions/pm-ops");
+  const report = await analyzeDuplication({ repoRoot: directory, minTokens: 20 });
+  assert.equal(report.sources, 1);
+  assert.ok(report.totalLines > 0);
+  assert.equal(report.cloneCount, 0);
+  assert.deepEqual(report.skippedSources, []);
+  const logs: string[] = [];
+  await runDuplicationGate({ repoRoot: directory, log: (message) => logs.push(message) });
+  assert.match(logs.join("\n"), /1 source\(s\)/);
+});
+
 test("duplication gate analyzes large files and rejects empty scopes", async () => {
   const large = packageFixture("large-clone", { threshold: 0, minTokens: 20 });
   largeDuplicateSources(large);

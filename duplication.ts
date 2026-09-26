@@ -147,6 +147,7 @@ const DUPLICATION_IGNORES = [
   "**/dist-test/**",
   "**/coverage/**",
   "**/.git/**",
+  "**/.agents/pm/extensions/**",
   "**/*.d.ts",
 ] as const;
 const require = createRequire(import.meta.url);
