@@ -2569,7 +2569,7 @@ const defineExtension = <TModule extends ExtensionModule>(module: TModule): TMod
 
 export default defineExtension({
   name: "pm-ops",
-  version: "2026.9.23",
+  version: "2026.9.26",
 
   activate(api: ExtensionApi) {
     if (typeof api.registerRenderer === "function") {
