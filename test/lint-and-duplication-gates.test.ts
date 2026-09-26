@@ -216,6 +216,7 @@ test("duplication gate excludes generated PM extension copies but keeps tracked 
   duplicateSources(directory, ".agents/pm/extensions/pm-ops");
   const report = await analyzeDuplication({ repoRoot: directory, minTokens: 20 });
   assert.equal(report.sources, 1);
+  assert.ok(report.totalLines > 0);
   assert.equal(report.cloneCount, 0);
   assert.deepEqual(report.skippedSources, []);
   const logs: string[] = [];
