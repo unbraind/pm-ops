@@ -1235,13 +1235,13 @@ function summarizeNpmError(stdout: string, stderr: string, args: string[]): stri
   return lines.slice(-3).join(" | ").slice(-2000);
 }
 
-/** Execute one npm release step in a repo and time its pass or failure. */
+/** Execute one npm release step with enough time for a full package gate. */
 function runReleaseCheck(repoPath: string, name: string, args: string[], progress: (msg: string) => void): ReleaseCheck {
   progress(`verify ${repoLabel(repoPath)}: ${name}`);
   const start = Date.now();
   const r = runSync("npm", args, {
     cwd: repoPath,
-    timeoutMs: 5 * 60_000,
+    timeoutMs: 20 * 60_000,
     // node:test marks its process with NODE_TEST_CONTEXT. Inheriting that
     // marker makes nested `node --test` commands treat the run as recursive
     // and skip the repository's test files.

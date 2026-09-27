@@ -1,0 +1,24 @@
+id: ops-3xyb
+title: ops verify-release times out on real full package gate after five minutes
+description: "A real opted-in fleet acceptance run on pm-ops and pm-graph passed ops scan but ops verify-release terminated pm-graph npm run release:check at 300110 ms with spawnSync npm ETIMEDOUT. The direct pm-graph release gate passed on the same pushed head. The fixed per-step five-minute limit is too short for this legitimate package gate and makes the fleet verifier report a false release failure."
+type: Issue
+status: in_progress
+priority: 1
+tags[3]: agent-ux,"area:release","type:defect"
+created_at: "2026-09-27T08:00:08.494Z"
+updated_at: "2026-09-27T08:12:09.015Z"
+assignee: codex
+author: "harness:codex"
+acceptance_criteria: "The real opted-in fleet test passes against two canonical packages, including pm-graph release:check; the timeout remains bounded and actionable; the complete pm-ops release gate, strict PM health, and exact-head CI/review pass."
+repro_steps: "Set PM_OPS_TEST_REPOS to the canonical pm-ops and pm-graph paths, then run node --test --test-name-pattern=real-data: test/ops.test.ts. The scan passes 2/2; the second real-data test fails after 300110 ms with ETIMEDOUT."
+expected_result: The verifier allows a bounded full package gate to finish and reports its real result; an actual stalled gate still ends with a clear timeout.
+actual_result: The real pm-graph gate is terminated at 300110 ms and verify-release reports 0/1 repos passed.
+notes[2]{created_at,author,text}:
+  "2026-09-27T08:08:24.810Z","harness:codex","2026-09-27: TDD real fleet evidence: before the source change, PM_OPS_TEST_REPOS=pm-ops,pm-graph node --test --test-name-pattern=real-data: test/ops.test.ts passed scan 2/2 but failed verify-release at 300110 ms with spawnSync npm ETIMEDOUT. After raising the bounded per-step timeout from 5 to 20 minutes, the exact same two real-data tests passed 2/2 with zero skips; pm-graph release:check finished in 432431 ms and verify-release reported 1/1 repos passed. The full pm-ops release gate and strict health remain to be rerun on this source head."
+  "2026-09-27T08:12:09.015Z","harness:codex","2026-09-27 08:12 UTC: The corrected source passed the complete npm run release:check gate: 444 passed tests, two pre-existing real-data skips in the default environment, measured statements/branches/functions/lines 100/100/100/100 across 23 sources, 0 duplicated lines across 43 tracked sources, 221/221 docstrings, zero production audit vulnerabilities, current changelog and attestation gates. The separate opted-in real-data run passed 2/2 with zero skips and completed pm-graph release:check in 432431 ms. pm health --strict-exit --json passes with stale_in_progress_items:3 advisory. CI and latest-head bot review are pending after push."
+files[2]{path,scope,note}:
+  dist/index.js,project,Tracked compiled package output
+  index.ts,project,Bounded release-step timeout
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  "PM_OPS_TEST_REPOS=.,../pm-graph node --test --test-name-pattern=real-data: test/ops.test.ts",project,900,"harness:codex","2026-09-27T08:08:52.214Z",local_mutation,fix/pm-ops-hoisted-merge-driver-guard-2026-09-26
+body: ""
