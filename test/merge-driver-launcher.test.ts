@@ -28,8 +28,8 @@ after(() => {
  * `pmOps` selects what `node_modules/pm-ops` is: absent (an omit-dev install),
  * this package itself, or a stale pm-ops whose exports predate the entry.
  */
-function consumer(name: string, pmOps: "absent" | "current" | "stale"): string {
-  const directory = join(root, name);
+function consumer(name: string, pmOps: "absent" | "current" | "stale", parent = root): string {
+  const directory = join(parent, name);
   mkdirSync(directory);
   writeFileSync(join(directory, "package.json"), JSON.stringify({ name, type: "module" }));
   if (pmOps !== "absent") mkdirSync(join(directory, "node_modules"));
@@ -76,12 +76,18 @@ test("an omit-dev checkout without pm-ops skips with exactly one notice and succ
   assert.throws(() => readFileSync(record, "utf8"), /ENOENT/);
 });
 
-test("a full install runs pm merge install through the pm-ops entry", { skip: process.platform === "win32" }, () => {
+test("local and hoisted full installs run pm merge install through the pm-ops entry", { skip: process.platform === "win32" }, () => {
   const directory = consumer("full", "current");
   const { bin, record } = stubPm("full", 0);
   const result = run(directory, template, bin);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(readFileSync(record, "utf8"), "merge install\n");
+  const parent = join(root, "hoisted-full-parent");
+  mkdirSync(join(parent, "node_modules"), { recursive: true });
+  symlinkSync(packageRoot, join(parent, "node_modules", "pm-ops"), "dir");
+  const hoisted = run(consumer("hoisted-full-consumer", "absent", parent), template, bin);
+  assert.equal(hoisted.status, 0, hoisted.stderr);
+  assert.equal(readFileSync(record, "utf8"), "merge install\nmerge install\n");
 });
 
 test("a failing pm merge install fails the launcher with the same status", { skip: process.platform === "win32" }, () => {
@@ -123,7 +129,7 @@ test("a pm-ops whose entry file is missing fails loudly instead of skipping", { 
   assert.throws(() => readFileSync(record, "utf8"), /ENOENT/);
 });
 
-test("a pm-ops directory left without its package.json fails loudly instead of skipping", { skip: process.platform === "win32" }, () => {
+test("local and hoisted pm-ops directories without package.json fail loudly", { skip: process.platform === "win32" }, () => {
   // A broken install (an interrupted extraction, a manual rm) can leave the
   // package directory behind with no package.json. Resolution then fails with
   // MODULE_NOT_FOUND exactly as for an omit-dev install, so the launcher must
@@ -135,6 +141,12 @@ test("a pm-ops directory left without its package.json fails loudly instead of s
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Cannot find module 'pm-ops\/merge-driver\/prepare'/);
   assert.doesNotMatch(result.stderr, /skipping merge-driver install/);
+  assert.throws(() => readFileSync(record, "utf8"), /ENOENT/);
+  const parent = join(root, "hoisted-parent");
+  mkdirSync(join(parent, "node_modules", "pm-ops"), { recursive: true });
+  const hoisted = run(consumer("hoisted-consumer", "absent", parent), template, bin);
+  assert.notEqual(hoisted.status, 0);
+  assert.match(hoisted.stderr, /Cannot find module 'pm-ops\/merge-driver\/prepare'/);
   assert.throws(() => readFileSync(record, "utf8"), /ENOENT/);
 });
 
