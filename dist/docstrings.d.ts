@@ -114,7 +114,7 @@ export interface DocstringViolation {
 }
 /** Aggregate result of scanning one tree. */
 export interface DocstringReport {
-    /** Number of `.ts` files analyzed. */
+    /** Number of `.ts` and `.tsx` files analyzed. */
     readonly files_scanned: number;
     /** Number of declarations evaluated against the rules. */
     readonly declarations_checked: number;
@@ -137,7 +137,7 @@ export interface SourceAnalysis {
  */
 export declare function analyzeSource(text: string, file: string): SourceAnalysis;
 /**
- * Walk a directory tree and analyze every authored `.ts` source beneath it,
+ * Walk a directory tree and analyze every authored `.ts` or `.tsx` source beneath it,
  * skipping `.d.ts` files and the structural non-source directories. Scanning
  * zero files fails by throwing rather than passing vacuously.
  */

@@ -6,12 +6,13 @@ status: in_progress
 priority: 1
 tags[4]: "area:quality",docstrings,duplication,tsx
 created_at: "2026-09-28T15:05:31.893Z"
-updated_at: "2026-09-28T15:05:31.893Z"
+updated_at: "2026-09-28T15:18:38.784Z"
 author: codex
 estimated_minutes: 180
 acceptance_criteria: Directory and single-file docstring analysis find undocumented TSX exports; jscpd 4 and 5 detect TSX clones with the real engines; mismatched scan counts fail closed; release gate passes; companion records exact limitations.
-notes[1]{created_at,author,text}:
+notes[2]{created_at,author,text}:
   "2026-09-28T15:05:31.893Z",codex,"TDD: TSX docstring and real jscpd 4 tests failed before the source fix. The candidate passes 449/451 tests with two existing opt-in skips, c8 100/100/100/100, 221/221 documented declarations, zero duplication across 43 sources, zero production audit findings, and real packed npm/Node and Bun TSX acceptance. The local PM CLI SDK pin is 2026.9.28."
+  "2026-09-28T15:18:38.784Z",codex,"PR #132 first-head review found two valid regressions. Greptile P1 reproduced: a JSX closing tag let the tokenizer hide a later export; the TSX scanner now uses LanguageVariant.JSX and focused tests cover both direct analysis and directory walking. CodeRabbit major reproduced: fast-glob followed symlinked paths while jscpd 5 did not; fast-glob and jscpd 4 now share the no-symlink policy with jscpd 5, with real 4/5 symlink fixtures. Focused tests, build, typecheck, lint, and docstrings pass; full exact-head gate and packed acceptance remain pending."
 files[5]{path,scope,note}:
   docstrings.ts,project,TSX source walker
   duplication.ts,project,Both jscpd engines and source-count verification
@@ -20,6 +21,8 @@ files[5]{path,scope,note}:
   README.md,project,Updated consumer guidance
 tests[1]{command,path,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
   "npm run release:check",package.json,project,900,codex,"2026-09-28T15:05:31.893Z",local_mutation,fix/pm-ops-tsx-quality-gates-2026-09-28
-docs[1]{path,scope,note}:
+docs[3]{path,scope,note}:
   "https://github.com/unbraind/pm-ops/issues/128",global,Source issue and reproduction
+  "https://github.com/unbraind/pm-ops/pull/132#discussion_r4123846054",global,Greptile JSX closing-tag finding
+  "https://github.com/unbraind/pm-ops/pull/132#discussion_r4123865252",global,CodeRabbit symlink scope finding
 body: ""

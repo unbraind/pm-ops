@@ -121,6 +121,7 @@ interface ProgrammaticOptions {
   readonly ignore: readonly string[];
   readonly absolute: boolean;
   readonly gitignore: boolean;
+  readonly noSymlinks: boolean;
   readonly reporters: readonly string[];
   readonly silent: boolean;
 }
@@ -288,7 +289,7 @@ function globMatchedSources(repoRoot: string, pattern: string): string[] {
     absolute: true,
     cwd: repoRoot,
     dot: true,
-    followSymbolicLinks: true,
+    followSymbolicLinks: false,
     ignore: [...DUPLICATION_IGNORES],
     onlyFiles: true,
   })
@@ -310,6 +311,7 @@ function duplicationOptions(repoRoot: string, pattern: string, minTokens: number
     ignore: [...DUPLICATION_IGNORES],
     absolute: true,
     gitignore: false,
+    noSymlinks: true,
     reporters: [],
     silent: true,
   };

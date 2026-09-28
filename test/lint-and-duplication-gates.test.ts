@@ -345,6 +345,20 @@ test("jscpd 5 refuses a TSX file omitted even by the one-token source probe", as
   assert.match(gate.errors, /jscpd scanned 0 of 1 in-scope TypeScript sources/);
 });
 
+test("both engines count canonical TSX sources once across symlinked paths", async () => {
+  for (const [version, fixture] of [
+    ["jscpd4", jscpd4Fixture("tsx-symlink-v4", { threshold: 0 })],
+    ["jscpd5", packageFixture("tsx-symlink-v5", { threshold: 0 })],
+  ] as const) {
+    writeFileSync(join(fixture, "src", "Widget.tsx"), "export const Widget = <div>real source</div>;\n");
+    symlinkSync(join(fixture, "src", "Widget.tsx"), join(fixture, "src", "Alias.tsx"), "file");
+    symlinkSync(join(fixture, "src"), join(fixture, "alias"), "dir");
+    const report = await analyzeDuplication({ repoRoot: fixture, minTokens: 1 });
+    assert.equal(report.sources, 1, version);
+    assert.deepEqual(report.skippedSources, [], version);
+  }
+});
+
 test("duplication gate fails closed when the real jscpd 5 binary package is missing", async () => {
   const broken = packageFixture("jscpd5-missing-platform", { threshold: 0 });
   mkdirSync(join(broken, "node_modules"), { recursive: true });

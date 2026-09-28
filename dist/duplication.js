@@ -152,7 +152,7 @@ function globMatchedSources(repoRoot, pattern) {
         absolute: true,
         cwd: repoRoot,
         dot: true,
-        followSymbolicLinks: true,
+        followSymbolicLinks: false,
         ignore: [...DUPLICATION_IGNORES],
         onlyFiles: true,
     })
@@ -173,6 +173,7 @@ function duplicationOptions(repoRoot, pattern, minTokens) {
         ignore: [...DUPLICATION_IGNORES],
         absolute: true,
         gitignore: false,
+        noSymlinks: true,
         reporters: [],
         silent: true,
     };
