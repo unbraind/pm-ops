@@ -362,13 +362,17 @@ export function makeFetcher(exec: (command: string, args: string[], options: { c
       return fetchGithubReleasesPaginated(exec, slug);
     },
     githubReleaseForTag(slug, tag) {
+      let answered: string;
       try {
-        return exec("gh", ["api", `repos/${slug}/releases/tags/${tag}`, "--method", "GET", "--jq", ".tag_name"], {}).trim() === tag;
+        answered = exec("gh", ["api", `repos/${slug}/releases/tags/${tag}`, "--method", "GET", "--jq", ".tag_name"], {}).trim();
       } catch (error) {
         // Only a 404 answers "no such release"; any other failure is an unreadable source.
         if (error instanceof Error && error.message.includes("HTTP 404")) return false;
         throw error;
       }
+      // A successful read that names another tag (or none) is unreadable, not absent.
+      if (answered !== tag) throw new Error(`the release read for ${tag} answered tag "${answered}"`);
+      return true;
     },
   };
 }

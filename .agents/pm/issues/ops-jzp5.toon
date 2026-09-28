@@ -6,7 +6,7 @@ status: closed
 priority: 0
 tags: []
 created_at: "2026-09-26T16:43:46.361Z"
-updated_at: "2026-09-28T05:37:13.207Z"
+updated_at: "2026-09-28T05:48:07.046Z"
 closed_at: "2026-09-28T05:27:53.214Z"
 completed_at: "2026-09-28T05:27:53.214Z"
 claim_principal: codex
@@ -14,7 +14,7 @@ author: codex
 acceptance_criteria: "A real child checkout with an empty ancestor node_modules/pm-ops fails the prepare hook without the omit-dev skip notice; a truly absent package still skips once; an intact hoisted pm-ops runs the installer; the regression fails on the old template, full release:check and strict PM health pass; consumer copies update only after a canonical pm-ops release."
 release: 2026.9.28
 repro_steps: "Install a consumer package beneath an ancestor node_modules/pm-ops that lacks package.json, then run the package's prepare script (scripts/prepare-merge-driver.ts)."
-resolution: pm-ops#124 checks every Node resolution path (require.resolve.paths) for an incomplete pm-ops before allowing the omit-dev skip; test/prepare-merge-driver.test.ts runs a real child checkout beneath a broken ancestor install. Shipped in pm-ops 2026.9.28.
+resolution: pm-ops#124 checks every Node resolution path (require.resolve.paths) for an incomplete pm-ops before allowing the omit-dev skip; test/merge-driver-launcher.test.ts runs a real child checkout beneath a broken ancestor install. Shipped in pm-ops 2026.9.28.
 expected_result: "The launcher detects the broken hoisted pm-ops, exits non-zero, and prints no omit-dev skip notice."
 actual_result: "The launcher probed only the checkout's own node_modules, classified the broken hoisted pm-ops as an omit-dev install, and exited 0 without registering the merge drivers."
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:

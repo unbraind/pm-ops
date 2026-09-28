@@ -246,7 +246,7 @@ test("githubReleaseForTag reads one release by its tag: found, a 404, or an unre
   assert.equal(fetcher.githubReleaseForTag("unbraind/pm-ops", "v2026.09.27"), false);
   assert.throws(() => fetcher.githubReleaseForTag("unbraind/pm-ops", "v2026.09.26"), /error connecting/);
   assert.throws(() => fetcher.githubReleaseForTag("unbraind/pm-ops", "v2026.09.25"), (thrown: unknown) => thrown === "a non-Error rejection");
-  assert.equal(fetcher.githubReleaseForTag("unbraind/pm-ops", "v2026.09.24"), false, "an empty answer is not the tag");
+  assert.throws(() => fetcher.githubReleaseForTag("unbraind/pm-ops", "v2026.09.24"), /the release read for v2026.09.24 answered tag ""/, "a successful read without the tag is unreadable, not absent");
 });
 
 test("realFetcher is built from the real executor at module load", () => {
