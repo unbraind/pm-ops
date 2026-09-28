@@ -268,6 +268,12 @@ export interface CompletenessFetcher {
   npmVersions(pkgName: string): string[];
   /** GitHub Release tag names for the `owner/name` slug. */
   githubReleases(slug: string): string[];
+  /**
+   * Whether the GitHub Release of one tag exists, read by its tag. The list
+   * endpoint can lag a release created seconds earlier; this read confirms a
+   * tag the list lacks before the audit calls it missing.
+   */
+  githubReleaseForTag(slug: string, tag: string): boolean;
 }
 
 /**
@@ -355,6 +361,15 @@ export function makeFetcher(exec: (command: string, args: string[], options: { c
     githubReleases(slug) {
       return fetchGithubReleasesPaginated(exec, slug);
     },
+    githubReleaseForTag(slug, tag) {
+      try {
+        return exec("gh", ["api", `repos/${slug}/releases/tags/${tag}`, "--method", "GET", "--jq", ".tag_name"], {}).trim() === tag;
+      } catch (error) {
+        // Only a 404 answers "no such release"; any other failure is an unreadable source.
+        if (error instanceof Error && error.message.includes("HTTP 404")) return false;
+        throw error;
+      }
+    },
   };
 }
 
@@ -366,6 +381,8 @@ export const realFetcher: CompletenessFetcher = makeFetcher(defaultExec);
  *
  * A failed read names its source and makes no absence claims from partial data.
  * Missing package or repository identity is rejected before any registry read.
+ * A release tag missing from the GitHub Release list is confirmed by a read of
+ * that tag's release, because the list lags a release created moments earlier.
  *
  * @param root - Repository root to verify.
  * @param fetcher - The source of the three lists.
@@ -384,8 +401,13 @@ export function verify(root: string, fetcher: CompletenessFetcher): VerifierResu
     source = "npm versions";
     const npmVersions = fetcher.npmVersions(pkgName);
     source = "GitHub Releases";
-    const githubReleases = fetcher.githubReleases(slug);
-    return auditReleaseCompleteness(tags, npmVersions, githubReleases);
+    const listed = fetcher.githubReleases(slug);
+    // The list endpoint lags a release created moments before: it missed
+    // pm-ops v2026.09.28, created in the same second this audit ran after it.
+    // A release tag the list lacks is read by its tag before it counts as missing.
+    const listedSet = new Set(listed);
+    const confirmed = tags.filter((tag) => isReleaseTag(tag) && !listedSet.has(tag) && fetcher.githubReleaseForTag(slug, tag));
+    return auditReleaseCompleteness(tags, npmVersions, [...listed, ...confirmed]);
   } catch (error) {
     return {
       failures: [`unable to determine release completeness while reading ${source}: ${error instanceof Error ? error.message : String(error)}`],

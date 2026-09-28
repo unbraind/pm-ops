@@ -45,12 +45,14 @@ function fixedFetcher(lists: {
   remoteUrl?: string;
   npmVersions?: string[];
   githubReleases?: string[];
+  releasesByTag?: string[];
 }): CompletenessFetcher {
   return {
     tags: () => lists.tags ?? [],
     remoteUrl: () => lists.remoteUrl ?? "https://github.com/unbraind/pm-ops.git",
     npmVersions: () => lists.npmVersions ?? [],
     githubReleases: () => lists.githubReleases ?? [],
+    githubReleaseForTag: (_slug, tag) => (lists.releasesByTag ?? []).includes(tag),
   };
 }
 
@@ -226,6 +228,27 @@ test("makeFetcher builds a fetcher whose methods parse executor output", () => {
   assert.ok(calls.some((c) => c.includes("api") && c.includes("repos/unbraind/pm-ops/releases")), "the githubReleases method queries the GitHub releases API");
 });
 
+test("githubReleaseForTag reads one release by its tag: found, a 404, or an unreadable source", () => {
+  const calls: string[] = [];
+  const replies: Record<string, () => string> = {
+    "v2026.09.28": () => "v2026.09.28\n",
+    "v2026.09.27": () => { throw new Error("Command failed: gh api\ngh: Not Found (HTTP 404)"); },
+    "v2026.09.26": () => { throw new Error("Command failed: gh api\nerror connecting to api.github.com"); },
+    "v2026.09.25": () => { throw "a non-Error rejection"; },
+  };
+  const fetcher = makeFetcher((command, args) => {
+    calls.push(`${command} ${args.join(" ")}`);
+    const tag = /releases\/tags\/(.+)$/.exec(args[1] ?? "")?.[1] ?? "";
+    return replies[tag]?.() ?? "";
+  });
+  assert.equal(fetcher.githubReleaseForTag("unbraind/pm-ops", "v2026.09.28"), true);
+  assert.equal(calls[0], "gh api repos/unbraind/pm-ops/releases/tags/v2026.09.28 --method GET --jq .tag_name");
+  assert.equal(fetcher.githubReleaseForTag("unbraind/pm-ops", "v2026.09.27"), false);
+  assert.throws(() => fetcher.githubReleaseForTag("unbraind/pm-ops", "v2026.09.26"), /error connecting/);
+  assert.throws(() => fetcher.githubReleaseForTag("unbraind/pm-ops", "v2026.09.25"), (thrown: unknown) => thrown === "a non-Error rejection");
+  assert.equal(fetcher.githubReleaseForTag("unbraind/pm-ops", "v2026.09.24"), false, "an empty answer is not the tag");
+});
+
 test("realFetcher is built from the real executor at module load", () => {
   assert.equal(typeof realFetcher.tags, "function");
   assert.equal(typeof realFetcher.npmVersions, "function");
@@ -329,6 +352,23 @@ test("verify gathers the three lists through the fetcher and audits them", () =>
   // for the real package's npm versions.
 });
 
+test("verify confirms a release the list lags behind by reading its tag, and only for tags the list lacks", () => {
+  const root = resolve(import.meta.dirname, "..");
+  const tags = [...COMPLETE_TAGS, "v2026.09.28", "not-a-release"];
+  const npmVersions = [...COMPLETE_NPM, "2026.9.28"];
+  const asked: string[] = [];
+  const lagging = fixedFetcher({ tags, npmVersions, githubReleases: COMPLETE_GH, releasesByTag: ["v2026.09.28"] });
+  const byTag = lagging.githubReleaseForTag.bind(lagging);
+  lagging.githubReleaseForTag = (slug, tag) => { asked.push(`${slug} ${tag}`); return byTag(slug, tag); };
+  assert.deepEqual(verify(root, lagging).failures, [], "the release created moments ago exists");
+  assert.deepEqual(asked, ["unbraind/pm-ops v2026.09.28"]);
+  const missing = verify(root, fixedFetcher({ tags, npmVersions, githubReleases: COMPLETE_GH }));
+  assert.deepEqual(missing.failures, ["release tag v2026.09.28 has no corresponding GitHub Release"]);
+  const unreadable = fixedFetcher({ tags, npmVersions, githubReleases: COMPLETE_GH });
+  unreadable.githubReleaseForTag = () => { throw new Error("rate limited"); };
+  assert.deepEqual(verify(root, unreadable).failures, ["unable to determine release completeness while reading GitHub Releases: rate limited"]);
+});
+
 test("verify reports unreadable npm inventory without inventing missing releases", () => {
   const root = resolve(import.meta.dirname, "..");
   for (const reply of ['["2026.8.17", null]', "registry temporarily unavailable"]) {
@@ -383,6 +423,7 @@ test("verify derives the repo slug from the remote URL the fetcher returns", () 
     remoteUrl: () => "https://github.com/unbraind/pm-ops.git",
     npmVersions: () => COMPLETE_NPM,
     githubReleases: (slug) => { askedSlug = slug; return COMPLETE_GH; },
+    githubReleaseForTag: () => assert.fail("every release tag is listed"),
   };
   verify(root, fetcher);
   assert.equal(askedSlug, "unbraind/pm-ops");

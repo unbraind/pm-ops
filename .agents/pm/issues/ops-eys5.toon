@@ -1,0 +1,25 @@
+id: ops-eys5
+title: Release completeness audit fails a release it just created because the GitHub Release list lags creation
+description: "Run 36380519990 (2026-09-28, workflow_dispatch) published pm-ops 2026.9.28 to npm and created GitHub Release v2026.09.28 at 05:15:32Z. The audit started in the same second, read the paginated release list, did not see the new release, and failed the run with 'release tag v2026.09.28 has no corresponding GitHub Release'. The release was complete; the audit read an eventually consistent list. Fix: a release tag missing from the list is read by its tag (repos/<slug>/releases/tags/<tag>) before it counts as missing; only a 404 means absent, any other failure is an unreadable source."
+type: Issue
+status: closed
+priority: 1
+tags[3]: "area:release",quality-gates,release
+created_at: "2026-09-28T05:27:25.547Z"
+updated_at: "2026-09-28T05:37:15.545Z"
+closed_at: "2026-09-28T05:37:15.515Z"
+completed_at: "2026-09-28T05:37:15.515Z"
+claim_principal: claude-hub
+author: claude-hub
+acceptance_criteria: verify passes when the list lacks a release that the by-tag read finds; a 404 by-tag read still fails the audit naming the tag; any other by-tag failure is reported as an unreadable source; only tags the list lacks are read by tag
+repro_steps: "Create a GitHub Release, then immediately list repos/<slug>/releases (as the release workflow's audit step does right after the release step)."
+resolution: "verify reads each release tag the paginated list lacks through repos/<slug>/releases/tags/<tag> before calling it missing; only an HTTP 404 means absent, any other failure reports GitHub Releases as unreadable. Covered by the githubReleaseForTag and 'verify confirms a release the list lags behind' tests."
+expected_result: The audit sees the release it just created and passes.
+actual_result: "The list lacked v2026.09.28 (created at 05:15:32Z, audit read at 05:15:33Z) and the audit failed run 36380519990 although the release existed."
+files[2]{path,scope}:
+  scripts/verify-release-completeness.ts,project
+  test/verify-release-completeness.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/verify-release-completeness.test.ts,project,claude-hub,"2026-09-28T05:28:16.795Z",local_mutation,fix/release-audit-confirms-new-releases-by-tag
+close_reason: "Fixed on branch fix/release-audit-confirms-new-releases-by-tag: by-tag confirmation for listed-missing release tags. release:check passed its test stage (446 tests, 100/100/100/100); regenerated changelog committed with the fix."
+body: ""
