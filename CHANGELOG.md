@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Release completeness audit fails a release it just created because the GitHub Release list lags creation ([ops-eys5](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-eys5.toon))
+
+## 2026.9.28 - 2026-09-28
+
+### Fixed
+
+- Hoisted broken pm-ops can bypass merge-driver install guard ([ops-jzp5](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-jzp5.toon))
+
 ## 2026.9.26 - 2026-09-26
 
 ### Fixed
