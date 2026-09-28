@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import test, { after, before } from "node:test";
 
 import { ESLint } from "eslint";
@@ -343,6 +343,21 @@ test("jscpd 5 refuses a TSX file omitted even by the one-token source probe", as
   );
   const gate = await gateFailureOutput(fixture, { globs: ["src/**/*.{ts,tsx}"] });
   assert.match(gate.errors, /jscpd scanned 0 of 1 in-scope TypeScript sources/);
+});
+
+test("jscpd 5 completeness probe ignores a consumer threshold without losing source count", async () => {
+  const fixture = packageFixture("consumer-jscpd-threshold", { threshold: 0, minTokens: 200 });
+  const source = Array.from({ length: 8 }, (_, index) => `export const repeated${index} = ${index};`).join("\n") + "\n";
+  writeFileSync(join(fixture, "src", "first.ts"), source);
+  writeFileSync(join(fixture, "src", "second.ts"), source);
+  writeFileSync(join(fixture, ".jscpd.json"), `${JSON.stringify({ threshold: 0 })}\n`);
+
+  const launcher = resolve(import.meta.dirname, "../scripts/duplication-gate.ts");
+  const result = spawnSync(process.execPath, [launcher], { cwd: fixture, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /0% duplicated lines .*2 source\(s\)/);
+  const relativeReport = await analyzeDuplication({ repoRoot: relative(process.cwd(), fixture), minTokens: 200 });
+  assert.equal(relativeReport.sources, 2);
 });
 
 test("both engines count canonical TSX sources once across symlinked paths", async () => {

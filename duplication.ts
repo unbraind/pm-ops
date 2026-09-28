@@ -407,6 +407,8 @@ function analyzeWithBinary(
   const outputDir = mkdtempSync(join(tmpdir(), "pm-ops-jscpd-"));
   try {
     const run = (tokens: number): ReportedAnalysis => {
+      // The package gate owns its threshold; an ambient .jscpd.json must not
+      // make either scan exit before its JSON source-count receipt is read.
       const result = spawnSync(process.execPath, [
         join(installation.packageDir, "run-jscpd.js"),
         repoRoot,
@@ -423,7 +425,7 @@ function analyzeWithBinary(
         "--no-colors",
         "--absolute",
         "--no-gitignore",
-      ], { encoding: "utf8" });
+      ], { cwd: outputDir, encoding: "utf8" });
       if (result.status !== 0) {
         throw new Error(`duplication: jscpd exited with status ${String(result.status)}: ${String(result.stderr)}`);
       }
@@ -474,7 +476,7 @@ export function duplicationGateDiagnostic(
 export async function analyzeDuplication(
   options: Pick<DuplicationGateOptions, "repoRoot" | "globs" | "minTokens"> = {},
 ): Promise<DuplicationReport> {
-  const repoRoot = options.repoRoot ?? defaultRepoRoot;
+  const repoRoot = resolve(options.repoRoot ?? defaultRepoRoot);
   const pattern = combineGlobs(options.globs ?? DEFAULT_DUPLICATION_GLOBS);
   const minTokens = options.minTokens ?? 50;
   const matchedSources = globMatchedSources(repoRoot, pattern);
