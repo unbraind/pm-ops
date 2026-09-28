@@ -346,7 +346,7 @@ function cleanComment(raw) {
     return text.replace(/\s+/g, " ").trim();
 }
 /**
- * Recursively collect every authored `.ts` file (excluding `.d.ts`) beneath the
+ * Recursively collect every authored `.ts` or `.tsx` file (excluding `.d.ts`) beneath the
  * given roots, skipping the structural non-source directories in
  * {@link SKIP_DIRS}. A root may itself be a single file.
  */
@@ -371,7 +371,7 @@ function collectSourceFiles(roots) {
                 if (!SKIP_DIRS.has(name))
                     walk(full);
             }
-            else if (info.isFile() && name.endsWith(".ts") && !name.endsWith(".d.ts")) {
+            else if (info.isFile() && (name.endsWith(".ts") || name.endsWith(".tsx")) && !name.endsWith(".d.ts")) {
                 out.push(full);
             }
         }
@@ -389,7 +389,7 @@ function collectSourceFiles(roots) {
         if (info.isDirectory()) {
             walk(root);
         }
-        else if (info.isFile() && root.endsWith(".ts") && !root.endsWith(".d.ts")) {
+        else if (info.isFile() && (root.endsWith(".ts") || root.endsWith(".tsx")) && !root.endsWith(".d.ts")) {
             out.push(root);
         }
     }

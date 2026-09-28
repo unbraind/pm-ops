@@ -495,6 +495,24 @@ test("walks a tree, skipping test/, dist/, and .d.ts files", () => {
   }
 });
 
+test("directory and single-file scans include undocumented TSX exports", () => {
+  const root = mkdtempSync(join(tmpdir(), "docstrings-tsx-"));
+  try {
+    mkdirSync(join(root, "src"));
+    const component = join(root, "src", "Widget.tsx");
+    writeFileSync(component, "export function Widget() { return <div />; }\n");
+    const directory = analyzeDocstringCoverage({ root });
+    const singleFile = analyzeDocstringCoverage({ root, sourceDirs: ["src/Widget.tsx"] });
+    assert.equal(directory.files_scanned, 1);
+    assert.equal(singleFile.files_scanned, 1);
+    assert.equal(directory.violations.length, 1);
+    assert.equal(singleFile.violations.length, 1);
+    assert.equal(directory.violations[0]?.symbol, "Widget");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("sourceDirs scopes the walk to listed subdirectories", () => {
   const root = mkdtempSync(join(tmpdir(), "docstrings-dirs-"));
   try {

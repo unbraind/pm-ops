@@ -1,0 +1,25 @@
+id: ops-zq8c
+title: Include TSX in docstring and duplication gates with verified source counts
+description: "GitHub #128: pm-ops docstring and duplication gates silently omit TSX sources. Make both engines scan TSX, prove source-count completeness, and certify the exact package head."
+type: Issue
+status: in_progress
+priority: 1
+tags[4]: "area:quality",docstrings,duplication,tsx
+created_at: "2026-09-28T15:05:31.893Z"
+updated_at: "2026-09-28T15:05:31.893Z"
+author: codex
+estimated_minutes: 180
+acceptance_criteria: Directory and single-file docstring analysis find undocumented TSX exports; jscpd 4 and 5 detect TSX clones with the real engines; mismatched scan counts fail closed; release gate passes; companion records exact limitations.
+notes[1]{created_at,author,text}:
+  "2026-09-28T15:05:31.893Z",codex,"TDD: TSX docstring and real jscpd 4 tests failed before the source fix. The candidate passes 449/451 tests with two existing opt-in skips, c8 100/100/100/100, 221/221 documented declarations, zero duplication across 43 sources, zero production audit findings, and real packed npm/Node and Bun TSX acceptance. The local PM CLI SDK pin is 2026.9.28."
+files[5]{path,scope,note}:
+  docstrings.ts,project,TSX source walker
+  duplication.ts,project,Both jscpd engines and source-count verification
+  test/docstrings.test.ts,project,TSX docstring regression
+  test/lint-and-duplication-gates.test.ts,project,Real jscpd 4 and 5 TSX acceptance
+  README.md,project,Updated consumer guidance
+tests[1]{command,path,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  "npm run release:check",package.json,project,900,codex,"2026-09-28T15:05:31.893Z",local_mutation,fix/pm-ops-tsx-quality-gates-2026-09-28
+docs[1]{path,scope,note}:
+  "https://github.com/unbraind/pm-ops/issues/128",global,Source issue and reproduction
+body: ""
