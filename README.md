@@ -409,9 +409,11 @@ output and declaration files are outside the runtime denominator. Thresholds
 remain 100% statements, branches, functions and lines for every measured file.
 Every invocation uses its own `coverage/run-*` report and counter directory,
 so concurrent or nested gates preserve one another's data. After validation,
-it atomically publishes `coverage/lcov.info` as the last successful report and
-removes its temporary directory. Each gate judges its own fresh report, including
-on failure; a previous canonical report cannot satisfy its presence check.
+it atomically publishes `coverage/lcov.info` and removes its temporary directory.
+Starting or failing a run invalidates that shared report, so assurance consumers
+cannot treat an earlier pass as current after a failed test. Concurrent runs
+judge their own fresh reports and preserve peer counters; a failed completion
+leaves the shared report unavailable until another success publishes one.
 
 The gate's controlled runner fixtures derive their reports from the include
 arguments, so adding a module requires no fixture-list edits. A separate real

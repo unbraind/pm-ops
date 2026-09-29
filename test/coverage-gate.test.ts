@@ -21,6 +21,7 @@ import test, { after, before } from "node:test";
 import glob from "fast-glob";
 
 import { runCoverageGate } from "../scripts/coverage-gate.ts";
+import { QUALITY_PROVIDER_ID, qualityMeasurementProvider } from "../assurance.ts";
 
 let root: string;
 
@@ -193,12 +194,16 @@ test("real c8 discovers newly tested modules and rejects an unimported module by
   const sentinel = join(parentCounters, "parent-owned.txt");
   writeFileSync(sentinel, "preserve parent counters");
   env.NODE_V8_COVERAGE = parentCounters;
-  const complete = spawnSync(process.execPath, [script, directory], {
-    cwd: directory,
-    encoding: "utf8",
-    timeout: 30_000,
-    env,
-  });
+  /** Execute a standalone real c8 gate with the same isolated consumer context. */
+  function runFixture(): SpawnSyncReturns<string> {
+    return spawnSync(process.execPath, [script, directory], {
+      cwd: directory,
+      encoding: "utf8",
+      timeout: 30_000,
+      env,
+    });
+  }
+  const complete = runFixture();
   assert.strictEqual(complete.status, 0, `${complete.stdout}\n${complete.stderr}`);
   assert.match(complete.stdout, /3 source file\(s\) reported/);
   assert.strictEqual(readFileSync(sentinel, "utf8"), "preserve parent counters");
@@ -220,18 +225,33 @@ test("real c8 discovers newly tested modules and rejects an unimported module by
   }
   assert.deepStrictEqual(readdirSync(join(directory, "coverage")), ["lcov.info", "tmp"]);
 
+  const measurementContext = {
+    provider: QUALITY_PROVIDER_ID,
+    key: "coverage-percent",
+    parameters: { dimension: "lines" },
+    trigger: "ci",
+    pm_root: join(directory, ".agents", "pm"),
+    repo_root: directory,
+  };
+  const passingMeasurement = await qualityMeasurementProvider.resolve(measurementContext);
+  assert.strictEqual(passingMeasurement.value, 100);
+  const testPath = join(directory, "test", "complete.test.ts");
+  const passingTests = readFileSync(testPath, "utf8");
+  writeFileSync(testPath, `${passingTests}\ntest("changed test fails", () => assert.fail("synthetic test failure"));\n`);
+  const failedTests = runFixture();
+  assert.strictEqual(failedTests.status, 1, `${failedTests.stdout}\n${failedTests.stderr}`);
+  assert.match(failedTests.stdout, /synthetic test failure/);
+  assert.throws(() => qualityMeasurementProvider.resolve(measurementContext), /coverage report not found/);
+  assert.deepStrictEqual(readdirSync(join(directory, "coverage")), ["tmp"]);
+  writeFileSync(testPath, passingTests);
+
   writeFileSync(join(directory, "src", "unimported.ts"), "export const omitted = 4;\n");
-  const incomplete = spawnSync(process.execPath, [script, directory], {
-    cwd: directory,
-    encoding: "utf8",
-    timeout: 30_000,
-    env,
-  });
+  const incomplete = runFixture();
   assert.strictEqual(incomplete.status, 1, `${incomplete.stdout}\n${incomplete.stderr}`);
   assert.match(`${incomplete.stdout}\n${incomplete.stderr}`, /unimported\.ts/);
   assert.match(incomplete.stderr, /does not meet threshold \(100%\) for src\/unimported\.ts/);
   assert.strictEqual(readFileSync(sentinel, "utf8"), "preserve parent counters");
-  assert.deepStrictEqual(readdirSync(join(directory, "coverage")), ["lcov.info", "tmp"]);
+  assert.deepStrictEqual(readdirSync(join(directory, "coverage")), ["tmp"]);
 });
 
 test("coverage gate defaults to its package root and includes the independent package inventory", () => {
@@ -439,7 +459,7 @@ test("coverage gate rejects absent and incomplete lcov reports", (context) => {
     GateExit,
   );
   assertSingleDiagnostic(messages, before, /no coverage report/);
-  assert.deepStrictEqual(readdirSync(join(absent, "coverage")), ["lcov.info"]);
+  assert.deepStrictEqual(readdirSync(join(absent, "coverage")), []);
 
   const incomplete = fixture("incomplete-report");
   const omitted = ((_command: string, args: readonly string[]) => {

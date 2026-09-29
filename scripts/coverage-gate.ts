@@ -106,7 +106,23 @@ const defaultRepoRoot = resolve(import.meta.dirname, "..");
 export function runCoverageGate(options: CoverageGateOptions = {}): void {
   const repoRoot = options.repoRoot ?? defaultRepoRoot;
   const spawn = options.spawn ?? spawnSync;
-  const exit = options.exit ?? process.exit;
+  /** Selected termination boundary retains the injected test sentinel or native process exit. */
+  const exitBoundary = options.exit ?? process.exit;
+  /** Assurance reads this shared path only after a successful gate publishes it. */
+  const canonicalLcovPath = join(repoRoot, "coverage", "lcov.info");
+
+  /** Refuse stale assurance measurements while this run is pending or failed. */
+  function invalidateReport(): void {
+    rmSync(canonicalLcovPath, { force: true });
+  }
+
+  /** Invalidate shared evidence before every terminating failure, including preflight. */
+  function exit(code: number): never {
+    invalidateReport();
+    return exitBoundary(code);
+  }
+
+  invalidateReport();
   let manifest: PackageManifest;
   try {
     manifest = JSON.parse(
@@ -314,13 +330,18 @@ export function runCoverageGate(options: CoverageGateOptions = {}): void {
     exit(1);
   }
 
+  /** Generated reports and isolated counters share this repository-local parent. */
   const coverageDirectory = join(repoRoot, "coverage");
   mkdirSync(coverageDirectory, { recursive: true });
   // Both the report and raw counters belong to this invocation. A shared report
   // path races even when counters are separate, and a stale canonical report
   // must never satisfy this invocation's completeness check.
+  /** Exclusive invocation directory creation fails if the filesystem cannot allocate it. */
   const runDirectory = mkdtempSync(join(coverageDirectory, "run-"));
+  /** Fresh report path used for this invocation's completeness decision. */
   const lcovPath = join(runDirectory, "lcov.info");
+  /** Only a validated successful publication may survive this invocation's cleanup. */
+  let reportPublished = false;
 
   /** Remove only this invocation's artifacts, preserving every peer run. */
   function cleanupRun(): void {
@@ -443,12 +464,17 @@ export function runCoverageGate(options: CoverageGateOptions = {}): void {
 
     // Publish a complete successful report atomically. Concurrent successes may
     // replace this convenience report, but every gate judges its own run first.
-    renameSync(lcovPath, join(coverageDirectory, "lcov.info"));
+    renameSync(lcovPath, canonicalLcovPath);
+    reportPublished = true;
 
     console.log(
       `\ncoverage-gate: ${required.length} source file(s) reported, thresholds met.`,
     );
   } finally {
+    // Unexpected exceptions must also fail closed for the assurance consumer.
+    // A failed concurrent run invalidates the convenience report until another
+    // successful completion publishes one; peer counters remain untouched.
+    if (!reportPublished) invalidateReport();
     cleanupRun();
   }
 }
