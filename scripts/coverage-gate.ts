@@ -245,9 +245,11 @@ export function runCoverageGate(options: CoverageGateOptions = {}): void {
     return found;
   }
 
-  const expected = gateConfig.sources.flatMap((source) =>
+  // A directory and one of its descendants may both be configured. Count each
+  // source once and use deterministic ordering for runner arguments/diagnostics.
+  const expected = [...new Set(gateConfig.sources.flatMap((source) =>
     collectSources(join(repoRoot, source))
-  );
+  ))].sort();
   const exempt = new Set(gateConfig.ignore ?? []);
   const required = expected.filter((file) => !exempt.has(file));
 
@@ -343,6 +345,10 @@ export function runCoverageGate(options: CoverageGateOptions = {}): void {
       "lcov",
       "--reports-dir",
       join(repoRoot, "coverage"),
+      // c8 otherwise defaults to inherited NODE_V8_COVERAGE and cleans that
+      // directory before running. Nested gates must preserve the parent's data.
+      "--temp-directory",
+      join(repoRoot, "coverage", "tmp"),
       process.execPath,
       "--test",
       ...gateConfig.tests,

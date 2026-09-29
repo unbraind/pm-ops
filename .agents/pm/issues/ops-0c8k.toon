@@ -1,0 +1,18 @@
+id: ops-0c8k
+title: Enforce documentation for all runtime modules and internal declarations
+description: "The existing selected-surface docstring gate passes 221 declarations across 23 runtime/tooling/template files. A separate read-only TypeScript AST presence census finds 580 documented declarations of 1879 and module docblocks on 22 of 23 files. The denominator includes named functions, classes, interfaces, type aliases, methods and signatures, properties and signatures, constructors, accessors and variable statements. Imports, parameters, tests, dependencies and generated output are excluded. Presence alone does not establish documentation quality. The public and large-body policy introduced by closed ops-073p does not enforce the full internal declaration requirement."
+type: Issue
+status: open
+priority: 1
+tags: []
+created_at: "2026-09-29T20:07:47.887Z"
+updated_at: "2026-09-29T20:07:47.887Z"
+author: codex-coverage-inventory
+estimated_minutes: 480
+acceptance_criteria: "Define and enforce the full source module and documentable-declaration denominator; document contracts, invariants, side effects and failures for every declaration including internal APIs; prove missing internal docs fail local and CI checks without exclusions or lowered thresholds; retain explicit compatibility for the existing selected-surface analyzer"
+risk: medium
+repro_steps: "Run npm run docstring, then compare all authored runtime and tooling declarations against JSDoc presence using an installed TypeScript AST reader."
+expected_result: The mandatory gate measures and enforces all authored runtime modules and internal documentable declarations.
+actual_result: The selected-surface gate passes 221 declarations while the full presence census finds 580 of 1879 documented declarations and 22 of 23 module docblocks.
+component: docstrings
+body: ""

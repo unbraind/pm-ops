@@ -1,10 +1,17 @@
+/**
+ * Coverage-gate contracts: controlled process/report failures plus a real c8
+ * fixture proving that newly authored, unimported modules cannot disappear from
+ * the measured denominator. Fixture reports never represent release coverage.
+ */
 import assert from "node:assert/strict";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -118,40 +125,94 @@ test("coverage gate accepts a complete report and forwards all four exact thresh
     assert.strictEqual(calls[0].args[index + 1], "100");
   }
   assert.ok(calls[0].args.includes("--per-file"));
+  assert.strictEqual(
+    calls[0].args[calls[0].args.indexOf("--temp-directory") + 1],
+    join(directory, "coverage", "tmp"),
+    "nested c8 must not clean the parent run's inherited raw-counter directory",
+  );
   assert.deepStrictEqual(
     calls[0].args.filter((arg) => arg === "--include").length,
     2,
   );
 });
 
+test("overlapping source roots produce one sorted include per source file", () => {
+  const directory = fixture("overlapping-sources", {
+    sources: ["src/nested", "src", "src/index.ts"],
+    tests: [],
+    thresholds: { statements: 100, lines: 100, branches: 100, functions: 100 },
+  });
+  const spawn = ((_command: string, args: readonly string[]) => {
+    const included = args.flatMap((arg, index) =>
+      arg === "--include" ? [args[index + 1]] : []
+    );
+    assert.deepStrictEqual(included, ["src/index.ts", "src/nested/worker.ts"]);
+    writeLcov(directory, included);
+    return spawnResult();
+  }) as unknown as typeof spawnSync;
+  runCoverageGate({ repoRoot: directory, spawn, exit });
+});
+
+test("real c8 discovers newly tested modules and rejects an unimported module by filename", () => {
+  const directory = fixture("real-c8", {
+    sources: ["src", "src/nested"],
+    tests: ["test/complete.test.ts"],
+    thresholds: { statements: 100, lines: 100, branches: 100, functions: 100 },
+  });
+  const packageRoot = resolve(import.meta.dirname, "..");
+  symlinkSync(join(packageRoot, "node_modules"), join(directory, "node_modules"), "junction");
+  mkdirSync(join(directory, "test"));
+  writeFileSync(join(directory, "src", "new-file.ts"), "export const added = 3;\n");
+  writeFileSync(join(directory, "test", "complete.test.ts"), [
+    'import assert from "node:assert/strict";',
+    'import test from "node:test";',
+    'import { value } from "../src/index.ts";',
+    'import { worker } from "../src/nested/worker.ts";',
+    'import { added } from "../src/new-file.ts";',
+    'test("executes every module", () => assert.equal(value + worker + added, 6));',
+    "",
+  ].join("\n"));
+  const script = resolve(packageRoot, "scripts/coverage-gate.ts");
+  const env = { ...process.env };
+  // This is a separate test run. Node otherwise treats its inherited test-worker
+  // marker as recursive node:test invocation and silently refuses to run files.
+  delete env.NODE_TEST_CONTEXT;
+  const parentCounters = join(directory, "parent-counters");
+  mkdirSync(parentCounters);
+  const sentinel = join(parentCounters, "parent-owned.txt");
+  writeFileSync(sentinel, "preserve parent counters");
+  env.NODE_V8_COVERAGE = parentCounters;
+  const complete = spawnSync(process.execPath, [script, directory], {
+    cwd: directory,
+    encoding: "utf8",
+    timeout: 30_000,
+    env,
+  });
+  assert.strictEqual(complete.status, 0, `${complete.stdout}\n${complete.stderr}`);
+  assert.match(complete.stdout, /3 source file\(s\) reported/);
+  assert.strictEqual(readFileSync(sentinel, "utf8"), "preserve parent counters");
+
+  writeFileSync(join(directory, "src", "unimported.ts"), "export const omitted = 4;\n");
+  const incomplete = spawnSync(process.execPath, [script, directory], {
+    cwd: directory,
+    encoding: "utf8",
+    timeout: 30_000,
+    env,
+  });
+  assert.strictEqual(incomplete.status, 1, `${incomplete.stdout}\n${incomplete.stderr}`);
+  assert.match(`${incomplete.stdout}\n${incomplete.stderr}`, /unimported\.ts/);
+  assert.match(incomplete.stderr, /does not meet threshold \(100%\) for src\/unimported\.ts/);
+  assert.strictEqual(readFileSync(sentinel, "utf8"), "preserve parent counters");
+});
+
 test("coverage gate defaults to its package root and native process boundaries", () => {
   const packageRoot = resolve(import.meta.dirname, "..");
-  const spawn = (() => {
-    writeLcov(packageRoot, [
-      "index.ts",
-      "attestation.ts",
-      "shell-scan.ts",
-      "docstrings.ts",
-      "assurance.ts",
-      "invocation-audit.ts",
-      "merge-driver.ts",
-      "merge-driver-prepare.ts",
-      "templates/prepare-merge-driver.ts",
-      "eslint.ts",
-      "duplication.ts",
-      "scripts/coverage-gate.ts",
-      "scripts/lint.ts",
-      "scripts/duplication-gate.ts",
-      "scripts/docstring-gate.ts",
-      "scripts/main-invocation.ts",
-      "scripts/prepare-merge-driver.ts",
-      "scripts/shell-command-scan.ts",
-      "scripts/verify-release-changelog-date.ts",
-      "scripts/verify-release-completeness.ts",
-      "scripts/verify-release-publish-attestation.ts",
-      "lifecycle-policy.ts",
-      "scripts/verify-lifecycle-policy.ts",
-    ]);
+  const spawn = ((_command: string, args: readonly string[]) => {
+    // This fake only acknowledges the actual runner scope. The independent real
+    // c8 fixture above verifies the walk and fail-closed measurement itself.
+    writeLcov(packageRoot, args.flatMap((arg, index) =>
+      arg === "--include" ? [args[index + 1]] : []
+    ));
     return spawnResult();
   }) as unknown as typeof spawnSync;
   try {
@@ -169,16 +230,20 @@ test("coverage gate direct entrypoint executes against an explicit package root"
   });
   const bin = join(directory, "bin");
   mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "report.ts"), [
+    'import { mkdirSync, writeFileSync } from "node:fs";',
+    'const args = process.argv.slice(2);',
+    'const files = args.flatMap((arg, index) => arg === "--include" ? [args[index + 1]] : []);',
+    'mkdirSync("coverage", { recursive: true });',
+    'writeFileSync("coverage/lcov.info", files.map((file) => `SF:${file}\\nend_of_record`).join("\\n") + "\\n");',
+    "",
+  ].join("\n"));
   if (process.platform === "win32") {
-    writeFileSync(
-      join(bin, "npx.cmd"),
-      `@echo off\r\nmkdir coverage 2>nul\r\n(echo SF:src/index.ts& echo end_of_record)>coverage\\lcov.info\r\n`,
-    );
+    writeFileSync(join(bin, "npx.cmd"),
+      `@"${process.execPath}" "%~dp0report.ts" %*\r\n`);
   } else {
-    writeFileSync(
-      join(bin, "npx"),
-      "#!/usr/bin/env sh\nmkdir -p coverage\nprintf 'SF:src/index.ts\\nend_of_record\\n' > coverage/lcov.info\n",
-    );
+    writeFileSync(join(bin, "npx"),
+      `#!/usr/bin/env sh\n"${process.execPath}" "${join(bin, "report.ts")}" "$@"\n`);
     chmodSync(join(bin, "npx"), 0o755);
   }
   const result = spawnSync(process.execPath, [
@@ -197,19 +262,6 @@ test("coverage gate direct entrypoint executes against an explicit package root"
   assert.strictEqual(result.status, 0, result.stderr);
   assert.match(result.stdout, /1 source file\(s\) reported/);
 
-  if (process.platform === "win32") {
-    writeFileSync(
-      join(bin, "npx.cmd"),
-      `@echo off\r\nmkdir coverage 2>nul\r\n(echo SF:index.ts& echo end_of_record& echo SF:attestation.ts& echo end_of_record& echo SF:shell-scan.ts& echo end_of_record& echo SF:docstrings.ts& echo end_of_record& echo SF:assurance.ts& echo end_of_record& echo SF:invocation-audit.ts& echo end_of_record& echo SF:merge-driver.ts& echo end_of_record& echo SF:merge-driver-prepare.ts& echo end_of_record& echo SF:templates/prepare-merge-driver.ts& echo end_of_record& echo SF:eslint.ts& echo end_of_record& echo SF:duplication.ts& echo end_of_record& echo SF:scripts/coverage-gate.ts& echo end_of_record& echo SF:scripts/lint.ts& echo end_of_record& echo SF:scripts/duplication-gate.ts& echo end_of_record& echo SF:scripts/docstring-gate.ts& echo end_of_record& echo SF:scripts/main-invocation.ts& echo end_of_record& echo SF:scripts/prepare-merge-driver.ts& echo end_of_record& echo SF:scripts/shell-command-scan.ts& echo end_of_record& echo SF:scripts/verify-release-changelog-date.ts& echo end_of_record& echo SF:scripts/verify-release-completeness.ts& echo end_of_record& echo SF:scripts/verify-release-publish-attestation.ts& echo end_of_record& echo SF:lifecycle-policy.ts& echo end_of_record& echo SF:scripts/verify-lifecycle-policy.ts& echo end_of_record)>coverage\\lcov.info\r\n`,
-
-    );
-  } else {
-    writeFileSync(
-      join(bin, "npx"),
-      "#!/usr/bin/env sh\nmkdir -p coverage\nprintf 'SF:index.ts\\nend_of_record\\nSF:attestation.ts\\nend_of_record\\nSF:shell-scan.ts\\nend_of_record\\nSF:docstrings.ts\\nend_of_record\\nSF:assurance.ts\\nend_of_record\\nSF:invocation-audit.ts\\nend_of_record\\nSF:merge-driver.ts\\nend_of_record\\nSF:merge-driver-prepare.ts\\nend_of_record\\nSF:templates/prepare-merge-driver.ts\\nend_of_record\\nSF:eslint.ts\\nend_of_record\\nSF:duplication.ts\\nend_of_record\\nSF:scripts/coverage-gate.ts\\nend_of_record\\nSF:scripts/lint.ts\\nend_of_record\\nSF:scripts/duplication-gate.ts\\nend_of_record\\nSF:scripts/docstring-gate.ts\\nend_of_record\\nSF:scripts/main-invocation.ts\\nend_of_record\\nSF:scripts/prepare-merge-driver.ts\\nend_of_record\\nSF:scripts/shell-command-scan.ts\\nend_of_record\\nSF:scripts/verify-release-changelog-date.ts\\nend_of_record\\nSF:scripts/verify-release-completeness.ts\\nend_of_record\\nSF:scripts/verify-release-publish-attestation.ts\\nend_of_record\\nSF:lifecycle-policy.ts\\nend_of_record\\nSF:scripts/verify-lifecycle-policy.ts\\nend_of_record\\n' > coverage/lcov.info\n",
-
-    );
-  }
   const packageRoot = resolve(import.meta.dirname, "..");
   try {
     const defaultRoot = spawnSync(process.execPath, [

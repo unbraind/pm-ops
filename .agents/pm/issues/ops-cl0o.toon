@@ -2,10 +2,34 @@ id: ops-cl0o
 title: "Adding a source file breaks the coverage gate in three places, and none of them says so"
 description: "The coverage gate enumerates every source file so that a file added without tests cannot pass by being absent from the report. That enumeration is duplicated by hand in three fixture lists inside test/coverage-gate.test.ts (a POSIX stub, a Windows stub, and an explicit array) plus the include list in the package coverage script. Adding one source file therefore requires four coordinated edits, and omitting any of them fails the gate with a coverage threshold error that names a percentage rather than the missing file. Two source files added in this session each hit it."
 type: Issue
-status: open
+status: blocked
 priority: 2
 tags[3]: "area:release","area:testing","type:defect"
 created_at: "2026-08-28T14:25:04.891Z"
-updated_at: "2026-08-28T14:25:04.891Z"
+updated_at: "2026-09-29T20:12:56.601Z"
 author: claude
+estimated_minutes: 90
+acceptance_criteria: New TypeScript modules require no edits to hard-coded coverage fixture lists; overlapping source roots produce a sorted unique required-file denominator; real c8 accepts a newly tested module and rejects an unimported module by filename at unchanged per-file 100/100/100/100 thresholds; CLI/SDK 2026.9.29 and the lockfile pass package release checks; required exact-head reviews complete before merge; Every c8 invocation uses the measured repositorys coverage/tmp directory and preserves an enclosing coverage run
+definition_of_ready: Canonical pm-ops checkout and tracker verified; no other claim or active checkout process; stacked on the existing TSX gate candidate
+risk: low
+blocked_by: ops-0c8k
+blocked_reason: Full internal documentation gate remains incomplete under ops-0c8k. Parent PR132 and new exact-head substantive reviews remain required. Default CI omits two opt-in real-fleet checks; Trivy and ShellCheck are unavailable locally.
+repro_steps: Configure overlapping coverageGate.sources entries and run node --test test/coverage-gate.test.ts. A nested c8 invocation previously inherited and cleaned the enclosing raw-counter directory.
+expected_result: "New source modules are discovered once in deterministic order without fixture list edits, while nested coverage invocations preserve parent data and all required measured gates remain enforced."
+actual_result: "Source roots are deduplicated and sorted, controlled reports follow include arguments, real c8 rejects unimported modules by filename, and repository-owned counter directories preserve parent data."
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  ops-0c8k,blocked_by,"2026-09-29T20:12:55.918Z",codex-coverage-inventory,"cli:update:blocked_by",detected
+notes[3]{created_at,author,text}:
+  "2026-09-29T19:54:12.169Z",codex-coverage-inventory,"Scope: consolidate fixture source reports around the gates emitted include arguments while retaining independent real-c8 pass/fail fixtures. Deduplicate and sort overlapping source roots. Update exact published CLI/SDK pin to 2026.9.29. Depends on parent TSX-gate candidate PR132. Rollout: reviewed source PR only, no publication/deployment. Rollback: revert this change; thresholds/exemptions remain unchanged."
+  "2026-09-29T20:01:49.136Z",codex-coverage-inventory,"Red-green evidence: duplicate-root regression failed with four include entries instead of two. Real child c8 initially inherited Node test-worker context and skipped execution; standalone child environment now executes its real assertions. Full release gate then exposed c8 inheriting and cleaning parent NODE_V8_COVERAGE counters, yielding incomplete aggregate coverage. Added a red runner-argument regression and pinned each gate to its repository-owned coverage/tmp. Exact development-version assertion updated alongside the published CLI pin; thresholds unchanged."
+  "2026-09-29T20:12:55.278Z",codex-coverage-inventory,"Validated source candidate: npm ci and exact CLI/SDK 2026.9.29 pin pass. Full release:check with real pm-slack and pm-csv selections passes 456/456 tests, zero skips/TODOs, c8 per-file 100 statements/branches/functions/lines across 23 runtime/tooling/template files, 221 selected documented declarations, zero duplication across 43 sources and zero full/production dependency audit findings. PM-linked none/snapshot acceptance passes 11 tests. The default suite still skips two opt-in live-fleet checks. Independent full documentation presence census is 580/1879 declarations and 22/23 module docblocks, tracked by ops-0c8k. Selected docstring gate success is not full documentation coverage. No publication or deployment is authorized by these measurements."
+files[4]{path,scope,note}:
+  package.json,project,Exact CLI and SDK compatibility pin
+  scripts/coverage-gate.ts,project,Deterministic unique source denominator
+  test/compatibility-floor.test.ts,project,Approved exact CLI SDK development version assertion
+  test/coverage-gate.test.ts,project,Dynamic runner fixtures and independent real c8 regression
+tests[1]{command,scope,timeout_seconds,pm_context_mode,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/coverage-gate.test.ts,project,120,none,codex-coverage-inventory,"2026-09-29T19:58:09.585Z",local_mutation,fix/pm-ops-coverage-source-inventory-2026-09-29
+docs[1]{path,scope,note}:
+  README.md,project,Coverage denominator and controlled boundary contract
 body: ""
