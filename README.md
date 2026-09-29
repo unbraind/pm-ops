@@ -407,8 +407,11 @@ Overlapping roots form a sorted, unique file set, which supplies both the c8
 include arguments and the report-presence check. Tests, dependencies, build
 output and declaration files are outside the runtime denominator. Thresholds
 remain 100% statements, branches, functions and lines for every measured file.
-Raw counters live in that repository's `coverage/tmp`, so a nested gate cannot
-clean a parent run's inherited counter directory.
+Every invocation uses its own `coverage/run-*` report and counter directory,
+so concurrent or nested gates preserve one another's data. After validation,
+it atomically publishes `coverage/lcov.info` as the last successful report and
+removes its temporary directory. Each gate judges its own fresh report, including
+on failure; a previous canonical report cannot satisfy its presence check.
 
 The gate's controlled runner fixtures derive their reports from the include
 arguments, so adding a module requires no fixture-list edits. A separate real

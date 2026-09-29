@@ -31,8 +31,10 @@ import { spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
 } from "node:fs";
@@ -312,124 +314,143 @@ export function runCoverageGate(options: CoverageGateOptions = {}): void {
     exit(1);
   }
 
-  const lcovPath = join(repoRoot, "coverage", "lcov.info");
-  mkdirSync(join(repoRoot, "coverage"), { recursive: true });
-  // Delete any previous report first. If this run writes none, a leftover file
-  // from an earlier, broader run would satisfy the presence check on stale data —
-  // the gate would pass by reading history rather than by measuring anything.
-  rmSync(lcovPath, { force: true });
+  const coverageDirectory = join(repoRoot, "coverage");
+  mkdirSync(coverageDirectory, { recursive: true });
+  // Both the report and raw counters belong to this invocation. A shared report
+  // path races even when counters are separate, and a stale canonical report
+  // must never satisfy this invocation's completeness check.
+  const runDirectory = mkdtempSync(join(coverageDirectory, "run-"));
+  const lcovPath = join(runDirectory, "lcov.info");
 
-  const result = spawn(
-    process.platform === "win32" ? "npx.cmd" : "npx",
-    [
-      "c8",
-      "--all",
-      // Scope the report to exactly the files the presence check requires. Passing
-      // the enumerated paths rather than a directory glob keeps the two in step by
-      // construction, and keeps test files and tooling out of the percentages even
-      // when the source root is the repository root.
-      ...required.flatMap((file) => ["--include", file]),
-      "--check-coverage",
-      "--per-file",
-      "--statements",
-      String(gateConfig.thresholds.statements),
-      "--lines",
-      String(gateConfig.thresholds.lines),
-      "--branches",
-      String(gateConfig.thresholds.branches),
-      "--functions",
-      String(gateConfig.thresholds.functions),
-      "--reporter",
-      "text",
-      "--reporter",
-      "lcov",
-      "--reports-dir",
-      join(repoRoot, "coverage"),
-      // c8 otherwise defaults to inherited NODE_V8_COVERAGE and cleans that
-      // directory before running. Nested gates must preserve the parent's data.
-      "--temp-directory",
-      join(repoRoot, "coverage", "tmp"),
-      process.execPath,
-      "--test",
-      ...gateConfig.tests,
-    ],
-    {
-      cwd: repoRoot,
-      stdio: "inherit",
-      // Pin the timezone so the measurement is reproducible on any machine.
-      // Code that branches on a timestamp's UTC offset takes different paths under
-      // a local offset than under UTC, which moves the reported percentage between
-      // a contributor's machine and CI. A threshold pinned to one machine's number
-      // then fails on the other for reasons unrelated to the change under review.
-      env: { ...process.env, TZ: "UTC" },
-    },
-  );
-
-  if (result.error) {
-    console.error(
-      `coverage-gate: failed to start the test runner: ${result.error.message}`,
-    );
-    exit(1);
+  /** Remove only this invocation's artifacts, preserving every peer run. */
+  function cleanupRun(): void {
+    rmSync(runDirectory, { recursive: true, force: true });
   }
 
-  // Surface a runner failure before touching the report at all. A failing suite,
-  // an unmet threshold, or a test file that will not load can each leave the lcov
-  // output absent or incomplete, and every diagnostic below would then describe a
-  // coverage-configuration problem the author does not have — burying the test
-  // failure they need to act on.
-  if (result.status !== 0) {
-    exit(result.status ?? 1);
+  /** Clean before an exit boundary that may terminate without running finally. */
+  function failRun(code: number): never {
+    cleanupRun();
+    return exit(code);
   }
 
-  /**
-   * Source files the run actually reported on, read back from the lcov output.
-   *
-   * `SF:` paths are normalised to repository-relative POSIX form so they can be
-   * compared against the walk. The lcov reporter emits them relative to the
-   * working directory on Linux, but that is not contractual and Windows runners
-   * have been seen to emit absolute paths; without normalising, the presence
-   * check would invert into a permanently red build that blames every source file
-   * for never loading.
-   */
-  const reported = new Set<string>();
   try {
-    statSync(lcovPath);
-    for (const line of readFileSync(lcovPath, "utf8").split("\n")) {
-      if (!line.startsWith("SF:")) continue;
-      const raw = line.slice(3).trim();
-      const abs = isAbsolute(raw) ? raw : join(repoRoot, raw);
-      reported.add(relative(repoRoot, abs).split(sep).join("/"));
-    }
-  } catch {
-    console.error(
-      `coverage-gate: no coverage report was written to ${
-        relative(repoRoot, lcovPath)
-      }.`,
-    );
-    exit(1);
-  }
-
-  const missing = required.filter((file) => !reported.has(file));
-
-  if (missing.length > 0) {
-    console.error(
+    const result = spawn(
+      process.platform === "win32" ? "npx.cmd" : "npx",
       [
-        "",
-        `coverage-gate: ${missing.length} source file(s) never loaded during the run and were`,
-        "omitted from the coverage report, so the reported percentages exclude them entirely:",
-        ...missing.map((file) => `  - ${file}`),
-        "",
-        "Import each file from a test (or exercise it through the CLI entrypoint under test).",
-        "A file that is genuinely type-only belongs in `coverageGate.ignore` in package.json.",
-        "",
-      ].join("\n"),
+        "c8",
+        "--all",
+        // Scope the report to exactly the files the presence check requires. Passing
+        // the enumerated paths rather than a directory glob keeps the two in step by
+        // construction, and keeps test files and generated output out of percentages even
+        // when the source root is the repository root.
+        ...required.flatMap((file) => ["--include", file]),
+        "--check-coverage",
+        "--per-file",
+        "--statements",
+        String(gateConfig.thresholds.statements),
+        "--lines",
+        String(gateConfig.thresholds.lines),
+        "--branches",
+        String(gateConfig.thresholds.branches),
+        "--functions",
+        String(gateConfig.thresholds.functions),
+        "--reporter",
+        "text",
+        "--reporter",
+        "lcov",
+        "--reports-dir",
+        runDirectory,
+        // Override inherited NODE_V8_COVERAGE so c8 cleans only its own counters.
+        "--temp-directory",
+        join(runDirectory, "tmp"),
+        process.execPath,
+        "--test",
+        ...gateConfig.tests,
+      ],
+      {
+        cwd: repoRoot,
+        stdio: "inherit",
+        // Pin the timezone so the measurement is reproducible on any machine.
+        // Code that branches on a timestamp's UTC offset takes different paths under
+        // a local offset than under UTC, which moves the reported percentage between
+        // a contributor's machine and CI. A threshold pinned to one machine's number
+        // then fails on the other for reasons unrelated to the change under review.
+        env: { ...process.env, TZ: "UTC" },
+      },
     );
-    exit(1);
-  }
 
-  console.log(
-    `\ncoverage-gate: ${required.length} source file(s) reported, thresholds met.`,
-  );
+    if (result.error) {
+      console.error(
+        `coverage-gate: failed to start the test runner: ${result.error.message}`,
+      );
+      failRun(1);
+    }
+
+    // Surface a runner failure before touching the report at all. A failing suite,
+    // an unmet threshold, or a test file that will not load can each leave the lcov
+    // output absent or incomplete, and every diagnostic below would then describe a
+    // coverage-configuration problem the author does not have — burying the test
+    // failure they need to act on.
+    if (result.status !== 0) {
+      failRun(result.status ?? 1);
+    }
+
+    /**
+     * Source files the run actually reported on, read back from the lcov output.
+     *
+     * `SF:` paths are normalised to repository-relative POSIX form so they can be
+     * compared against the walk. The lcov reporter emits them relative to the
+     * working directory on Linux, but that is not contractual and Windows runners
+     * have been seen to emit absolute paths; without normalising, the presence
+     * check would invert into a permanently red build that blames every source file
+     * for never loading.
+     */
+    const reported = new Set<string>();
+    try {
+      statSync(lcovPath);
+      for (const line of readFileSync(lcovPath, "utf8").split("\n")) {
+        if (!line.startsWith("SF:")) continue;
+        const raw = line.slice(3).trim();
+        const abs = isAbsolute(raw) ? raw : join(repoRoot, raw);
+        reported.add(relative(repoRoot, abs).split(sep).join("/"));
+      }
+    } catch {
+      console.error(
+        `coverage-gate: no coverage report was written to ${
+          relative(repoRoot, lcovPath)
+        }.`,
+      );
+      failRun(1);
+    }
+
+    const missing = required.filter((file) => !reported.has(file));
+
+    if (missing.length > 0) {
+      console.error(
+        [
+          "",
+          `coverage-gate: ${missing.length} source file(s) never loaded during the run and were`,
+          "omitted from the coverage report, so the reported percentages exclude them entirely:",
+          ...missing.map((file) => `  - ${file}`),
+          "",
+          "Import each file from a test (or exercise it through the CLI entrypoint under test).",
+          "A file that is genuinely type-only belongs in `coverageGate.ignore` in package.json.",
+          "",
+        ].join("\n"),
+      );
+      failRun(1);
+    }
+
+    // Publish a complete successful report atomically. Concurrent successes may
+    // replace this convenience report, but every gate judges its own run first.
+    renameSync(lcovPath, join(coverageDirectory, "lcov.info"));
+
+    console.log(
+      `\ncoverage-gate: ${required.length} source file(s) reported, thresholds met.`,
+    );
+  } finally {
+    cleanupRun();
+  }
 }
 
 if (

@@ -6,13 +6,15 @@ status: open
 priority: 1
 tags: []
 created_at: "2026-09-29T20:07:47.887Z"
-updated_at: "2026-09-29T20:07:47.887Z"
+updated_at: "2026-09-29T20:40:19.566Z"
 author: codex-coverage-inventory
 estimated_minutes: 480
 acceptance_criteria: "Define and enforce the full source module and documentable-declaration denominator; document contracts, invariants, side effects and failures for every declaration including internal APIs; prove missing internal docs fail local and CI checks without exclusions or lowered thresholds; retain explicit compatibility for the existing selected-surface analyzer"
 risk: medium
 repro_steps: "Run npm run docstring, then compare all authored runtime and tooling declarations against JSDoc presence using an installed TypeScript AST reader."
 expected_result: The mandatory gate measures and enforces all authored runtime modules and internal documentable declarations.
-actual_result: The selected-surface gate passes 221 declarations while the full presence census finds 580 of 1879 documented declarations and 22 of 23 module docblocks.
+actual_result: The selected-surface gate passes 221 declarations while the current full presence census finds 582 of 1883 documented declarations and 22 of 23 module docblocks
 component: docstrings
+notes[1]{created_at,author,text}:
+  "2026-09-29T20:36:20.238Z",codex-coverage-inventory,"Coverage review changes add two documented internal functions. Updated independent TypeScript AST presence census over the same 23 runtime/tooling/template modules is 582/1883 declarations and 22/23 module docblocks. The denominator includes named functions, classes, interfaces, aliases, methods/signatures, properties/signatures, constructors/accessors and variable statements. Presence is not semantic documentation quality. Required full coverage remains unmet."
 body: ""
