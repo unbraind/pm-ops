@@ -6,15 +6,14 @@ status: in_progress
 priority: 1
 tags[4]: "area:quality",docstrings,duplication,tsx
 created_at: "2026-09-28T15:05:31.893Z"
-updated_at: "2026-10-02T21:01:14.692Z"
-assignee: pi-grok
-claim_principal: pi-grok
+updated_at: "2026-10-02T21:09:31.237Z"
 author: codex
 estimated_minutes: 180
 acceptance_criteria: Directory and single-file docstring analysis find undocumented TSX exports; jscpd 4 and 5 detect TSX clones with the real engines; mismatched scan counts fail closed; release gate passes; companion records exact limitations.
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-10-02T18:27:05.767Z",pi-glm,"Rebase to current main (pi-glm, orchestrator land pass): PR #132 rebased onto origin/main 5ea8406 (releases 2026.9.28-1 and 2026.9.29 merged in cleanly, no conflicts). New head f3e66c3; same three commits. Full gate re-verified on the rebased head: npm run release:check passes (typecheck, lint, duplication, docstrings, coverage 100/100/100/100 across 23 sources, prod audit 0 findings, pack dry run, changelog:check, release-changelog-date, publish-attestation, lifecycle-policy), and pm health --strict-exit --json exits 0 with only stale-in-progress advisories. Re-review requested from CodeRabbit/Greptile/Gemini."
   "2026-10-02T21:01:14.692Z",pi-grok,"Cubic review 5395516638 on head b15bf93, land-pass disposition:\n\n4168776167 is valid. Note 3 began with a pasted author=codex,text= label. pm item notes --edit 3 stripped that prefix so the text starts at \"CodeRabbit review comment 4124694533\". The original note_add history line is kept; the edit is a new history event.\n\n4168776160 is refused. tokenize selects LanguageVariant.JSX only when the file identifier ends with .tsx, which is the same rule collectSourceFiles uses to admit sources. analyzeSource's file argument is that identifier, not a free-form module name. Inferring JSX from source text would treat TypeScript generics in .ts files as tags. A caller that passes TSX bytes under a non-.tsx name is outside the gate contract; the walker never does that.\n\n4168776178 is refused. A live jscpd 5.2.1 JSON report stores statistics.formats.typescript.sources and statistics.total.sources as counts, not file maps. Duplicate records name only files that participated in a clone. The one-token probe therefore cannot name a same-size substitution, and the function comment above analyzeWithBinary already states that the JSON report carries only aggregate source counts. jscpd 4 still fails closed with skippedSources file names."
+  "2026-10-02T21:09:30.355Z",pi-grok,"Land-pass gate: the note-only head was included in the rebased pm-ops#134 tree, where npm run release:check exited 0 (455 pass, 0 fail, 2 default-suite real-data skips, c8 100/100/100/100 across 23 sources, changelog:check current). Local changelog:check on this branch also exited 0. pm health --strict-exit --require-merge-drivers exited 0."
 notes[3]:
   - created_at: "2026-09-28T15:05:31.893Z"
     author: codex
