@@ -6,16 +6,26 @@ status: in_progress
 priority: 1
 tags[4]: "area:quality",docstrings,duplication,tsx
 created_at: "2026-09-28T15:05:31.893Z"
-updated_at: "2026-10-02T18:27:05.767Z"
+updated_at: "2026-10-02T21:01:14.692Z"
+assignee: pi-grok
+claim_principal: pi-grok
 author: codex
 estimated_minutes: 180
 acceptance_criteria: Directory and single-file docstring analysis find undocumented TSX exports; jscpd 4 and 5 detect TSX clones with the real engines; mismatched scan counts fail closed; release gate passes; companion records exact limitations.
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-10-02T18:27:05.767Z",pi-glm,"Rebase to current main (pi-glm, orchestrator land pass): PR #132 rebased onto origin/main 5ea8406 (releases 2026.9.28-1 and 2026.9.29 merged in cleanly, no conflicts). New head f3e66c3; same three commits. Full gate re-verified on the rebased head: npm run release:check passes (typecheck, lint, duplication, docstrings, coverage 100/100/100/100 across 23 sources, prod audit 0 findings, pack dry run, changelog:check, release-changelog-date, publish-attestation, lifecycle-policy), and pm health --strict-exit --json exits 0 with only stale-in-progress advisories. Re-review requested from CodeRabbit/Greptile/Gemini."
-notes[3]{created_at,author,text}:
-  "2026-09-28T15:05:31.893Z",codex,"TDD: TSX docstring and real jscpd 4 tests failed before the source fix. The candidate passes 449/451 tests with two existing opt-in skips, c8 100/100/100/100, 221/221 documented declarations, zero duplication across 43 sources, zero production audit findings, and real packed npm/Node and Bun TSX acceptance. The local PM CLI SDK pin is 2026.9.28."
-  "2026-09-28T15:18:38.784Z",codex,"PR #132 first-head review found two valid regressions. Greptile P1 reproduced: a JSX closing tag let the tokenizer hide a later export; the TSX scanner now uses LanguageVariant.JSX and focused tests cover both direct analysis and directory walking. CodeRabbit major reproduced: fast-glob followed symlinked paths while jscpd 5 did not; fast-glob and jscpd 4 now share the no-symlink policy with jscpd 5, with real 4/5 symlink fixtures. Focused tests, build, typecheck, lint, and docstrings pass; full exact-head gate and packed acceptance remain pending."
-  "2026-09-28T16:48:08.764Z","harness:codex","author=codex,text=CodeRabbit review comment 4124694533 reproduced a jscpd 5.2.1 ambient .jscpd.json threshold failure: primary 200-token scan passed, one-token source probe detected 81.2% duplication and exited 1 before reading its count. A real-binary regression failed first. The fix resolves the repo root before launching jscpd and runs both canonical scans from an isolated output directory, so package duplicationGate remains authoritative. Focused test now passes, full release:check exits 0 with 100% on all four measured coverage dimensions, zero prod audit findings, and fresh packed npm/Node and Bun imports both report two complete sources and zero primary clones."
+  "2026-10-02T21:01:14.692Z",pi-grok,"Cubic review 5395516638 on head b15bf93, land-pass disposition:\n\n4168776167 is valid. Note 3 began with a pasted author=codex,text= label. pm item notes --edit 3 stripped that prefix so the text starts at \"CodeRabbit review comment 4124694533\". The original note_add history line is kept; the edit is a new history event.\n\n4168776160 is refused. tokenize selects LanguageVariant.JSX only when the file identifier ends with .tsx, which is the same rule collectSourceFiles uses to admit sources. analyzeSource's file argument is that identifier, not a free-form module name. Inferring JSX from source text would treat TypeScript generics in .ts files as tags. A caller that passes TSX bytes under a non-.tsx name is outside the gate contract; the walker never does that.\n\n4168776178 is refused. A live jscpd 5.2.1 JSON report stores statistics.formats.typescript.sources and statistics.total.sources as counts, not file maps. Duplicate records name only files that participated in a clone. The one-token probe therefore cannot name a same-size substitution, and the function comment above analyzeWithBinary already states that the JSON report carries only aggregate source counts. jscpd 4 still fails closed with skippedSources file names."
+notes[3]:
+  - created_at: "2026-09-28T15:05:31.893Z"
+    author: codex
+    text: "TDD: TSX docstring and real jscpd 4 tests failed before the source fix. The candidate passes 449/451 tests with two existing opt-in skips, c8 100/100/100/100, 221/221 documented declarations, zero duplication across 43 sources, zero production audit findings, and real packed npm/Node and Bun TSX acceptance. The local PM CLI SDK pin is 2026.9.28."
+  - created_at: "2026-09-28T15:18:38.784Z"
+    author: codex
+    text: "PR #132 first-head review found two valid regressions. Greptile P1 reproduced: a JSX closing tag let the tokenizer hide a later export; the TSX scanner now uses LanguageVariant.JSX and focused tests cover both direct analysis and directory walking. CodeRabbit major reproduced: fast-glob followed symlinked paths while jscpd 5 did not; fast-glob and jscpd 4 now share the no-symlink policy with jscpd 5, with real 4/5 symlink fixtures. Focused tests, build, typecheck, lint, and docstrings pass; full exact-head gate and packed acceptance remain pending."
+  - created_at: "2026-09-28T16:48:08.764Z"
+    author: "harness:codex"
+    text: "CodeRabbit review comment 4124694533 reproduced a jscpd 5.2.1 ambient .jscpd.json threshold failure: primary 200-token scan passed, one-token source probe detected 81.2% duplication and exited 1 before reading its count. A real-binary regression failed first. The fix resolves the repo root before launching jscpd and runs both canonical scans from an isolated output directory, so package duplicationGate remains authoritative. Focused test now passes, full release:check exits 0 with 100% on all four measured coverage dimensions, zero prod audit findings, and fresh packed npm/Node and Bun imports both report two complete sources and zero primary clones."
+    edited_at: "2026-10-02T21:01:02.968Z"
 files[5]{path,scope,note}:
   docstrings.ts,project,TSX source walker
   duplication.ts,project,Both jscpd engines and source-count verification
