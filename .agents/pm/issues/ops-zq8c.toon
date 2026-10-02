@@ -6,10 +6,12 @@ status: in_progress
 priority: 1
 tags[4]: "area:quality",docstrings,duplication,tsx
 created_at: "2026-09-28T15:05:31.893Z"
-updated_at: "2026-09-28T16:48:08.785Z"
+updated_at: "2026-10-02T18:27:05.767Z"
 author: codex
 estimated_minutes: 180
 acceptance_criteria: Directory and single-file docstring analysis find undocumented TSX exports; jscpd 4 and 5 detect TSX clones with the real engines; mismatched scan counts fail closed; release gate passes; companion records exact limitations.
+comments[1]{created_at,author,text}:
+  "2026-10-02T18:27:05.767Z",pi-glm,"Rebase to current main (pi-glm, orchestrator land pass): PR #132 rebased onto origin/main 5ea8406 (releases 2026.9.28-1 and 2026.9.29 merged in cleanly, no conflicts). New head f3e66c3; same three commits. Full gate re-verified on the rebased head: npm run release:check passes (typecheck, lint, duplication, docstrings, coverage 100/100/100/100 across 23 sources, prod audit 0 findings, pack dry run, changelog:check, release-changelog-date, publish-attestation, lifecycle-policy), and pm health --strict-exit --json exits 0 with only stale-in-progress advisories. Re-review requested from CodeRabbit/Greptile/Gemini."
 notes[3]{created_at,author,text}:
   "2026-09-28T15:05:31.893Z",codex,"TDD: TSX docstring and real jscpd 4 tests failed before the source fix. The candidate passes 449/451 tests with two existing opt-in skips, c8 100/100/100/100, 221/221 documented declarations, zero duplication across 43 sources, zero production audit findings, and real packed npm/Node and Bun TSX acceptance. The local PM CLI SDK pin is 2026.9.28."
   "2026-09-28T15:18:38.784Z",codex,"PR #132 first-head review found two valid regressions. Greptile P1 reproduced: a JSX closing tag let the tokenizer hide a later export; the TSX scanner now uses LanguageVariant.JSX and focused tests cover both direct analysis and directory walking. CodeRabbit major reproduced: fast-glob followed symlinked paths while jscpd 5 did not; fast-glob and jscpd 4 now share the no-symlink policy with jscpd 5, with real 4/5 symlink fixtures. Focused tests, build, typecheck, lint, and docstrings pass; full exact-head gate and packed acceptance remain pending."
