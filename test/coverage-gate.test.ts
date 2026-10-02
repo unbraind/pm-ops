@@ -223,7 +223,7 @@ test("real c8 discovers newly tested modules and rejects an unimported module by
     assert.strictEqual(result.status, 0, `${result.stdout}\n${result.stderr}`);
     assert.match(result.stdout, /3 source file\(s\) reported/);
   }
-  assert.deepStrictEqual(readdirSync(join(directory, "coverage")), ["lcov.info", "tmp"]);
+  assert.deepStrictEqual(readdirSync(join(directory, "coverage")).sort(), ["lcov.info", "tmp"]);
 
   const measurementContext = {
     provider: QUALITY_PROVIDER_ID,
@@ -242,7 +242,7 @@ test("real c8 discovers newly tested modules and rejects an unimported module by
   assert.strictEqual(failedTests.status, 1, `${failedTests.stdout}\n${failedTests.stderr}`);
   assert.match(failedTests.stdout, /synthetic test failure/);
   assert.throws(() => qualityMeasurementProvider.resolve(measurementContext), /coverage report not found/);
-  assert.deepStrictEqual(readdirSync(join(directory, "coverage")), ["tmp"]);
+  assert.deepStrictEqual(readdirSync(join(directory, "coverage")).sort(), ["tmp"]);
   writeFileSync(testPath, passingTests);
 
   writeFileSync(join(directory, "src", "unimported.ts"), "export const omitted = 4;\n");
@@ -251,7 +251,7 @@ test("real c8 discovers newly tested modules and rejects an unimported module by
   assert.match(`${incomplete.stdout}\n${incomplete.stderr}`, /unimported\.ts/);
   assert.match(incomplete.stderr, /does not meet threshold \(100%\) for src\/unimported\.ts/);
   assert.strictEqual(readFileSync(sentinel, "utf8"), "preserve parent counters");
-  assert.deepStrictEqual(readdirSync(join(directory, "coverage")), ["tmp"]);
+  assert.deepStrictEqual(readdirSync(join(directory, "coverage")).sort(), ["tmp"]);
 });
 
 test("coverage gate defaults to its package root and includes the independent package inventory", () => {
