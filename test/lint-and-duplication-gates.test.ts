@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import test, { after, before } from "node:test";
 
 import { ESLint } from "eslint";
@@ -301,6 +301,79 @@ test("duplication analyzer reports the same clone pairs through the real jscpd 4
   assert.match(gate.errors, /exceeds the configured 0% threshold/);
 });
 
+test("both real jscpd engines include TSX clones in mixed TypeScript globs", async () => {
+  const source = [
+    "export function Widget() {",
+    "  const firstValue = 1;",
+    "  const secondValue = 2;",
+    "  const thirdValue = 3;",
+    "  const fourthValue = 4;",
+    "  const fifthValue = 5;",
+    "  const sixthValue = 6;",
+    "  const seventhValue = 7;",
+    "  const eighthValue = 8;",
+    "  return <div>{firstValue + secondValue + thirdValue + fourthValue + fifthValue + sixthValue + seventhValue + eighthValue}</div>;",
+    "}",
+  ].join("\n") + "\n";
+  for (const [version, fixture] of [
+    ["jscpd4", jscpd4Fixture("tsx-clones-v4", { threshold: 0, minTokens: 20 })],
+    ["jscpd5", packageFixture("tsx-clones-v5", { threshold: 0, minTokens: 20 })],
+  ] as const) {
+    writeFileSync(join(fixture, "src", "First.tsx"), source);
+    writeFileSync(join(fixture, "src", "Second.tsx"), source);
+    const report = await analyzeDuplication({ repoRoot: fixture, globs: ["src/**/*.{ts,tsx}"], minTokens: 20 });
+    assert.equal(report.sources, 2, version);
+    assert.equal(report.cloneCount, 1, version);
+    assert.deepEqual(report.skippedSources, [], version);
+    assert.match(report.clones[0]?.first.file ?? "", /\.tsx$/, version);
+    const defaultReport = await analyzeDuplication({ repoRoot: fixture, minTokens: 1 });
+    assert.equal(defaultReport.sources, 2, `${version} default scope`);
+    assert.ok(defaultReport.cloneCount >= 1, `${version} default scope`);
+    const gate = await gateFailureOutput(fixture, { globs: ["src/**/*.{ts,tsx}"] });
+    assert.match(gate.errors, /exceeds the configured 0% threshold/, version);
+  }
+});
+
+test("jscpd 5 refuses a TSX file omitted even by the one-token source probe", async () => {
+  const fixture = packageFixture("tsx-source-count-mismatch", { threshold: 0 });
+  writeFileSync(join(fixture, "src", "Empty.tsx"), "");
+  await assert.rejects(
+    analyzeDuplication({ repoRoot: fixture, globs: ["src/**/*.{ts,tsx}"] }),
+    /jscpd scanned 0 of 1 in-scope TypeScript sources/,
+  );
+  const gate = await gateFailureOutput(fixture, { globs: ["src/**/*.{ts,tsx}"] });
+  assert.match(gate.errors, /jscpd scanned 0 of 1 in-scope TypeScript sources/);
+});
+
+test("jscpd 5 completeness probe ignores a consumer threshold without losing source count", async () => {
+  const fixture = packageFixture("consumer-jscpd-threshold", { threshold: 0, minTokens: 200 });
+  const source = Array.from({ length: 8 }, (_, index) => `export const repeated${index} = ${index};`).join("\n") + "\n";
+  writeFileSync(join(fixture, "src", "first.ts"), source);
+  writeFileSync(join(fixture, "src", "second.ts"), source);
+  writeFileSync(join(fixture, ".jscpd.json"), `${JSON.stringify({ threshold: 0 })}\n`);
+
+  const launcher = resolve(import.meta.dirname, "../scripts/duplication-gate.ts");
+  const result = spawnSync(process.execPath, [launcher], { cwd: fixture, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /0% duplicated lines .*2 source\(s\)/);
+  const relativeReport = await analyzeDuplication({ repoRoot: relative(process.cwd(), fixture), minTokens: 200 });
+  assert.equal(relativeReport.sources, 2);
+});
+
+test("both engines count canonical TSX sources once across symlinked paths", async () => {
+  for (const [version, fixture] of [
+    ["jscpd4", jscpd4Fixture("tsx-symlink-v4", { threshold: 0 })],
+    ["jscpd5", packageFixture("tsx-symlink-v5", { threshold: 0 })],
+  ] as const) {
+    writeFileSync(join(fixture, "src", "Widget.tsx"), "export const Widget = <div>real source</div>;\n");
+    symlinkSync(join(fixture, "src", "Widget.tsx"), join(fixture, "src", "Alias.tsx"), "file");
+    symlinkSync(join(fixture, "src"), join(fixture, "alias"), "dir");
+    const report = await analyzeDuplication({ repoRoot: fixture, minTokens: 1 });
+    assert.equal(report.sources, 1, version);
+    assert.deepEqual(report.skippedSources, [], version);
+  }
+});
+
 test("duplication gate fails closed when the real jscpd 5 binary package is missing", async () => {
   const broken = packageFixture("jscpd5-missing-platform", { threshold: 0 });
   mkdirSync(join(broken, "node_modules"), { recursive: true });
@@ -320,11 +393,12 @@ test("jscpd 5 report parsing accepts a real report shape and fails closed for ma
     firstFile: { name: "/repo/src/first.ts", start: 1, end: 11 },
     secondFile: { name: "/repo/test/second.ts", start: 1, end: 11 },
   };
-  const statistics = { total: { lines: 22, duplicatedLines: 11 } };
+  const statistics = { total: { lines: 22, duplicatedLines: 11, sources: 2 } };
   const parsed = parseJscpdReport({ duplicates: [clone], statistics });
   assert.equal(parsed.duplicates.length, 1);
   assert.equal(parsed.duplicates[0]?.firstFile.name, "/repo/src/first.ts");
   assert.equal(parsed.statistics.total.lines, 22);
+  assert.equal(parsed.statistics.total.sources, 2);
   const malformed: unknown[] = [
     null,
     "report",
@@ -342,6 +416,7 @@ test("jscpd 5 report parsing accepts a real report shape and fails closed for ma
     { duplicates: [clone], statistics: { total: { lines: 22, duplicatedLines: -1 } } },
     { duplicates: [clone], statistics: { total: { lines: 22.5, duplicatedLines: 11 } } },
     { duplicates: [clone], statistics: { total: { lines: 22, duplicatedLines: 1.5 } } },
+    { duplicates: [clone], statistics: { total: { lines: 22, duplicatedLines: 11, sources: -1 } } },
   ];
   for (const report of malformed) assert.throws(() => parseJscpdReport(report), /jscpd report/);
 });
