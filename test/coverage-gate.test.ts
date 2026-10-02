@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync, type SpawnSyncReturns } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -416,6 +417,35 @@ test("coverage gate diagnoses unreadable and malformed package manifests", (cont
   before = messages.length;
   assert.throws(() => runCoverageGate({ repoRoot: malformed, exit }), GateExit);
   assertSingleDiagnostic(messages, before, /could not read package\.json/);
+});
+
+test("coverage gate routes a failed canonical report publish through the exit boundary", (context) => {
+  const directory = fixture("publish-failure");
+  const messages: string[] = [];
+  context.mock.method(console, "error", (...args: unknown[]) => {
+    messages.push(args.map(String).join(" "));
+  });
+  const spawn = ((_command: string, args: readonly string[]) => {
+    writeLcov(directory, ["src/index.ts", "src/nested/worker.ts"], args);
+    return spawnResult();
+  }) as unknown as typeof spawnSync;
+  assert.throws(
+    () => runCoverageGate({
+      repoRoot: directory,
+      spawn,
+      exit,
+      publishReport: () => {
+        throw new Error("EPERM: coverage/lcov.info is locked");
+      },
+    }),
+    (error: unknown) => error instanceof GateExit && error.code === 1,
+  );
+  assert.match(messages.join("\n"), /failed to publish the coverage report: Error: EPERM: coverage\/lcov.info is locked/);
+  assert.strictEqual(existsSync(join(directory, "coverage", "lcov.info")), false);
+  assert.deepStrictEqual(
+    readdirSync(join(directory, "coverage")).filter((name) => name.startsWith("run-")),
+    [],
+  );
 });
 
 test("coverage gate rejects runner launch failures and non-zero test or threshold results", (context) => {

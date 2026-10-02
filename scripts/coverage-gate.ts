@@ -98,6 +98,12 @@ interface CoverageGateOptions {
   readonly spawn?: typeof spawnSync;
   /** Exit boundary, injectable so tests can assert fail-closed diagnostics. */
   readonly exit?: (code: number) => never;
+  /**
+   * Canonical report publisher. Tests inject a throwing publisher to prove a
+   * locked destination still exits through the gate diagnostic instead of an
+   * uncaught exception. Production uses `renameSync`.
+   */
+  readonly publishReport?: (source: string, destination: string) => void;
 }
 
 const defaultRepoRoot = resolve(import.meta.dirname, "..");
@@ -108,6 +114,8 @@ export function runCoverageGate(options: CoverageGateOptions = {}): void {
   const spawn = options.spawn ?? spawnSync;
   /** Selected termination boundary retains the injected test sentinel or native process exit. */
   const exitBoundary = options.exit ?? process.exit;
+  /** Production publishes by atomic rename; tests may inject a failing publisher. */
+  const publishReport = options.publishReport ?? renameSync;
   /** Assurance reads this shared path only after a successful gate publishes it. */
   const canonicalLcovPath = join(repoRoot, "coverage", "lcov.info");
 
@@ -464,7 +472,16 @@ export function runCoverageGate(options: CoverageGateOptions = {}): void {
 
     // Publish a complete successful report atomically. Concurrent successes may
     // replace this convenience report, but every gate judges its own run first.
-    renameSync(lcovPath, canonicalLcovPath);
+    // A locked destination must still use the gate diagnostic and exit boundary;
+    // finally invalidates the convenience report when publication did not finish.
+    try {
+      publishReport(lcovPath, canonicalLcovPath);
+    } catch (error) {
+      console.error(
+        `coverage-gate: failed to publish the coverage report: ${String(error)}`,
+      );
+      failRun(1);
+    }
     reportPublished = true;
 
     console.log(
