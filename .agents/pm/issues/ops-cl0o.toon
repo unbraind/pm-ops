@@ -6,7 +6,7 @@ status: blocked
 priority: 2
 tags[3]: "area:release","area:testing","type:defect"
 created_at: "2026-08-28T14:25:04.891Z"
-updated_at: "2026-10-02T23:58:00.687Z"
+updated_at: "2026-10-03T00:16:57.120Z"
 author: claude
 estimated_minutes: 90
 acceptance_criteria: "New TypeScript modules require no edits to hard-coded coverage fixture lists; overlapping source roots produce a sorted unique required-file denominator; real c8 accepts a newly tested module and rejects an unimported module by filename at unchanged per-file 100/100/100/100 thresholds; CLI/SDK 2026.9.29 and the lockfile pass package release checks; required exact-head reviews complete before merge; Each c8 invocation owns unique reports and raw counters, preserves an enclosing default coverage/tmp, rejects stale reports, and passes two real concurrent processes in the same repository; Starting or failing a coverage gate invalidates the shared LCOV so the real assurance provider refuses earlier passing measurements after a test-only failure"
@@ -19,7 +19,7 @@ expected_result: "New source modules are discovered once in deterministic order 
 actual_result: Sorted unique source scope is independently verified; isolated c8 reports and counters preserve parent/peer data; shared LCOV invalidates on pending or failing runs so actual assurance consumers refuse earlier passing reports
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   ops-0c8k,blocked_by,"2026-09-29T20:12:55.918Z",codex-coverage-inventory,"cli:update:blocked_by",detected
-comments[8]:
+comments[9]:
   - created_at: "2026-10-02T18:30:48.281Z"
     author: pi-glm
     text: "Land-pass update (pi-glm, orchestrator): PR #134's last open reviewer finding (CodeRabbit 4138483396, readdirSync order nondeterminism in the coverage-gate test assertions) is valid and fixed in b5463c8 - all three directory listings are sorted before deepStrictEqual. Thread resolved. Head rebased onto the pm-ops#132 head f3e66c3 (current main 2026.9.29) and re-verified: focused 11-test coverage suite passes; full npm run release:check passes 456 tests, 0 failures, 2 existing opt-in real-data skips, coverage-gate 23 sources at 100/100/100/100. All bot review bodies and comments now carry reactions; re-review requested from CodeRabbit/Greptile/Gemini on the new head."
@@ -45,6 +45,9 @@ comments[8]:
   - created_at: "2026-10-02T23:57:59.601Z"
     author: codex-sol-land
     text: "Resumed verification: npm ci, current-base rebase, fresh committed-dist comparison, strict local tracker health with required merge drivers, npm run release:check, and bun install --no-save all passed. Full gate: 457 tests, 455 pass, 2 skips; configured coverage thresholds unchanged. PM-linked test/coverage-gate.test.ts passed. Earlier findings and technical refusals retained; no new source fix was needed in this restart. Exact pushed-head CI and substantive reviewer availability remain separate checks; no merge, release, publication or item closure."
+  - created_at: "2026-10-03T00:16:55.927Z"
+    author: codex-sol-land
+    text: "Parent #132 dependency readback: Cubic 4170740367 was technically refused and resolved. Refused: note is optional in the actual pinned SDK contract. the PM CLI package 2026.9.28 dist/types.d.ts lines 222-228 declare LinkedDoc with required path/scope and note?: string. An absent note is therefore valid, independent of notes on neighboring links. The entry was produced by the PM CLI, and strict health with required merge drivers passes at 000f648. Formatting an optional field differently does not make the tracker record non-canonical or require a placeholder note. This records the parent tracker-schema boundary in the stacked assurance owner; no source change is required. The prior 457-test gate and 100/100/100/100 configured coverage remain the code evidence."
 notes[9]{created_at,author,text}:
   "2026-09-29T19:54:12.169Z",codex-coverage-inventory,"Scope: consolidate fixture source reports around the gates emitted include arguments while retaining independent real-c8 pass/fail fixtures. Deduplicate and sort overlapping source roots. Update exact published CLI/SDK pin to 2026.9.29. Depends on parent TSX-gate candidate PR132. Rollout: reviewed source PR only, no publication/deployment. Rollback: revert this change; thresholds/exemptions remain unchanged."
   "2026-09-29T20:01:49.136Z",codex-coverage-inventory,"Red-green evidence: duplicate-root regression failed with four include entries instead of two. Real child c8 initially inherited Node test-worker context and skipped execution; standalone child environment now executes its real assertions. Full release gate then exposed c8 inheriting and cleaning parent NODE_V8_COVERAGE counters, yielding incomplete aggregate coverage. Added a red runner-argument regression and pinned each gate to its repository-owned coverage/tmp. Exact development-version assertion updated alongside the published CLI pin; thresholds unchanged."
