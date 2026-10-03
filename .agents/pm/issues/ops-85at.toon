@@ -1,0 +1,33 @@
+id: ops-85at
+title: Preserve launcher resolution errors when presence probes fail
+description: "Canonical fix for https://github.com/unbraind/pm-ops/issues/135. The presence probe uses lstatSync with throwIfNoEntry:false, which suppresses ENOENT but still throws for unreadable or malformed lookup paths. Those secondary errors replace the original installer resolution diagnostic. Keep the existing local, hoisted, dangling-install and global Node lookup behavior; fail closed when presence is uncertain."
+type: Issue
+status: in_progress
+priority: 1
+tags: []
+created_at: "2026-10-03T12:48:04.184Z"
+updated_at: "2026-10-03T13:02:53.944Z"
+author: dot
+acceptance_criteria: "Preserve the original installer resolution error for real ENOTDIR/ELOOP paths and controlled EACCES/EPERM failures; an absent package still skips once; broken local, hoisted, dangling and global installs still fail; working local, hoisted and global installs still run; full applicable gates pass without broadening global fallback behavior"
+repro_steps: "Create a file or self-referential link at a consumer node_modules path, then execute templates/prepare-merge-driver.ts from the consumer root. The presence probe currently replaces the original MODULE_NOT_FOUND diagnostic with ENOTDIR or ELOOP."
+resolution: The canonical launcher catches inconclusive filesystem presence-probe failures and rethrows the original installer resolution error. Existing Node global lookup paths remain intentionally unchanged and their absent/broken/working behavior is documented and tested.
+expected_result: The hook fails closed with the original pm-ops/merge-driver/prepare resolution diagnostic and never emits the omit-dev skip notice on an inconclusive probe.
+actual_result: "All 19 launcher cases pass on Node 22.18.0, 24.19.0 and 26.10.0; eight new cases fail on the original template. Full coverage passes on Node 22.18.0 and 26.10.0: 455 passed, zero failed, two existing real-data skips, all 23 sources at 100/100/100/100 on both versions. All independent quality, package, changelog, release-policy and strict PM health checks pass. Explicit production audit and publication remain pending."
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  ops-jzp5,related,"2026-10-03T12:48:04.184Z",dot,"cli:create:dep",detected
+notes[7]{created_at,author,text}:
+  "2026-10-03T12:49:06.944Z",dot,"Duplicate-check correction: pm list --all returned 126 pre-existing items, not 128. Relevant records were ops-mqdi (in_progress), ops-jzp5/ops-eyi8/ops-crgk/ops-me3v (closed), and ops-wwu1 (canceled); none tracks the secondary lstat error replacement in GitHub issue 135."
+  "2026-10-03T12:57:00.496Z",dot,"Implementation evidence: six real local/hoisted/global ENOTDIR/ELOOP fixtures plus controlled EACCES/EPERM fail against the old template and pass after the fix. The global lookup fixture proves existing missing/broken/working behavior is preserved. Independent static review found no correctness or coverage issues."
+  "2026-10-03T12:57:00.496Z",dot,"Remaining validation limits: the installed-CLI test times out at its existing 60-second npm install boundary; the same packed artifact installs in under one second with cached dependencies and audit disabled. Do not modify or duplicate the separate gate-hardening PR stack 132-134 here. The direct production audit was blocked pending authorization for dependency metadata transmission to the public npm registry. No commit, push, PR, release, merge or deployment performed."
+  "2026-10-03T12:57:00.496Z",dot,"text=Validation: npm ci --ignore-scripts with a writable temporary cache; check, lint, duplication (0 clone pairs), docstrings (221 declarations), build and build:test pass. Standalone strict template typecheck passes. Full history fetch fixed shallow-checkout identity tests. npm run pack:dry-run, changelog:check, verify:release-changelog-date, verify:release-publish-attestation and verify:lifecycle-policy pass. pm health --strict-exit --require-merge-drivers --check-only passes with the three pre-existing stale-item advisories after the inspected local prepare hook installed clone-local drivers."
+  "2026-10-03T12:58:04.223Z",dot,"Further timeout diagnosis: the isolated installed-CLI fixture drops this environment’s npm proxy variables. A no-audit reproduction still stalls fetching uncached TypeScript 7.0.2 optional platform package manifests (EAI_AGAIN). The offline reproduction skips unavailable optional manifests and installs the artifact in 639 ms. Public optional-package metadata is being cached without changing repository tests or policy."
+  "2026-10-03T13:01:04.773Z",dot,"text=Full Node 26 coverage recovered without repository gate changes: cached the 20 public optional TypeScript package manifests that the isolated npm fixture could not fetch without proxy variables, then ran npm run coverage with an outside-repository npm launcher that disables implicit install audit and refuses explicit audit. Result: 457 tests, 455 passed, zero failed, two pre-existing skips, 100 percent in all four coverage dimensions across all 23 required sources. Production audit is not claimed; it still awaits explicit authorization."
+  "2026-10-03T13:02:53.924Z",dot,"Final floor verification: full npm run coverage on Node 22.18.0 also passes with 455 tests passed, zero failures, two pre-existing real-data skips, and 100 percent statements, branches, functions and lines for all 23 required sources. The same temporary outside-repository no-audit launcher preserved the pending audit permission boundary. Both supported CI runtime lines now have local full-suite evidence; no repository test or dependency changes were made for environment recovery."
+files[3]{path,scope}:
+  templates/prepare-merge-driver.ts,project
+  test/merge-driver-launcher.test.ts,project
+  README.md,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/merge-driver-launcher.test.ts,project,dot,"2026-10-03T12:48:04.184Z",local_mutation,main
+  "npm run release:check",project,dot,"2026-10-03T12:57:00.496Z",local_mutation,main
+body: ""
