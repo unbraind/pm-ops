@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test, { after, before } from "node:test";
@@ -58,11 +58,11 @@ function stubPm(name: string, status: number, body = ""): { bin: string; record:
 }
 
 /** Run a script with only `bin` on PATH, as npm's prepare hook would from `cwd`. */
-function run(cwd: string, script: string, bin: string): { status: number | null; stderr: string } {
-  const result = spawnSync(process.execPath, [script], {
+function run(cwd: string, script: string, bin: string, env: NodeJS.ProcessEnv = {}, nodeArgs: string[] = []): { status: number | null; stderr: string } {
+  const result = spawnSync(process.execPath, [...nodeArgs, script], {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, PATH: bin },
+    env: { ...process.env, ...env, PATH: bin },
   });
   return { status: result.status, stderr: result.stderr };
 }
@@ -74,6 +74,87 @@ test("an omit-dev checkout without pm-ops skips with exactly one notice and succ
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stderr, "pm-ops is not installed (omit-dev install); skipping merge-driver install\n");
   assert.throws(() => readFileSync(record, "utf8"), /ENOENT/);
+});
+
+/** Assert that an uncertain presence probe preserves the installer resolution failure. */
+function assertResolutionFailure(result: { status: number | null; stderr: string }, record: string): void {
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /Cannot find module 'pm-ops\/merge-driver\/prepare'/);
+  assert.match(result.stderr, /code: 'MODULE_NOT_FOUND'/);
+  assert.doesNotMatch(result.stderr, /skipping merge-driver install/);
+  assert.throws(() => readFileSync(record, "utf8"), /ENOENT/);
+}
+
+for (const location of ["local", "hoisted", "global"]) {
+  for (const code of ["ENOTDIR", "ELOOP"]) {
+    test(`a ${location} ${code} presence probe preserves the original resolution error`, { skip: process.platform === "win32" }, () => {
+      const name = `${location}-${code}`;
+      const parent = join(root, `${name}-parent`);
+      mkdirSync(parent);
+      const directory = consumer(name, "absent", parent);
+      const lookup = location === "local" ? join(directory, "node_modules") : join(parent, "node_modules");
+      // A file or a looping link in a path component makes lstat fail even
+      // with throwIfNoEntry:false. All malformed paths belong to this fixture.
+      const probeDirectory = location === "global" ? join(parent, "global-modules") : lookup;
+      if (code === "ENOTDIR") writeFileSync(probeDirectory, "not a directory");
+      else symlinkSync(probeDirectory, probeDirectory, "dir");
+      assert.throws(() => lstatSync(join(probeDirectory, "pm-ops"), { throwIfNoEntry: false }), { code });
+      const { bin, record } = stubPm(name, 0);
+      const env = location === "global" ? { NODE_PATH: probeDirectory } : {};
+      const result = run(directory, template, bin, env);
+      assertResolutionFailure(result, record);
+      assert.doesNotMatch(result.stderr, /Error: (ENOTDIR|ELOOP)/);
+    });
+  }
+}
+
+for (const code of ["EACCES", "EPERM"]) {
+  test(`a ${code} presence probe preserves the original resolution error`, { skip: process.platform === "win32" }, () => {
+    const directory = consumer(code, "absent");
+    const { bin, record } = stubPm(code, 0);
+    const preload = join(root, `${code}-preload.ts`);
+    const probeRecord = join(root, `${code}-probe.txt`);
+    const target = join(directory, "node_modules", "pm-ops");
+    // Permission bits do not reliably deny access under privileged CI users.
+    // Patch only this child process's lstat boundary for the exact probe path.
+    writeFileSync(preload, `
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import { mock } from "node:test";
+const original = fs.lstatSync;
+mock.method(fs, "lstatSync", (...args: Parameters<typeof fs.lstatSync>) => {
+  if (args[0] === ${JSON.stringify(target)}) {
+    fs.writeFileSync(${JSON.stringify(probeRecord)}, ${JSON.stringify(code)});
+    throw Object.assign(new Error("controlled presence probe failure"), { code: ${JSON.stringify(code)} });
+  }
+  return original(...args);
+});
+syncBuiltinESMExports();
+`);
+    const result = run(directory, template, bin, {}, ["--import", preload]);
+    assert.equal(readFileSync(probeRecord, "utf8"), code);
+    assertResolutionFailure(result, record);
+    assert.doesNotMatch(result.stderr, /controlled presence probe failure/);
+  });
+}
+
+test("global Node lookup paths retain absent, broken, and working package behavior", { skip: process.platform === "win32" }, () => {
+  const directory = consumer("global", "absent");
+  const globalModules = join(root, "global-modules");
+  mkdirSync(globalModules);
+  const { bin, record } = stubPm("global", 0);
+  const env = { NODE_PATH: globalModules };
+  const absent = run(directory, template, bin, env);
+  assert.equal(absent.status, 0, absent.stderr);
+  assert.equal(absent.stderr, "pm-ops is not installed (omit-dev install); skipping merge-driver install\n");
+  const entry = join(globalModules, "pm-ops");
+  mkdirSync(entry);
+  assertResolutionFailure(run(directory, template, bin, env), record);
+  rmSync(entry, { recursive: true });
+  symlinkSync(packageRoot, entry, "dir");
+  const current = run(directory, template, bin, env);
+  assert.equal(current.status, 0, current.stderr);
+  assert.equal(readFileSync(record, "utf8"), "merge install\n");
 });
 
 test("local and hoisted full installs run pm merge install through the pm-ops entry", { skip: process.platform === "win32" }, () => {
