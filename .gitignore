@@ -6,7 +6,7 @@ dist-test/
 .agents/pm/extensions/
 .agents/pm/locks/
 .agents/pm/runtime/
-.agents/pm/search/
+.agents/pm/search/*
 
 # Local environment
 .env
