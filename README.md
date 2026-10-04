@@ -400,6 +400,28 @@ The canonical ESLint factory enforces the eight forbidden syntax selectors
 `TSExportAssignment`) plus the fleet's correctness rules. It ignores generated
 and dependency output by default; pass `ignores` to add project-specific paths.
 
+## Package coverage gate
+
+`npm run coverage` discovers this repository's executable `.ts` files from
+`coverageGate.sources`, including operational scripts and the launcher template.
+Overlapping roots form a sorted, unique file set, which supplies both the c8
+include arguments and the report-presence check. Tests, dependencies, build
+output and declaration files are outside the runtime denominator. Thresholds
+remain 100% statements, branches, functions and lines for every measured file.
+Every invocation uses its own `coverage/run-*` report and counter directory,
+so concurrent or nested gates preserve one another's data. After validation,
+it atomically publishes `coverage/lcov.info` and removes its temporary directory.
+Starting or failing a run invalidates that shared report, so assurance consumers
+cannot treat an earlier pass as current after a failed test. Concurrent runs
+judge their own fresh reports and preserve peer counters; a failed completion
+leaves the shared report unavailable until another success publishes one.
+
+The gate's controlled runner fixtures derive their reports from the include
+arguments, so adding a module requires no fixture-list edits. A separate real
+c8 fixture tests a newly imported module and then adds an unimported module:
+the latter must fail at the unchanged thresholds and name the missing module.
+Controlled fixture reports are never used as package coverage evidence.
+
 ## License
 
 MIT © unbrained
