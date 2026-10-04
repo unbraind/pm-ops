@@ -495,6 +495,30 @@ test("walks a tree, skipping test/, dist/, and .d.ts files", () => {
   }
 });
 
+test("directory and single-file scans include undocumented TSX exports", () => {
+  const root = mkdtempSync(join(tmpdir(), "docstrings-tsx-"));
+  try {
+    mkdirSync(join(root, "src"));
+    const component = join(root, "src", "Widget.tsx");
+    writeFileSync(component, "export function Widget() { return <div></div>; }\nexport const Hidden = 1;\n");
+    const directory = analyzeDocstringCoverage({ root });
+    const singleFile = analyzeDocstringCoverage({ root, sourceDirs: ["src/Widget.tsx"] });
+    assert.equal(directory.files_scanned, 1);
+    assert.equal(singleFile.files_scanned, 1);
+    assert.equal(directory.violations.length, 2);
+    assert.equal(singleFile.violations.length, 2);
+    assert.equal(directory.violations[0]?.symbol, "Widget");
+    assert.equal(directory.violations[1]?.symbol, "Hidden");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("JSX closing tags do not hide later undocumented TSX exports", () => {
+  const source = "export const A = <div></div>; export const B = 1;\n";
+  assert.deepEqual(analyzeSource(source, "widget.tsx").violations.map(({ symbol }) => symbol), ["A", "B"]);
+});
+
 test("sourceDirs scopes the walk to listed subdirectories", () => {
   const root = mkdtempSync(join(tmpdir(), "docstrings-dirs-"));
   try {

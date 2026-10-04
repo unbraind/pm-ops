@@ -249,12 +249,14 @@ function isKeyword(kind) {
  * Convert a token stream into a clean array of braces. Runs the unstable
  * scanner with trivia skipped and applies the two corrections documented at the
  * top of this file: template-substitution `}` is rescanned into a template
- * continuation, and `/` is rescanned as a regex only in regex context. The
+ * continuation, and `/` is rescanned as a regex only in regex context. TSX
+ * uses the scanner's JSX variant so `</tag>` is one closing-tag token rather
+ * than a slash that could consume later declarations as a regex. The
  * returned array never contains a brace that does not correspond to a real
  * `{` / `}` in the source.
  */
-function tokenize(text) {
-    const scanner = createScanner(true, LanguageVariant.Standard, text);
+function tokenize(text, file) {
+    const scanner = createScanner(true, file.endsWith(".tsx") ? LanguageVariant.JSX : LanguageVariant.Standard, text);
     const tokens = [];
     const group = [];
     let prev;
@@ -346,7 +348,7 @@ function cleanComment(raw) {
     return text.replace(/\s+/g, " ").trim();
 }
 /**
- * Recursively collect every authored `.ts` file (excluding `.d.ts`) beneath the
+ * Recursively collect every authored `.ts` or `.tsx` file (excluding `.d.ts`) beneath the
  * given roots, skipping the structural non-source directories in
  * {@link SKIP_DIRS}. A root may itself be a single file.
  */
@@ -371,7 +373,7 @@ function collectSourceFiles(roots) {
                 if (!SKIP_DIRS.has(name))
                     walk(full);
             }
-            else if (info.isFile() && name.endsWith(".ts") && !name.endsWith(".d.ts")) {
+            else if (info.isFile() && (name.endsWith(".ts") || name.endsWith(".tsx")) && !name.endsWith(".d.ts")) {
                 out.push(full);
             }
         }
@@ -389,7 +391,7 @@ function collectSourceFiles(roots) {
         if (info.isDirectory()) {
             walk(root);
         }
-        else if (info.isFile() && root.endsWith(".ts") && !root.endsWith(".d.ts")) {
+        else if (info.isFile() && (root.endsWith(".ts") || root.endsWith(".tsx")) && !root.endsWith(".d.ts")) {
             out.push(root);
         }
     }
@@ -1209,13 +1211,13 @@ class SourceAnalyzer {
  * violations it contains plus how many declarations were evaluated.
  */
 export function analyzeSource(text, file) {
-    const tokens = tokenize(text);
+    const tokens = tokenize(text, file);
     const analyzer = new SourceAnalyzer(text, file, tokens, buildLineMap(text));
     analyzer.run();
     return { violations: analyzer.violations, declarations: analyzer.declarationsChecked };
 }
 /**
- * Walk a directory tree and analyze every authored `.ts` source beneath it,
+ * Walk a directory tree and analyze every authored `.ts` or `.tsx` source beneath it,
  * skipping `.d.ts` files and the structural non-source directories. Scanning
  * zero files fails by throwing rather than passing vacuously.
  */
