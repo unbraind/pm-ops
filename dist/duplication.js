@@ -15,8 +15,11 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
-/** Default TypeScript glob scanned by the duplication gate. */
-export const DEFAULT_DUPLICATION_GLOBS = ["**/*.{ts,tsx}"];
+/**
+ * Default globs scanned by the duplication gate: every authored TypeScript
+ * source (`.ts`, `.tsx`, `.mts`, `.cts`) in the repository.
+ */
+export const DEFAULT_DUPLICATION_GLOBS = ["**/*.{ts,tsx,mts,cts}"];
 const defaultRepoRoot = process.cwd();
 const MAX_DUPLICATION_LINES = Number.MAX_SAFE_INTEGER;
 const MAX_DUPLICATION_SIZE = `${Number.MAX_SAFE_INTEGER}b`;
@@ -28,6 +31,8 @@ const DUPLICATION_IGNORES = [
     "**/.git/**",
     "**/.agents/pm/extensions/**",
     "**/*.d.ts",
+    "**/*.d.mts",
+    "**/*.d.cts",
 ];
 const require = createRequire(import.meta.url);
 /** Return whether an unknown JSON value is a record with string keys. */
@@ -169,7 +174,13 @@ function globMatchedSources(repoRoot, pattern) {
         ignore: [...DUPLICATION_IGNORES],
         onlyFiles: true,
     })
-        .filter((source) => (source.endsWith(".ts") || source.endsWith(".tsx")) && !source.endsWith(".d.ts"))
+        // The same authored-source scope as the docstring gate: `.ts`, `.tsx`,
+        // `.mts`, and `.cts` sources, minus the `.d.ts` / `.d.mts` / `.d.cts`
+        // ambient-declaration forms. Inlining this keeps the matched-source set —
+        // the basis of both engines' fail-closed count reconciliation — in one
+        // place next to the glob that produced it.
+        .filter((source) => (source.endsWith(".ts") || source.endsWith(".tsx") || source.endsWith(".mts") || source.endsWith(".cts"))
+        && !source.endsWith(".d.ts") && !source.endsWith(".d.mts") && !source.endsWith(".d.cts"))
         .map((source) => relativeSource(repoRoot, source))
         .sort();
 }

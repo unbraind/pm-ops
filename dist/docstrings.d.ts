@@ -75,7 +75,8 @@
  *
  * ## Out of scope (structural, not configurable)
  *
- * `.d.ts` ambient declarations, `test/`, `dist/`, and `node_modules` are skipped
+ * `.d.ts` / `.d.mts` / `.d.cts` ambient declarations, `test/`, `dist/`, and
+ * `node_modules` are skipped
  * by hard-coded directory rules; imports and re-export statements (`export { … }
  * from`, `export * from`) declare nothing; `export default <expression>`,
  * overload signatures, constructors, index signatures, computed-name members,
@@ -114,7 +115,7 @@ export interface DocstringViolation {
 }
 /** Aggregate result of scanning one tree. */
 export interface DocstringReport {
-    /** Number of `.ts` and `.tsx` files analyzed. */
+    /** Number of authored TypeScript files (`.ts`, `.tsx`, `.mts`, `.cts`) analyzed. */
     readonly files_scanned: number;
     /** Number of declarations evaluated against the rules. */
     readonly declarations_checked: number;
@@ -137,9 +138,10 @@ export interface SourceAnalysis {
  */
 export declare function analyzeSource(text: string, file: string): SourceAnalysis;
 /**
- * Walk a directory tree and analyze every authored `.ts` or `.tsx` source beneath it,
- * skipping `.d.ts` files and the structural non-source directories. Scanning
- * zero files fails by throwing rather than passing vacuously.
+ * Walk a directory tree and analyze every authored TypeScript source (`.ts`,
+ * `.tsx`, `.mts`, or `.cts`) beneath it, skipping the `.d.ts` / `.d.mts` /
+ * `.d.cts` ambient-declaration files and the structural non-source directories.
+ * Scanning zero files fails by throwing rather than passing vacuously.
  */
 export declare function analyzeDocstringCoverage(options: {
     root: string;

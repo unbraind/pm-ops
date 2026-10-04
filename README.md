@@ -343,12 +343,13 @@ process.exitCode = await runLintGate();
 `runLintGate` uses the canonical policy, prints stylish diagnostics to stderr, and
 returns `0` or `1` for use as the process exit code.
 
-The duplication export reads `package.json`, scans `**/*.{ts,tsx}` by default
-(including root sources, `scripts/`, UI components, and tests), reports every
+The duplication export reads `package.json`, scans `**/*.{ts,tsx,mts,cts}` by
+default (including root sources, `scripts/`, UI components, and tests, while
+skipping `.d.ts` / `.d.mts` / `.d.cts` ambient declarations), reports every
 clone pair with both file line ranges, and fails when the measured percentage
-is above the configured threshold. Both jscpd 4 and 5 scan TS and TSX; the
-jscpd 5 gate checks its source count with a one-token pass and refuses an
-incomplete scan. `globs` and `minTokens` can be overridden for direct analysis;
+is above the configured threshold. Both jscpd 4 and 5 scan TS, TSX, MTS, and
+CTS sources; the jscpd 5 gate checks its source count with a one-token pass
+and refuses an incomplete scan. `globs` and `minTokens` can be overridden for direct analysis;
 the gate uses `minTokens: 50` when the field is omitted.
 
 ### Consumers
@@ -365,7 +366,7 @@ exports adds all five packages, using the version ranges shown in
 ```ts
 import { analyzeDuplication, runDuplicationGate } from "pm-ops/duplication";
 
-const report = await analyzeDuplication({ globs: ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"] });
+const report = await analyzeDuplication({ globs: ["src/**/*.{ts,tsx,mts,cts}", "test/**/*.{ts,tsx,mts,cts}"] });
 await runDuplicationGate();
 ```
 

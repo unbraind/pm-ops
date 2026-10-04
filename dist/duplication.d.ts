@@ -9,7 +9,10 @@
  * - jscpd 5 replaced the Node.js API with a self-contained Rust binary, so
  *   the analyzer runs the binary with its JSON reporter and parses the report.
  */
-/** Default TypeScript glob scanned by the duplication gate. */
+/**
+ * Default globs scanned by the duplication gate: every authored TypeScript
+ * source (`.ts`, `.tsx`, `.mts`, `.cts`) in the repository.
+ */
 export declare const DEFAULT_DUPLICATION_GLOBS: readonly string[];
 /** A clone pair with repository-relative file names and inclusive line ranges. */
 export interface DuplicationClone {

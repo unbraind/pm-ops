@@ -2,20 +2,24 @@ id: ops-zq8c
 title: Include TSX in docstring and duplication gates with verified source counts
 description: "GitHub #128: pm-ops docstring and duplication gates silently omit TSX sources. Make both engines scan TSX, prove source-count completeness, and certify the exact package head."
 type: Issue
-status: blocked
+status: in_progress
 priority: 1
 tags[4]: "area:quality",docstrings,duplication,tsx
 created_at: "2026-09-28T15:05:31.893Z"
-updated_at: "2026-10-02T23:43:44.706Z"
+updated_at: "2026-10-04T17:04:04.880Z"
 author: codex
 estimated_minutes: 180
 acceptance_criteria: Directory and single-file docstring analysis find undocumented TSX exports; jscpd 4 and 5 detect TSX clones with the real engines; mismatched scan counts fail closed; release gate passes; companion records exact limitations.
-comments[5]{created_at,author,text}:
+resolution: completed
+comments[8]{created_at,author,text}:
   "2026-10-02T18:27:05.767Z",pi-glm,"Rebase to current main (pi-glm, orchestrator land pass): PR #132 rebased onto origin/main 5ea8406 (releases 2026.9.28-1 and 2026.9.29 merged in cleanly, no conflicts). New head f3e66c3; same three commits. Full gate re-verified on the rebased head: npm run release:check passes (typecheck, lint, duplication, docstrings, coverage 100/100/100/100 across 23 sources, prod audit 0 findings, pack dry run, changelog:check, release-changelog-date, publish-attestation, lifecycle-policy), and pm health --strict-exit --json exits 0 with only stale-in-progress advisories. Re-review requested from CodeRabbit/Greptile/Gemini."
   "2026-10-02T21:01:14.692Z",pi-grok,"Cubic review 5395516638 on head b15bf93, land-pass disposition:\n\n4168776167 is valid. Note 3 began with a pasted author=codex,text= label. pm item notes --edit 3 stripped that prefix so the text starts at \"CodeRabbit review comment 4124694533\". The original note_add history line is kept; the edit is a new history event.\n\n4168776160 is refused. tokenize selects LanguageVariant.JSX only when the file identifier ends with .tsx, which is the same rule collectSourceFiles uses to admit sources. analyzeSource's file argument is that identifier, not a free-form module name. Inferring JSX from source text would treat TypeScript generics in .ts files as tags. A caller that passes TSX bytes under a non-.tsx name is outside the gate contract; the walker never does that.\n\n4168776178 is refused. A live jscpd 5.2.1 JSON report stores statistics.formats.typescript.sources and statistics.total.sources as counts, not file maps. Duplicate records name only files that participated in a clone. The one-token probe therefore cannot name a same-size substitution, and the function comment above analyzeWithBinary already states that the JSON report carries only aggregate source counts. jscpd 4 still fails closed with skippedSources file names."
   "2026-10-02T21:09:30.355Z",pi-grok,"Land-pass gate: the note-only head was included in the rebased pm-ops#134 tree, where npm run release:check exited 0 (455 pass, 0 fail, 2 default-suite real-data skips, c8 100/100/100/100 across 23 sources, changelog:check current). Local changelog:check on this branch also exited 0. pm health --strict-exit --require-merge-drivers exited 0."
   "2026-10-02T23:41:34.683Z",codex-sol-land,"Resumed PR #132 from 8ae094a066a542113f04dd4a9716205f106bd42c. Rebase onto current main yields 8ae094a066a542113f04dd4a9716205f106bd42c. All existing bot artifacts and restart-era owner replies inspected; no new actionable finding. Preserve earlier fixes and technical refusals. Verifying unchanged CI gates under the shared heavy lock; no merge, release or closure."
   "2026-10-02T23:43:43.564Z",codex-sol-land,"Resumed verification: npm ci, current-base rebase, fresh committed-dist comparison, strict local tracker health with required merge drivers, npm run release:check, and bun install --no-save all passed. Full gate: 454 tests, 452 pass, 2 skips; configured coverage thresholds unchanged. PM-linked test/lint-and-duplication-gates.test.ts passed. Earlier findings and technical refusals retained; no new source fix was needed in this restart. Exact pushed-head CI and substantive reviewer availability remain separate checks; no merge, release, publication or item closure."
+  "2026-10-04T16:34:34.922Z",pi-glm,"pi-glm restart on top of merged #132 (main d79c9bd): .ts/.tsx walking, --format typescript,tsx, per-format source sums, zero-files guards and their tests are already in main. Remaining delta for this task: .mts/.cts in the docstring walker (both the directory walk and the single-file path, excluding .d.mts/.d.cts), .mts/.cts in duplication matched-source scope + default globs + ignores, and failing-first tests proving undocumented .mts/.cts exports and duplicated .mts/.cts blocks are REFUSED while clean ones pass under default globs. Empirically verified both real engines (jscpd 4.3.0 and 5.4.0) already classify .mts/.cts under the typescript format, so --format stays typescript,tsx."
+  "2026-10-04T16:36:38.021Z",pi-glm,"TDD failing-first on main d79c9bd (before any source change): 'node --test --test-name-pattern mts test/docstrings.test.ts' — both new tests fail with 'docstring coverage: no TypeScript source files found ... (scanning zero files cannot pass vacuously)' because collectSourceFiles admits only .ts/.tsx; 'node --test --test-name-pattern \\.mts test/lint-and-duplication-gates.test.ts' — all three new tests fail: jscpd5 throws 'jscpd scanned 2 of 0 in-scope TypeScript sources at the one-token floor' for explicit mts/cts globs, and the default-glob clean and .d.mts/.d.cts cases exit 1 with 'no TypeScript sources were analyzed'. Five failing tests recorded; now fixing the source."
+  "2026-10-04T17:04:02.903Z",claude-orchestrator,"Orchestrator verification: the .tsx half was already fixed by #132 (437e424); this change extends both gates to .mts/.cts and excludes .d.mts/.d.cts. The pi agent stopped on a provider 429 before committing; I reviewed the diff and tests (real temp-dir sources, real jscpd 4 and 5 engines, no mocks) and ran npm run release:check: 469 pass, 0 fail, coverage 100/100/100/100, all release gates ok."
 notes[3]:
   - created_at: "2026-09-28T15:05:31.893Z"
     author: codex
@@ -33,7 +37,7 @@ files[5]{path,scope,note}:
   README.md,project,Updated consumer guidance
   test/docstrings.test.ts,project,TSX docstring regression
   test/lint-and-duplication-gates.test.ts,project,Real jscpd 4 and 5 TSX acceptance
-tests[2]:
+tests[3]:
   - command: "npm run release:check"
     path: package.json
     scope: project
@@ -51,7 +55,14 @@ tests[2]:
       created_at: "2026-10-02T23:41:36.955Z"
       source_kind: local_mutation
       source_ref: fix/pm-ops-tsx-quality-gates-2026-09-28
-docs[4]:
+  - command: "--help"
+    scope: project
+    provenance:
+      author: pi-glm
+      created_at: "2026-10-04T16:56:23.127Z"
+      source_kind: local_mutation
+      source_ref: fix/gates-cover-tsx-sources
+docs[5]:
   - path: "https://github.com/unbraind/pm-ops/issues/128"
     scope: global
     note: Source issue and reproduction
@@ -61,6 +72,9 @@ docs[4]:
   - path: "https://github.com/unbraind/pm-ops/pull/132#discussion_r4123865252"
     scope: global
     note: CodeRabbit symlink scope finding
+  - path: "https://github.com/unbraind/pm-ops/issues/128"
+    scope: project
+    note: "Source issue: remaining .mts/.cts scope extension on top of merged #132"
   - path: "https://github.com/unbraind/pm-ops/pull/132"
     scope: project
 body: ""

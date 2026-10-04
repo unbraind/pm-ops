@@ -75,7 +75,8 @@
  *
  * ## Out of scope (structural, not configurable)
  *
- * `.d.ts` ambient declarations, `test/`, `dist/`, and `node_modules` are skipped
+ * `.d.ts` / `.d.mts` / `.d.cts` ambient declarations, `test/`, `dist/`, and
+ * `node_modules` are skipped
  * by hard-coded directory rules; imports and re-export statements (`export { … }
  * from`, `export * from`) declare nothing; `export default <expression>`,
  * overload signatures, constructors, index signatures, computed-name members,
@@ -348,9 +349,22 @@ function cleanComment(raw) {
     return text.replace(/\s+/g, " ").trim();
 }
 /**
- * Recursively collect every authored `.ts` or `.tsx` file (excluding `.d.ts`) beneath the
- * given roots, skipping the structural non-source directories in
- * {@link SKIP_DIRS}. A root may itself be a single file.
+ * Whether a file name identifies an authored TypeScript source: one of the
+ * `.ts`, `.tsx`, `.mts`, or `.cts` authored extensions, and not one of the
+ * `.d.ts`, `.d.mts`, or `.d.cts` ambient-declaration forms. Both the
+ * directory walk and the single-file root path share this predicate so their
+ * scopes cannot drift apart again — that drift is exactly how `.tsx` sources
+ * silently escaped this gate before.
+ */
+function isAuthoredTypeScriptSource(name) {
+    return (name.endsWith(".ts") || name.endsWith(".tsx") || name.endsWith(".mts") || name.endsWith(".cts"))
+        && !name.endsWith(".d.ts") && !name.endsWith(".d.mts") && !name.endsWith(".d.cts");
+}
+/**
+ * Recursively collect every authored TypeScript file (`.ts`, `.tsx`, `.mts`,
+ * or `.cts`, excluding the `.d.ts` / `.d.mts` / `.d.cts` ambient-declaration
+ * forms) beneath the given roots, skipping the structural non-source
+ * directories in {@link SKIP_DIRS}. A root may itself be a single file.
  */
 function collectSourceFiles(roots) {
     const out = [];
@@ -373,7 +387,7 @@ function collectSourceFiles(roots) {
                 if (!SKIP_DIRS.has(name))
                     walk(full);
             }
-            else if (info.isFile() && (name.endsWith(".ts") || name.endsWith(".tsx")) && !name.endsWith(".d.ts")) {
+            else if (info.isFile() && isAuthoredTypeScriptSource(name)) {
                 out.push(full);
             }
         }
@@ -391,7 +405,7 @@ function collectSourceFiles(roots) {
         if (info.isDirectory()) {
             walk(root);
         }
-        else if (info.isFile() && (root.endsWith(".ts") || root.endsWith(".tsx")) && !root.endsWith(".d.ts")) {
+        else if (info.isFile() && isAuthoredTypeScriptSource(root)) {
             out.push(root);
         }
     }
@@ -1217,9 +1231,10 @@ export function analyzeSource(text, file) {
     return { violations: analyzer.violations, declarations: analyzer.declarationsChecked };
 }
 /**
- * Walk a directory tree and analyze every authored `.ts` or `.tsx` source beneath it,
- * skipping `.d.ts` files and the structural non-source directories. Scanning
- * zero files fails by throwing rather than passing vacuously.
+ * Walk a directory tree and analyze every authored TypeScript source (`.ts`,
+ * `.tsx`, `.mts`, or `.cts`) beneath it, skipping the `.d.ts` / `.d.mts` /
+ * `.d.cts` ambient-declaration files and the structural non-source directories.
+ * Scanning zero files fails by throwing rather than passing vacuously.
  */
 export function analyzeDocstringCoverage(options) {
     const roots = options.sourceDirs && options.sourceDirs.length > 0
