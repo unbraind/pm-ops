@@ -6,6 +6,10 @@
 
 - Cover .tsx, .mts and .cts sources in the docstring and duplication gates, excluding ambient .d.mts/.d.cts declarations ([ops-zq8c](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-zq8c.toon))
 
+### Other
+
+- Auto-merge green Dependabot updates and group the pm toolchain into one daily PR ([ops-k1lf](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-k1lf.toon))
+
 ## 2026.9.29 - 2026-09-29
 
 ### Fixed
