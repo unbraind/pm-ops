@@ -57,6 +57,23 @@ async function gateFailureOutput(
   return { logs: logs.join("\n"), errors: errors.join("\n") };
 }
 
+/**
+ * Run the duplication gate expecting success and return its collected logs.
+ * The injected exit boundary keeps a gate failure a catchable test error
+ * instead of the real process.exit(1) ending the whole suite.
+ */
+async function gatePassOutput(repoRoot: string): Promise<string> {
+  const logs: string[] = [];
+  await runDuplicationGate({
+    repoRoot,
+    log: (message) => logs.push(message),
+    exit: (code) => {
+      throw new GateExit(code);
+    },
+  });
+  return logs.join("\n");
+}
+
 /** Create a package fixture with the requested duplication configuration. */
 function packageFixture(
   name: string,
@@ -331,6 +348,69 @@ test("both real jscpd engines include TSX clones in mixed TypeScript globs", asy
     assert.ok(defaultReport.cloneCount >= 1, `${version} default scope`);
     const gate = await gateFailureOutput(fixture, { globs: ["src/**/*.{ts,tsx}"] });
     assert.match(gate.errors, /exceeds the configured 0% threshold/, version);
+  }
+});
+
+test("both real jscpd engines include .mts and .cts clones in mixed TypeScript globs", async () => {
+  const globs = ["src/**/*.{ts,tsx,mts,cts}"];
+  const source = [
+    "export function repeatedModuleValue(): number {",
+    "  const firstValue = 1;",
+    "  const secondValue = 2;",
+    "  const thirdValue = 3;",
+    "  const fourthValue = 4;",
+    "  const fifthValue = 5;",
+    "  const sixthValue = 6;",
+    "  const seventhValue = 7;",
+    "  const eighthValue = 8;",
+    "  return firstValue + secondValue + thirdValue + fourthValue + fifthValue + sixthValue + seventhValue + eighthValue;",
+    "}",
+  ].join("\n") + "\n";
+  for (const [version, fixture] of [
+    ["jscpd4", jscpd4Fixture("mts-cts-clones-v4", { threshold: 0, minTokens: 20 })],
+    ["jscpd5", packageFixture("mts-cts-clones-v5", { threshold: 0, minTokens: 20 })],
+  ] as const) {
+    writeFileSync(join(fixture, "src", "First.mts"), source);
+    writeFileSync(join(fixture, "src", "Second.cts"), source);
+    const report = await analyzeDuplication({ repoRoot: fixture, globs, minTokens: 20 });
+    assert.deepEqual(
+      [report.clones[0]?.first.file, report.clones[0]?.second.file],
+      ["src/First.mts", "src/Second.cts"],
+      version,
+    );
+    assert.equal(report.sources, 2, version);
+    assert.equal(report.cloneCount, 1, version);
+    assert.deepEqual(report.skippedSources, [], version);
+    const gate = await gateFailureOutput(fixture, { globs });
+    assert.match(gate.errors, /exceeds the configured 0% threshold/, version);
+  }
+});
+
+test("both real jscpd engines scan clean .mts and .cts sources under the default globs", async () => {
+  for (const [version, fixture] of [
+    ["jscpd4", jscpd4Fixture("mts-cts-clean-v4", { threshold: 0 })],
+    ["jscpd5", packageFixture("mts-cts-clean-v5", { threshold: 0 })],
+  ] as const) {
+    writeFileSync(join(fixture, "src", "clean.mts"), "export const cleanModuleValue = 1;\n");
+    writeFileSync(join(fixture, "src", "clean.cts"), "export const cleanCommonValue = 2;\n");
+    assert.match(await gatePassOutput(fixture), /2 source\(s\)/, version);
+    const report = await analyzeDuplication({ repoRoot: fixture, minTokens: 1 });
+    assert.equal(report.sources, 2, version);
+    assert.equal(report.cloneCount, 0, version);
+  }
+});
+
+test("duplication scope excludes .d.mts and .d.cts ambient declarations under the default globs", async () => {
+  for (const [version, fixture] of [
+    ["jscpd4", jscpd4Fixture("mts-cts-declarations-v4", { threshold: 0 })],
+    ["jscpd5", packageFixture("mts-cts-declarations-v5", { threshold: 0 })],
+  ] as const) {
+    writeFileSync(join(fixture, "src", "authored.mts"), "export const authoredModuleValue = 1;\n");
+    writeFileSync(join(fixture, "src", "ambient.d.mts"), "declare function ambientModule(): void;\n");
+    writeFileSync(join(fixture, "src", "ambient.d.cts"), "declare function ambientCommon(): void;\n");
+    const report = await analyzeDuplication({ repoRoot: fixture, minTokens: 1 });
+    assert.equal(report.sources, 1, version);
+    assert.match(await gatePassOutput(fixture), /1 source\(s\)/, version);
   }
 });
 

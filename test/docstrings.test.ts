@@ -514,6 +514,50 @@ test("directory and single-file scans include undocumented TSX exports", () => {
   }
 });
 
+test("directory and single-file scans include undocumented .mts and .cts exports", () => {
+  const root = mkdtempSync(join(tmpdir(), "docstrings-mts-cts-"));
+  try {
+    mkdirSync(join(root, "src"));
+    const module = join(root, "src", "module.mts");
+    const common = join(root, "src", "common.cts");
+    writeFileSync(module, "export function moduleThing() {}\nexport const HiddenModule = 1;\n");
+    writeFileSync(common, "export function commonThing() {}\nexport const HiddenCommon = 1;\n");
+    // Skipped: ambient declaration files carry no authored declarations.
+    writeFileSync(join(root, "src", "ambient.d.mts"), "declare function ambientModule(): void;\n");
+    writeFileSync(join(root, "src", "ambient.d.cts"), "declare function ambientCommon(): void;\n");
+    const directory = analyzeDocstringCoverage({ root });
+    const singleModule = analyzeDocstringCoverage({ root, sourceDirs: ["src/module.mts"] });
+    const singleCommon = analyzeDocstringCoverage({ root, sourceDirs: ["src/common.cts"] });
+    assert.equal(directory.files_scanned, 2);
+    assert.equal(singleModule.files_scanned, 1);
+    assert.equal(singleCommon.files_scanned, 1);
+    // Files sort by path, so common.cts is analyzed before module.mts.
+    assert.deepEqual(directory.violations.map(({ symbol }) => symbol), [
+      "commonThing",
+      "HiddenCommon",
+      "moduleThing",
+      "HiddenModule",
+    ]);
+    assert.deepEqual(singleModule.violations.map(({ symbol }) => symbol), ["moduleThing", "HiddenModule"]);
+    assert.deepEqual(singleCommon.violations.map(({ symbol }) => symbol), ["commonThing", "HiddenCommon"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a clean .mts and .cts source passes with documented exports", () => {
+  const root = mkdtempSync(join(tmpdir(), "docstrings-mts-cts-clean-"));
+  try {
+    mkdirSync(join(root, "src"));
+    writeFileSync(join(root, "src", "clean.mts"), "/** Documented exported module helper. */\nexport function moduleThing() {}\n");
+    writeFileSync(join(root, "src", "clean.cts"), "/** Documented exported common helper. */\nexport function commonThing() {}\n");
+    const report = analyzeDocstringCoverage({ root });
+    assert.deepEqual(report, { files_scanned: 2, declarations_checked: 2, violations: [] });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("JSX closing tags do not hide later undocumented TSX exports", () => {
   const source = "export const A = <div></div>; export const B = 1;\n";
   assert.deepEqual(analyzeSource(source, "widget.tsx").violations.map(({ symbol }) => symbol), ["A", "B"]);
