@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 /** Default TypeScript glob scanned by the duplication gate. */
-export const DEFAULT_DUPLICATION_GLOBS = ["**/*.ts"];
+export const DEFAULT_DUPLICATION_GLOBS = ["**/*.{ts,tsx}"];
 const defaultRepoRoot = process.cwd();
 const MAX_DUPLICATION_LINES = Number.MAX_SAFE_INTEGER;
 const MAX_DUPLICATION_SIZE = `${Number.MAX_SAFE_INTEGER}b`;
@@ -89,15 +89,17 @@ export function parseJscpdReport(report) {
     const total = expectRecord(statistics.total, "statistics.total");
     const lines = expectNumber(total, "lines", "statistics.total.lines");
     const duplicatedLines = expectNumber(total, "duplicatedLines", "statistics.total.duplicatedLines");
-    // An impossible count (negative, fractional, or more duplicated than total lines)
-    // would compute a passing percentage, so it fails closed like a missing field.
+    const sources = expectNumber(total, "sources", "statistics.total.sources");
+    // Impossible counts could compute a passing percentage or false completeness.
     if (!Number.isInteger(lines) ||
         !Number.isInteger(duplicatedLines) ||
         duplicatedLines < 0 ||
-        duplicatedLines > lines) {
-        throw new Error("duplication: jscpd report statistics.total contains impossible line counts");
+        duplicatedLines > lines ||
+        !Number.isInteger(sources) ||
+        sources < 0) {
+        throw new Error("duplication: jscpd report statistics.total contains impossible counts");
     }
-    return { duplicates: clones, statistics: { total: { lines, duplicatedLines } } };
+    return { duplicates: clones, statistics: { total: { lines, duplicatedLines, sources } } };
 }
 /** Parse and validate the package-level duplication gate contract. */
 function readDuplicationConfig(manifest) {
@@ -150,11 +152,11 @@ function globMatchedSources(repoRoot, pattern) {
         absolute: true,
         cwd: repoRoot,
         dot: true,
-        followSymbolicLinks: true,
+        followSymbolicLinks: false,
         ignore: [...DUPLICATION_IGNORES],
         onlyFiles: true,
     })
-        .filter((source) => source.endsWith(".ts") && !source.endsWith(".d.ts"))
+        .filter((source) => (source.endsWith(".ts") || source.endsWith(".tsx")) && !source.endsWith(".d.ts"))
         .map((source) => relativeSource(repoRoot, source))
         .sort();
 }
@@ -167,10 +169,11 @@ function duplicationOptions(repoRoot, pattern, minTokens) {
         minLines: 1,
         maxLines: MAX_DUPLICATION_LINES,
         maxSize: MAX_DUPLICATION_SIZE,
-        format: ["typescript"],
+        format: ["typescript", "tsx"],
         ignore: [...DUPLICATION_IGNORES],
         absolute: true,
         gitignore: false,
+        noSymlinks: true,
         reporters: [],
         silent: true,
     };
@@ -223,7 +226,7 @@ function packageDirOf(entryPath) {
 async function analyzeWithProgrammatic(installation, repoRoot, pattern, minTokens, matchedSources) {
     const api = require(installation.entryPath);
     const result = await api.detectClonesAndStatistic(duplicationOptions(repoRoot, pattern, minTokens));
-    const analyzedSources = Object.keys(result.statistic.formats.typescript?.sources ?? {})
+    const analyzedSources = ["typescript", "tsx"].flatMap((format) => Object.keys(result.statistic.formats[format]?.sources ?? {}))
         .map((source) => relativeSource(repoRoot, source))
         .sort();
     const analyzed = new Set(analyzedSources);
@@ -241,36 +244,43 @@ async function analyzeWithProgrammatic(installation, repoRoot, pattern, minToken
  * Analyze with jscpd 5's binary through its JSON reporter.
  *
  * jscpd 5 is a self-contained Rust binary driven by `run-jscpd.js`, and its
- * JSON report carries no per-file analysis record. The only files it drops
- * from `statistics.total.sources` are those below the token floor, which
- * cannot hold a clone of `minTokens` tokens, so the in-scope file set is the
- * analyzed set and nothing in scope can be silently skipped.
+ * JSON report carries only aggregate source counts. A second one-token scan
+ * proves that its format filter read every in-scope file, including short ones.
  */
 function analyzeWithBinary(installation, repoRoot, pattern, minTokens, matchedSources) {
     const outputDir = mkdtempSync(join(tmpdir(), "pm-ops-jscpd-"));
     try {
-        const result = spawnSync(process.execPath, [
-            join(installation.packageDir, "run-jscpd.js"),
-            repoRoot,
-            "--pattern", pattern,
-            "--format", "typescript",
-            "--min-tokens", String(minTokens),
-            "--min-lines", "1",
-            "--max-lines", String(MAX_DUPLICATION_LINES),
-            "--max-size", MAX_DUPLICATION_SIZE,
-            "--ignore", DUPLICATION_IGNORES.join(","),
-            "--reporters", "json",
-            "--output", outputDir,
-            "--silent",
-            "--no-colors",
-            "--absolute",
-            "--no-gitignore",
-        ], { encoding: "utf8" });
-        if (result.status !== 0) {
-            throw new Error(`duplication: jscpd exited with status ${String(result.status)}: ${String(result.stderr)}`);
+        const run = (tokens) => {
+            // The package gate owns its threshold; an ambient .jscpd.json must not
+            // make either scan exit before its JSON source-count receipt is read.
+            const result = spawnSync(process.execPath, [
+                join(installation.packageDir, "run-jscpd.js"),
+                repoRoot,
+                "--pattern", pattern,
+                "--format", "typescript,tsx",
+                "--min-tokens", String(tokens),
+                "--min-lines", "1",
+                "--max-lines", String(MAX_DUPLICATION_LINES),
+                "--max-size", MAX_DUPLICATION_SIZE,
+                "--ignore", DUPLICATION_IGNORES.join(","),
+                "--reporters", "json",
+                "--output", outputDir,
+                "--silent",
+                "--no-colors",
+                "--absolute",
+                "--no-gitignore",
+            ], { cwd: outputDir, encoding: "utf8" });
+            if (result.status !== 0) {
+                throw new Error(`duplication: jscpd exited with status ${String(result.status)}: ${String(result.stderr)}`);
+            }
+            const rawReport = JSON.parse(readFileSync(join(outputDir, "jscpd-report.json"), "utf8"));
+            return parseJscpdReport(rawReport);
+        };
+        const reported = run(minTokens);
+        const verifiedSources = minTokens === 1 ? reported.statistics.total.sources : run(1).statistics.total.sources;
+        if (verifiedSources !== matchedSources.length) {
+            throw new Error(`duplication: jscpd scanned ${verifiedSources} of ${matchedSources.length} in-scope TypeScript sources at the one-token floor`);
         }
-        const rawReport = JSON.parse(readFileSync(join(outputDir, "jscpd-report.json"), "utf8"));
-        const reported = parseJscpdReport(rawReport);
         return {
             percentage: percentageOf(reported.statistics.total.duplicatedLines, reported.statistics.total.lines),
             totalLines: reported.statistics.total.lines,
@@ -306,7 +316,7 @@ export function duplicationGateDiagnostic(report) {
  * @returns Aggregate percentage and every clone pair found by jscpd.
  */
 export async function analyzeDuplication(options = {}) {
-    const repoRoot = options.repoRoot ?? defaultRepoRoot;
+    const repoRoot = resolve(options.repoRoot ?? defaultRepoRoot);
     const pattern = combineGlobs(options.globs ?? DEFAULT_DUPLICATION_GLOBS);
     const minTokens = options.minTokens ?? 50;
     const matchedSources = globMatchedSources(repoRoot, pattern);

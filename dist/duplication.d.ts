@@ -79,6 +79,7 @@ interface ReportedAnalysis {
         readonly total: {
             readonly lines: number;
             readonly duplicatedLines: number;
+            readonly sources: number;
         };
     };
 }
