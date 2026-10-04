@@ -19,3 +19,12 @@ coverage/
 # one turns the health gate red; the journal has no value once the transaction
 # has landed. Deliberately outside any `pm-cli:` fence, which the CLI rewrites.
 .agents/pm/transactions/
+
+# pm-cli:runtime-cache:start
+.agents/pm/runtime/
+.agents/pm/search/*
+.agents/pm/locks/
+.agents/pm/transactions/
+.agents/pm/checkpoints/
+!.agents/pm/search/eval-queries.json
+# pm-cli:runtime-cache:end

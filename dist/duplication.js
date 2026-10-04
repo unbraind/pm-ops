@@ -69,6 +69,10 @@ function expectCloneEnd(value, context) {
  *
  * Every field the duplication gate consumes is checked, so a jscpd output
  * format change fails the gate closed instead of silently reporting zero.
+ * jscpd 5.4 counts overlapping clone regions once per clone, so
+ * `duplicatedLines` may exceed the total `lines` of the scanned sources; the
+ * fail-closed bound is instead the sum of the reported clone spans, which no
+ * real report can exceed without double-counting clones themselves.
  *
  * @param report - The parsed `jscpd-report.json` value.
  * @returns The clone pairs and aggregate line statistics, validated.
@@ -80,9 +84,14 @@ export function parseJscpdReport(report) {
         throw new Error("duplication: jscpd report duplicates is not an array");
     const clones = duplicates.map((clone) => {
         const record = expectRecord(clone, "clone");
+        const lines = expectNumber(record, "lines", "clone.lines");
+        if (!Number.isInteger(lines) || lines < 1) {
+            throw new Error("duplication: jscpd report clone.lines is not a positive integer span");
+        }
         return {
             firstFile: expectCloneEnd(record.firstFile, "clone.firstFile"),
             secondFile: expectCloneEnd(record.secondFile, "clone.secondFile"),
+            lines,
         };
     });
     const statistics = expectRecord(root.statistics, "statistics");
@@ -90,11 +99,15 @@ export function parseJscpdReport(report) {
     const lines = expectNumber(total, "lines", "statistics.total.lines");
     const duplicatedLines = expectNumber(total, "duplicatedLines", "statistics.total.duplicatedLines");
     const sources = expectNumber(total, "sources", "statistics.total.sources");
+    const cloneLineSpans = clones.reduce((total, clone) => total + clone.lines, 0);
+    const largestCloneSpan = clones.reduce((largest, clone) => Math.max(largest, clone.lines), 0);
     // Impossible counts could compute a passing percentage or false completeness.
     if (!Number.isInteger(lines) ||
+        lines < 0 ||
+        largestCloneSpan > lines ||
         !Number.isInteger(duplicatedLines) ||
         duplicatedLines < 0 ||
-        duplicatedLines > lines ||
+        duplicatedLines > cloneLineSpans ||
         !Number.isInteger(sources) ||
         sources < 0) {
         throw new Error("duplication: jscpd report statistics.total contains impossible counts");

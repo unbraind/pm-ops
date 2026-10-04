@@ -392,6 +392,12 @@ test("jscpd 5 report parsing accepts a real report shape and fails closed for ma
   const clone = {
     firstFile: { name: "/repo/src/first.ts", start: 1, end: 11 },
     secondFile: { name: "/repo/test/second.ts", start: 1, end: 11 },
+    lines: 11,
+  };
+  const overlapping = {
+    ...clone,
+    firstFile: { name: "/repo/src/first.ts", start: 1, end: 12 },
+    lines: 12,
   };
   const statistics = { total: { lines: 22, duplicatedLines: 11, sources: 2 } };
   const parsed = parseJscpdReport({ duplicates: [clone], statistics });
@@ -399,24 +405,39 @@ test("jscpd 5 report parsing accepts a real report shape and fails closed for ma
   assert.equal(parsed.duplicates[0]?.firstFile.name, "/repo/src/first.ts");
   assert.equal(parsed.statistics.total.lines, 22);
   assert.equal(parsed.statistics.total.sources, 2);
+  // jscpd 5.4 counts overlapping clone regions once per clone, so duplicated
+  // lines may exceed total lines while staying within the reported clone spans.
+  const overlappingStatistics = { total: { lines: 22, duplicatedLines: 23, sources: 2 } };
+  const overlappingParsed = parseJscpdReport({
+    duplicates: [clone, overlapping],
+    statistics: overlappingStatistics,
+  });
+  assert.equal(overlappingParsed.statistics.total.duplicatedLines, 23);
+  assert.equal(overlappingParsed.duplicates.length, 2);
   const malformed: unknown[] = [
     null,
     "report",
     { duplicates: "no", statistics },
     { duplicates: [null], statistics },
-    { duplicates: [{ firstFile: null, secondFile: clone.secondFile }], statistics },
-    { duplicates: [{ firstFile: { name: 1, start: 1, end: 2 }, secondFile: clone.secondFile }], statistics },
-    { duplicates: [{ firstFile: { name: "a.ts", start: "1", end: 2 }, secondFile: clone.secondFile }], statistics },
-    { duplicates: [{ firstFile: { name: "a.ts", start: Number.NaN, end: 2 }, secondFile: clone.secondFile }], statistics },
+    { duplicates: [{ firstFile: null, secondFile: clone.secondFile, lines: 11 }], statistics },
+    { duplicates: [{ firstFile: { name: 1, start: 1, end: 2 }, secondFile: clone.secondFile, lines: 11 }], statistics },
+    { duplicates: [{ firstFile: { name: "a.ts", start: "1", end: 2 }, secondFile: clone.secondFile, lines: 11 }], statistics },
+    { duplicates: [{ firstFile: { name: "a.ts", start: Number.NaN, end: 2 }, secondFile: clone.secondFile, lines: 11 }], statistics },
+    { duplicates: [{ firstFile: clone.firstFile, secondFile: clone.secondFile, lines: 0 }], statistics },
+    { duplicates: [{ firstFile: clone.firstFile, secondFile: clone.secondFile, lines: 1.5 }], statistics },
+    { duplicates: [{ firstFile: clone.firstFile, secondFile: clone.secondFile }], statistics },
     { duplicates: [clone], statistics: null },
     { duplicates: [clone], statistics: { total: null } },
-    { duplicates: [clone], statistics: { total: { lines: "22", duplicatedLines: 11 } } },
-    { duplicates: [clone], statistics: { total: { lines: 22 } } },
-    { duplicates: [clone], statistics: { total: { lines: 0, duplicatedLines: 1 } } },
-    { duplicates: [clone], statistics: { total: { lines: 22, duplicatedLines: -1 } } },
-    { duplicates: [clone], statistics: { total: { lines: 22.5, duplicatedLines: 11 } } },
-    { duplicates: [clone], statistics: { total: { lines: 22, duplicatedLines: 1.5 } } },
+    { duplicates: [clone], statistics: { total: { lines: "22", duplicatedLines: 11, sources: 2 } } },
+    { duplicates: [clone], statistics: { total: { lines: 22, duplicatedLines: 11 } } },
+    { duplicates: [clone], statistics: { total: { lines: 0, duplicatedLines: 1, sources: 2 } } },
+    { duplicates: [clone], statistics: { total: { lines: -22, duplicatedLines: 0, sources: 2 } } },
+    { duplicates: [clone], statistics: { total: { lines: 22, duplicatedLines: -1, sources: 2 } } },
+    { duplicates: [clone], statistics: { total: { lines: 22, duplicatedLines: 12, sources: 2 } } },
+    { duplicates: [clone], statistics: { total: { lines: 22.5, duplicatedLines: 11, sources: 2 } } },
+    { duplicates: [clone], statistics: { total: { lines: 22, duplicatedLines: 1.5, sources: 2 } } },
     { duplicates: [clone], statistics: { total: { lines: 22, duplicatedLines: 11, sources: -1 } } },
+    { duplicates: [clone], statistics: { total: { lines: 22, duplicatedLines: 11, sources: 2.5 } } },
   ];
   for (const report of malformed) assert.throws(() => parseJscpdReport(report), /jscpd report/);
 });

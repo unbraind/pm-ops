@@ -71,6 +71,8 @@ interface ReportedCloneEnd {
 interface ReportedClone {
     readonly firstFile: ReportedCloneEnd;
     readonly secondFile: ReportedCloneEnd;
+    /** Whole-line span of the clone, at least one line per the analyzer's floor. */
+    readonly lines: number;
 }
 /** jscpd 5's JSON report shape, as written by its `json` reporter. */
 interface ReportedAnalysis {
@@ -88,6 +90,10 @@ interface ReportedAnalysis {
  *
  * Every field the duplication gate consumes is checked, so a jscpd output
  * format change fails the gate closed instead of silently reporting zero.
+ * jscpd 5.4 counts overlapping clone regions once per clone, so
+ * `duplicatedLines` may exceed the total `lines` of the scanned sources; the
+ * fail-closed bound is instead the sum of the reported clone spans, which no
+ * real report can exceed without double-counting clones themselves.
  *
  * @param report - The parsed `jscpd-report.json` value.
  * @returns The clone pairs and aggregate line statistics, validated.
