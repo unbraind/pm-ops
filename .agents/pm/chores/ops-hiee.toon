@@ -1,0 +1,54 @@
+id: ops-hiee
+title: Certify pm-ops on PM CLI/SDK 2026.10.4 and consolidate pending dependency updates
+description: "Pin @unbrained/pm-cli@2026.10.4, consolidate Dependabot updates (#126 @babel/eslint-parser 8.0.6, #127 codeql-action SHAs, #137 @types/node 26.6.4, #138 pm-cli 2026.10.4 superset, #139 jscpd 5.4.0), fix Dependabot security alert #3 (brace-expansion 5.0.12), and prove the full release gate green."
+type: Chore
+status: in_progress
+priority: 1
+tags[2]: cert,deps
+created_at: "2026-10-04T08:59:29.371Z"
+updated_at: "2026-10-04T11:35:29.697Z"
+author: pi-cert-a
+actual_result: "Certification candidate: PM CLI and pm-changelog exact 2026.10.4, all devDependencies exact, Dependabot #126/#127/#137/#138/#139 consolidated and brace-expansion alert #3 patched to 5.0.12. Direct release:check PASS (464/466, 2 existing opt-in skips, c8 100/100/100/100 over 23 sources); strict health PASS; packed npm/native Bun status/policy/scan PASS on real tracker copy; pm-github 2026.10.4 dry-run wouldSync=0/skipped=1/planned=1. NOT READY: full npm audit has 5 high unpatched braces-chain findings (ops-braces-audit), and final-head bot reviews are pending. pm test sandbox limitation is upstream pm-cli#1391. Handoff: source-head CI green at ede9c25bc5f7, zero unresolved threads. NOT READY: Sourcery weekly quota; Cubic monthly quota/skip; Gemini and Copilot have no response after the requested review round. CodeRabbit re-review is rate limited; full npm audit has five high findings from unpatched braces (ops-braces-audit). Claim released; item remains open for orchestrator."
+comments[8]{created_at,author,text}:
+  "2026-10-04T08:59:35.779Z",pi-cert-a,"Starting certification on PM CLI 2026.10.4. Pinning @unbrained/pm-cli to 2026.10.4 (supersedes Dependabot #138 which proposed 2026.10.1), @babel/eslint-parser ^8.0.6 (#126), jscpd ^5.4.0 (#139), @types/node lockfile 26.6.4 (newer than #137's 26.6.3), and codeql-action SHAs 2892aa5e (#127). Security alert #3 (brace-expansion) fixed via npm audit fix -> 5.0.12; npm audit --omit=dev clean. Note: the braces GHSA-vfj7-8cjw-p6xm advisory flags ALL published braces versions (vulnerable <=3.0.3, no patched release); its only path into the tree is the jscpd4 dev alias kept for duplication-gate v4-engine parity tests (peer floor jscpd >=4.3.0 <6.0.0), so it is refused rather than weakening the gate."
+  "2026-10-04T09:13:25.591Z",pi-cert-a,"Gate evidence: `npm run release:check` green end-to-end on the branch (typecheck, lint, duplication, docstring, coverage 100/100/100/100, audit:prod clean, pack:dry-run 50 files, changelog:check up to date, all release verifiers ok) plus `pm health --strict-exit --require-merge-drivers` ok. npm audit --omit=dev: 0 vulnerabilities.\n\nDogfood (packed pm-ops-2026.10.4.tgz installed into a scratch copy of this repo's tracker at /tmp/claude-1000/cert-wt/pm-ops-dogfood):\n- npm: `npx -y @unbrained/pm-cli@2026.10.4 ops status --repos fleet/pm-ops` -> 'status: 1/1 ready, 0 issue(s)'; `ops policy` -> 'passed: 6, failed: 0'; `ops scan` -> 'scan: 1/1 ready'.\n- bun: `bunx --bun @unbrained/pm-cli@2026.10.4 ops status ...` -> 'status: 1/1 ready, 0 issue(s)'; `ops policy` -> 'passed: 6, failed: 0'.\nScratch copy deleted afterwards.\n\npm-github: installed as managed extension pm-github@2026.9.26 (npm:pm-github); read-only preview `pm github sync --repo unbraind/pm-ops --dry-run` -> '[dry-run] Would update 0 issue(s) on unbraind/pm-ops; 1 already in sync/failed.' No issues created/modified, no scheduled sync.\n\nFix driven by jscpd 5.4.0: its one-token scan now sums overlapping clone spans into duplicatedLines (23 > 22 total lines on the TSX fixture), which the fail-closed report validation rejected as impossible counts. parseJscpdReport now validates duplicatedLines against the sum of reported clone spans (and each clone span against total lines) instead of duplicatedLines <= total lines; parity/completeness tests updated, duplication.ts branch coverage back to 100%."
+  "2026-10-04T10:11:39.943Z",pi-cert-a,"pm test --run receipts: linked 'pm health --strict-exit --require-merge-drivers' passes (exit 0, seeded tracker context). Linked 'npm run release:check' cannot run faithfully under the pm test harness on 2026.10.4: every seeding context (schema/auto/tracker) injects the sandbox PM_PATH, redirecting the suite's own 'pm init' throwaway workspaces so test/verify-lifecycle-policy.test.ts fails ENOENT on its drift fixture; --env-clear PM_PATH is reserved; per-test pm_context_mode=none requires an isolated workspace which is empty (npm: Missing script) or a snapshot which loses git-tag context (4 unrelated failures). The direct command — exactly what CI runs — is green (466/466, coverage 100/100/100/100). Filed upstream as unbraind/pm-cli#1391 (follow-up to #1318/#1354). Upstream issues referenced by pm-ops tests: #773 (driver/fence drift reported-not-gated), #921/#922 (merge receipts local-only)."
+  "2026-10-04T10:49:30.441Z",codex-sol,"Restart verification: CI on retained head 2863889 fails the existing per-commit identity audit because earlier dogfood evidence contains an absolute host path. Use the audited history-redaction command, then replace the single certification commit so the forbidden path is not retained in branch history; preserve all source changes and verification evidence. Exact-pin every development dependency and update pm-changelog to published 2026.10.4. Full npm audit remains blocked by unpatched braces 3.0.3 required by real jscpd4 parity tests; never remove those tests to conceal it."
+  "2026-10-04T11:01:37.038Z",codex-sol,"Restart gate and dogfood complete: direct locked npm run release:check exits 0, 466 tests/464 pass/0 fail/2 existing opt-in real-repo skips; c8 100% statements, branches, functions and lines across 23 sources. npx pm health --strict-exit --require-merge-drivers passes. npm audit --omit=dev has zero vulnerabilities; full npm audit reports 5 high findings in the single unpatched braces chain, tracked by ops-braces-audit. Exact-pinned every development dependency, pm-changelog upgraded to 2026.10.4, pm-github managed install refreshed to 2026.10.4. Packed real-tracker acceptance: npm pack --silent; install the tarball with @unbrained/pm-cli@2026.10.4 into pm-ops-dogfood; npx -y @unbrained/pm-cli@2026.10.4 package install <tarball> --project reports complete:true; run ops status/policy/scan --repos <worktree> through both npx and bunx --bun -y @unbrained/pm-cli@2026.10.4. Each runtime reports status/scan 1/1 ready and policy 6 passed/0 failed. Scratch copy removed. Read-only pm github sync --repo unbraind/pm-ops --dry-run: wouldSync 0, skipped 1, planned 1. The inspection commands report package structural readiness; the independent full-audit gate remains blocked. CI identity audit is repaired with audited redaction and replacement of the original certification commit, not a relaxed baseline."
+  "2026-10-04T11:26:15.736Z",codex-sol,"CodeRabbit inline 4177272228 is valid: the directory-wide search ignore prevents the existing eval-queries.json exception from taking effect. Prove the intended ignore behavior fails first with git check-ignore --quiet --no-index, then ignore directory contents instead of the directory. Verify eval-queries is eligible for tracking while search runtime files stay ignored; do not add generated runtime data."
+  "2026-10-04T11:26:25.729Z",codex-sol,"CodeRabbit 4177272228 fixed: changed .agents/pm/search/ to .agents/pm/search/* so the existing eval-queries exception works. git check-ignore negative/positive control proves eligible eval-queries (exit 1) and ignored runtime files (exit 0); no runtime data staged. Linked identity suite passes 4/4. Source release gate remains the passing 464/466 receipt (two pre-existing opt-in skips); final CI will verify this ignore/PM-only follow-up."
+  "2026-10-04T11:35:27.109Z",codex-sol,"Orchestrator handoff for PR #142: source head ede9c25bc5f7d0d861a8e95596ce0f1f58888dba has green Node 22/26 and CodeQL CI; local release/health/audit/dogfood receipts are recorded above. CodeRabbit 4177272228 fixed in ede9c25 and confirmed in-thread; identity/path audit repaired in 02d00dc. Zero unresolved review threads. Required review quorum is unavailable: Sourcery weekly quota; Cubic monthly quota/skip; Gemini and Copilot have no response after the requested review round. CodeRabbit re-review is rate limited; full npm audit has five high findings from unpatched braces (ops-braces-audit). All bot comments/reviews/inline findings inspected; useful findings/summaries reacted positively, skip/quota notices negatively, concrete replies posted, addressed threads resolved. Initial review requests sent once per repo; pm-ops received one second-round request after its valid fix. No merge, close, auto-merge, publication or release. Release the claim for orchestrator verification; the certification item remains in progress. Final metadata head will be checked separately before removing the worktree."
+files[9]{path,scope,note}:
+  .agents/pm/extensions/.managed-extensions.json,project,Certification change
+  .agents/pm/issues/ops-braces-audit.toon,project,Full audit blocker
+  .github/workflows/codeql.yml,project,Certification change
+  .gitignore,project,CodeRabbit 4177272228 evaluation-file exemption
+  duplication.ts,project,Certification change
+  package-lock.json,project,Certification change
+  package.json,project,Certification change
+  test/compatibility-floor.test.ts,project,Certification change
+  test/lint-and-duplication-gates.test.ts,project,Certification change
+tests[3]:
+  - command: ./node_modules/.bin/pm health --strict-exit --require-merge-drivers
+    scope: project
+    pm_context_mode: tracker
+    provenance:
+      author: pi-cert-a
+      created_at: "2026-10-04T09:31:59.205Z"
+      source_kind: local_mutation
+      source_ref: chore/pm-ops-pm-cli-2026-10-4
+  - command: "npm run release:check"
+    scope: project
+    provenance:
+      author: pi-cert-a
+      created_at: "2026-10-04T10:11:10.972Z"
+      source_kind: local_mutation
+      source_ref: chore/pm-ops-pm-cli-2026-10-4
+  - command: node --test test/identity-audit.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-04T11:26:18.142Z"
+      source_kind: local_mutation
+      source_ref: chore/pm-ops-pm-cli-2026-10-4
+body: ""

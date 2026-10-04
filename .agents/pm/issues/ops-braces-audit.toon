@@ -1,0 +1,17 @@
+id: ops-braces-audit
+title: Eliminate the unpatched braces dependency while preserving jscpd 4 parity acceptance
+description: "Full npm audit reports GHSA-vfj7-8cjw-p6xm on braces 3.0.3 via micromatch, fast-glob, @jscpd/finder and the jscpd4 4.3.0 alias. npm latest braces is 3.0.3 and no patched registry release exists. Removing the alias would remove required real-engine parity tests, which is forbidden. Certification ops-hiee stays NOT READY for this independent audit gate."
+type: Issue
+status: open
+priority: 1
+tags[2]: dependencies,security
+created_at: "2026-10-04T10:51:17.651Z"
+updated_at: "2026-10-04T10:51:18.521Z"
+author: codex-sol
+repro_steps: npm ci; npm audit; npm ls braces; npm view braces version
+expected_result: Both npm audit and npm audit --omit=dev return zero vulnerabilities without deleting jscpd4 engine-parity tests or weakening thresholds.
+actual_result: "npm audit: 5 high findings in the same unpatched braces chain; npm audit --omit=dev: zero vulnerabilities."
+files[2]{path,scope,note}:
+  package.json,project,Required jscpd4 parity dependency
+  test/lint-and-duplication-gates.test.ts,project,Real jscpd4 parity tests must remain
+body: ""
