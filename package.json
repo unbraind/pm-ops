@@ -123,7 +123,7 @@
     "@types/node": "26.6.4",
     "@unbrained/pm-cli": "2026.10.4",
     "c8": "12.0.0",
-    "eslint": "10.11.0",
+    "eslint": "10.12.0",
     "fast-glob": "3.3.3",
     "jscpd": "5.4.0",
     "jscpd4": "npm:jscpd@4.3.0",
