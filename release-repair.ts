@@ -116,6 +116,8 @@ export function makeRepairClient(exec: RepairExecutor = defaultExec): RepairClie
     },
     /** Inspect only the requested remote ref and its annotated-tag peel. */
     remoteTag(root, tag) {
+      // Validate at the call site: only release tags ever reach git's argv.
+      if (!isReleaseTag(tag)) throw new Error(`unsupported release coordinate ${tag}`);
       const output = exec("git", ["ls-remote", "--tags", "origin", `refs/tags/${tag}`, `refs/tags/${tag}^{}`], { cwd: root }).trim();
       if (!output) return null;
       const refs = output.split("\n").map((line) => line.split(/\s+/));
@@ -145,7 +147,12 @@ export function makeRepairClient(exec: RepairExecutor = defaultExec): RepairClie
 /** Extract exactly one nonempty version section from an immutable changelog. */
 export function committedReleaseNotes(changelog: string, version: string): string {
   const sections = changelog.split(/^## /m).slice(1);
-  const matches = sections.filter((section) => section.split("\n")[0]!.split(/\s+-\s+/)[0] === version);
+  const matches = sections.filter((section) => {
+    // A single-character separator keeps the match linear on long runs of spaces.
+    const heading = section.split("\n")[0]!;
+    const separator = heading.search(/\s-\s/);
+    return (separator === -1 ? heading : heading.slice(0, separator)).trim() === version;
+  });
   if (matches.length !== 1) throw new Error(`committed changelog must have exactly one section for ${version}`);
   const body = matches[0]!.split("\n").slice(1).join("\n").trim();
   if (!body) throw new Error(`committed changelog section for ${version} is empty`);

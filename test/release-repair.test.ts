@@ -349,3 +349,20 @@ test("an absent remote cannot authorize a conflicting local release tag", async 
     assert.equal(f.writes.length, 0);
   } finally { f.cleanup(); }
 });
+
+test("remote tag reads refuse option-shaped and non-release coordinates before git runs", () => {
+  const calls: string[][] = [];
+  const client = makeRepairClient((_command, args) => { calls.push([...args]); return ""; });
+  for (const hostile of ["--upload-pack=touch /tmp/pwned", "-c", "main", "v1.0.0;rm -rf /"]) {
+    assert.throws(() => client.remoteTag(process.cwd(), hostile), /unsupported release coordinate/);
+  }
+  assert.deepEqual(calls, []);
+});
+
+test("release-note headings are matched in linear time on long runs of spaces", () => {
+  const hostile = `## ${version}${" ".repeat(50_000)}x\n\nbody\n`;
+  const started = performance.now();
+  assert.throws(() => committedReleaseNotes(hostile, version), /exactly one section/);
+  assert.ok(performance.now() - started < 1_000, "heading parsing must not backtrack quadratically");
+  assert.equal(committedReleaseNotes(`## ${version} - 2026-10-08\n\nnotes\n`, version), "notes\n");
+});
