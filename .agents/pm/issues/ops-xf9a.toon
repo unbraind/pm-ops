@@ -6,7 +6,7 @@ status: open
 priority: 0
 tags[3]: "area:release","area:supply-chain","type:defect"
 created_at: "2026-08-28T08:23:51.410Z"
-updated_at: "2026-08-28T08:23:51.410Z"
+updated_at: "2026-10-07T22:03:53.264Z"
 author: "harness:codex"
 estimated_minutes: 240
 acceptance_criteria: "A release that changes metadata stops after merging and dispatches a fresh main-branch release run; publication occurs only when github.sha equals the merged release SHA; npm audit signatures cryptographically verifies the downloaded exact package and returns the SLSA bundle; the verified statement subject matches the package coordinate and tarball digest; repository, workflow path, ref, and resolved gitCommit exactly match the intended release; missing, invalid, ambiguous, or mismatched evidence fails closed; red-first fixtures cover wrong commit, repository, workflow, ref, coordinate, digest, missing bundle, and invalid audit results; the corrected contract is propagated per-package without copying foreign workflow content"
@@ -18,8 +18,18 @@ actual_result: "The signed provenance names the workflow trigger SHA, while the 
 affected_version: pm-ops daily release through 2026.8.28
 component: .github/workflows/release.yml
 customer_impact: "A package can display valid npm provenance while its Source Commit link identifies code other than the bytes published, defeating exact-source auditability and allowing the release workflow to tag the wrong commit during reconciliation."
-files[1]{path,scope,note}:
-  .github/workflows/release.yml,project,release preparation and publication must be split across run identities
+comments[1]{created_at,author,text}:
+  "2026-10-07T22:03:48.268Z",codex-sol,"Additional measured evidence from ops-3j1z: the recorded npm 11.17.0 signature-audit output for public pm-ops 2026.8.28 verifies signed source c7da4bf04039c3e0543026d003e9ee7bcd8615cd, while the contemporaneous registry gitHead is 5b6fbe73b7072d49c41d5cb3cad4d44142f3fe4a. Offline regression test/fixtures/npm-signature-audit.json and test/release-repair.test.ts preserve this mismatch and require repair refusal. Existing publish-workflow provenance work remains scoped to this item; no duplicate created."
+files[4]:
+  - path: .github/workflows/release.yml
+    scope: project
+    note: release preparation and publication must be split across run identities
+  - path: test/fixtures/npm-signature-audit.json
+    scope: project
+  - path: test/fixtures/README.md
+    scope: project
+  - path: test/release-repair.test.ts
+    scope: project
 docs[1]{path,scope,note}:
   "https://docs.npmjs.com/cli/v11/commands/npm-audit/",project,official cryptographic signature and provenance verification contract
 body: ""

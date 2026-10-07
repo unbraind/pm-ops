@@ -129,6 +129,23 @@ pm ops verify-release --json
 
 ---
 
+### Release completeness and explicit repair
+
+```bash
+npm run verify:release-completeness
+npm run verify:release-completeness -- --repair
+```
+
+The default audits the git tag, published npm version, and GitHub Release inventories without writes. The daily release job explicitly opts into repair after its current release step, including days with no new release. Repair is outside `release:check` and `prepublishOnly`.
+
+Repair completes missing remote tags and GitHub Releases only for already published calendar versions. It uses `npm audit signatures --json --include-attestations` in a disposable installation with lifecycle scripts disabled, requiring one verified SLSA v1 source repository and full commit matching npm `gitHead`. The package name, version, repository, local/remote tag commits, and committed `package.json` must agree. Release notes come from exactly one nonempty version section in that commit's `CHANGELOG.md`, never from the working tree. The attested commit must already be available locally; repair does not guess a commit or fetch arbitrary objects.
+
+All incomplete candidates are validated before the first write. Missing provenance, unsupported provenance schemas, unreadable inventories, unpublished tags, conflicting commits or identities, and absent/ambiguous changelog sections refuse repair. Existing complete remote triples require no provenance read or write. Remote tags and release existence are checked again before writes; uncertain write responses are accepted only after the intended state can be read back. Failures after a successful write remain visible and can be retried. Repair never publishes to npm, moves a tag, edits an existing release, changes the latest-release designation, or changes branch history. Concurrent actors must preserve immutable release refs; the GitHub API cannot atomically bind release creation to a tag SHA.
+
+The adapter needs git, gh authentication with repository contents write permission, and an npm CLI supporting `--include-attestations`. npm downloads and signature verification can fail without authorizing a repair. Applications may import `pm-ops/release-repair` to supply an injected `RepairClient` and `CompletenessFetcher`; hermetic tests use recorded npm response fixtures and local git remotes with real scratch pm trackers.
+
+---
+
 ### `pm ops report`
 
 Emit a concise fleet report combining scan + policy results (and optionally verify-release). The markdown format includes a timestamp header and sectioned tables.

@@ -53,6 +53,10 @@
     "./duplication": {
       "types": "./dist/duplication.d.ts",
       "default": "./dist/duplication.js"
+    },
+    "./release-repair": {
+      "types": "./dist/release-repair.d.ts",
+      "default": "./dist/release-repair.js"
     }
   },
   "files": [

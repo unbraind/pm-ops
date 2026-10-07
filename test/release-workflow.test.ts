@@ -827,6 +827,7 @@ test("the completeness audit runs after Create GitHub release, not in release:ch
 
   // The audit step must actually run the completeness verifier.
   const auditSource = executable(stepSource("Audit release completeness"));
+  assert.match(auditSource, /npm run verify:release-completeness -- --repair/, "the daily job explicitly opts into repair even on no-change days");
   assert.match(
     auditSource,
     /npm run verify:release-completeness/,
