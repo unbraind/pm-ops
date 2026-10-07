@@ -6,9 +6,35 @@ status: open
 priority: 2
 tags: []
 created_at: "2026-08-31T12:41:05.904Z"
-updated_at: "2026-08-31T12:41:06.996Z"
+updated_at: "2026-10-07T22:38:43.982Z"
 author: claude-orchestrator
 acceptance_criteria: "For each release tag with a published npm version and no GitHub Release, the release job creates the missing GitHub Release from that version's committed changelog section; the step is idempotent, so a run with nothing to repair makes no API writes; a tag with no published npm version is never given a GitHub Release, since that would assert a release that was never published; the repair is covered by hermetic tests with an injected client and no network"
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   ops-i8yp,blocked_by,"2026-08-31T12:41:06.966Z",claude-orchestrator,"cli:update:dep",detected
+comments[9]{created_at,author,text}:
+  "2026-10-07T21:42:08.963Z",codex-sol,"Baseline acceptance: built package and compiled completeness verifier exercised with a real SDK-created scratch pm tracker and local git release tag v2026.08.28. Recorded npm inventory contains 2026.8.28 and GitHub has no release. Two successive audits both report the same missing GitHub Release and perform zero repairs. Plan: explicit --repair flag, verified npm provenance naming gitHead and repository, committed manifest/changelog checks, preflight all candidates before writes, conditional tag creation and idempotent release creation; never publish. Tests use recorded verification output, injected process boundary and local git repositories."
+  "2026-10-07T21:47:24.750Z",codex-sol,"Implemented conservative preflight and conditional repair adapter, including verified npm signature-audit bundles rather than trusting dist.attestations presence. Daily workflow explicitly passes --repair after the current release; default invocation remains report-only. Recovery checks all incomplete candidates before writes and uses only immutable committed changelog sections. Repeated and concurrent recovery is exercised with local git remotes and real SDK-created trackers. npm signature audit is the cryptographic verification boundary; tests inject recorded command responses and never call write APIs."
+  "2026-10-07T21:49:17.016Z",codex-sol,"Read-only recording from npm 11.17.0 for published pm-ops 2026.8.28 captured real verified bundles and caught the actual attestationBundles array shape. Added offline regression fixture. Historical registry gitHead differs from the signed source commit, so repair correctly refuses this coordinate instead of treating a valid signature as evidence of the release commit. This is covered by existing owner items ops-xf9a and ops-uizs; no duplicate or upstream issue filed."
+  "2026-10-07T21:54:11.123Z",codex-sol,"Revert proof: behaviorally replaced only repairReleaseCompleteness with the former report-only audit and rebuilt successfully. The three key scenarios (missing release, npm-only orphan and built-package orphan beside a real tracker) all loaded and failed assertions: 0 passed, 3 failed, zero skips. Restored the function and rebuilt successfully. Focused coverage verifies the new module and audit wrapper at the unchanged 100 percent thresholds; full release gates are next. Existing optional fleet-data tests remain unconfigured to respect this task scope."
+  "2026-10-07T21:57:36.225Z",codex-sol,"Linked acceptance receipt: pm test ops-3j1z --run --progress passed all 53 focused tests in a workspace snapshot using pm_context_mode=none and real scratch trackers; zero failures or skips. This pm configuration disables automatic test-result tracking, so this comment preserves the result. No SDK defect found. Both full release commands remain required; test thresholds and optional real-fleet scope are unchanged."
+  "2026-10-07T22:10:59.414Z",codex-sol,"First Bun release gate failed only in the existing installed pm CLI --repos routing acceptance: packed pm package install exceeded the unchanged 30-second child timeout. Suite result: 485 passed, 1 failed, 2 optional fleet-data skips; all repair scenarios passed and aggregate coverage was 100 percent in all four dimensions. The npm gate passed 486 tests with 2 optional skips. Investigating with an isolated installer retry before rerunning the complete Bun gate; no threshold or timeout weakened."
+  "2026-10-07T22:14:36.397Z",codex-sol,"Installer retry passed the exact existing packed --repos routing test in isolation: 1 passed, zero failures/skips, unchanged child timeouts. Now rerunning the complete bun run release:check with no code, threshold or timeout changes. Timing evidence remains linked to ops-gp0d."
+  "2026-10-07T22:20:14.936Z",codex-sol,"Final receipts: npm run release:check passed; bun run release:check passed on the unchanged retry. Each full gate ran 488 tests: 486 passed, zero failed, 2 pre-existing optional real-fleet skips. All 25 authored source files were reported at 100 percent statements, lines, branches and functions; duplication remained 0 percent, 223 documented declarations passed, production audit had zero vulnerabilities, and pack/changelog/attestation/lifecycle gates passed. Both pack checks produced the same artifact shasum 3b5f27a8ba3466cf711b538734295a7a1c61fced. Revert proof: three behavior assertions failed with only the repair function reverted and a successful rebuild; restored focused suite passed 53/53 via pm test snapshot. README and fixtures document provenance drift refusal and immutable-ref concurrency limits. No pm SDK bug found; automatic test-result tracking is disabled, so comments preserve receipts. Claim released for orchestrator review; item intentionally not closed."
+  "2026-10-07T22:38:43.982Z",claude-orchestrator,"CodeQL review (PR #150): heading parsing used /\\s+-\\s+/ (polynomial backtracking; 50,000 spaces took ~4.8s) and is now linear (/\\s-\\s/ search); remoteTag validates the release tag at the call site so only release coordinates reach git argv (the argument was always refs/tags/<tag>, so not option-injectable, but the guard is now local and explicit). Two new tests fail against the previous code."
+files[10]{path,scope}:
+  .github/workflows/release.yml,project
+  package.json,project
+  release-completeness.ts,project
+  release-repair.ts,project
+  scripts/verify-release-completeness.ts,project
+  test/fixtures/npm-signature-audit.json,project
+  test/fixtures/README.md,project
+  test/fixtures/release-provenance.json,project
+  test/release-repair.test.ts,project
+  test/release-workflow.test.ts,project
+tests[1]{command,path,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/release-repair.test.ts test/verify-release-completeness.test.ts,test/release-repair.test.ts,project,180,none,snapshot,codex-sol,"2026-10-07T21:55:23.120Z",local_mutation,feat/release-triple-repair
+docs[2]{path,scope}:
+  README.md,project
+  test/fixtures/README.md,project
 body: ""

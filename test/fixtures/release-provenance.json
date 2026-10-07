@@ -1,0 +1,38 @@
+{
+  "name": "sample-package",
+  "version": "2026.8.28",
+  "gitHead": "COMMIT",
+  "invalid": [],
+  "verified": [
+    {
+      "name": "sample-package",
+      "version": "2026.8.28",
+      "registry": "https://registry.npmjs.org/",
+      "attestationBundles": [
+        {
+          "predicateType": "https://slsa.dev/provenance/v1",
+          "bundle": {
+            "dsseEnvelope": {
+              "payload": "PAYLOAD"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "statement": {
+    "predicateType": "https://slsa.dev/provenance/v1",
+    "predicate": {
+      "buildDefinition": {
+        "resolvedDependencies": [
+          {
+            "uri": "git+https://github.com/example/sample-package@refs/heads/main",
+            "digest": {
+              "gitCommit": "COMMIT"
+            }
+          }
+        ]
+      }
+    }
+  }
+}
