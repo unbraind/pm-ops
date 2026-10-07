@@ -45,7 +45,9 @@ async function fixture(options: { tag?: boolean; release?: boolean; version?: st
   const manifest = { name, version: options.version ?? version, repository: `https://github.com/${slug}` };
   writeFileSync(join(cwd, "package.json"), JSON.stringify(manifest));
   writeFileSync(join(cwd, "CHANGELOG.md"), options.changelog ?? changelog);
-  const git = (args: string[]): string => execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
+  // A fixed identity keeps fixture commits independent of the runner's git configuration.
+  const env = { ...process.env, GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.test", GIT_COMMITTER_NAME: "Fixture", GIT_COMMITTER_EMAIL: "fixture@example.test" };
+  const git = (args: string[]): string => execFileSync("git", args, { cwd, env, encoding: "utf8", stdio: "pipe" }).trim();
   git(["add", "package.json", "CHANGELOG.md"]);
   git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", "release fixture"]);
   const commit = git(["rev-parse", "HEAD"]);
