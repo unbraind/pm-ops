@@ -92,3 +92,53 @@ jobs:
 
       - name: Verify Bun can install the package graph
         run: bun install --no-save
+
+  windows-consumers:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 26]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Install npm 11 and dependencies
+        run: |
+          npm install --global npm@11 --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm ci --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build and check consumer tooling
+        id: build
+        run: |
+          npm run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build:test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Standalone pack fixture without npm_execpath
+        run: |
+          Remove-Item Env:npm_execpath -ErrorAction SilentlyContinue
+          node --test test/pack-prepare.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Packed npm and native Bun consumers
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          Remove-Item Env:npm_execpath -ErrorAction SilentlyContinue
+          node test/packed-consumer.acceptance.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
