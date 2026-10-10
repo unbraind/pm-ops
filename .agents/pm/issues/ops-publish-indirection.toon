@@ -6,13 +6,13 @@ status: in_progress
 priority: 0
 tags: []
 created_at: "2026-10-10T02:41:49.896Z"
-updated_at: "2026-10-10T07:24:59.820Z"
+updated_at: "2026-10-10T07:54:16.930Z"
 author: codex-sol
 acceptance_criteria: Real subprocess adversarial fixtures and independent revert proofs; reject unresolved executable indirection; preserve sanctioned workflow; full release and packed npm/Bun checks.
 repro_steps: Execute test/publish-indirection.test.ts against the prior attestation implementation; Bash/xargs inert publisher records show hidden publish calls behind an attested sibling.
 expected_result: Every unresolved executable publisher path is refused; direct sanctioned provenance workflows and provable bindings remain accepted.
 actual_result: "Renewed findings4236759848/9852/9854 repaired. Source c8e15db197f2834de9a0f3279224ce5cf0f9ed3f CI38033875668 passes Linux22/26 and nativeWindows22/26; CodeQL38033875790 passes. Actual npm/npx11.21.0 is asserted; accepted historical proof fails without the diagnostic and repaired source refuses missing objects clearly. Both old launcher source-only controls fail and restore; actual npm10.9.4 is refused before pack. Local release503/505 with2 unchanged opt-in skips and all23production four100, focused34/34, PM-linked3/3, compatibility6/6 and fresh npm/nativeBun packed consumers pass. Five high development findings,12 legacy completeness gaps, ambient extension-health skew and incomplete whole-internal docs/review remain. PM/evidence-only handoff follows; root verifies/closes."
-comments[20]:
+comments[25]:
   - created_at: "2026-10-10T02:42:14.991Z"
     author: codex-sol
     text: "Owner search found historical scalar/spawning-wrapper repairs but no owner for #149; this item owns canonical alias/function/indirect spawning repair. Plan: executable safe stubs prove real argv and audit refusal, then mutation restores only prior implementation to prove regression detection. Companion: pm-cli-website-session-2026-10-10. No workflow execution or publication authorized."
@@ -74,26 +74,87 @@ comments[20]:
   - created_at: "2026-10-10T07:24:57.689Z"
     author: codex-sol
     text: "Verified full native source receipt: CI38033875668 at c8e15db197f2834de9a0f3279224ce5cf0f9ed3f passes Linux22/26 and Windows22/26. Independently downloaded logs prove actual npm/npx11.21.0, accepted b89 missing-history source failure and repaired diagnostic, both old launcher rejections/restored bytes, packed npm/nativeBun SDK activation and actual npm10.9.4 refusal before pack. CodeQL38033875790 passes. Final metadata-only handoff preserves all source bytes and previous receipts. Root handles reviews and closure; no GitHub comments or reviews sent."
-files[10]{path,scope}:
-  .github/workflows/ci.yml,project
-  attestation.ts,project
-  README.md,project
-  shell-scan.ts,project
-  test/npm-launcher.ts,project
-  test/pack-prepare.test.ts,project
-  test/packed-consumer.acceptance.ts,project
-  test/publish-indirection.test.ts,project
-  test/windows-consumers.proof.ts,project
-  test/windows-proof-history.test.ts,project
-tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
-  node --test test/publish-indirection.test.ts,project,codex-sol,"2026-10-10T02:51:02.616Z",local_mutation,fix/canonical-publication-consumer-guards
-  node --test test/pack-prepare.test.ts,project,codex-sol,"2026-10-10T05:50:25.702Z",local_mutation,fix/canonical-publication-consumer-guards
-  node --test test/windows-proof-history.test.ts,project,codex-sol,"2026-10-10T07:02:34.839Z",local_mutation,fix/canonical-publication-consumer-guards
-docs[6]{path,scope}:
-  docs/publication-repair.md,project
-  "https://github.com/unbraind/pm-ops/actions/runs/38028728667",project
-  "https://github.com/unbraind/pm-ops/actions/runs/38029183548",project
-  "https://github.com/unbraind/pm-ops/actions/runs/38033875668",project
-  "https://github.com/unbraind/pm-ops/issues/149",project
-  "https://github.com/unbraind/pm-ops/pull/152",project
+  - created_at: "2026-10-10T07:51:11.216Z"
+    author: codex-regex-investigator
+    text: "Independent codex-regex-investigator: bounded read-only investigation of CodeQL finding 16 / inline4236838359 at d937568; reconstruct tokenizer resource boundary and expansion semantics, run focused probes only, and propose compatible bounded parsing. No implementation edits or delegation."
+  - created_at: "2026-10-10T07:53:54.036Z"
+    author: codex-regex-investigator
+    text: "Independent evidence at source d937568: package.json exports shell-scan and attestation; auditPublishAttestation -> publishInvocationsIn -> publishInvocationsInShell -> tokenizeCommands reaches shell-scan.ts:377 on arbitrary SourceFile.text. Direct callers also include caseDepthChange, scalarAssignmentEvents, shellScalarsByLine and recursive substitutions/YAML/evaluators. Missing-close regex ${ plus 1000/2000/4000 at-signs took 1.3/5.0/22.8 ms; tokenizer echo double-quote plus 100/200/400 repeated ${ prefixes and equal at-sign suffix took 1.6/15.5/121.9 ms, supporting quadratic single-call and cubic repeated-suffix hypotheses. Recursion depth limit does not bound this per-input CPU cost."
+  - created_at: "2026-10-10T07:53:54.696Z"
+    author: codex-regex-investigator
+    text: "Independent semantics/proposal: quoted scalar $X or ${X} and quoted star expansions are single operands; quoted $@, array [@], nested default containing array [@], and name-prefix @ expansion can yield several. Mixed unquoted expansion plus quoted suffix remains multiword. Regex also flags scalar defaults containing mail@example, scalar @Q transformations and array-length expansions: preserve these conservative classifications in the resource fix. Proposed right-to-left index prepass resets at-sign state at each closing brace, records whether the first later brace exists and has an at-sign before it; constant-time dollar lookups preserve the existing regex without suffix slices or repeated searches. Ephemeral randomized differential probe passed 9033 dollar offsets; 3007/30007/300007 character prepasses took 0.057/0.327/3.058 ms. Keep quoted loop traversal so nested substitutions remain visible. Separate observed risk: unquoted echo ${X:-$(npm publish)} is swallowed by shell-scan.ts:398-418 and audits clean beside an attested sibling; quoted equivalent discovers the hidden publish. Root should verify this separately."
+  - created_at: "2026-10-10T07:53:55.540Z"
+    author: codex-regex-investigator
+    text: "Focused verification only: node --test test/shell-command-scan.test.ts passed 12/12 via pm test --run --only-last --progress; node --test test/publish-indirection.test.ts passed 32/32 via pm test --run --match test/publish-indirection.test.ts --progress. Inline node --input-type=module resource/semantic/equivalence probes and inert bash argument-count probes passed; no source test artifacts added. PM test-result tracking is disabled, so results are documented here without configuration changes. No full gates, implementation edits, delegation, GitHub writes, publication or push. Investigation complete; root verifies and integrates, item remains open."
+  - created_at: "2026-10-10T07:54:16.930Z"
+    author: codex-regex-investigator
+    text: "Direct-caller correction: attestation.ts:336 is startsIfSiblingArm, not caseDepthChange. Complete production call sites: attestation.ts:336,458,476,489 and shell-scan.ts:468,480,495,1245,1834. PM history verified clean after release; this correction is documentation only."
+files[10]:
+  - path: .github/workflows/ci.yml
+    scope: project
+  - path: attestation.ts
+    scope: project
+  - path: README.md
+    scope: project
+  - path: shell-scan.ts
+    scope: project
+    note: Independent read-only regex and tokenizer analysis
+  - path: test/npm-launcher.ts
+    scope: project
+  - path: test/pack-prepare.test.ts
+    scope: project
+  - path: test/packed-consumer.acceptance.ts
+    scope: project
+  - path: test/publish-indirection.test.ts
+    scope: project
+  - path: test/windows-consumers.proof.ts
+    scope: project
+  - path: test/windows-proof-history.test.ts
+    scope: project
+tests[4]:
+  - command: node --test test/publish-indirection.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-10T02:51:02.616Z"
+      source_kind: local_mutation
+      source_ref: fix/canonical-publication-consumer-guards
+  - command: node --test test/pack-prepare.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-10T05:50:25.702Z"
+      source_kind: local_mutation
+      source_ref: fix/canonical-publication-consumer-guards
+  - command: node --test test/windows-proof-history.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-10T07:02:34.839Z"
+      source_kind: local_mutation
+      source_ref: fix/canonical-publication-consumer-guards
+  - command: node --test test/shell-command-scan.test.ts
+    scope: project
+    timeout_seconds: 30
+    provenance:
+      author: codex-regex-investigator
+      created_at: "2026-10-10T07:52:01.028Z"
+      source_kind: local_mutation
+      source_ref: fix/canonical-publication-consumer-guards
+docs[7]:
+  - path: docs/publication-repair.md
+    scope: project
+  - path: "https://github.com/unbraind/pm-ops/actions/runs/38028728667"
+    scope: project
+  - path: "https://github.com/unbraind/pm-ops/actions/runs/38029183548"
+    scope: project
+  - path: "https://github.com/unbraind/pm-ops/actions/runs/38033875668"
+    scope: project
+  - path: "https://github.com/unbraind/pm-ops/issues/149"
+    scope: project
+  - path: "https://github.com/unbraind/pm-ops/pull/152"
+    scope: project
+  - path: README.md
+    scope: project
+    note: Existing canonical attestation refusal contract read independently
 body: ""
