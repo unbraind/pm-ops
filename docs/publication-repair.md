@@ -31,7 +31,7 @@ prove the result when later arguments can disable it.
   validation, strict merge-driver health, actual extension activation, built
   attestation refusal and Git config byte identity around npm 11 pack and
   npm 10.9.4 pack with `--ignore-scripts`. It removes all disposable state.
-  The final tested tarball SHA-256 is
+  The initial tested tarball SHA-256 was
   `1d6b39113d187ae64d31d09477fe080f5dfdedc415f72c5fdc879dc5e64d52e6`.
 - Both focused PM-linked tests and the six compatibility checks pass. Project
   test-result tracking is disabled, so explicit owner comments retain receipts.
@@ -91,5 +91,28 @@ The standalone packed acceptance is test tooling and is checked separately.
 Two pre-existing real-fleet opt-in tests require two repositories and remain
 unavailable under this task's single-repository scope. Synthetic consumers and
 local passing gates do not certify fleet rollout, hosted safety or review approval.
-No merge, tag, release, registry publication, bot trigger or other repository
-change was performed. PM owners remain open for orchestrator verification.
+No merge, tag, release or registry publication was performed. PM owners remain
+open for orchestrator verification.
+
+## Orchestrator review corrections
+
+CodeRabbit's PR #152 review identified a missing parent directory when packed
+acceptance starts from a clean checkout and an obsolete SDK version in the
+certification result. Both were corrected. Moving the generated coverage
+directory aside reproduced the real `ENOENT`; the repaired packed npm and
+native Bun acceptance passes with that directory initially absent.
+
+The outside-diff finding also correctly identified a misleading error: an
+unresolved publisher was classified as a foreign executable or an unattested
+literal publisher before its unresolved evidence was checked. The auditor now
+reports the unresolved publication path first. Existing expansion fixtures and
+the quoted multiword executable fixture require that exact reason. The new
+assertion fails against the old ordering; the repaired focused set passes
+129/129. The full release gate still passes 496 tests, with two pre-existing
+opt-in skips and four-dimensional 100% coverage across the same 23 sources.
+
+The orchestrator independently verified the original 27 subprocess/pack cases,
+requested external review, and is submitting these corrections for renewed
+current-head review. Greptile's ended trial and any rate-limited review remain
+missing evidence. The review-quorum limits above apply to the independent
+feature PR #150; they do not constitute approval of this repair PR.

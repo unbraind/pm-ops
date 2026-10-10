@@ -614,6 +614,9 @@ export function auditPublishAttestation(sources: SourceFile[]): PublishAttestati
   const { failures, notes } = tallyFlaggedInvocations(
     invocations,
     (invocation) => {
+      if (invocation.unresolved !== undefined) {
+        return `${invocation.file}: cannot prove ${invocation.unresolved}; refusing an unresolved publish path: ${renderCommand(invocation.command)}`;
+      }
       if (invocation.program !== "npm") {
         return `${invocation.file}: \`${invocation.program} publish\` is a publish path with no attested`
           + ` equivalent configured in this repository: ${renderCommand(invocation.command)}`;
@@ -621,9 +624,6 @@ export function auditPublishAttestation(sources: SourceFile[]): PublishAttestati
       if (!attestationEnabled(invocation.command)) {
         return `${invocation.file}: a publish invocation does not enable ${ATTESTATION_FLAG}, so it would`
           + ` publish an unattested artifact: ${renderCommand(invocation.command)}`;
-      }
-      if (invocation.unresolved !== undefined) {
-        return `${invocation.file}: cannot prove ${invocation.unresolved}; refusing an unresolved publish path: ${renderCommand(invocation.command)}`;
       }
       return null;
     },

@@ -16,6 +16,7 @@ import { devNull, homedir } from "node:os";
 import type { HealthResult, ValidateResult } from "@unbrained/pm-cli/sdk";
 
 const source = process.cwd();
+mkdirSync(join(source, "coverage"), { recursive: true });
 const root = mkdtempSync(join(source, "coverage", "packed-consumers-"));
 const env: NodeJS.ProcessEnv = {
   PATH: process.env.PATH,

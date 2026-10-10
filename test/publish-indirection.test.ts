@@ -84,7 +84,10 @@ test("quoted multiword executable values cannot disappear from recognition", () 
     'PUB="npm publish"; "$PUB"',
     '"$UNKNOWN" --provenance',
   ]) {
-    assert.ok(auditPublishAttestation([{ file: "scripts/release.sh", text: `npm publish --provenance\n${script}` }]).failures.length > 0);
+    /** Actual refusal must identify unresolved expansion so an agent receives the correct recovery boundary. */
+    const failures = auditPublishAttestation([{ file: "scripts/release.sh", text: `npm publish --provenance\n${script}` }]).failures;
+    assert.ok(failures.length > 0);
+    assert.ok(failures.some((failure) => /cannot prove .*unresolved publish path/.test(failure)), "unresolved executables must report the expansion boundary");
   }
 });
 

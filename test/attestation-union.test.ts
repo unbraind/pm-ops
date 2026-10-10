@@ -50,11 +50,12 @@ function assertUnattestedSmuggle(smuggled: string): void {
   assert.equal(failures.length, 1, `${smuggled} -> ${JSON.stringify(failures)}`);
 }
 
+/** Require one recognized refusal that identifies expansion of an unavailable case-arm binding. */
 function assertCaseBindingCannotLeak(text: string): void {
   const result = auditPublishAttestation([{ file: "release.yml", text }]);
   assert.deepEqual(result.recognition, { kind: "recognized", count: 1 }, "the publish is recognised");
   assert.equal(result.failures.length, 1, "the first arm may not execute, so its binding is unavailable after esac");
-  assert.match(result.failures[0]!, /does not enable --provenance/);
+  assert.match(result.failures[0]!, /cannot prove publisher arguments .*unresolved publish path/);
 }
 
 /** Builds a throwaway git repository holding the given tracked files. */
@@ -284,7 +285,7 @@ test("command -p unset removes an attestation binding", () => {
     text: "echo ready & FLAG=--provenance\ncommand -p unset FLAG\nnpm publish --access public $FLAG",
   }]);
   assert.equal(result.failures.length, 1);
-  assert.match(result.failures[0]!, /does not enable --provenance/);
+  assert.match(result.failures[0]!, /cannot prove publisher arguments .*unresolved publish path/);
 });
 
 test("a publisher other than npm is refused rather than searched for a flag it has no equivalent of", () => {
@@ -976,7 +977,7 @@ test("an assignment the shell never makes is not indexed", () => {
     ].join("\n"),
   }]);
   assert.equal(result.failures.length, 1, "a publish flagged only from a comment is unattested");
-  assert.match(result.failures[0]!, /does not enable --provenance/);
+  assert.match(result.failures[0]!, /cannot prove publisher arguments .*unresolved publish path/);
 });
 
 test("a scalar is taken only from a line that is exactly one literal assignment", () => {
@@ -1159,7 +1160,7 @@ test("a scalar is taken only from a line that is exactly one literal assignment"
   ]) {
     const result = auditPublishAttestation([{ file: "release.yml", text: text.join("\n") }]);
     assert.equal(result.failures.length, 1, `a publish flagged only by ${text[0]!.trim()} is unattested`);
-    assert.match(result.failures[0]!, /does not enable --provenance/);
+    assert.match(result.failures[0]!, /cannot prove publisher arguments .*unresolved publish path/);
   }
 });
 
@@ -1269,7 +1270,7 @@ test("a binding made inside a case arm still cannot attest a publish after esac"
     ].join("\n"),
   }]);
   assert.equal(result.failures.length, 1, "the arm-local binding must not attest the later publish");
-  assert.match(result.failures[0]!, /does not enable --provenance/);
+  assert.match(result.failures[0]!, /cannot prove publisher arguments .*unresolved publish path/);
 });
 
 test("a sibling arm that opens a nested block cannot borrow the previous arm's binding", () => {
@@ -1290,7 +1291,7 @@ test("a sibling arm that opens a nested block cannot borrow the previous arm's b
     ].join("\n"),
   }]);
   assert.equal(result.failures.length, 1, "a mutually exclusive arm must not attest this publish");
-  assert.match(result.failures[0]!, /does not enable --provenance/);
+  assert.match(result.failures[0]!, /cannot prove publisher arguments .*unresolved publish path/);
 });
 
 test("an attested publish inside a nested case arm is still accepted", () => {
