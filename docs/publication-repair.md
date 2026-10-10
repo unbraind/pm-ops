@@ -74,8 +74,9 @@ The signed audit boundary, commit checks and conservative write preflight are
 useful protections. The feature branch was not modified or executed against live
 release APIs.
 
-All available review and comment bodies were read: CodeRabbit reports no
-final-head actionable findings; Greptile reports an ended trial; Sourcery reports
+All available review and comment bodies were read. The renewed CodeRabbit review
+posted the three findings addressed above; another final-head review is pending.
+Greptile reports an ended trial; Sourcery reports
 quota exhaustion and provides a guide; Cubic is neutral. Gemini/Copilot have no
 receipts. Earlier CodeQL regex findings were fixed; option-shaped tag arguments
 are refused at the call site. Green CI does not supply missing review approval.
