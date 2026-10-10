@@ -6,7 +6,7 @@ status: in_progress
 priority: 0
 tags: []
 created_at: "2026-10-10T02:41:49.896Z"
-updated_at: "2026-10-10T05:47:51.182Z"
+updated_at: "2026-10-10T05:51:11.907Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -14,7 +14,7 @@ acceptance_criteria: Real subprocess adversarial fixtures and independent revert
 repro_steps: Execute test/publish-indirection.test.ts against the prior attestation implementation; Bash/xargs inert publisher records show hidden publish calls behind an attested sibling.
 expected_result: Every unresolved executable publisher path is refused; direct sanctioned provenance workflows and provable bindings remain accepted.
 actual_result: "Canonical auditor rejects unresolved executable/argument/spawning publish paths and permits proven read-only whoami/ping preflights. Three current-head bot findings addressed: native Windows launcher/PATH and direct npm CLI fixture, independent npm11 major proof before pack label. Real npm10.9.4 negative control refuses before pack; old auditor fails safe-verb regression. Full release passes496 with2 existing opt-in skips and four100 across23runtime/tool/template sources. Final focused27/27 and types pass; fresh packed npm/nativeBun pass. Native Windows fixture execution locally unverified; required review remains open."
-comments[11]{created_at,author,text}:
+comments[12]{created_at,author,text}:
   "2026-10-10T02:42:14.991Z",codex-sol,"Owner search found historical scalar/spawning-wrapper repairs but no owner for #149; this item owns canonical alias/function/indirect spawning repair. Plan: executable safe stubs prove real argv and audit refusal, then mutation restores only prior implementation to prove regression detection. Companion: pm-cli-website-session-2026-10-10. No workflow execution or publication authorized."
   "2026-10-10T02:53:26.293Z",codex-sol,"Focused real-subprocess corpus passes 26/26 with zero skips. npm/Bun artifact acceptance is running. Both linked PM tests pass (26/26 indirection, 1/1 pack/install), but project test-result-tracking is disabled, so explicit comments hold the receipts. No tracking policy changed. Existing release-workflow audit passes with one recognized provenance invocation. New opaque argument and executable paths are refused even with a literal flag; plain scalar/array flags and fully literal function bodies remain accepted."
   "2026-10-10T03:02:44.248Z",codex-sol,"Fail-on-revert proof at base fedeb7bf19241fa2e9ce3ae9d263bc1e091729a4: restoring only attestation.ts made the 26-test corpus fail 18 cases (8 still pass). All repaired bytes restored. Real npm config get confirms --provenance followed by --no-provenance yields false, reverse order true. Both npm and native Bun packed consumers pass actual SDK activation and built auditor checks. No registry publication occurred."
@@ -26,13 +26,19 @@ comments[11]{created_at,author,text}:
   "2026-10-10T05:09:09.575Z",codex-sol,"Final review corrections: real npm10.9.4 negative control exit1 with exact major-proof diagnostic before packing. Read-only regression fails against old set then passes; final27 real corpus/pack tests pass. Full source gate passes496 with2 existing opt-in skips, four100 across23 sources. Updated fixture uses native Windows launcher/PATH and direct installed npm CLI to avoid cmd spawning; native Windows runtime unverified locally. Fresh packed npm/nativeBun pass actual npm11 major and npm10 ignore-scripts configuration identity. Existing unpatched development vulnerabilities and12 legacy closed metadata gaps remain documented, as does independent PR150 authorization parser work."
   "2026-10-10T05:46:45.583Z",codex-sol,"Review-loop continuation from ea29cb425a72b6729d24b00df4573e8c092c7cfa: renewed CodeRabbit review 5477818338 findings 4236589192 and 4236589194 both match test launcher source. Standalone Windows pack requires npm_execpath and packed acceptance directly spawns npm/npx cmd shims. Verify installed npm CLI layout and Node APIs, add real-consumer regression evidence with source-only reverts, extend existing public CI for native Windows Node 22/26 if needed. Preserve npm 11 identity, runtime SDK pin, all 23 production TS coverage inventory and existing two opt-in fleet skips. No publishing, hosted changes, duplicate owner, bot comments or item closure."
   "2026-10-10T05:47:51.182Z",codex-sol,"Native red-first plan: existing CI gains a Windows Server 2025 Node22/26 consumer job with SHA-pinned checkout/setup-node/setup-bun actions, matching existing pin conventions. Commands explicitly remove npm_execpath and run the standalone fixture and packed consumers independently. Repo is public; standard Windows runners are free per GitHub docs. This first evidence commit retains both old launcher implementations so native failures can be recorded before source changes."
-files[4]{path,scope}:
+  "2026-10-10T05:51:11.907Z",codex-sol,"Native red receipt: CI run38028728667 on90e66071740a7c660656236697a3eb9c78744631. Both Windows22/26 jobs fail standalone pack with exact missing-npm_execpath assertion and packed acceptance at npm --version with null spawn status; job114145004384 logs independently retrieved. Linux publication gate also flags the newly added explicit PowerShell exit expression; split native commands into separate steps and rely on GitHub's documented default pwsh exit handling, preserving canonical fail-closed auditing. Local focused27/27 and fresh packed npm/Node plus nativeBun pass. PM-linked tests2/2 pass; result tracking remains disabled, receipts are explicit comments."
+files[8]{path,scope}:
+  .github/workflows/ci.yml,project
   attestation.ts,project
   README.md,project
+  test/npm-launcher.ts,project
+  test/pack-prepare.test.ts,project
   test/packed-consumer.acceptance.ts,project
   test/publish-indirection.test.ts,project
-tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  test/windows-consumers.proof.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/publish-indirection.test.ts,project,codex-sol,"2026-10-10T02:51:02.616Z",local_mutation,fix/canonical-publication-consumer-guards
+  node --test test/pack-prepare.test.ts,project,codex-sol,"2026-10-10T05:50:25.702Z",local_mutation,fix/canonical-publication-consumer-guards
 docs[3]{path,scope}:
   docs/publication-repair.md,project
   "https://github.com/unbraind/pm-ops/issues/149",project

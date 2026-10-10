@@ -14,6 +14,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync
 import { join } from "node:path";
 import { devNull, homedir } from "node:os";
 import type { HealthResult, ValidateResult } from "@unbrained/pm-cli/sdk";
+import { npmLauncher } from "./npm-launcher.ts";
 
 const source = process.cwd();
 mkdirSync(join(source, "coverage"), { recursive: true });
@@ -26,13 +27,25 @@ const env: NodeJS.ProcessEnv = {
   PM_TELEMETRY_DISABLED: "1",
   PM_AUTHOR: "codex-sol",
   PM_OPS_OFFLINE: "1",
+  ...(process.platform === "win32" ? {
+    SystemRoot: process.env.SystemRoot,
+    ComSpec: process.env.ComSpec,
+    TEMP: process.env.TEMP,
+    TMP: process.env.TMP,
+    USERPROFILE: join(root, "home"),
+    APPDATA: process.env.APPDATA,
+    LOCALAPPDATA: process.env.LOCALAPPDATA,
+  } : {}),
 };
 mkdirSync(env.HOME!);
 
 /** Run one bounded consumer operation, retaining stdout for behavioral assertions. */
 function run(cwd: string, program: string, args: string[], extra: NodeJS.ProcessEnv = {}): string {
-  const result = spawnSync(program, args, {
-    cwd, env: { ...env, ...extra }, encoding: "utf8", timeout: 180_000,
+  const childEnv = { ...env, ...extra };
+  const launch = program === "npm" || program === "npx"
+    ? npmLauncher(program, args, childEnv) : { executable: program, args };
+  const result = spawnSync(launch.executable, launch.args, {
+    cwd, env: childEnv, encoding: "utf8", timeout: 180_000,
   });
   assert.equal(result.status, 0, `${program} ${args.join(" ")}\n${result.stderr}\n${result.stdout}`);
   console.log(program, args[0], "PASS");

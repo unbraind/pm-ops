@@ -5,19 +5,14 @@ import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, 
 import { devNull, tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import test from "node:test";
+import { npmLauncher } from "./npm-launcher.ts";
 
 const packageRoot = resolve(import.meta.dirname, "..");
 
 /** Execute real npm/git commands in a disposable consumer and require successful completion. */
 function execute(root: string, program: string, args: string[], env: NodeJS.ProcessEnv): string {
-  if (process.platform === "win32" && program === "npm") {
-    // Windows cannot spawn npm's cmd shim without a shell. The npm test
-    // runner supplies its actual CLI path, so Node can execute it directly.
-    assert.ok(env.npm_execpath, "Run this Windows fixture through the npm test runner");
-    args = [env.npm_execpath, ...args];
-    program = process.execPath;
-  }
-  const result = spawnSync(program, args, { cwd: root, encoding: "utf8", env });
+  const launch = program === "npm" ? npmLauncher(program, args, env) : { executable: program, args };
+  const result = spawnSync(launch.executable, launch.args, { cwd: root, encoding: "utf8", env });
   assert.equal(result.status, 0, result.stderr + result.stdout);
   return result.stdout + result.stderr;
 }

@@ -17,8 +17,8 @@ The current review correction additionally permits read-only `npm whoami` and
 `npm ping` with unresolved registry operands. The prior auditor rejects the real
 regression; unknown verbs remain fail-closed. The pack/install fixture uses a
 Windows cmd launcher and native PATH delimiter, invoking npm's installed CLI
-through Node on Windows. Native Windows execution of this fixture remains
-unverified locally. Packed acceptance verifies the ambient npm major before
+through Node on Windows. Native Windows evidence is recorded below; the local
+host only supplies Linux evidence. Packed acceptance verifies the ambient npm major before
 claiming an npm 11 pack receipt; an actual npm 10.9.4 executable is rejected
 before packing. These fixes address comments 4236402851, 4236402857 and 4236402861.
 
@@ -131,3 +131,41 @@ requested external review, and is submitting these corrections for renewed
 current-head review. Greptile's ended trial and any rate-limited review remain
 missing evidence. The review-quorum limits above apply to the independent
 feature PR #150; they do not constitute approval of this repair PR.
+
+## Renewed Windows launcher findings
+
+Review 5477818338 comments 4236589192 and 4236589194 both reproduce on native
+Windows. [CI run 38028728667](https://github.com/unbraind/pm-ops/actions/runs/38028728667)
+at `90e66071740a7c660656236697a3eb9c78744631` retains the old test launchers.
+Both Node 22 and 26 fail the standalone fixture at the missing `npm_execpath`
+assertion and packed acceptance at `npm --version` with a null spawn status.
+These are real Windows subprocess failures, independent of constructed shim
+bytes or a mocked platform.
+
+Shared test tooling now resolves the npm/npx selected by `where.exe`, reads
+the installed npm package's actual CLI entries and follows its `npm-prefix.js`
+global-installation precedence. Node executes those entries directly with an
+argument array and no shell. npm's installed Windows launchers and package
+metadata were checked against npm 11.17.0 and the
+[upstream npm launcher](https://github.com/npm/cli/blob/latest/bin/npm.cmd).
+`npm_execpath` is not required. Other platforms retain the original commands.
+Windows consumers also receive the native system and temporary-directory
+environment needed by Node, npm and Git.
+
+The existing public CI now runs standalone pack and complete packed npm/Node
+and native Bun consumers on Windows Server 2025 with Node 22 and 26. Each native
+job independently restores only one prior test launcher, requires its specific
+failure and restores the repaired bytes. It then installs actual npm 10.9.4,
+checks its version and requires the npm 11 guard to reject it before packing.
+The commands use standard free public runners with the existing SHA-pinning
+convention. GitHub's default PowerShell exit handling reports each command's
+status; explicit PowerShell expressions are unnecessary and would trigger the
+conservative shell auditor. No attestation rule was relaxed.
+
+Local validation passes `npm run build:test`, the unchanged 27 focused
+subprocess/pack tests without `npm_execpath`, both PM-linked tests and fresh
+packed npm/Node and native Bun acceptance. Project test-result tracking remains
+disabled; owner comments retain the receipts. Native green and source-only
+revert receipts are pending the corrected commit's CI run. The 23 production
+source denominator, two existing opt-in fleet skips, runtime SDK pin and all
+assurance boundaries above remain unchanged.
