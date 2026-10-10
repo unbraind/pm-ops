@@ -6,13 +6,13 @@ status: in_progress
 priority: 0
 tags: []
 created_at: "2026-10-10T02:41:49.896Z"
-updated_at: "2026-10-10T07:54:16.930Z"
+updated_at: "2026-10-10T07:59:48.802Z"
 author: codex-sol
 acceptance_criteria: Real subprocess adversarial fixtures and independent revert proofs; reject unresolved executable indirection; preserve sanctioned workflow; full release and packed npm/Bun checks.
 repro_steps: Execute test/publish-indirection.test.ts against the prior attestation implementation; Bash/xargs inert publisher records show hidden publish calls behind an attested sibling.
 expected_result: Every unresolved executable publisher path is refused; direct sanctioned provenance workflows and provable bindings remain accepted.
 actual_result: "Renewed findings4236759848/9852/9854 repaired. Source c8e15db197f2834de9a0f3279224ce5cf0f9ed3f CI38033875668 passes Linux22/26 and nativeWindows22/26; CodeQL38033875790 passes. Actual npm/npx11.21.0 is asserted; accepted historical proof fails without the diagnostic and repaired source refuses missing objects clearly. Both old launcher source-only controls fail and restore; actual npm10.9.4 is refused before pack. Local release503/505 with2 unchanged opt-in skips and all23production four100, focused34/34, PM-linked3/3, compatibility6/6 and fresh npm/nativeBun packed consumers pass. Five high development findings,12 legacy completeness gaps, ambient extension-health skew and incomplete whole-internal docs/review remain. PM/evidence-only handoff follows; root verifies/closes."
-comments[25]:
+comments[28]:
   - created_at: "2026-10-10T02:42:14.991Z"
     author: codex-sol
     text: "Owner search found historical scalar/spawning-wrapper repairs but no owner for #149; this item owns canonical alias/function/indirect spawning repair. Plan: executable safe stubs prove real argv and audit refusal, then mutation restores only prior implementation to prove regression detection. Companion: pm-cli-website-session-2026-10-10. No workflow execution or publication authorized."
@@ -89,6 +89,15 @@ comments[25]:
   - created_at: "2026-10-10T07:54:16.930Z"
     author: codex-regex-investigator
     text: "Direct-caller correction: attestation.ts:336 is startsIfSiblingArm, not caseDepthChange. Complete production call sites: attestation.ts:336,458,476,489 and shell-scan.ts:468,480,495,1245,1834. PM history verified clean after release; this correction is documentation only."
+  - created_at: "2026-10-10T07:57:24.317Z"
+    author: codex-regex-reviewer
+    text: "Independent candidate-only review started: inspect quoted expansion cache equivalence, direct caller refusal behavior, malformed delimiters and surviving resource paths. Source and tests read-only; no broad gates."
+  - created_at: "2026-10-10T07:59:13.509Z"
+    author: codex-regex-reviewer
+    text: "Independent candidate review found a concrete semantic regression at shell-scan.ts:384-391: absent closing brace uses text.length sentinel, so any later at-sign makes multipleWords true. echo quoted dollar-brace-at reproduces old undefined versus candidate true; later comment/word at-sign can contaminate an unterminated parameter too. Focused linked command node --test --test-name-pattern='quoted expansion scanning|quoted scalar and list' test/publish-indirection.test.ts: 1 pass, 1 failure; malformed-input assertion fails (not timeout). 5832 structured differential cases yield48 differences, all added multipleWords; scalar, positional, array, nested and escaped closed forms retain old classification. Direct publisher operand boundary attestation.ts:537/544 therefore refuses extra malformed paths rather than permitting a newly hidden publisher. Each next-delimiter search is monotone, so changed classification searches are linear; isolated repeated malformed inputs40k/80k/160k complete in23/16/84ms, indicative only. Fix must distinguish missing closing brace from a real close before comparing indices; no implementation edited."
+  - created_at: "2026-10-10T07:59:48.222Z"
+    author: codex-regex-reviewer
+    text: "Scope note: live source changed during review to add parameterClose < text.length at line391. That later guard is outside the supplied immutable candidate; the reported48 structured differences and1 failed focused test describe the supplied candidate before that edit. No source/test edits by this reviewer. Random probe ran after the external edit and is not evidence for the supplied candidate. Review follows both cache-refresh and cache-reuse branches, real versus absent delimiters,  fast path and literal/escaped-dollar bypass. No newly relaxed publisher boundary or newly polynomial search identified in the supplied change. General shell fidelity, other parser resource paths, package-wide gates and later guard verification remain root-owned. Independence limitation: while isolating PM changes, a shared tracker diff accidentally displayed prior rationale; core differential finding was reconstructed from source and direct probes, not a prior receipt."
 files[10]:
   - path: .github/workflows/ci.yml
     scope: project
@@ -98,7 +107,7 @@ files[10]:
     scope: project
   - path: shell-scan.ts
     scope: project
-    note: Independent read-only regex and tokenizer analysis
+    note: Independent cache branch and direct caller review
   - path: test/npm-launcher.ts
     scope: project
   - path: test/pack-prepare.test.ts
@@ -107,11 +116,12 @@ files[10]:
     scope: project
   - path: test/publish-indirection.test.ts
     scope: project
+    note: Candidate-only bounded and semantic controls
   - path: test/windows-consumers.proof.ts
     scope: project
   - path: test/windows-proof-history.test.ts
     scope: project
-tests[4]:
+tests[5]:
   - command: node --test test/publish-indirection.test.ts
     scope: project
     provenance:
@@ -141,7 +151,14 @@ tests[4]:
       created_at: "2026-10-10T07:52:01.028Z"
       source_kind: local_mutation
       source_ref: fix/canonical-publication-consumer-guards
-docs[7]:
+  - command: node --test --test-name-pattern='quoted expansion scanning|quoted scalar and list' test/publish-indirection.test.ts
+    scope: project
+    provenance:
+      author: codex-regex-reviewer
+      created_at: "2026-10-10T07:58:09.481Z"
+      source_kind: local_mutation
+      source_ref: fix/canonical-publication-consumer-guards
+docs[8]:
   - path: docs/publication-repair.md
     scope: project
   - path: "https://github.com/unbraind/pm-ops/actions/runs/38028728667"
@@ -157,4 +174,7 @@ docs[7]:
   - path: README.md
     scope: project
     note: Existing canonical attestation refusal contract read independently
+  - path: shell-scan.ts
+    scope: project
+    note: Token provenance and recursion contract docstrings
 body: ""
