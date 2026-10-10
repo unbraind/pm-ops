@@ -97,6 +97,16 @@ try {
     // protect configuration under the exact reported lifecycle behavior.
     run(cwd, "npx", ["--yes", "npm@10.9.4", "pack", "--ignore-scripts", "--pack-destination", root], context);
     assert.deepEqual(readFileSync(config), before);
+    /** Built consumers exercise repaired lexical children and conservative inherited state. */
+    const nestedCases = [
+      ['echo ${X:-$(npm publish)}', true],
+      ['echo ${X:-`echo \\`npm publish\\``}', true],
+      ['echo $((1 + $(npm publish; printf 0)))', true],
+      ['FLAG=--provenance\\necho ${X:-$(unset FLAG; npm publish $FLAG)}', true],
+      ['FLAG=--provenance\\necho ${X:-$(unset FLAG)}\\nnpm publish $FLAG', false],
+      ['FLAGS=(--provenance)\\necho ${X:-$(FLAGS+=(--no-provenance))}\\nnpm publish "${FLAGS[@]}"', false],
+      ['FLAGS=(--provenance)\\nFLAGS[0]=--no-provenance\\nnpm publish "${FLAGS[@]}"', true],
+    ];
     const program = `
 import assert from "node:assert/strict";
 import { auditPublishAttestation } from "pm-ops/attestation";
@@ -107,11 +117,15 @@ assert.ok(audit.failures.length);
 const quoted = auditPublishAttestation([{ file: "release.sh", text: 'npm publish --provenance\\nPUB="npm publish"; "$PUB" --provenance' }]);
 assert.ok(quoted.failures.length);
 assert.deepEqual(auditPublishAttestation([{ file: "release.sh", text: "npm publish --provenance" }]).failures, []);
+for (const [body, refused] of ${JSON.stringify(nestedCases)}) {
+  const result = auditPublishAttestation([{ file: "release.sh", text: "npm publish --provenance\\n" + body.replaceAll("\\\\n", "\\n") }]);
+  assert.equal(result.failures.length > 0, refused, body);
+}
 const activation = await activateExtensionForTest(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser", "services"] });
 assert.deepEqual(activation.failed, []);
 const result = await runRegisteredCommandForTest(activation.commands, { command: "ops status", pmRoot: process.env.PM_PATH, options: { repos: ["."] } });
 assert.equal(result.handled, true);
-console.log("packed auditor and actual SDK activation PASS");
+console.log("packed nested auditor and actual SDK activation PASS");
 `;
     writeFileSync(join(cwd, "smoke.mjs"), program);
     console.log(runtime, run(cwd, runtime === "npm" ? process.execPath : "bun",

@@ -6,13 +6,15 @@ status: in_progress
 priority: 0
 tags: []
 created_at: "2026-10-10T02:41:49.896Z"
-updated_at: "2026-10-10T08:28:00.684Z"
+updated_at: "2026-10-10T09:02:36.846Z"
+assignee: codex-nested-closure
+claim_principal: codex-nested-closure
 author: codex-sol
 acceptance_criteria: Real subprocess adversarial fixtures and independent revert proofs; reject unresolved executable indirection; preserve sanctioned workflow; full release and packed npm/Bun checks.
 repro_steps: Execute test/publish-indirection.test.ts against the prior attestation implementation; Bash/xargs inert publisher records show hidden publish calls behind an attested sibling.
 expected_result: Every unresolved executable publisher path is refused; direct sanctioned provenance workflows and provable bindings remain accepted.
 actual_result: "Renewed findings4236759848/9852/9854 repaired. Source c8e15db197f2834de9a0f3279224ce5cf0f9ed3f CI38033875668 passes Linux22/26 and nativeWindows22/26; CodeQL38033875790 passes. Actual npm/npx11.21.0 is asserted; accepted historical proof fails without the diagnostic and repaired source refuses missing objects clearly. Both old launcher source-only controls fail and restore; actual npm10.9.4 is refused before pack. Local release503/505 with2 unchanged opt-in skips and all23production four100, focused34/34, PM-linked3/3, compatibility6/6 and fresh npm/nativeBun packed consumers pass. Five high development findings,12 legacy completeness gaps, ambient extension-health skew and incomplete whole-internal docs/review remain. PM/evidence-only handoff follows; root verifies/closes."
-comments[39]:
+comments[43]:
   - created_at: "2026-10-10T02:42:14.991Z"
     author: codex-sol
     text: "Owner search found historical scalar/spawning-wrapper repairs but no owner for #149; this item owns canonical alias/function/indirect spawning repair. Plan: executable safe stubs prove real argv and audit refusal, then mutation restores only prior implementation to prove regression detection. Companion: pm-cli-website-session-2026-10-10. No workflow execution or publication authorized."
@@ -131,7 +133,19 @@ comments[39]:
   - created_at: "2026-10-10T08:27:59.363Z"
     author: codex-nested-reviewer
     text: "Independent verification: node --test test/publish-indirection.test.ts passed 41/41; linked node --test test/publish-indirection.test.ts test/shell-command-scan.test.ts passed 53/53. PM test --run --progress also executed the item existing linked focused commands; all six passed (includes pack-prepare and windows-proof-history). Focused real-Bash controls covered quoted/unquoted/single-quoted/escaped/backtick/nested parameter and arithmetic forms, plus attested nested publishers. In-memory baseline differential confirmed changed rejects and both findings. ShellCommand[] token keys/types, literal snapshots, outer-first order, function length 1, and optional depth behavior remain compatible; source adds optional arithmetic boolean, dist declaration is unchanged until root build. Depth >8 still returns [], so bounded enumeration is not complete beyond that inherited cap. Existing hostile suffix deadline test passed. PM test result tracking is disabled; outcomes are documented here. Source/test files remained read-only and unstaged; root owns final verification and disclosure."
-files[10]:
+  - created_at: "2026-10-10T08:33:47.055Z"
+    author: codex-nested-closure
+    text: "Root closure resumes preserved nested-substitution candidate. Independent review confirms escaped-backtick omission and child unset leaking into parent provenance. Reproduce with inert Bash registry boundary, inspect callers and scope contracts, then repair and challenge alternate representations before unchanged release and packed npm/native Bun gates. No real registry publication; item remains open."
+  - created_at: "2026-10-10T08:44:14.011Z"
+    author: codex-nested-closure
+    text: "Lexical children are isolated before parent structural segmentation or scalar/array expansion. Each child is audited with independent literal state; inherited child references remain explicitly unresolved. Real Bash corpus now includes escaped nested backticks, quoted parameter/arithmetic forms, scalar/array mutations, sibling controls and subshell isolation. Parent literal state survives child unsets/reassignments. Array evidence now follows declarations in source order, retiring destructive/conditional state. Intermediate normalization failures were assertion failures and corrected; no harness duplication or deadline/threshold changes."
+  - created_at: "2026-10-10T08:56:55.701Z"
+    author: codex-nested-closure
+    text: "Ordered gate receipts: first full release had 554 passed/556 total with two existing skips, but branch coverage refused changed modules; no passing release claim. Second full release had 565 passed/567 total and all23 four100, then actual release-workflow attestation failed on three arithmetic decimal operands misclassified as executable children. Canonical LCOV invalidated after both failures. Arithmetic grouping now stays in operand mode; real workflow-shaped Bash positive and standalone arithmetic publisher negative added to shared corpus. Corrected focused189/189 and actual release workflow verifier pass; source-only controls retain12 accepted-code and5 parent-isolation assertion failures with exact restoration. A final unchanged complete gate is required."
+  - created_at: "2026-10-10T09:02:36.846Z"
+    author: codex-nested-closure
+    text: "Final unchanged release:check exits0:569 total567 passed0 failed/canceled/TODO2 existing opt-in fleet skips. All23 production TS files four100; exact Git/LCOV inventory matches and all11242 DA,358 FNDA,2985 BRDA counters positive. Frozen23-source hash map14a8559a55f5b58cf08e7b391b78f1bf2ebc88cbe8367f133c9dc01ab7b03552 unchanged through release and fresh packed acceptance. npm/Node and native Bun packed consumers pass built nested auditor controls, SDK9 activation, synthetic create/validate/strict health and npm11/10 config byte comparisons; tarball64665192cf43672ca121567a9cb78f325a1b19bca08ecc74f72c49751d064597. Focused189/189, corpus96/96 with88 actual Bash executions, source-negative12 plus5 expected assertion failures and exact restored positives, all7 PM-linked commands pass. Selected docs225/23, duplication0/23539/50, production audit0, development5 high, release completeness46 tags, legacy completeness12 and history drift0 retained. No dependency/exclusion/threshold/deadline changes or real publication. Detailed sanitized receipt: docs/publication-repair.md; exact source commit follows, item stays open."
+files[11]:
   - path: .github/workflows/ci.yml
     scope: project
   - path: attestation.ts
@@ -141,6 +155,8 @@ files[10]:
   - path: shell-scan.ts
     scope: project
     note: Independent cache branch and direct caller review
+  - path: test/nested-substitution.proof.ts
+    scope: project
   - path: test/npm-launcher.ts
     scope: project
   - path: test/pack-prepare.test.ts
@@ -154,7 +170,7 @@ files[10]:
     scope: project
   - path: test/windows-proof-history.test.ts
     scope: project
-tests[6]:
+tests[7]:
   - command: node --test test/publish-indirection.test.ts
     scope: project
     provenance:
@@ -196,6 +212,13 @@ tests[6]:
     provenance:
       author: codex-nested-reviewer
       created_at: "2026-10-10T08:25:55.678Z"
+      source_kind: local_mutation
+      source_ref: fix/canonical-publication-consumer-guards
+  - command: node test/nested-substitution.proof.ts
+    scope: project
+    provenance:
+      author: codex-nested-closure
+      created_at: "2026-10-10T08:44:13.061Z"
       source_kind: local_mutation
       source_ref: fix/canonical-publication-consumer-guards
 docs[8]:

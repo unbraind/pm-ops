@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { auditPublishAttestation } from "../attestation.ts";
-import { tokenizeCommands } from "../shell-scan.ts";
+import { shellScalars, tokenizeCommands } from "../shell-scan.ts";
 
 test("quoted expansion scanning stays bounded on hostile delimiter suffixes", /** Exercise actual malformed library input in a child with an unchanged parser deadline and exact token assertions. */ () => {
   const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
@@ -41,6 +41,33 @@ test("quoted scalar and list expansion provenance survives repeated delimiters",
   assert.deepEqual(words.slice(1).map(/** Inspect each real parsed operand's splitting provenance. */ (word) => word.multipleWords), [true, undefined, true]);
 });
 
+test("public token shape, arithmetic operands, ordering and depth remain stable", /** Pin the exported scanner's consumer contract while entering executable child bodies. */ () => {
+  assert.equal(tokenizeCommands.length, 1);
+  assert.deepEqual(tokenizeCommands("npm publish", 9), []);
+  assert.deepEqual(tokenizeCommands("npm publish --provenance"), [[
+    { value: "npm", quoted: false, startsQuoted: false },
+    { value: "publish", quoted: false, startsQuoted: false },
+    { value: "--provenance", quoted: false, startsQuoted: false },
+  ]]);
+  for (const [text, quoted] of [["echo $((1 + 2))", false], ['echo "$((1 + 2))"', true]] as const) {
+    assert.deepEqual(tokenizeCommands(text), [[
+      { value: "echo", quoted: false, startsQuoted: false },
+      { value: "", quoted, unresolved: true, startsQuoted: quoted },
+    ]]);
+  }
+  assert.deepEqual(tokenizeCommands("echo ${X:-$(npm publish)}; echo done").map(/** Compare public outer-first command ordering. */ (command) => command.map(/** Read each public token value. */ (token) => token.value)), [
+    ["echo", "${X:-$(npm publish)}"], ["echo", "done"], ["npm", "publish"],
+  ]);
+  assert.deepEqual(tokenizeCommands("echo `printf foo\\\nbar`"), [
+    [{ value: "echo", quoted: false, startsQuoted: false }, { value: "", quoted: false, unresolved: true, startsQuoted: false }],
+    [{ value: "printf", quoted: false, startsQuoted: false }, { value: "foobar", quoted: false, startsQuoted: false }],
+  ]);
+  assert.equal(shellScalars("VALUE=$( (printf value) )").has("VALUE"), false, "nested parentheses cannot turn an unreadable assignment into a literal");
+  let deep = "npm publish";
+  for (let depth = 0; depth < 10; depth += 1) deep = `echo ${"${X:-$("}${deep})}`;
+  assert.deepEqual(auditPublishAttestation([{ file: "release.sh", text: `npm publish --provenance\n${deep}` }]).recognition, { kind: "recognized", count: 1 }, "the inherited depth cap remains a bounded enumeration limit");
+});
+
 /** Executable scripts whose publish argument list or alias state cannot be proved. */
 const unsafe = [
   "shopt -s expand_aliases\nalias deploy='npm publish'\ndeploy",
@@ -70,10 +97,76 @@ const unsafe = [
   'npm --registry="$REGISTRY"$EXTRA ping',
   'set -- https://example.invalid publish\nnpm --registry "$@" whoami',
   'OPTIONS=(https://example.invalid publish)\nnpm --registry "${OPTIONS[@]}" ping',
+  'echo ${X:-$(npm publish)}',
+  'echo ${X:-`npm publish`}',
+  'echo ${OUTER:-${INNER:-$(npm publish)}}',
+  'echo ${X:-"}$(npm publish)"}',
+  'echo ${X:-$((1 + $(npm publish; printf 0)))}',
+  'echo $((1 + $(npm publish; printf 0)))',
+  'echo "$((1 + $(npm publish; printf 0)))"',
+  'echo ${X:-`echo \\`npm publish\\``}',
+  'echo $((1 + `echo \\`npm publish; printf 0\\``))',
+  'echo "${X:-`echo \\`npm publish\\``}"',
+  'echo "${X:-\'$(npm publish)\'}"',
+  'echo ${X:-$(printf "%s" "$(npm publish)")}',
+  'echo ${X:-$(echo `echo \\`npm publish\\``)}',
+  'FLAG=--provenance\necho ${X:-$(unset FLAG; npm publish $FLAG)}',
+  'FLAG=--provenance\necho $((1 + $(unset FLAG; npm publish $FLAG; printf 0)))',
+  'FLAG=--provenance\necho "${X:-$(FLAG=--no-provenance; npm publish $FLAG)}"',
+  'FLAGS=(--provenance)\necho ${X:-$(unset FLAGS; npm publish "${FLAGS[@]}")}',
+  'FLAGS=(--provenance)\necho $((1 + $(FLAGS=(--no-provenance); npm publish "${FLAGS[@]}"; printf 0)))',
+  'FLAGS=(--provenance)\necho "${X:-$(FLAGS=--no-provenance; npm publish "${FLAGS[@]}")}"',
+  'FLAG=--provenance\n(unset FLAG; npm publish $FLAG)',
+  'FLAGS=(--provenance)\n(unset FLAGS; npm publish "${FLAGS[@]}")',
+  'echo ${X:-$(if false; then FLAG=--provenance; else npm publish $FLAG; fi)}',
+  'echo ${X:-$(if false; then FLAGS=(--provenance); else npm publish "${FLAGS[@]}"; fi)}',
+  'echo ${X:-$(if true; then npm publish "${FLAGS[@]}"; else FLAGS=(--provenance); fi)}',
+  'FLAGS=(--provenance)\necho ${X:-$(FLAGS+=(--no-provenance); npm publish "${FLAGS[@]}")}',
+  'FLAGS=(--provenance)\necho "${X:-$(FLAGS[0]=--no-provenance; npm publish "${FLAGS[@]}")}"',
+  'FLAG=--provenance\necho $((1 + $(FLAG+=false; npm publish $FLAG; printf 0)))',
+  'FLAGS=(--provenance)\nFLAGS+=(--no-provenance)\nnpm publish "${FLAGS[@]}"',
+  'FLAGS=(--provenance)\nFLAGS[0]=--no-provenance\nnpm publish "${FLAGS[@]}"',
+  'FLAG=--provenance\nFLAG+=false\nnpm publish $FLAG',
+  'echo ${X:-$(npm publish)} # FLAGS=(--provenance)',
+  '(( $(npm publish; printf 1) ))',
 ];
 
-for (const [index, body] of unsafe.entries()) {
-  test(`real indirect publish ${index + 1} is refused despite an attested sibling`, () => {
+/** Scope controls share the real Bash boundary rather than duplicating its harness. */
+const scopeControls = [
+  { body: 'FLAG=--provenance\necho ${X:-$(unset FLAG)}\nnpm publish $FLAG', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'FLAG=--provenance\necho $((1 + $(unset FLAG; printf 0)))\nnpm publish $FLAG', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'FLAG=--provenance; echo "${X:-$(unset FLAG)}"; npm publish $FLAG', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'FLAG=--provenance\necho ${X:-`unset FLAG`}\nnpm publish $FLAG', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'FLAGS=(--provenance)\necho ${X:-$(unset FLAGS)}\nnpm publish "${FLAGS[@]}"', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'FLAGS=(--provenance)\necho $((1 + $(FLAGS=(--no-provenance); printf 0)))\nnpm publish "${FLAGS[@]}"', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'FLAG=--provenance\n(unset FLAG)\nnpm publish $FLAG', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'FLAGS=(--provenance); (FLAGS=(--no-provenance)); npm publish "${FLAGS[@]}"', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'FLAG=--provenance\necho ${X:-$(FLAG=--no-provenance)}\nnpm publish $FLAG', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'echo ${X:-$(FLAG=--provenance; npm publish $FLAG)}', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'echo $((1 + $(FLAGS=(--provenance); npm publish "${FLAGS[@]}"; printf 0)))', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'echo "${X:-$(FLAG=--provenance; npm publish $FLAG)}"', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'echo ${X:-`echo \\`npm publish --provenance\\``}', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'echo ${X:-\\`npm publish\\`}', refused: false, calls: ["publish --provenance"] },
+  { body: 'echo ${X:-\'`npm publish`\'}', refused: false, calls: ["publish --provenance"] },
+  { body: 'FLAGS=(\n --provenance\n)\necho "${X:-$(unset FLAGS)}"\nnpm publish "${FLAGS[@]}"', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'FLAG=--provenance\necho ${X:-$(npm publish $FLAG)}', refused: true, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'FLAGS=(--provenance)\necho "${X:-$(npm publish "${FLAGS[@]}")}"', refused: true, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'echo ${X:-$(FLAG=--provenance)}\nnpm publish $FLAG', refused: true, calls: ["publish --provenance", "publish"] },
+  { body: 'FLAG=--provenance\nunset FLAG\necho ${X:-$(npm publish --provenance)}\nnpm publish $FLAG', refused: true, calls: ["publish --provenance", "publish --provenance", "publish"] },
+  { body: 'FLAGS=(--provenance)\nunset FLAGS\nnpm publish "${FLAGS[@]}"', refused: true, calls: ["publish --provenance", "publish"] },
+  { body: 'FLAGS=(--provenance)\nFLAGS=(--no-provenance)\nnpm publish "${FLAGS[@]}"', refused: true, calls: ["publish --provenance", "publish --no-provenance"] },
+  { body: 'FLAGS=(--provenance)\nFLAGS=--no-provenance\nnpm publish "${FLAGS[@]}"', refused: true, calls: ["publish --provenance", "publish --no-provenance"] },
+  { body: 'FLAGS=(--provenance); unset FLAGS; FLAGS=(--provenance); npm publish "${FLAGS[@]}"', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'FLAGS=(--provenance) # literal flags\necho "FLAGS=(--no-provenance)"\nnpm publish "${FLAGS[@]}"', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'cat <<\'EOF\'\nFLAGS=(\n --no-provenance\n)\nEOF\nFLAGS=(--provenance)\nnpm publish "${FLAGS[@]}"', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'FLAGS=(--no-provenance) && FLAGS=(--provenance); npm publish "${FLAGS[@]}"', refused: true, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'FLAGS=(--provenance)\necho ${X:-$(FLAGS+=(--no-provenance))}\nnpm publish "${FLAGS[@]}"', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+  { body: 'year=2026\nmonth=10\nday=10\nyear=$((10#$year)); month=$((10#$month)); day=$((10#$day))\n((10#$year))\nnpm publish --provenance', refused: false, calls: ["publish --provenance", "publish --provenance"] },
+];
+
+for (const [index, fixture] of [...unsafe.map(/** Retain all original unsafe executions and assertions. */ (body) => ({ body, refused: true, calls: undefined })), ...scopeControls].entries()) {
+  const { body, refused } = fixture;
+  test(index < unsafe.length ? `real indirect publish ${index + 1} is refused despite an attested sibling` : `real Bash scope control ${index - unsafe.length + 1} preserves isolated state`, /** Assert actual argv and audit behavior against an inert registry boundary. */ () => {
     const root = mkdtempSync(join(tmpdir(), "pm-ops-indirection-"));
     try {
       const bin = join(root, "bin");
@@ -92,10 +185,13 @@ for (const [index, body] of unsafe.entries()) {
       });
       assert.equal(execution.status, 0, execution.stderr);
       const calls = readFileSync(record, "utf8").trim().split("\n");
-      assert.ok(calls.length >= 2, `fixture did not execute its hidden publisher: ${script}`);
-      assert.ok(calls.slice(1).some((call) => call.includes("publish")), calls.join("\n"));
+      if (fixture.calls !== undefined) assert.deepEqual(calls, fixture.calls, body);
+      else {
+        assert.ok(calls.length >= 2, `fixture did not execute its hidden publisher: ${script}`);
+        assert.ok(calls.slice(1).some((call) => call.includes("publish")), calls.join("\n"));
+      }
       const audit = auditPublishAttestation([{ file: "scripts/release.sh", text: script }]);
-      assert.ok(audit.failures.length > 0, `unproven invocation scanned clean: ${script}\n${calls.join("\n")}`);
+      assert.equal(audit.failures.length > 0, refused, `scope verdict disagrees: ${script}\n${calls.join("\n")}\n${audit.failures.join("\n")}`);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -111,6 +207,11 @@ test("sanctioned literal bindings and non-publishing shell commands remain accep
     'npm ci\nnpm view "$PACKAGE" version\nprintf "%s" "alias deploy=npm"\nprintf "%s\\n" main | xargs git checkout',
     'npm whoami --registry "$REGISTRY"\nnpm ping --registry "$REGISTRY"',
     'echo "npm $@"\n# alias deploy="npm publish"',
+    "echo ${X:-'$(npm publish)'}",
+    "echo ${X:-'`npm publish`'}",
+    'echo ${X:-\\`npm publish\\`}',
+    'echo ${X:-$((1 + 2))}',
+    'echo $((1 + 2))\necho "$((1 + 2))"',
   ]) {
     const script = `npm publish --provenance\n${body}`;
     assert.deepEqual(auditPublishAttestation([{ file: "scripts/release.sh", text: script }]).failures, [], body);

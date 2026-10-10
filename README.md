@@ -457,6 +457,14 @@ values are also refused.
 Use direct `npm publish --provenance`, provable literal scalar/array bindings,
 or functions containing a fully literal publish command. Ordinary npm reads,
 non-publisher spawning commands and displayed shell text remain supported.
+Parameter defaults, arithmetic operands and escaped nested backticks retain
+their executable children. Substitutions and standalone subshells are audited
+with independent state before parent expansion: a child unset cannot erase a
+parent flag, and a child cannot borrow parent or sibling provenance. Literal
+bindings made in the child can prove its flags; inherited child references,
+conditional array state, append and indexed mutations are conservatively
+unresolved. Enumeration retains the existing depth cap and is not a complete
+shell interpreter.
 The auditor is conservative: it does not execute tracked scripts or prove general
 shell programs safe. Alias use is refused even when an alias appears attested.
 

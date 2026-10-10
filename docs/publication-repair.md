@@ -288,7 +288,7 @@ unclosed for root verification; no GitHub review replies, merge or publication
 were performed.
 
 
-## Quoted expansion resource repair
+## Quoted expansion resource repair (2026-10-10, source `158450e`)
 
 CodeQL16 (inline4236838359) identified overlapping quantified regex terms on
 caller-supplied quoted shell text. The exported tokenizer, attestation library
@@ -320,12 +320,141 @@ SDK9 activation, create/validate/strict merge-driver health and npm11/10 config
 byte checks. Type/lint/selected docs/zero duplication/changelog/production audit
 and release/lifecycle verifiers pass. No dependency/version/threshold changes.
 
-A separate confirmed preexisting semantic gap remains with the existing
+At that source, a separate confirmed preexisting semantic gap remained with the
 publication owner: an unquoted parameter default containing a command
 substitution can execute an unattested publisher while an attested sibling
 satisfies the verifier. The quoted equivalent is detected. This resource repair
-does not close that semantic obligation, whole-declaration docs, five high
-development findings, twelve historical completeness gaps or required reviews.
+did not close that semantic obligation. The semantic receipt below supersedes
+that open-gap statement for its measured cases; whole-declaration docs, five high
+development findings, twelve historical completeness gaps and required reviews
+remain open.
 The package owner stays unclosed; passing configured tests are not a proof of
 all possible shell semantics or release readiness. Final exact-head native CI
 and CodeQL are requested after the source/PM commit.
+
+
+## Nested substitution semantic repair (2026-10-10)
+
+Owner: `codex-nested-closure`, existing `ops-publish-indirection`, PR #152.
+Accepted source baseline: `158450e07cc5ac3357c5d97fe3bf1281bd57c324`;
+independent review PM-only commit: `12516c9`. The preserved candidate discovers
+publishers in unquoted parameter defaults and arithmetic operands. Independent
+review identified an escaped nested-backtick omission and child `unset` retiring
+a parent provenance binding. Both findings were reproduced with actual Bash,
+while only the npm registry boundary was replaced by an inert argv recorder.
+
+The shared scanner now identifies lexical child regions before parent
+segmentation or expansion. The auditor analyzes those child bodies independently,
+so child unsets and assignments cannot change parent scalar/array evidence or
+receive prematurely expanded parent flags. Locally declared child literals can
+prove provenance; inherited child references remain explicitly unresolved.
+Array evidence is acquired in source order rather than borrowed from later or
+mutually exclusive declarations. Unsets, unreadable replacement, append and
+indexed writes retire prior evidence. Supported multiline arrays preserve
+heredoc data and physical line counts. Backticks remove one escape layer before
+child parsing. Arithmetic grouping remains operand text, including the real
+workflow's decimal `10#` conversions; executable substitutions inside it remain
+audited. Public token shapes, outer-first order, function arity and depth cap
+remain measured and unchanged.
+
+`node --test test/publish-indirection.test.ts test/attestation-union.test.ts
+test/shell-command-scan.test.ts` passes **189/189**, zero failures/skips. The
+publication corpus alone passes **96/96**, including **88 actual Bash executions**
+using the existing shared inert boundary. Cases include parameter/default,
+quoted, arithmetic and escaped nested backticks; scalar/array unset, assignment,
+append and indexed writes; sibling isolation; standalone subshells; parent-state
+positives; local-child positives; inherited-state conservative refusals;
+multiline arrays and workflow-shaped arithmetic. No real npm publish runs.
+
+`node test/nested-substitution.proof.ts` replaces only production source with
+accepted Git bytes, executing the current corpus and assertions unchanged.
+The baseline scanner/auditor yields **12 genuine verdict assertion failures**
+across the selected publisher/mutation controls. Restoring only the accepted
+auditor with the repaired scanner yields **five parent-isolation assertion
+failures**. Setup, import, syntax and timing failures cannot satisfy either
+negative control. Both sources are restored byte-for-byte in `finally`, followed
+by the passing full 96-case corpus. All **seven** existing/enriched PM-linked
+commands pass through `pm test ops-publish-indirection --run --progress`;
+tracking remains disabled and owner comments retain the receipts.
+
+Two intermediate full gates failed and were not accepted. The first ran
+554/556 passing tests with two existing skips, then refused incomplete branch
+coverage. The second ran 565/567 passing tests and four-dimensional 100% coverage,
+then the actual workflow attestation verifier rejected three arithmetic operands
+incorrectly classified as child commands. Canonical LCOV was invalidated after
+both failures. The final operand-mode fix is covered by actual Bash positives
+and a standalone arithmetic publisher negative, with the unchanged deadline.
+
+The final **unchanged `npm run release:check` exits 0** with **569 total,
+567 passed, zero failed/canceled/TODO and two existing opt-in fleet skips**.
+Each of the same **23 production TypeScript files** reports **100% statements,
+branches, functions and lines**. Git and LCOV inventories match exactly, and
+all **11,242 DA, 358 FNDA and 2,985 BRDA counters** are positive. All 23 source
+hashes remain frozen through the complete gate. The source hash-map SHA-256 is
+`14a8559a55f5b58cf08e7b391b78f1bf2ebc88cbe8367f133c9dc01ab7b03552`.
+Changed source SHA-256 values:
+
+- `attestation.ts`: `b1016f8767968abdf289598f9a8c7b0b2d7454e18fcb0378ead7f093b0e035d1`
+- `shell-scan.ts`: `cd27680d99e77de23bf67da6e1af2feec49c381eff83a14b1b8335402dc2601d`
+
+| Production source | Hit line counters | Hit function counters | Hit branch counters |
+| --- | ---: | ---: | ---: |
+| `assurance.ts` | 669 | 16 | 95 |
+| `attestation.ts` | 886 | 18 | 221 |
+| `docstrings.ts` | 1288 | 54 | 439 |
+| `duplication.ts` | 577 | 24 | 114 |
+| `eslint.ts` | 148 | 2 | 9 |
+| `index.ts` | 3031 | 125 | 967 |
+| `invocation-audit.ts` | 50 | 1 | 10 |
+| `lifecycle-policy.ts` | 375 | 6 | 39 |
+| `merge-driver-prepare.ts` | 22 | 0 | 4 |
+| `merge-driver.ts` | 148 | 3 | 48 |
+| `shell-scan.ts` | 2058 | 47 | 670 |
+| `scripts/coverage-gate.ts` | 508 | 7 | 87 |
+| `scripts/docstring-gate.ts` | 71 | 1 | 12 |
+| `scripts/duplication-gate.ts` | 8 | 0 | 1 |
+| `scripts/lint.ts` | 8 | 0 | 1 |
+| `scripts/main-invocation.ts` | 63 | 3 | 8 |
+| `scripts/prepare-merge-driver.ts` | 19 | 0 | 5 |
+| `scripts/shell-command-scan.ts` | 9 | 0 | 1 |
+| `scripts/verify-lifecycle-policy.ts` | 375 | 16 | 78 |
+| `scripts/verify-release-changelog-date.ts` | 331 | 11 | 70 |
+| `scripts/verify-release-completeness.ts` | 471 | 20 | 86 |
+| `scripts/verify-release-publish-attestation.ts` | 53 | 4 | 6 |
+| `templates/prepare-merge-driver.ts` | 74 | 0 | 14 |
+
+Typecheck, test typecheck, lint, selected docstrings (225 declarations across
+23 files), duplication (zero of 23,539 lines across 50 sources), production audit
+(zero vulnerabilities), 50-file package dry run, changelog, date, publication and
+lifecycle verifiers all pass. Historical release completeness independently
+passes for 46 release tags. Local runtime identity is Node 24.19.0, npm 11.17.0
+and Bun 1.3.5; the unchanged CI configuration pins npm 11.21.0. Selected docs
+and per-file production coverage do not measure whole internal documentation.
+Storage-only strict merge-driver health passes with extensions disabled.
+Separate PM validation retains 12 legacy completeness errors and zero history
+drift; full dependency audit retains five high development findings. SDK
+2026.10.9, package/dependency versions, coverage inventory, thresholds, prepare
+hooks and lifecycle configuration are unchanged.
+
+This closes the earlier open parameter-default gap for the measured corpus.
+Enumeration remains bounded at the inherited depth cap and is not an exhaustive
+proof of arbitrary Bash, evaluator state, fleet or hosted readiness. Inherited
+child bindings and conditional array state can be conservatively refused even
+when a particular execution happens to carry provenance. Earlier performance,
+Windows and CI receipts remain dated evidence of their own source heads. Required
+current-head review, whole-declaration documentation, development audit and legacy
+completeness work remain open. No merge, tag, release, publication, deployment or
+GitHub review message was performed. The publication owner remains unclosed.
+
+
+Fresh `npm run accept:packed` exits 0 for independently installed npm/Node and
+native Bun consumers after the final source change. The built auditor executes
+seven additional nested publisher/scope/mutation controls in each runtime,
+including parent positives and inherited-child refusals, alongside the retained
+alias/quoted-executable checks. Actual SDK activation, synthetic create/validate,
+strict merge-driver health and npm 11/10 packing config-byte comparisons pass.
+The accepted tarball SHA-256 is
+`64665192cf43672ca121567a9cb78f325a1b19bca08ecc74f72c49751d064597`.
+No real registry publisher was executed. The final metadata receipt names the
+exact committed source after recording these gates; metadata-only follow-up
+preserves all tested runtime, dist, test and package bytes.

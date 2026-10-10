@@ -60,6 +60,19 @@ export interface ShellToken {
 }
 /** One simple command: the words it would run, in order. */
 export type ShellCommand = ShellToken[];
+/** A lexical child region, before any parent binding is expanded. */
+interface ShellChildRegion {
+    /** First character of the opening delimiter. */
+    start: number;
+    /** First character after the closing delimiter, or end of truncated input. */
+    end: number;
+    /** Child source after the backtick escape layer is removed. */
+    text: string;
+    /** Arithmetic operands contain substitutions but are not shell commands. */
+    arithmetic: boolean;
+    /** Standalone subshells have no unresolved output word in their parent. */
+    subshell?: true;
+}
 /**
  * Split shell text into the simple commands it contains.
  *
@@ -79,6 +92,17 @@ export type ShellCommand = ShellToken[];
  * @returns Every simple command found, outermost first.
  */
 export declare function tokenizeCommands(text: string, depth?: number): ShellCommand[];
+/**
+ * Protect lexical child state from parent structural scans and expansion.
+ *
+ * The shared scanner supplies the exact substitution boundaries. Neutral
+ * placeholders preserve outer unresolved words and line indexing. Callers
+ * audit each returned child independently; inherited bindings are unproven.
+ */
+export declare function isolateShellChildren(text: string, depth?: number, arithmetic?: boolean): {
+    parent: string;
+    children: ShellChildRegion[];
+};
 /**
  * Whether a command's program is reached through a spawning wrapper.
  *
@@ -196,6 +220,19 @@ export declare function joinContinuations(text: string): string;
  * @returns The same text with each `run:` block's content dedented.
  */
 export declare function dedentRunBlocks(text: string): string;
+/** One supported array declaration with its lexical source extent. */
+interface BashArrayDeclaration {
+    /** Assigned array name. */
+    name: string;
+    /** Literal source operands with whitespace collapsed. */
+    value: string;
+    /** First character of the assigned name, excluding preceding whitespace. */
+    start: number;
+    /** First character following the closing parenthesis. */
+    end: number;
+}
+/** Enumerate supported declarations so consumers can bind arrays in source order. */
+export declare function bashArrayDeclarations(text: string): BashArrayDeclaration[];
 /**
  * Index bash array assignments so a shared options array can be expanded.
  *
@@ -480,4 +517,5 @@ export interface VerifierResult {
     /** Lines describing what was checked, for the operator. */
     notes: string[];
 }
+export {};
 //# sourceMappingURL=shell-scan.d.ts.map

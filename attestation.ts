@@ -22,7 +22,7 @@ import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
-  bashArrays,
+  bashArrayDeclarations,
   blockDepthChange,
   caseDepthChange,
   commandArguments,
@@ -33,6 +33,7 @@ import {
   expandScalars,
   heredocBodyLines,
   heredocExpansionLines,
+  isolateShellChildren,
   joinContinuations,
   scalarAssignmentEvents,
   segmentShellLine,
@@ -345,11 +346,39 @@ function startsIfSiblingArm(segment: string): boolean {
  * otherwise looks like fragments, none of which carries the flag.
  *
  * @param source - The file's path and contents.
+ * @param raw - Shell body before lexical child isolation and continuation folding.
+ * @param depth - Shared bounded child-recursion depth.
+ * @param arithmetic - Inspect only executable children of arithmetic operands.
  * @returns The publish invocations found, in file order.
  */
-function publishInvocationsInShell(source: SourceFile, raw: string): PublishInvocation[] {
-  const text = joinContinuations(raw);
-  const arrays = bashArrays(text);
+function publishInvocationsInShell(source: SourceFile, raw: string, depth = 0, arithmetic = false): PublishInvocation[] {
+  if (depth > 8) return [];
+  /** Child lexical state is audited separately before parent bindings are expanded. */
+  const isolated = isolateShellChildren(joinContinuations(raw), depth, arithmetic);
+  /** Original heredoc body positions protect stdin data from array normalization. */
+  const originalBodies = heredocBodyLines(isolated.parent.split("\n"));
+  /** Fold only supported declarations, retaining their original line count. */
+  let text = "";
+  /** Original source offset at the end of the last normalized declaration. */
+  let offset = 0;
+  /** Original physical line index used for heredoc data protection. */
+  let lineAt = 0;
+  for (const declaration of bashArrayDeclarations(isolated.parent)) {
+    /** Unchanged prefix advances the original heredoc line cursor monotonically. */
+    const prefix = isolated.parent.slice(offset, declaration.start);
+    text += prefix;
+    lineAt += prefix.split("\n").length - 1;
+    /** Preserve heredoc data; executable multiline declarations become one segment. */
+    const original = isolated.parent.slice(declaration.start, declaration.end);
+    /** Move internal newlines after the declaration without losing line count. */
+    const newlineCount = original.split("\n").length - 1;
+    text += originalBodies[lineAt] === true ? original : original.replace(/\n/g, " ") + "\n".repeat(newlineCount);
+    lineAt += newlineCount;
+    offset = declaration.end;
+  }
+  text += isolated.parent.slice(offset);
+  /** Arrays acquire evidence at their own declaration, never from a later sibling. */
+  const arrays = new Map<string, string>();
   const lines = text.split("\n");
   const bodies = heredocBodyLines(lines);
   const bodyExpansion = heredocExpansionLines(lines);
@@ -471,10 +500,29 @@ function publishInvocationsInShell(source: SourceFile, raw: string): PublishInvo
       // leave the previous binding visible, and a `--provenance` the shell has
       // replaced would go on attesting the publish that expands it.
       pendingAssignments = scalarAssignmentEvents(segment);
+      for (const name of pendingAssignments.keys()) {
+        arrays.delete(name);
+      }
+      // A local literal declaration can restore a retired array. Conditional
+      // declarations remain unproven rather than borrowing another arm's flags.
+      for (const declaration of bashArrayDeclarations(segment)) {
+        /** Data-shaped declarations inside another command do not bind arrays. */
+        const opening = segment.slice(0, declaration.start).trim();
+        /** Only whitespace or a trailing shell comment may follow the declaration. */
+        const closing = segment.slice(declaration.end).trim();
+        if (!/^(?:export|then|do|else)?$/.test(opening) || (closing !== "" && !closing.startsWith("#"))) continue;
+        pendingAssignments.set(declaration.name, undefined);
+        if (scopes.length === 1 && assignmentEligible) {
+          arrays.set(declaration.name, declaration.value);
+        } else arrays.delete(declaration.name);
+      }
       pendingAssignmentEligible = assignmentEligible;
       const currentScope = scopes[scopes.length - 1]!;
       for (const command of tokenizeCommands(segment)) {
-        for (const name of unsetNames(command)) currentScope.set(name, undefined);
+        for (const name of unsetNames(command)) {
+          currentScope.set(name, undefined);
+          arrays.delete(name);
+        }
       }
       assignmentEligible = false;
       return resolved;
@@ -578,6 +626,9 @@ function publishInvocationsInShell(source: SourceFile, raw: string): PublishInvo
         : unresolvedArguments ? "publisher arguments from expansion or spawning input" : undefined;
       found.push({ file: source.file, program, command: candidate, unresolved: unresolvedReason });
     }
+  }
+  for (const child of isolated.children) {
+    found.push(...publishInvocationsInShell(source, child.text, depth + 1, child.arithmetic));
   }
   return found;
 }
