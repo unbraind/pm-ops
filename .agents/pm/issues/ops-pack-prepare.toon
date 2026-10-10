@@ -6,21 +6,20 @@ status: in_progress
 priority: 1
 tags: []
 created_at: "2026-10-10T02:41:50.499Z"
-updated_at: "2026-10-10T07:16:35.816Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-10-10T07:25:01.718Z"
 author: codex-sol
 acceptance_criteria: Real npm pack preserves git config bytes; install and ci still register; broken installations remain fail-closed; revert proof and packed consumer checks.
 repro_steps: Run npm pack on a disposable Git consumer using the shipped prepare template and an installed merge-driver entry; compare git config bytes before and after.
 expected_result: Artifact creation skips registration before resolution; install and ci continue registering clone-local drivers.
 actual_result: All three prepare hooks skip artifact-time registration. Real npm pack preserves config and held lock bytes; install/ci register and broken installation refuses. Three independent hook reverts each fail the regression. Full release gate and packed npm/Bun consumers pass.
-comments[6]{created_at,author,text}:
+comments[7]{created_at,author,text}:
   "2026-10-10T02:42:15.573Z",codex-sol,"Reproduce npm prepare under real pack with git config byte comparison; skip only npm_command pack/publish before package resolution; retain existing install/broken-package behavior. Cover canonical local hook too. Companion: pm-cli-website-session-2026-10-10."
   "2026-10-10T03:02:50.665Z",codex-sol,"Independent implementation reverts: restoring only the template, only the local prepare hook, or only the exported prepare entry each caused test/pack-prepare.test.ts to fail (three separate nonzero runs); repaired bytes restored. Packed npm and native Bun consumers on SDK 2026.10.9 pass scratch creation, validation, strict merge-driver health, npm 11 pack and npm 10.9.4 pack --ignore-scripts with identical Git config bytes. Real install/ci registration remains tested. Initial full-gate fixture exposed inherited npm allow-scripts configuration; fixtures now isolate userconfig and remove only that project-specific parent setting."
   "2026-10-10T03:21:05.726Z",codex-sol,"Final npm run accept:packed exits 0 on separate npm/Node and native Bun consumers: SDK 2026.10.9 create, validation, strict merge-driver health, actual activation and built auditor; npm 11 pack and npm 10.9.4 pack --ignore-scripts preserve Git config bytes. Tarball SHA-256 1d6b39113d187ae64d31d09477fe080f5dfdedc415f72c5fdc879dc5e64d52e6. Real regression also packs successfully with a held config lock and preserves lock contents; install/ci still register and broken installation refuses. Three independent hook reverts each fail that regression. Final release:check passes 496 tests, zero failures, two existing fleet skips. PM-linked pack test passes again; explicit receipts retained because tracking is disabled."
   "2026-10-10T03:23:50.521Z",codex-sol,"Review candidate: https://github.com/unbraind/pm-ops/pull/152, implementation c73e0effbff8c4c493f49e3fa15c5c7208b4f151. Claim released; item remains unclosed pending orchestrator verification. Packed digest, real pack/install behavior and three independent hook revert failures are documented."
   "2026-10-10T07:02:35.793Z",codex-sol,Prepare implementation remains unchanged. Renewed Windows CI pins actual npm11.21.0 and retains source-only pack/consumer launcher reverts plus actual npm10 refusal. Historical proof now refuses absent commit evidence explicitly; no fallback fixture or skipped historical assertion.
   "2026-10-10T07:16:35.816Z",codex-sol,"Fresh npm run accept:packed passes separate npm/Node and nativeBun consumers on actual npm11.21.0: SDK9 create/validate/strict merge-driver health, built auditor and actual SDK activation, pack/config byte identity and npm10 --ignore-scripts comparison. Candidate tarball SHA25682e47d38acf871c9aaba4d4c8f8390c47c4bf6fadd3cba30b1963ca4ebfaffe9. Prepare implementation and existing packed-consumer fixtures remain byte-identical to accepted b89."
+  "2026-10-10T07:24:58.403Z",codex-sol,"Native source c8e15db CI38033875668 Windows22/26 both pass real standalone pack without npm_execpath, packed npm/nativeBun SDK9 consumers, historical-object diagnostic and both independent old launcher failures/restorations. Actual npm/npx11.21.0 checked; actual npm10.9.4 rejected before pack. Native tarball SHA256817e771bef6c9021a6a7f35ab5e9f3f05cb9a72ad2faaa801964f37c8b197397. Existing prepare code and packed fixtures unchanged; claim released for root verification, never closed."
 files[5]{path,scope}:
   merge-driver-prepare.ts,project
   scripts/prepare-merge-driver.ts,project
@@ -30,8 +29,9 @@ files[5]{path,scope}:
 tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/pack-prepare.test.ts,project,codex-sol,"2026-10-10T02:51:09.579Z",local_mutation,fix/canonical-publication-consumer-guards
   "npm run accept:packed",project,codex-sol,"2026-10-10T03:07:32.450Z",local_mutation,fix/canonical-publication-consumer-guards
-docs[3]{path,scope}:
+docs[4]{path,scope}:
   docs/publication-repair.md,project
+  "https://github.com/unbraind/pm-ops/actions/runs/38033875668",project
   "https://github.com/unbraind/pm-ops/issues/148",project
   "https://github.com/unbraind/pm-ops/pull/152",project
 body: ""

@@ -6,15 +6,13 @@ status: in_progress
 priority: 0
 tags: []
 created_at: "2026-10-10T02:41:49.896Z"
-updated_at: "2026-10-10T07:15:29.400Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-10-10T07:24:59.820Z"
 author: codex-sol
 acceptance_criteria: Real subprocess adversarial fixtures and independent revert proofs; reject unresolved executable indirection; preserve sanctioned workflow; full release and packed npm/Bun checks.
 repro_steps: Execute test/publish-indirection.test.ts against the prior attestation implementation; Bash/xargs inert publisher records show hidden publish calls behind an attested sibling.
 expected_result: Every unresolved executable publisher path is refused; direct sanctioned provenance workflows and provable bindings remain accepted.
-actual_result: "Canonical auditor preserves safe whoami/ping, fail-closed unknown publishers and provenance ordering. Renewed Windows findings4236589192/4236589194 are fixed using actual installed npm/npx Node CLI entries without npm_execpath or shell argument interpolation, native PATH normalization and Windows consumer environment. Source086b52e0a1660132b805c3695fd728eb0ccd9dc9 CI38029183548 passes Linux22/26 and Windows22/26. Native Windows standalone pack and packed npm/nativeBun consumers pass; each source-only launcher revert fails independently and actual npm10.9.4 is refused before packing. Final unchanged release:check passes496 of498 with2 existing opt-in skips and four100 over all23 production TS sources. Fresh local packed npm/nativeBun and PM-linked2/2 pass. Ambient local extension-health skew and12 legacy completeness gaps remain; history verification passes. Open for root review, no closure/publication."
-comments[19]:
+actual_result: "Renewed findings4236759848/9852/9854 repaired. Source c8e15db197f2834de9a0f3279224ce5cf0f9ed3f CI38033875668 passes Linux22/26 and nativeWindows22/26; CodeQL38033875790 passes. Actual npm/npx11.21.0 is asserted; accepted historical proof fails without the diagnostic and repaired source refuses missing objects clearly. Both old launcher source-only controls fail and restore; actual npm10.9.4 is refused before pack. Local release503/505 with2 unchanged opt-in skips and all23production four100, focused34/34, PM-linked3/3, compatibility6/6 and fresh npm/nativeBun packed consumers pass. Five high development findings,12 legacy completeness gaps, ambient extension-health skew and incomplete whole-internal docs/review remain. PM/evidence-only handoff follows; root verifies/closes."
+comments[20]:
   - created_at: "2026-10-10T02:42:14.991Z"
     author: codex-sol
     text: "Owner search found historical scalar/spawning-wrapper repairs but no owner for #149; this item owns canonical alias/function/indirect spawning repair. Plan: executable safe stubs prove real argv and audit refusal, then mutation restores only prior implementation to prove regression detection. Companion: pm-cli-website-session-2026-10-10. No workflow execution or publication authorized."
@@ -73,6 +71,9 @@ comments[19]:
   - created_at: "2026-10-10T07:15:29.400Z"
     author: codex-sol
     text: "Final direct npm11.21.0 release:check exits0:505 total503 passed0 failed0 canceled2 existing opt-in fleet skips. All23 authored production TS sources retain100 statements/branches/functions/lines. Focused real-shell/pack/history set passes34/34; three PM-linked commands pass, compatibility6/6 passes. Accepted b89 attestation independently rejects actual npm-parser whoami/ping prefixes, while repaired source accepts; ambiguous expanded publishers remain refused. Missing-history regression runs actual accepted proof bytes against an empty object store and requires repaired diagnostic. Native exact-head CI pending push; original launcher source-only controls retained."
+  - created_at: "2026-10-10T07:24:57.689Z"
+    author: codex-sol
+    text: "Verified full native source receipt: CI38033875668 at c8e15db197f2834de9a0f3279224ce5cf0f9ed3f passes Linux22/26 and Windows22/26. Independently downloaded logs prove actual npm/npx11.21.0, accepted b89 missing-history source failure and repaired diagnostic, both old launcher rejections/restored bytes, packed npm/nativeBun SDK activation and actual npm10.9.4 refusal before pack. CodeQL38033875790 passes. Final metadata-only handoff preserves all source bytes and previous receipts. Root handles reviews and closure; no GitHub comments or reviews sent."
 files[10]{path,scope}:
   .github/workflows/ci.yml,project
   attestation.ts,project
@@ -88,10 +89,11 @@ tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/publish-indirection.test.ts,project,codex-sol,"2026-10-10T02:51:02.616Z",local_mutation,fix/canonical-publication-consumer-guards
   node --test test/pack-prepare.test.ts,project,codex-sol,"2026-10-10T05:50:25.702Z",local_mutation,fix/canonical-publication-consumer-guards
   node --test test/windows-proof-history.test.ts,project,codex-sol,"2026-10-10T07:02:34.839Z",local_mutation,fix/canonical-publication-consumer-guards
-docs[5]{path,scope}:
+docs[6]{path,scope}:
   docs/publication-repair.md,project
   "https://github.com/unbraind/pm-ops/actions/runs/38028728667",project
   "https://github.com/unbraind/pm-ops/actions/runs/38029183548",project
+  "https://github.com/unbraind/pm-ops/actions/runs/38033875668",project
   "https://github.com/unbraind/pm-ops/issues/149",project
   "https://github.com/unbraind/pm-ops/pull/152",project
 body: ""

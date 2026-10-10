@@ -253,3 +253,36 @@ checks pass. Test-result tracking stays disabled; owner comments hold receipts.
 Actual npm 10.9.4 is again rejected before any packing receipt. The independent
 five high development findings, twelve legacy completeness violations, ambient
 extension skew and whole-internal documentation/review boundaries remain.
+Fresh `npm run accept:packed` passes independent npm/Node and native Bun
+consumers with actual SDK activation, synthetic tracker create/validate/strict
+merge-driver health and npm 11/10 config byte comparisons. The final local
+candidate tarball SHA-256 is
+`82e47d38acf871c9aaba4d4c8f8390c47c4bf6fadd3cba30b1963ca4ebfaffe9`.
+
+[CI run 38033875668](https://github.com/unbraind/pm-ops/actions/runs/38033875668)
+at source `c8e15db197f2834de9a0f3279224ce5cf0f9ed3f` passes
+[Linux Node 22](https://github.com/unbraind/pm-ops/actions/runs/38033875668/job/114160182552),
+[Linux Node 26](https://github.com/unbraind/pm-ops/actions/runs/38033875668/job/114160182581),
+[native Windows Node 22](https://github.com/unbraind/pm-ops/actions/runs/38033875668/job/114160182580)
+and [native Windows Node 26](https://github.com/unbraind/pm-ops/actions/runs/38033875668/job/114160182355).
+[CodeQL](https://github.com/unbraind/pm-ops/actions/runs/38033875790) also passes
+at that source. Each native log identifies actual npm/npx Node CLI entries at
+11.21.0, proves the accepted historical-proof source lacks the missing-object
+diagnostic on Windows, and proves the repaired diagnostic without skipping
+historical evidence. Standalone pack, packed npm/Node and native Bun consumers,
+both independent source-only launcher rejections with byte restoration, and
+actual npm 10.9.4 rejection before packing all pass. Both Windows jobs produce
+tarball SHA-256
+`817e771bef6c9021a6a7f35ab5e9f3f05cb9a72ad2faaa801964f37c8b197397`.
+The Linux lint annotation about explicit `any` comes from the existing intentional
+negative-fixture assertions; both canonical lint steps pass. No new `any`,
+dynamic imports or non-erasable TypeScript syntax were introduced.
+
+Changed production scope since the accepted source is `attestation.ts` and
+`shell-scan.ts`, with their generated distribution artifacts. CI and proof tests
+carry the corresponding controls. Prepare hooks, shared npm launcher, packed
+consumer fixture, SDK 2026.10.9, package version, lockfile and coverage configuration
+remain unchanged. Final PM/evidence-only commits preserve those tested source
+bytes. Owners `ops-publish-indirection`, `ops-pack-prepare` and `ops-hiee` remain
+unclosed for root verification; no GitHub review replies, merge or publication
+were performed.
