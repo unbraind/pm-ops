@@ -286,3 +286,46 @@ remain unchanged. Final PM/evidence-only commits preserve those tested source
 bytes. Owners `ops-publish-indirection`, `ops-pack-prepare` and `ops-hiee` remain
 unclosed for root verification; no GitHub review replies, merge or publication
 were performed.
+
+
+## Quoted expansion resource repair
+
+CodeQL16 (inline4236838359) identified overlapping quantified regex terms on
+caller-supplied quoted shell text. The exported tokenizer, attestation library
+and tracked-source verifier reach that synchronous boundary. No remote exposure
+was established. The original parser fails a real isolated-child assertion at
+its unchanged2000ms budget on an unterminated expansion with80000 at-signs.
+The regression also exercises12000 repeated expansion prefixes, with and
+without20000 trailing at-signs. Legitimate scalar, positional/list and repeated
+delimiter contracts remain measured through actual tokenization and the auditor.
+
+The implementation uses monotone cached positions for the next closing brace
+and at-sign. Each search resumes after its previous match; an absent delimiter
+uses an end sentinel and is never searched repeatedly. A real closing brace is
+required before multiword classification, preserving the old conservative
+first-closing-brace contract without suffix slicing or regex backtracking.
+The initial candidate missed that sentinel check and failed promptly rather
+than timing out. An independent review independently reproduced the same added
+refusal in48 of5832 structured cases; none relaxed publisher refusal. Root
+corrects it and46 focused real parser/publication tests pass. The review notes
+that a shared tracker diff exposed prior rationale; its source-backed regression
+and direct probes, rather than an unqualified independence claim, are retained.
+
+The complete unchanged release gate passes507 tests:505 pass, zero failures,
+two existing opt-in fleet skips. Every one of23 production sources reports
+four100. Root independently matches Git and LCOV inventories and confirms all
+11074 line,355 function and2917 branch counters are hit. Runtime source hashes
+stay frozen. Fresh packed npm/Node and native Bun consumers both pass actual
+SDK9 activation, create/validate/strict merge-driver health and npm11/10 config
+byte checks. Type/lint/selected docs/zero duplication/changelog/production audit
+and release/lifecycle verifiers pass. No dependency/version/threshold changes.
+
+A separate confirmed preexisting semantic gap remains with the existing
+publication owner: an unquoted parameter default containing a command
+substitution can execute an unattested publisher while an attested sibling
+satisfies the verifier. The quoted equivalent is detected. This resource repair
+does not close that semantic obligation, whole-declaration docs, five high
+development findings, twelve historical completeness gaps or required reviews.
+The package owner stays unclosed; passing configured tests are not a proof of
+all possible shell semantics or release readiness. Final exact-head native CI
+and CodeQL are requested after the source/PM commit.

@@ -6,6 +6,40 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { auditPublishAttestation } from "../attestation.ts";
+import { tokenizeCommands } from "../shell-scan.ts";
+
+test("quoted expansion scanning stays bounded on hostile delimiter suffixes", /** Exercise actual malformed library input in a child with an unchanged parser deadline and exact token assertions. */ () => {
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    import assert from "node:assert/strict";
+    import { tokenizeCommands } from "./shell-scan.ts";
+    for (const payload of ["\u0024{" + "@".repeat(80000), "\u0024{".repeat(12000) + "@".repeat(20000), "\u0024{".repeat(12000)]) {
+      const word = tokenizeCommands('echo "' + payload + '"')[0][1];
+      assert.equal(word.value, payload);
+      assert.equal(word.unresolved, true);
+      assert.equal(word.multipleWords, undefined);
+    }
+  `], { cwd: process.cwd(), encoding: "utf8", timeout: 2000 });
+  assert.equal(result.error, undefined, "real malformed shell input must complete within the isolated parser budget");
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("quoted scalar and list expansion provenance survives repeated delimiters", /** Preserve quoted operand metadata and downstream publisher refusal across scalar, list and repeated parameter forms. */ () => {
+  for (const [word, multipleWords] of [
+    ["${REGISTRY}", undefined], ["${A}${B}", undefined],
+    ["${A}${B[@]}", true], ["${A[@]}${B}", true],
+    ["${A[@]}${B[@]}", true], ["$@", true],
+    ["${A\\@}", true], ["${A@Q}", true],
+  ] as const) {
+    const token = tokenizeCommands(`npm --registry "${word}" whoami`)[0]![2]!;
+    assert.equal(token.value, word.replace("\\@", "@"));
+    assert.equal(token.unresolved, true);
+    assert.equal(token.multipleWords, multipleWords, word);
+    const failures = auditPublishAttestation([{ file: "scripts/release.sh", text: `npm publish --provenance\nnpm --registry "${word}" whoami` }]).failures;
+    assert.equal(failures.length === 0, multipleWords !== true, word);
+  }
+  const words = tokenizeCommands('echo "${A[@]}" "${B}" "${C[@]}"')[0]!;
+  assert.deepEqual(words.slice(1).map(/** Inspect each real parsed operand's splitting provenance. */ (word) => word.multipleWords), [true, undefined, true]);
+});
 
 /** Executable scripts whose publish argument list or alias state cannot be proved. */
 const unsafe = [

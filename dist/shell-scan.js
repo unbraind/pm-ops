@@ -270,6 +270,10 @@ export function tokenizeCommands(text, depth = 0) {
     let multipleWords = false;
     let startsQuoted = false;
     let started = false;
+    // Monotone delimiter caches make quoted parameter classification linear:
+    // each search resumes past its last match, including an absent end sentinel.
+    let parameterClose = -1;
+    let parameterAt = -1;
     const endWord = () => {
         if (!started)
             return;
@@ -349,8 +353,20 @@ export function tokenizeCommands(text, depth = 0) {
                 }
                 if (inner === "$") {
                     unresolved = true;
-                    if (/^(?:\$@|\$\{[^}]*@[^}]*\})/u.test(text.slice(index)))
+                    if (text[index + 1] === "@")
                         multipleWords = true;
+                    else if (text[index + 1] === "{") {
+                        if (parameterClose < index + 2) {
+                            const found = text.indexOf("}", index + 2);
+                            parameterClose = found === -1 ? text.length : found;
+                        }
+                        if (parameterAt < index + 2) {
+                            const found = text.indexOf("@", index + 2);
+                            parameterAt = found === -1 ? text.length : found;
+                        }
+                        if (parameterClose < text.length && parameterAt < parameterClose)
+                            multipleWords = true;
+                    }
                 }
                 value += inner;
                 index += 1;
