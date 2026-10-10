@@ -6,13 +6,13 @@ status: in_progress
 priority: 0
 tags: []
 created_at: "2026-10-10T02:41:49.896Z"
-updated_at: "2026-10-10T09:26:06.010Z"
+updated_at: "2026-10-10T09:35:25.149Z"
 author: codex-sol
 acceptance_criteria: Real subprocess adversarial fixtures and independent revert proofs; reject unresolved executable indirection; preserve sanctioned workflow; full release and packed npm/Bun checks.
 repro_steps: Execute test/publish-indirection.test.ts against the prior attestation implementation; Bash/xargs inert publisher records show hidden publish calls behind an attested sibling.
 expected_result: Every unresolved executable publisher path is refused; direct sanctioned provenance workflows and provable bindings remain accepted.
 actual_result: "Renewed findings4236759848/9852/9854 repaired. Source c8e15db197f2834de9a0f3279224ce5cf0f9ed3f CI38033875668 passes Linux22/26 and nativeWindows22/26; CodeQL38033875790 passes. Actual npm/npx11.21.0 is asserted; accepted historical proof fails without the diagnostic and repaired source refuses missing objects clearly. Both old launcher source-only controls fail and restore; actual npm10.9.4 is refused before pack. Local release503/505 with2 unchanged opt-in skips and all23production four100, focused34/34, PM-linked3/3, compatibility6/6 and fresh npm/nativeBun packed consumers pass. Five high development findings,12 legacy completeness gaps, ambient extension-health skew and incomplete whole-internal docs/review remain. PM/evidence-only handoff follows; root verifies/closes."
-comments[47]:
+comments[49]:
   - created_at: "2026-10-10T02:42:14.991Z"
     author: codex-sol
     text: "Owner search found historical scalar/spawning-wrapper repairs but no owner for #149; this item owns canonical alias/function/indirect spawning repair. Plan: executable safe stubs prove real argv and audit refusal, then mutation restores only prior implementation to prove regression detection. Companion: pm-cli-website-session-2026-10-10. No workflow execution or publication authorized."
@@ -155,19 +155,33 @@ comments[47]:
   - created_at: "2026-10-10T09:25:04.073Z"
     author: codex-array-contract-reviewer
     text: "Source-only assessment complete at a902a369612b983fefdc5faf72dc756f373008c6. Evidence: shell-scan.ts:1103-1150,1989-2049; attestation.ts:354-404,481-534,630-673; scripts/verify-release-changelog-date.ts:92-118; test/shell-command-scan.test.ts:25-34,57-61; test/published-attestation.test.ts:67-82. Preserve lexical grammar, quoted/escaped/empty/multiline operand projection, UTF-16 extents, duplicate order, malformed-candidate recovery and consumer binding order. Raw helper uses whitespace boundaries without shell-context filtering; attestation binds locally in source order, while changelog uses a whole-file last-value map. No direct declaration-offset or malformed-recovery assertions found in reviewed tests. Tests/probes were not run; no performance or security validation. Existing owner remains claimed and item unclosed. No commit made because the owner issue/history pair already contained uncommitted work; that work remains in place."
-files[11]:
+  - created_at: "2026-10-10T09:29:09.411Z"
+    author: codex-linear-array-repair
+    text: "Phase A: source-only array contract assessment read before edits. Implement a linear declaration scan preserving literal operands, whitespace boundaries, malformed recovery, UTF-16 extents and source order. Ordinary TDD and installed SDK metadata verification only; previous investigation and SDK receipts remain historical. Phase B waits for independent candidate source/API review. No item closure."
+  - created_at: "2026-10-10T09:35:24.561Z"
+    author: codex-linear-array-repair
+    text: "Phase A ordinary contracts pass69/69 with zero failures/skips; PM-linked selective contract command passes1/1. SDK pin/installed-version tests first fail against SDK9, then pass with registry-confirmed published SDK10. Real installed SDK typings retain canonical value_type/list metadata; repeatable repos registration passes. Build/test typecheck, lint, duplication0/23678 across50 sources and selected docs225/23 pass. Added concrete empty/quoted/escaped/multiline/malformed/nested/offset/duplicate/repeated-call and real consumer expectations. Backward completion tables plus a monotone forward candidate index preserve actual API contracts in linear time/storage; no runtime resource or security claim. Prior histories preserved; complete release and packed gates await independent candidate source/API review."
+files[17]:
   - path: .github/workflows/ci.yml
     scope: project
   - path: attestation.ts
+    scope: project
+  - path: package-lock.json
+    scope: project
+  - path: package.json
     scope: project
   - path: README.md
     scope: project
   - path: shell-scan.ts
     scope: project
     note: Independent cache branch and direct caller review
+  - path: test/compatibility-floor.test.ts
+    scope: project
   - path: test/nested-substitution.proof.ts
     scope: project
   - path: test/npm-launcher.ts
+    scope: project
+  - path: test/ops.test.ts
     scope: project
   - path: test/pack-prepare.test.ts
     scope: project
@@ -176,11 +190,15 @@ files[11]:
   - path: test/publish-indirection.test.ts
     scope: project
     note: Candidate-only bounded and semantic controls
+  - path: test/shell-command-scan.test.ts
+    scope: project
+  - path: test/verify-release-changelog-date.test.ts
+    scope: project
   - path: test/windows-consumers.proof.ts
     scope: project
   - path: test/windows-proof-history.test.ts
     scope: project
-tests[7]:
+tests[8]:
   - command: node --test test/publish-indirection.test.ts
     scope: project
     provenance:
@@ -229,6 +247,13 @@ tests[7]:
     provenance:
       author: codex-nested-closure
       created_at: "2026-10-10T08:44:13.061Z"
+      source_kind: local_mutation
+      source_ref: fix/canonical-publication-consumer-guards
+  - command: node --test test/shell-command-scan.test.ts test/compatibility-floor.test.ts test/published-attestation.test.ts test/verify-release-changelog-date.test.ts
+    scope: project
+    provenance:
+      author: codex-linear-array-repair
+      created_at: "2026-10-10T09:34:46.580Z"
       source_kind: local_mutation
       source_ref: fix/canonical-publication-consumer-guards
 docs[8]:

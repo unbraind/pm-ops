@@ -6,6 +6,7 @@ import { basename, delimiter, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
+import type { FlagDefinition } from "@unbrained/pm-cli/sdk/authoring";
 import { listMergeReceipts, markMergeReceiptReconciled, runMergeReconcile } from "@unbrained/pm-cli/sdk/merge";
 import { decode, encode } from "@toon-format/toon";
 
@@ -543,8 +544,11 @@ test("pm SDK preserves the typed repeatable --repos contract on every command", 
     const contract = ext.assertCommandContract({ command, flags: ["--repos"], arguments: ["additional-repos"] });
     const reposFlag = contract.flags.find((flag) => flag.long === "--repos");
     assert.ok(reposFlag, `${command} should expose --repos through the real SDK registry`);
-    assert.strictEqual(reposFlag.value_type, "string", `${command} --repos should consume string values`);
-    assert.strictEqual(reposFlag.list, true, `${command} --repos should accumulate repeated and comma-list values`);
+    assert.deepStrictEqual(
+      { value_type: reposFlag.value_type, list: reposFlag.list },
+      { value_type: "string", list: true } satisfies Pick<FlagDefinition, "value_type" | "list">,
+      `${command} --repos must expose the installed SDK's canonical string and comma-list metadata`,
+    );
     ext.assertParserOverride({ command, extensionName: "pm-ops" });
   }
 

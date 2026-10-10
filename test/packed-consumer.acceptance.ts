@@ -66,7 +66,7 @@ try {
     const context = { PM_PATH: join(cwd, ".agents/pm"), PM_GLOBAL_PATH: join(cwd, "global") };
     writeFileSync(join(cwd, "package.json"), JSON.stringify({
       name: "synthetic-consumer", version: "1.0.0", private: true, type: "module",
-      devDependencies: { "pm-ops": `file:${archive}`, "@unbrained/pm-cli": "2026.10.9" },
+      devDependencies: { "pm-ops": `file:${archive}`, "@unbrained/pm-cli": "2026.10.10" },
       scripts: { prepare: "node scripts/prepare-merge-driver.ts" },
     }));
     run(cwd, runtime, runtime === "npm"
@@ -109,9 +109,16 @@ try {
     ];
     const program = `
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { auditPublishAttestation } from "pm-ops/attestation";
+import { bashArrayDeclarations, bashArrays } from "pm-ops/shell-scan";
 import extension from "pm-ops";
 import { activateExtensionForTest, runRegisteredCommandForTest } from "@unbrained/pm-cli/sdk/testing";
+assert.equal(JSON.parse(readFileSync("node_modules/@unbrained/pm-cli/package.json", "utf8")).version, "2026.10.10");
+assert.deepEqual(bashArrayDeclarations("😀 A=(x)\\nB=()"), [
+  { name: "A", value: "x", start: 3, end: 8 }, { name: "B", value: "", start: 9, end: 13 },
+]);
+assert.deepEqual([...bashArrays("A=( broken ( B=(ok) A=()")], [["B", "ok"], ["A", ""]]);
 const audit = auditPublishAttestation([{ file: "release.sh", text: 'npm publish --provenance\\ndeploy() { npm "$@"; }; deploy publish' }]);
 assert.ok(audit.failures.length);
 const quoted = auditPublishAttestation([{ file: "release.sh", text: 'npm publish --provenance\\nPUB="npm publish"; "$PUB" --provenance' }]);
@@ -130,7 +137,7 @@ console.log("packed nested auditor and actual SDK activation PASS");
     writeFileSync(join(cwd, "smoke.mjs"), program);
     console.log(runtime, run(cwd, runtime === "npm" ? process.execPath : "bun",
       runtime === "npm" ? ["smoke.mjs"] : ["run", "smoke.mjs"], context).trim());
-    console.log(runtime, "SDK 2026.10.9; create, validate, strict merge-driver health; npm 11 pack and npm 10 ignore-scripts config byte identity PASS");
+    console.log(runtime, "SDK 2026.10.10; create, validate, strict merge-driver health; npm 11 pack and npm 10 ignore-scripts config byte identity PASS");
   }
 } finally {
   rmSync(root, { recursive: true, force: true });

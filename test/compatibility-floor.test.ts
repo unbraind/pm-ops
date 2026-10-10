@@ -34,7 +34,7 @@ const releaseWorkflow = readFileSync(resolve(repoRoot, ".github", "workflows", "
 
 const CLI = "@unbrained/pm-cli";
 const EXACT_VERSION = /^\d+\.\d+\.\d+$/;
-const REQUIRED_DEVELOPMENT_VERSION = "2026.10.9";
+const REQUIRED_DEVELOPMENT_VERSION = "2026.10.10";
 
 /**
  * Two independent systems enforce the pm CLI compatibility floor, and each reads
@@ -126,6 +126,12 @@ test("the development dependency is an exact pin at or above the declared floor"
     atOrAbove(dev, declared as string),
     `the pinned development CLI ${dev} is below the declared floor ${String(declared)}`,
   );
+});
+
+test("the installed CLI package matches the exact development pin", () => {
+  const installed = JSON.parse(readFileSync(resolve(repoRoot, "node_modules", CLI, "package.json"), "utf8")) as { version: string };
+  assert.equal(installed.version, REQUIRED_DEVELOPMENT_VERSION);
+  assert.equal(extensionManifest.pm_min_version, "2026.8.20");
 });
 
 test("the complete raw manifest satisfies the public SDK compatibility contract", () => {

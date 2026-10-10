@@ -467,3 +467,41 @@ changes only this receipt and the publication owner's PM pair, releases its
 claim without closing it, and preserves all source/dist/test/package bytes.
 Current-head CI and external review remain pending the final branch push;
 previous green native receipts are not approval of this new source.
+
+## Linear array declaration candidate and SDK refresh
+
+The scanner candidate replaces the declaration regular expression with suffix
+completion tables for bare, single-quoted and double-quoted operands. Each table
+entry uses only later entries; the forward candidate-name index never retreats.
+Malformed declarations therefore reuse completions instead of repeatedly scanning
+quotes or suffixes. Three tables require linear storage; successful, non-overlapping
+operand projections have total linear length. This is a source-backed complexity
+argument, without resource measurements or security-test approval.
+
+The exported helpers retain ASCII names, immediate `=(`, ECMAScript whitespace
+before names, broad literal quote/escape operands, empty bodies, cross-line
+completion, failed-outer recovery, duplicate ordering and UTF-16 source extents.
+They still recognize candidate-shaped source inside enclosing data. Bare inner
+parentheses remain unsupported; quoted substitutions remain literal operands.
+Attestation retains local declaration-before-use binding and child isolation;
+changelog retains its independent whole-file last-declaration map. Ordinary
+assertions cover these contracts with concrete expected operands, extents and
+consumer commands. No production module, exclusion, threshold or deadline was
+added. The old declaration docstring overstated the substitution restriction;
+the replacement describes the existing grammar.
+
+Published SDK 2026.10.10 was confirmed in the registry before installation and is
+now the exact development dependency and lock entry. The independent peer and
+extension compatibility floor stays 2026.8.20. The installed metadata test uses
+the actual public SDK flag type and canonical `value_type`/`list` fields; a separate
+assertion checks the installed package version. Packed npm/Node and native Bun
+fixtures now explicitly require SDK 2026.10.10 and exercise the built array API.
+Every earlier SDK 2026.10.9 receipt above remains historical.
+
+Phase A: the upgraded pin tests first fail against SDK 2026.10.9, then pass after
+the published upgrade. Ordinary source/API and consumer tests pass 69/69; build
+and test typechecking pass. The new helper contract assertions also passed the
+pre-refactor source, apart from a corrected test assumption about the verifier's
+string failure shape. The complete gate and fresh packed acceptance await the
+independent candidate source/API review. Earlier rejected investigations were
+not retried. The publication owner is released unclosed at candidate handoff.

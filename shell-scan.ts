@@ -1012,7 +1012,7 @@ function foldScalarLines(lines: readonly string[]): string[] {
  * other rule in the scanner already tolerates leading whitespace
  * (`STANDALONE_ASSIGNMENT` opens with `^[ \t]*`, control closers and function
  * openers are matched against trimmed syntax, a comment starts after any
- * separator or whitespace, and `bashArrays` anchors on a word boundary), so
+ * separator or whitespace, and `bashArrays` uses a whitespace boundary), so
  * this function changes nothing else about what the scanner sees.
  *
  * Only `run:` blocks are dedented, because `run` is the key GitHub Actions
@@ -1100,16 +1100,6 @@ export function dedentRunBlocks(text: string): string {
   return output.join("\n");
 }
 
-/**
- * A supported Bash array declaration, with quoted and escaped parentheses kept
- * inside the declaration rather than mistaken for its closing delimiter.
- *
- * Unsupported constructs such as command substitutions are deliberately left
- * unmatched. Their references then remain unresolved and the attestation audit
- * fails closed instead of guessing at an array's contents.
- */
-const BASH_ARRAY_DECLARATION = /(?:^|\s)([A-Za-z_][A-Za-z0-9_]*)=\(((?:\\[\s\S]|'[^']*'|"(?:\\[\s\S]|[^"\\])*"|[^\\'"()])*)\)/g;
-
 /** One supported array declaration with its lexical source extent. */
 interface BashArrayDeclaration {
   /** Assigned array name. */
@@ -1122,12 +1112,61 @@ interface BashArrayDeclaration {
   end: number;
 }
 
-/** Enumerate supported declarations so consumers can bind arrays in source order. */
+/**
+ * Enumerate literal declarations with original UTF-16 extents in source order.
+ *
+ * Candidates start at input start or after ECMAScript whitespace, with an ASCII
+ * identifier immediately followed by `=(`. Bare inner parentheses are rejected;
+ * quotes and backslash pairs preserve literal source, including substitutions
+ * inside quotes. This helper does not filter enclosing comments or shell scopes.
+ *
+ * Backward tables record the exclusive closing offset (zero means failure) for
+ * each suffix entered bare, single-quoted or double-quoted. Every transition
+ * uses an already computed later suffix, so malformed candidates never rescan
+ * quotes or remaining input. The forward name scan advances monotonically;
+ * successful extents do not overlap, so their total projection cost is linear.
+ * Time and auxiliary storage are O(text.length), including malformed recovery.
+ *
+ * @param text - Exact source text; continuations are not joined here.
+ * @returns Literal operands with whitespace collapsed and non-overlapping extents.
+ */
 export function bashArrayDeclarations(text: string): BashArrayDeclaration[] {
-  return [...text.matchAll(BASH_ARRAY_DECLARATION)].map(/** Preserve source extents alongside the existing operand projection. */ (match) => ({
-    name: match[1]!, value: match[2]!.replace(/\s+/g, " ").trim(),
-    start: match.index + match[0].indexOf(match[1]!), end: match.index + match[0].length,
-  }));
+  const bare = new Uint32Array(text.length + 2);
+  const single = new Uint32Array(text.length + 2);
+  const double = new Uint32Array(text.length + 2);
+  for (let index = text.length - 1; index >= 0; index -= 1) {
+    const character = text[index]!;
+    single[index] = character === "'" ? bare[index + 1]! : single[index + 1]!;
+    double[index] = character === '"' ? bare[index + 1]!
+      : character === "\\" ? double[index + 2]! : double[index + 1]!;
+    if (character === ")") bare[index] = index + 1;
+    else if (character === "(") bare[index] = 0;
+    else if (character === "\\") bare[index] = bare[index + 2]!;
+    else if (character === "'") bare[index] = single[index + 1]!;
+    else if (character === '"') bare[index] = double[index + 1]!;
+    else bare[index] = bare[index + 1]!;
+  }
+
+  const declarations: BashArrayDeclaration[] = [];
+  let index = 0;
+  while (index < text.length) {
+    if ((index > 0 && !/\s/.test(text[index - 1]!)) || !/[A-Za-z_]/.test(text[index]!)) {
+      index += 1;
+      continue;
+    }
+    const start = index;
+    index += 1;
+    while (index < text.length && /[A-Za-z0-9_]/.test(text[index]!)) index += 1;
+    if (text[index] !== "=" || text[index + 1] !== "(") continue;
+    const body = index + 2;
+    const end = bare[body]!;
+    if (end === 0) continue;
+    declarations.push({
+      name: text.slice(start, index), value: text.slice(body, end - 1).replace(/\s+/g, " ").trim(), start, end,
+    });
+    index = end;
+  }
+  return declarations;
 }
 
 /**

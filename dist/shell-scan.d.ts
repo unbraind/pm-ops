@@ -203,7 +203,7 @@ export declare function joinContinuations(text: string): string;
  * other rule in the scanner already tolerates leading whitespace
  * (`STANDALONE_ASSIGNMENT` opens with `^[ \t]*`, control closers and function
  * openers are matched against trimmed syntax, a comment starts after any
- * separator or whitespace, and `bashArrays` anchors on a word boundary), so
+ * separator or whitespace, and `bashArrays` uses a whitespace boundary), so
  * this function changes nothing else about what the scanner sees.
  *
  * Only `run:` blocks are dedented, because `run` is the key GitHub Actions
@@ -231,7 +231,24 @@ interface BashArrayDeclaration {
     /** First character following the closing parenthesis. */
     end: number;
 }
-/** Enumerate supported declarations so consumers can bind arrays in source order. */
+/**
+ * Enumerate literal declarations with original UTF-16 extents in source order.
+ *
+ * Candidates start at input start or after ECMAScript whitespace, with an ASCII
+ * identifier immediately followed by `=(`. Bare inner parentheses are rejected;
+ * quotes and backslash pairs preserve literal source, including substitutions
+ * inside quotes. This helper does not filter enclosing comments or shell scopes.
+ *
+ * Backward tables record the exclusive closing offset (zero means failure) for
+ * each suffix entered bare, single-quoted or double-quoted. Every transition
+ * uses an already computed later suffix, so malformed candidates never rescan
+ * quotes or remaining input. The forward name scan advances monotonically;
+ * successful extents do not overlap, so their total projection cost is linear.
+ * Time and auxiliary storage are O(text.length), including malformed recovery.
+ *
+ * @param text - Exact source text; continuations are not joined here.
+ * @returns Literal operands with whitespace collapsed and non-overlapping extents.
+ */
 export declare function bashArrayDeclarations(text: string): BashArrayDeclaration[];
 /**
  * Index bash array assignments so a shared options array can be expanded.
