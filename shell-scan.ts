@@ -49,6 +49,8 @@ export interface ShellToken {
    * different security meaning in command position.
    */
   unresolved?: boolean;
+  /** True when unresolved expansion can produce multiple arguments despite some quoting. */
+  multipleWords?: true;
   /**
    * True when the word's FIRST character came from inside quotes.
    *
@@ -297,15 +299,19 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
   let value = "";
   let quoted = false;
   let unresolved = false;
+  let multipleWords = false;
   let startsQuoted = false;
   let started = false;
 
   const endWord = (): void => {
     if (!started) return;
-    command.push(unresolved ? { value, quoted, unresolved, startsQuoted } : { value, quoted, startsQuoted });
+    const token: ShellToken = unresolved ? { value, quoted, unresolved, startsQuoted } : { value, quoted, startsQuoted };
+    if (quoted && multipleWords) token.multipleWords = true;
+    command.push(token);
     value = "";
     quoted = false;
     unresolved = false;
+    multipleWords = false;
     startsQuoted = false;
     started = false;
   };
@@ -366,7 +372,10 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
           index = end;
           continue;
         }
-        if (inner === "$") unresolved = true;
+        if (inner === "$") {
+          unresolved = true;
+          if (/^(?:\$@|\$\{[^}]*@[^}]*\})/u.test(text.slice(index))) multipleWords = true;
+        }
         value += inner;
         index += 1;
       }
@@ -380,6 +389,7 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
       // Arithmetic expansion has the same `$(` prefix but executes no command.
       if (character === "`" || text[index + 2] !== "(") nested.push(inner);
       unresolved = true;
+      multipleWords = true;
       index = end - 1;
       if (!started) startsQuoted = false;
       started = true;
@@ -401,12 +411,13 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
       }
       value += text.slice(index, end);
       unresolved = true;
+      multipleWords = true;
       if (!started) startsQuoted = false;
       started = true;
       index = end - 1;
       continue;
     }
-    if (character === "$") unresolved = true;
+    if (character === "$") { unresolved = true; multipleWords = true; }
     if (character === " " || character === "\t" || character === "\r") {
       endWord();
       continue;

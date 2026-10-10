@@ -35,6 +35,9 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2.2.0
 
+      - name: Install npm 11.21.0
+        run: npm install --global npm@11.21.0 --ignore-scripts --no-audit --no-fund
+
       - name: Install dependencies
         run: npm ci
 
@@ -116,10 +119,10 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
-      - name: Install npm 11
+      - name: Install npm 11.21.0
         # Keep the selected Node installation on npm 11 even when a consumer
         # deliberately ignores the runner's user npm configuration.
-        run: npm install --global --prefix (Split-Path (Get-Command node).Source) npm@11 --ignore-scripts --no-audit --no-fund
+        run: npm install --global --prefix (Split-Path (Get-Command node).Source) npm@11.21.0 --ignore-scripts --no-audit --no-fund
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
@@ -141,6 +144,9 @@ jobs:
         run: |
           Remove-Item Env:npm_execpath -ErrorAction SilentlyContinue
           node test/packed-consumer.acceptance.ts
+
+      - name: Missing historical proof diagnostic
+        run: node --test test/windows-proof-history.test.ts
 
       - name: Source-only revert proofs and actual npm 10 refusal
         run: node test/windows-consumers.proof.ts

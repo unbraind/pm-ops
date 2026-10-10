@@ -32,6 +32,10 @@ const unsafe = [
   'eval "$PAYLOAD"',
   'bash -c "$PAYLOAD"',
   'E=eval\n$E "$PAYLOAD"',
+  'npm --registry ""$REGISTRY whoami',
+  'npm --registry="$REGISTRY"$EXTRA ping',
+  'set -- https://example.invalid publish\nnpm --registry "$@" whoami',
+  'OPTIONS=(https://example.invalid publish)\nnpm --registry "${OPTIONS[@]}" ping',
 ];
 
 for (const [index, body] of unsafe.entries()) {
@@ -49,7 +53,8 @@ for (const [index, body] of unsafe.entries()) {
       const execution = spawnSync("bash", ["--noprofile", "--norc", "-e", "-c", script], {
         encoding: "utf8",
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, PUBLISH_RECORD: record,
-          OVERRIDE: "--provenance=false", VERB: "publish", MIDDLE: "p", PAYLOAD: "npm publish" },
+          OVERRIDE: "--provenance=false", VERB: "publish", MIDDLE: "p", PAYLOAD: "npm publish",
+          REGISTRY: "https://example.invalid publish", EXTRA: " publish" },
       });
       assert.equal(execution.status, 0, execution.stderr);
       const calls = readFileSync(record, "utf8").trim().split("\n");
@@ -75,6 +80,50 @@ test("sanctioned literal bindings and non-publishing shell commands remain accep
   ]) {
     const script = `npm publish --provenance\n${body}`;
     assert.deepEqual(auditPublishAttestation([{ file: "scripts/release.sh", text: script }]).failures, [], body);
+  }
+});
+
+test("read-only npm verbs follow only known options and their operands", () => {
+  for (const body of [
+    'npm --registry "$REGISTRY" whoami',
+    'npm --registry="$REGISTRY" ping',
+    'npm --registry https://example.invalid --userconfig "$CONFIG" whoami',
+    'npm --ignore-scripts --global false --json=true --registry "$REGISTRY" ping',
+    'npm --no-audit --fund=false --registry "$REGISTRY" -- whoami',
+    'npm -g false -w "$WORKSPACE" --registry "$REGISTRY" ping',
+  ]) {
+    assert.deepEqual(auditPublishAttestation([{ file: "scripts/release.sh", text: `npm publish --provenance\n${body}` }]).failures, [], body);
+  }
+});
+
+test("ambiguous npm option prefixes cannot hide unresolved publishers", () => {
+  for (const body of [
+    'npm --unknown "$VALUE" whoami',
+    'npm --unknown=value whoami "$VALUE"',
+    'npm --registry $REGISTRY whoami',
+    'npm --registry=$REGISTRY ping',
+    'npm --registry ""$REGISTRY whoami',
+    'npm --registry "$REGISTRY"$EXTRA ping',
+    'npm --registry="$REGISTRY"$EXTRA ping',
+    'npm --registry "${REGISTRY}"${EXTRA} whoami',
+    'npm --registry "$REGISTRY"$(printf " publish") whoami',
+    'npm --registry "$REGISTRY"`printf " publish"` whoami',
+    'npm --registry "$@" whoami',
+    'npm --registry "${UNKNOWN[@]}" ping',
+    'npm --registry "$REGISTRY" "$VERB"',
+    'npm --registry "$REGISTRY" "whoami$(printf suffix)"',
+    'npm --registry "$REGISTRY" deploy',
+    'npm --registry "$REGISTRY" publish "$FLAGS"',
+    'npm --registry "$REGISTRY" --',
+    'npm --registry "$REGISTRY" -- "$VERB"',
+    'npm --registry "$REGISTRY" --json="$BOOLEAN" whoami',
+    'npm --registry "$REGISTRY" --json=invalid ping',
+    'npm --registry "$REGISTRY" --json "$BOOLEAN" whoami',
+    'npm --registry "$REGISTRY" --cache',
+    'xargs npm --registry "$REGISTRY" whoami',
+    'pnpm --registry "$REGISTRY" whoami',
+  ]) {
+    assert.ok(auditPublishAttestation([{ file: "scripts/release.sh", text: `npm publish --provenance\n${body}` }]).failures.length > 0, body);
   }
 });
 

@@ -37,6 +37,7 @@ import {
   scalarAssignmentEvents,
   segmentShellLine,
   type ShellCommand,
+  type ShellToken,
   type SourceFile,
   spawnedAsCommand,
   startsEnclosingCaseArm,
@@ -234,6 +235,11 @@ const VALUE_TAKING_FLAGS = new Set([
   "--tag", "--access", "--registry", "--otp", "--workspace", "-w",
   "--userconfig", "--globalconfig", "--cache", "--prefix", "--loglevel",
   "--provenance-file", "--auth-type", "--before", "--omit", "--include",
+]);
+
+/** Known npm boolean options whose literal true/false operands precede a verb. */
+const BOOLEAN_FLAGS = new Set([
+  "--global", "-g", "--ignore-scripts", "--json", "--audit", "--no-audit", "--fund", "--no-fund",
 ]);
 
 /**
@@ -520,8 +526,41 @@ function publishInvocationsInShell(source: SourceFile, raw: string): PublishInvo
       const publisher = program === "npm" || FOREIGN_PUBLISHERS.has(program);
       const spawned = spawnedAsCommand(command) || spawnedAsCommand(candidate);
       const forwarded = args.some((token) => token.unresolved === true);
+      let verb: ShellToken | undefined = args[0];
+      if (program === "npm" && forwarded) {
+        // Only known options have a provable operand boundary. An unquoted
+        // expansion can insert extra command words, so it cannot be skipped
+        // merely because one of those words might eventually say whoami.
+        for (let index = 0; index < args.length; index += 1) {
+          const token = args[index]!;
+          verb = undefined;
+          if (token.unresolved === true && (!token.quoted || token.multipleWords === true)) break;
+          if (token.value === "--") { verb = args[index + 1]; break; }
+          const equals = token.value.indexOf("=");
+          const flag = equals < 0 ? token.value : token.value.slice(0, equals);
+          if (VALUE_TAKING_FLAGS.has(flag)) {
+            if (equals < 0) {
+              const operand = args[index + 1];
+              if (operand === undefined || (operand.unresolved === true && (!operand.quoted || operand.multipleWords === true))) break;
+              index += 1;
+            }
+            continue;
+          }
+          if (BOOLEAN_FLAGS.has(flag)) {
+            if (equals >= 0) {
+              const value = token.value.slice(equals + 1);
+              if (value !== "true" && value !== "false") break;
+            } else if (args[index + 1]?.value === "true" || args[index + 1]?.value === "false") {
+              index += 1;
+            }
+            continue;
+          }
+          verb = token;
+          break;
+        }
+      }
       const unresolvedArguments = publisher && (spawned
-        || (forwarded && !NON_PUBLISH_VERBS.has(args[0]!.value)));
+        || (forwarded && (verb?.unresolved === true || !NON_PUBLISH_VERBS.has(verb?.value ?? ""))));
       const unresolved = unresolvedProgram || unresolvedArguments;
       if (program !== "npm" && !FOREIGN_PUBLISHERS.has(program) && !unresolvedProgram) continue;
       // A fully literal program must name a publisher and carry the publish

@@ -205,3 +205,51 @@ production denominator, and are checked by `build:test` and native CI. There
 were no coverage exclusions, threshold changes, runtime SDK changes or bulk
 dependency updates. The assurance and review boundaries above remain in force.
 Subsequent evidence-only commits do not change the tested consumer source.
+
+## Renewed option-prefix and historical-proof findings
+
+Findings 4236759848, 4236759852 and 4236759854 were verified against accepted
+source `b89fd6f36adf91c9bfc784c7ab643d9ce9cb7eae`. CI now installs exact
+`npm@11.21.0` on Linux and Windows. The native proof checks both installed
+npm/npx CLI versions against that exact version before its existing controls.
+No package version, SDK pin, dependency lock or prepare implementation changed.
+
+The auditor recognizes read-only verbs after known npm options and operands,
+including separated and joined registry values, literal boolean operands and
+the option terminator. Unknown options or verbs, missing operands, unresolved
+verbs, foreign publishers and spawning input retain fail-closed refusal.
+Unquoted expansions, mixed quoting and quoted positional/array lists cannot
+prove a single operand. Minimal tokenizer metadata preserves that distinction
+instead of treating any quote in a word as proof of its argument boundary.
+The actual installed npm 11.21.0 configuration parser independently recognizes
+`whoami` and `ping` after `--registry` and its operand, matching the
+[npm configuration contract](https://docs.npmjs.com/cli/v11/using-npm/config/).
+Restoring only the accepted attestation source rejects both preflights; the
+repaired source accepts them. Real Bash executions also preserve refusal of
+argument injection through mixed quoting and positional lists, with an inert
+publisher recording the actual arguments.
+
+Historical source-only Windows proofs still require commit
+`ea29cb425a72b6729d24b00df4573e8c092c7cfa`. A Git object check now fails with
+an explicit full-history recovery diagnostic before executing consumer controls.
+Missing evidence is never replaced or skipped. The absence regression uses a
+real empty Git object store without creating another clone. It executes the
+accepted proof source independently: native Windows reaches the old generic
+`git show` failure, while Linux reaches its old platform assertion. The repaired
+proof fails with the requested historical-evidence diagnostic on both platforms.
+Normal native Windows execution separately proves the historical object is
+present, rejects each old launcher independently, restores repaired bytes and
+rejects actual npm 10.9.4 before packing. All earlier receipts above are retained.
+
+The final direct `npm run release:check` with real npm 11.21.0 passes 505 tests:
+503 passed, zero failed/canceled/TODO and two unchanged opt-in fleet skips.
+All 23 authored production sources reach 100% statements, branches, functions
+and lines. Typecheck, lint, selected docstrings (222 declarations in 23 files),
+duplication (zero of 23,162 lines across 49 sources), production audit (zero),
+50-file package verification, changelog and all release verifiers pass.
+`npm run build:test` and the focused 34-test corpus/pack/history set pass.
+All three publication-owner PM-linked commands and the six SDK compatibility
+checks pass. Test-result tracking stays disabled; owner comments hold receipts.
+Actual npm 10.9.4 is again rejected before any packing receipt. The independent
+five high development findings, twelve legacy completeness violations, ambient
+extension skew and whole-internal documentation/review boundaries remain.

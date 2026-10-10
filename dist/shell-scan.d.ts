@@ -45,6 +45,8 @@ export interface ShellToken {
      * different security meaning in command position.
      */
     unresolved?: boolean;
+    /** True when unresolved expansion can produce multiple arguments despite some quoting. */
+    multipleWords?: true;
     /**
      * True when the word's FIRST character came from inside quotes.
      *

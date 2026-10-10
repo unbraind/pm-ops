@@ -267,15 +267,20 @@ export function tokenizeCommands(text, depth = 0) {
     let value = "";
     let quoted = false;
     let unresolved = false;
+    let multipleWords = false;
     let startsQuoted = false;
     let started = false;
     const endWord = () => {
         if (!started)
             return;
-        command.push(unresolved ? { value, quoted, unresolved, startsQuoted } : { value, quoted, startsQuoted });
+        const token = unresolved ? { value, quoted, unresolved, startsQuoted } : { value, quoted, startsQuoted };
+        if (quoted && multipleWords)
+            token.multipleWords = true;
+        command.push(token);
         value = "";
         quoted = false;
         unresolved = false;
+        multipleWords = false;
         startsQuoted = false;
         started = false;
     };
@@ -342,8 +347,11 @@ export function tokenizeCommands(text, depth = 0) {
                     index = end;
                     continue;
                 }
-                if (inner === "$")
+                if (inner === "$") {
                     unresolved = true;
+                    if (/^(?:\$@|\$\{[^}]*@[^}]*\})/u.test(text.slice(index)))
+                        multipleWords = true;
+                }
                 value += inner;
                 index += 1;
             }
@@ -359,6 +367,7 @@ export function tokenizeCommands(text, depth = 0) {
             if (character === "`" || text[index + 2] !== "(")
                 nested.push(inner);
             unresolved = true;
+            multipleWords = true;
             index = end - 1;
             if (!started)
                 startsQuoted = false;
@@ -384,14 +393,17 @@ export function tokenizeCommands(text, depth = 0) {
             }
             value += text.slice(index, end);
             unresolved = true;
+            multipleWords = true;
             if (!started)
                 startsQuoted = false;
             started = true;
             index = end - 1;
             continue;
         }
-        if (character === "$")
+        if (character === "$") {
             unresolved = true;
+            multipleWords = true;
+        }
         if (character === " " || character === "\t" || character === "\r") {
             endWord();
             continue;

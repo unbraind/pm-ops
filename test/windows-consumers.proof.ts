@@ -6,6 +6,10 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { npmLauncher } from "./npm-launcher.ts";
 
+const historicalCommit = "ea29cb425a72b6729d24b00df4573e8c092c7cfa";
+const historical = spawnSync("git", ["cat-file", "-e", `${historicalCommit}^{commit}`], { encoding: "utf8" });
+assert.equal(historical.status, 0,
+  `Historical source-only proof commit ${historicalCommit} is unavailable; fetch full branch history (fetch-depth: 0) before rerunning; no historical proof was skipped`);
 assert.equal(process.platform, "win32", "These controls require native Windows");
 const env: NodeJS.ProcessEnv = { ...process.env, PATH: process.env.PATH };
 delete env.npm_execpath;
@@ -15,14 +19,14 @@ for (const program of ["npm", "npx"] as const) {
   assert.equal(launch.executable, process.execPath);
   const actual = spawnSync(launch.executable, launch.args, { env, encoding: "utf8" });
   assert.equal(actual.status, 0, actual.stderr + actual.stdout);
-  assert.match(actual.stdout.trim(), /^11\./);
+  assert.equal(actual.stdout.trim(), "11.21.0");
   console.log(program, "Node CLI", launch.args[0], "version", actual.stdout.trim());
 }
 
 for (const file of ["test/pack-prepare.test.ts", "test/packed-consumer.acceptance.ts"]) {
   const repaired = readFileSync(file);
   try {
-    writeFileSync(file, execFileSync("git", ["show", `ea29cb425a72b6729d24b00df4573e8c092c7cfa:${file}`]));
+    writeFileSync(file, execFileSync("git", ["show", `${historicalCommit}:${file}`]));
     const result = spawnSync(process.execPath, file.endsWith(".test.ts") ? ["--test", file] : [file], {
       env, encoding: "utf8", timeout: 180_000,
     });

@@ -6,13 +6,15 @@ status: in_progress
 priority: 0
 tags: []
 created_at: "2026-10-10T02:41:49.896Z"
-updated_at: "2026-10-10T06:00:18.046Z"
+updated_at: "2026-10-10T07:15:29.400Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Real subprocess adversarial fixtures and independent revert proofs; reject unresolved executable indirection; preserve sanctioned workflow; full release and packed npm/Bun checks.
 repro_steps: Execute test/publish-indirection.test.ts against the prior attestation implementation; Bash/xargs inert publisher records show hidden publish calls behind an attested sibling.
 expected_result: Every unresolved executable publisher path is refused; direct sanctioned provenance workflows and provable bindings remain accepted.
 actual_result: "Canonical auditor preserves safe whoami/ping, fail-closed unknown publishers and provenance ordering. Renewed Windows findings4236589192/4236589194 are fixed using actual installed npm/npx Node CLI entries without npm_execpath or shell argument interpolation, native PATH normalization and Windows consumer environment. Source086b52e0a1660132b805c3695fd728eb0ccd9dc9 CI38029183548 passes Linux22/26 and Windows22/26. Native Windows standalone pack and packed npm/nativeBun consumers pass; each source-only launcher revert fails independently and actual npm10.9.4 is refused before packing. Final unchanged release:check passes496 of498 with2 existing opt-in skips and four100 over all23 production TS sources. Fresh local packed npm/nativeBun and PM-linked2/2 pass. Ambient local extension-health skew and12 legacy completeness gaps remain; history verification passes. Open for root review, no closure/publication."
-comments[16]:
+comments[19]:
   - created_at: "2026-10-10T02:42:14.991Z"
     author: codex-sol
     text: "Owner search found historical scalar/spawning-wrapper repairs but no owner for #149; this item owns canonical alias/function/indirect spawning repair. Plan: executable safe stubs prove real argv and audit refusal, then mutation restores only prior implementation to prove regression detection. Companion: pm-cli-website-session-2026-10-10. No workflow execution or publication authorized."
@@ -62,18 +64,30 @@ comments[16]:
     author: codex-sol
     text: "Verified green native receipt: https://github.com/unbraind/pm-ops/actions/runs/38029183548 at086b52e0a1660132b805c3695fd728eb0ccd9dc9. Windows22 job114146337599 and Windows26 job114146337560 both pass standalone pack without npm_execpath, packed npm and nativeBun consumers, and node test/windows-consumers.proof.ts. Logs identify actual npm/npx Node CLI entrypoints and version11.21.0, both source-only reverts fail with exact old diagnostics and restore repaired bytes, actual npm10.9.4 is rejected before pack. Both Linux22/26 jobs also pass. Final local npm run release:check exits0:498 total496 passed0 failed2 existing fleet opt-in skips; all23 authored production TS sources report100 statements/branches/functions/lines, no exclusions/threshold changes. Docstrings222 across23 selected files, duplication0/23023 across48 sources, production audit0 and retained development audit5 high. npm run accept:packed passes fresh npm/Node and nativeBun independently. SDK/pins and production code are unchanged since ea29cb425a72b6729d24b00df4573e8c092c7cfa; required review remains pending. History verifies, existing12 old completeness gaps retained, full ambient extension health skew remains explicitly unremediated."
     edited_at: "2026-10-10T06:00:16.109Z"
-files[8]{path,scope}:
+  - created_at: "2026-10-10T06:58:03.629Z"
+    author: codex-sol
+    text: "Renewed findings4236759848/9852/9854 independently verified from accepted source b89fd6f36adf91c9bfc784c7ab643d9ce9cb7eae: Windows CI npm major floats, known npm options before readonly verbs cause false refusal, and historical Windows proof lacks a missing-object diagnostic. Fix only these findings; retain historical object requirement and source-only negative controls. Preserve SDK9, prepare behavior, packed receipts, all23production coverage and review boundaries. Root handles GitHub review responses."
+  - created_at: "2026-10-10T07:05:50.310Z"
+    author: codex-sol
+    text: "Prefix recognition requires exact known option boundaries. The existing quoted marker only records that some characters were quoted, so mixed quoted/unquoted expansions and quoted positional/array lists could still inject a verb. Add minimal tokenizer metadata for multiple-word expansions and refuse those prefixes; ordinary quoted registry scalars remain accepted. Both Linux and Windows CI now install real npm11.21.0; native proof asserts the exact installed npm/npx version."
+  - created_at: "2026-10-10T07:15:29.400Z"
+    author: codex-sol
+    text: "Final direct npm11.21.0 release:check exits0:505 total503 passed0 failed0 canceled2 existing opt-in fleet skips. All23 authored production TS sources retain100 statements/branches/functions/lines. Focused real-shell/pack/history set passes34/34; three PM-linked commands pass, compatibility6/6 passes. Accepted b89 attestation independently rejects actual npm-parser whoami/ping prefixes, while repaired source accepts; ambiguous expanded publishers remain refused. Missing-history regression runs actual accepted proof bytes against an empty object store and requires repaired diagnostic. Native exact-head CI pending push; original launcher source-only controls retained."
+files[10]{path,scope}:
   .github/workflows/ci.yml,project
   attestation.ts,project
   README.md,project
+  shell-scan.ts,project
   test/npm-launcher.ts,project
   test/pack-prepare.test.ts,project
   test/packed-consumer.acceptance.ts,project
   test/publish-indirection.test.ts,project
   test/windows-consumers.proof.ts,project
-tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  test/windows-proof-history.test.ts,project
+tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/publish-indirection.test.ts,project,codex-sol,"2026-10-10T02:51:02.616Z",local_mutation,fix/canonical-publication-consumer-guards
   node --test test/pack-prepare.test.ts,project,codex-sol,"2026-10-10T05:50:25.702Z",local_mutation,fix/canonical-publication-consumer-guards
+  node --test test/windows-proof-history.test.ts,project,codex-sol,"2026-10-10T07:02:34.839Z",local_mutation,fix/canonical-publication-consumer-guards
 docs[5]{path,scope}:
   docs/publication-repair.md,project
   "https://github.com/unbraind/pm-ops/actions/runs/38028728667",project
