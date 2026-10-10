@@ -7,7 +7,7 @@ import { delimiter, join } from "node:path";
 import { npmLauncher } from "./npm-launcher.ts";
 
 assert.equal(process.platform, "win32", "These controls require native Windows");
-const env: NodeJS.ProcessEnv = { ...process.env };
+const env: NodeJS.ProcessEnv = { ...process.env, PATH: process.env.PATH };
 delete env.npm_execpath;
 
 for (const program of ["npm", "npx"] as const) {
