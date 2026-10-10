@@ -13,6 +13,8 @@ prove the result when later arguments can disable it.
 
 ## Behavioral evidence
 
+Historical receipt, superseded by the [fresh SDK 10 receipt](#fresh-linear-array-receipt).
+
 The current review correction additionally permits read-only `npm whoami` and
 `npm ping` with unresolved registry operands. The prior auditor rejects the real
 regression; unknown verbs remain fail-closed. The pack/install fixture uses a
@@ -52,6 +54,10 @@ packed npm/Node and native Bun consumers pass with the new npm-major proof.
 
 ## SDK dependency and existing feature assessment
 
+Historical evidence for the source heads named in this section; superseded by
+the [fresh SDK 10 receipt](#fresh-linear-array-receipt). SDK 2026.10.9 results
+below apply only to those earlier heads.
+
 [Dependabot PR 151](https://github.com/unbraind/pm-ops/pull/151) fails the local
 approved-version assertion: its SDK 2026.10.5 differs from hardcoded 2026.10.4.
 CI recorded 468 passed, one failed and two existing opt-in skips, with full
@@ -82,6 +88,10 @@ receipts. Earlier CodeQL regex findings were fixed; option-shaped tag arguments
 are refused at the call site. Green CI does not supply missing review approval.
 
 ## Assurance boundaries
+
+Historical evidence for the source heads named in this section; superseded by
+the [fresh SDK 10 receipt](#fresh-linear-array-receipt). SDK 2026.10.9 results
+below apply only to those earlier heads.
 
 `npm run release:check` passes: 498 tests, 496 passed, zero failed and two
 pre-existing opt-in skips. Statements, branches, functions and lines each reach
@@ -118,6 +128,10 @@ open for orchestrator verification.
 
 ## Orchestrator review corrections
 
+Historical evidence for the source heads named in this section; superseded by
+the [fresh SDK 10 receipt](#fresh-linear-array-receipt). SDK 2026.10.9 results
+below apply only to those earlier heads.
+
 CodeRabbit's PR #152 review identified a missing parent directory when packed
 acceptance starts from a clean checkout and an obsolete SDK version in the
 certification result. Both were corrected. Moving the generated coverage
@@ -140,6 +154,10 @@ missing evidence. The review-quorum limits above apply to the independent
 feature PR #150; they do not constitute approval of this repair PR.
 
 ## Renewed Windows launcher findings
+
+Historical evidence for the source heads named in this section; superseded by
+the [fresh SDK 10 receipt](#fresh-linear-array-receipt). SDK 2026.10.9 results
+below apply only to those earlier heads.
 
 Review 5477818338 comments 4236589192 and 4236589194 both reproduce on native
 Windows. [CI run 38028728667](https://github.com/unbraind/pm-ops/actions/runs/38028728667)
@@ -207,6 +225,10 @@ dependency updates. The assurance and review boundaries above remain in force.
 Subsequent evidence-only commits do not change the tested consumer source.
 
 ## Renewed option-prefix and historical-proof findings
+
+Historical evidence for the source heads named in this section; superseded by
+the [fresh SDK 10 receipt](#fresh-linear-array-receipt). SDK 2026.10.9 results
+below apply only to those earlier heads.
 
 Findings 4236759848, 4236759852 and 4236759854 were verified against accepted
 source `b89fd6f36adf91c9bfc784c7ab643d9ce9cb7eae`. CI now installs exact
@@ -290,13 +312,17 @@ were performed.
 
 ## Quoted expansion resource repair (2026-10-10, source `158450e`)
 
-CodeQL16 (inline4236838359) identified overlapping quantified regex terms on
+Historical evidence for the source heads named in this section; superseded by
+the [fresh SDK 10 receipt](#fresh-linear-array-receipt). SDK 2026.10.9 results
+below apply only to those earlier heads.
+
+CodeQL 16 (inline 4236838359) identified overlapping quantified regex terms on
 caller-supplied quoted shell text. The exported tokenizer, attestation library
 and tracked-source verifier reach that synchronous boundary. No remote exposure
 was established. The original parser fails a real isolated-child assertion at
-its unchanged2000ms budget on an unterminated expansion with80000 at-signs.
-The regression also exercises12000 repeated expansion prefixes, with and
-without20000 trailing at-signs. Legitimate scalar, positional/list and repeated
+its unchanged 2000 ms budget on an unterminated expansion with 80000 at-signs.
+The regression also exercises 12000 repeated expansion prefixes, with and
+without 20000 trailing at-signs. Legitimate scalar, positional/list and repeated
 delimiter contracts remain measured through actual tokenization and the auditor.
 
 The implementation uses monotone cached positions for the next closing brace
@@ -306,17 +332,17 @@ required before multiword classification, preserving the old conservative
 first-closing-brace contract without suffix slicing or regex backtracking.
 The initial candidate missed that sentinel check and failed promptly rather
 than timing out. An independent review independently reproduced the same added
-refusal in48 of5832 structured cases; none relaxed publisher refusal. Root
-corrects it and46 focused real parser/publication tests pass. The review notes
+refusal in 48 of 5832 structured cases; none relaxed publisher refusal. Root
+corrects it and 46 focused real parser/publication tests pass. The review notes
 that a shared tracker diff exposed prior rationale; its source-backed regression
 and direct probes, rather than an unqualified independence claim, are retained.
 
-The complete unchanged release gate passes507 tests:505 pass, zero failures,
-two existing opt-in fleet skips. Every one of23 production sources reports
-four100. Root independently matches Git and LCOV inventories and confirms all
-11074 line,355 function and2917 branch counters are hit. Runtime source hashes
+The complete unchanged release gate passes 507 tests: 505 pass, zero failures,
+two existing opt-in fleet skips. Every one of 23 production sources reports
+100% on all four metrics. Root independently matches Git and LCOV inventories and confirms all
+11074 line, 355 function and 2917 branch counters are hit. Runtime source hashes
 stay frozen. Fresh packed npm/Node and native Bun consumers both pass actual
-SDK9 activation, create/validate/strict merge-driver health and npm11/10 config
+SDK 9 activation, create/validate/strict merge-driver health and npm 11/10 config
 byte checks. Type/lint/selected docs/zero duplication/changelog/production audit
 and release/lifecycle verifiers pass. No dependency/version/threshold changes.
 
@@ -330,10 +356,17 @@ development findings, twelve historical completeness gaps and required reviews
 remain open.
 The package owner stays unclosed; passing configured tests are not a proof of
 all possible shell semantics or release readiness. Final exact-head native CI
-and CodeQL are requested after the source/PM commit.
+and CodeQL were requested after that source/PM commit. The later historical
+`a902a36` head is blocked by high CodeQL alert 17 at the array declaration
+regular expression. The source review of the linear candidate does not clear
+that alert; root retains current-head CodeQL and native CI verification.
 
 
 ## Nested substitution semantic repair (2026-10-10)
+
+Historical evidence for the source heads named in this section; superseded by
+the [fresh SDK 10 receipt](#fresh-linear-array-receipt). SDK 2026.10.9 results
+below apply only to those earlier heads.
 
 Owner: `codex-nested-closure`, existing `ops-publish-indirection`, PR #152.
 Accepted source baseline: `158450e07cc5ac3357c5d97fe3bf1281bd57c324`;
@@ -470,6 +503,8 @@ previous green native receipts are not approval of this new source.
 
 ## Linear array declaration candidate and SDK refresh
 
+Phase-A historical handoff, superseded by the [fresh receipt below](#fresh-linear-array-receipt).
+
 The scanner candidate replaces the declaration regular expression with suffix
 completion tables for bare, single-quoted and double-quoted operands. Each table
 entry uses only later entries; the forward candidate-name index never retreats.
@@ -505,3 +540,80 @@ pre-refactor source, apart from a corrected test assumption about the verifier's
 string failure shape. The complete gate and fresh packed acceptance await the
 independent candidate source/API review. Earlier rejected investigations were
 not retried. The publication owner is released unclosed at candidate handoff.
+
+## Fresh linear array receipt
+
+Accepted source candidate: `dbff42af2a5a5beb3858b1445aabf3f646a955b7`;
+independent source/API review and preserved PM-only evidence: `de10cfe`.
+The review reports no source/API mismatches, with bounded source reasoning for
+linear transitions and storage. It supplies no runtime complexity measurement,
+security approval or CodeQL clearance. All later changes are documentation and
+PM metadata; production, test, package, dist and workflow/config bytes remain
+identical to the reviewed candidate and the following accepted gates.
+
+`npm run release:check` exits 0: 578 tests, 576 passed, zero failures, canceled
+or TODO tests, and two unchanged opt-in fleet skips. Statements, branches,
+functions and lines are each 100% across all 23 production sources. Independent
+Git/source-inventory and LCOV comparison finds the same 23 unique sources; every
+11281 DA, 358 FNDA and 3009 BRDA counter is positive. No exclusion, threshold,
+deadline, runtime module, publisher workflow or lifecycle change was introduced.
+
+| Production source | DA | FNDA | BRDA |
+| --- | ---: | ---: | ---: |
+| `assurance.ts` | 669 | 16 | 95 |
+| `attestation.ts` | 886 | 18 | 219 |
+| `docstrings.ts` | 1288 | 54 | 439 |
+| `duplication.ts` | 577 | 24 | 114 |
+| `eslint.ts` | 148 | 2 | 9 |
+| `index.ts` | 3031 | 125 | 967 |
+| `invocation-audit.ts` | 50 | 1 | 9 |
+| `lifecycle-policy.ts` | 375 | 6 | 39 |
+| `merge-driver-prepare.ts` | 22 | 0 | 4 |
+| `merge-driver.ts` | 148 | 3 | 48 |
+| `shell-scan.ts` | 2097 | 47 | 697 |
+| `scripts/coverage-gate.ts` | 508 | 7 | 87 |
+| `scripts/docstring-gate.ts` | 71 | 1 | 12 |
+| `scripts/duplication-gate.ts` | 8 | 0 | 1 |
+| `scripts/lint.ts` | 8 | 0 | 1 |
+| `scripts/main-invocation.ts` | 63 | 3 | 8 |
+| `scripts/prepare-merge-driver.ts` | 19 | 0 | 5 |
+| `scripts/shell-command-scan.ts` | 9 | 0 | 1 |
+| `scripts/verify-lifecycle-policy.ts` | 375 | 16 | 78 |
+| `scripts/verify-release-changelog-date.ts` | 331 | 11 | 70 |
+| `scripts/verify-release-completeness.ts` | 471 | 20 | 86 |
+| `scripts/verify-release-publish-attestation.ts` | 53 | 4 | 6 |
+| `templates/prepare-merge-driver.ts` | 74 | 0 | 14 |
+
+Frozen source fingerprint digest: `fbf4d0c7786beaef5e791dcd50afc94e033b4a4ac1d9038965f3356d3641b711`.
+Canonical LCOV SHA-256: `f6da7295e5133c548d9ac89a8c6ed00db1d04675f36f22494dfc385bb1c5c2de`.
+Changed scanner SHA-256: `f13c0bd2607c7211290be5cb0a22d754a962427fe6a57c12a258a9d7d24285da`.
+All 23 source hashes and all candidate test/package/dist/config fingerprints
+match after the full gate, fresh packing and the reviewer PM-only commit.
+
+Fresh `npm run accept:packed` exits 0 for independent npm/Node and native Bun
+consumers using published SDK 2026.10.10. Both assert the installed SDK version,
+built declaration offsets and malformed recovery, retain nested publisher and
+child-scope controls, activate the actual extension, create a synthetic item,
+validate, require strict merge-driver health, and compare configuration bytes
+around npm 11 pack and actual npm 10.9.4 ignore-scripts packing. The accepted
+50-file tarball SHA-256 is `7db108f49a626867130ab93fd3bcce0fd2393e7cc11a3348c156584d6af0a7c6`.
+Local runtimes are Node 24.19.0, npm 11.17.0 and native Bun 1.3.5; the unchanged
+CI pins npm 11.21.0 and supplies native Windows evidence separately.
+
+Typecheck, test typecheck, lint, zero duplication (0 of 23678 lines, 50 sources),
+selected docstrings (225 declarations, 23 files), production audit (zero findings),
+package dry-run, pm-changelog checks, actual release-workflow classification,
+release-date/publication verifiers and eight canonical lifecycle policies pass. Independent
+release completeness passes for 46 tags. Separate complete validation retains
+12 pre-existing completeness errors and zero history drift; the full dependency
+audit retains five high development findings. Whole internal documentation,
+privacy and review-quorum work remain independently owned. Coverage excludes
+tests, generated artifacts and dependencies; it does not certify those scopes.
+
+Review feedback 4237138233, 4237138236, 4237138237 and 4237138239 is addressed
+through the fresh certification result, historical receipt labels, numeric
+formatting and explicit historical CodeQL alert 17 blocker. Earlier SDK 9 and
+`a902a36`/`df3bda1` gate/native receipts remain historical. Current-head CodeQL,
+external reviewers and native CI remain with root. No previous rejected resource
+investigation or old-source attack probe was rerun. No owner is closed, and no
+merge, release, publication or hosted/companion change was performed.
