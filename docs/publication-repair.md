@@ -458,3 +458,12 @@ The accepted tarball SHA-256 is
 No real registry publisher was executed. The final metadata receipt names the
 exact committed source after recording these gates; metadata-only follow-up
 preserves all tested runtime, dist, test and package bytes.
+
+
+Exact gated source commit: `df3bda1de876bc6b65a94c12b99e84c070365150`.
+Post-commit identity/privacy checking passes 4/4, and every frozen production
+source hash still matches after packing and committing. The final follow-up
+changes only this receipt and the publication owner's PM pair, releases its
+claim without closing it, and preserves all source/dist/test/package bytes.
+Current-head CI and external review remain pending the final branch push;
+previous green native receipts are not approval of this new source.
