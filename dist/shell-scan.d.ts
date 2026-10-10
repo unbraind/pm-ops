@@ -45,6 +45,8 @@ export interface ShellToken {
      * different security meaning in command position.
      */
     unresolved?: boolean;
+    /** True when unresolved expansion can produce multiple arguments despite some quoting. */
+    multipleWords?: true;
     /**
      * True when the word's FIRST character came from inside quotes.
      *
@@ -58,6 +60,19 @@ export interface ShellToken {
 }
 /** One simple command: the words it would run, in order. */
 export type ShellCommand = ShellToken[];
+/** A lexical child region, before any parent binding is expanded. */
+interface ShellChildRegion {
+    /** First character of the opening delimiter. */
+    start: number;
+    /** First character after the closing delimiter, or end of truncated input. */
+    end: number;
+    /** Child source after the backtick escape layer is removed. */
+    text: string;
+    /** Arithmetic operands contain substitutions but are not shell commands. */
+    arithmetic: boolean;
+    /** Standalone subshells have no unresolved output word in their parent. */
+    subshell?: true;
+}
 /**
  * Split shell text into the simple commands it contains.
  *
@@ -77,6 +92,17 @@ export type ShellCommand = ShellToken[];
  * @returns Every simple command found, outermost first.
  */
 export declare function tokenizeCommands(text: string, depth?: number): ShellCommand[];
+/**
+ * Protect lexical child state from parent structural scans and expansion.
+ *
+ * The shared scanner supplies the exact substitution boundaries. Neutral
+ * placeholders preserve outer unresolved words and line indexing. Callers
+ * audit each returned child independently; inherited bindings are unproven.
+ */
+export declare function isolateShellChildren(text: string, depth?: number, arithmetic?: boolean): {
+    parent: string;
+    children: ShellChildRegion[];
+};
 /**
  * Whether a command's program is reached through a spawning wrapper.
  *
@@ -177,7 +203,7 @@ export declare function joinContinuations(text: string): string;
  * other rule in the scanner already tolerates leading whitespace
  * (`STANDALONE_ASSIGNMENT` opens with `^[ \t]*`, control closers and function
  * openers are matched against trimmed syntax, a comment starts after any
- * separator or whitespace, and `bashArrays` anchors on a word boundary), so
+ * separator or whitespace, and `bashArrays` uses a whitespace boundary), so
  * this function changes nothing else about what the scanner sees.
  *
  * Only `run:` blocks are dedented, because `run` is the key GitHub Actions
@@ -194,6 +220,36 @@ export declare function joinContinuations(text: string): string;
  * @returns The same text with each `run:` block's content dedented.
  */
 export declare function dedentRunBlocks(text: string): string;
+/** One supported array declaration with its lexical source extent. */
+interface BashArrayDeclaration {
+    /** Assigned array name. */
+    name: string;
+    /** Literal source operands with whitespace collapsed. */
+    value: string;
+    /** First character of the assigned name, excluding preceding whitespace. */
+    start: number;
+    /** First character following the closing parenthesis. */
+    end: number;
+}
+/**
+ * Enumerate literal declarations with original UTF-16 extents in source order.
+ *
+ * Candidates start at input start or after ECMAScript whitespace, with an ASCII
+ * identifier immediately followed by `=(`. Bare inner parentheses are rejected;
+ * quotes and backslash pairs preserve literal source, including substitutions
+ * inside quotes. This helper does not filter enclosing comments or shell scopes.
+ *
+ * Backward tables record the exclusive closing offset (zero means failure) for
+ * each suffix entered bare, single-quoted or double-quoted. Every transition
+ * uses an already computed later suffix, so malformed candidates never rescan
+ * quotes or remaining input. The forward name scan advances monotonically;
+ * successful extents do not overlap, so their total projection cost is linear.
+ * Time and auxiliary storage are O(text.length), including malformed recovery.
+ *
+ * @param text - Exact source text; continuations are not joined here.
+ * @returns Literal operands with whitespace collapsed and non-overlapping extents.
+ */
+export declare function bashArrayDeclarations(text: string): BashArrayDeclaration[];
 /**
  * Index bash array assignments so a shared options array can be expanded.
  *
@@ -478,4 +534,5 @@ export interface VerifierResult {
     /** Lines describing what was checked, for the operator. */
     notes: string[];
 }
+export {};
 //# sourceMappingURL=shell-scan.d.ts.map

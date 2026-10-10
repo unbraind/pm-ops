@@ -6,7 +6,8 @@ import { basename, delimiter, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
-import { listMergeReceipts, markMergeReceiptReconciled } from "@unbrained/pm-cli/sdk/merge";
+import type { FlagDefinition } from "@unbrained/pm-cli/sdk/authoring";
+import { listMergeReceipts, markMergeReceiptReconciled, runMergeReconcile } from "@unbrained/pm-cli/sdk/merge";
 import { decode, encode } from "@toon-format/toon";
 
 import { runCmd } from "./command-test-helpers.ts";
@@ -543,8 +544,11 @@ test("pm SDK preserves the typed repeatable --repos contract on every command", 
     const contract = ext.assertCommandContract({ command, flags: ["--repos"], arguments: ["additional-repos"] });
     const reposFlag = contract.flags.find((flag) => flag.long === "--repos");
     assert.ok(reposFlag, `${command} should expose --repos through the real SDK registry`);
-    assert.strictEqual(reposFlag.value_type, "string", `${command} --repos should consume string values`);
-    assert.strictEqual(reposFlag.list, true, `${command} --repos should accumulate repeated and comma-list values`);
+    assert.deepStrictEqual(
+      { value_type: reposFlag.value_type, list: reposFlag.list },
+      { value_type: "string", list: true } satisfies Pick<FlagDefinition, "value_type" | "list">,
+      `${command} --repos must expose the installed SDK's canonical string and comma-list metadata`,
+    );
     ext.assertParserOverride({ command, extensionName: "pm-ops" });
   }
 
@@ -2642,11 +2646,24 @@ test("ops merge-receipts emits failing markdown and file reports before throwing
 
 test("ops merge-receipts --include-reconciled surfaces reconciled receipts while the default excludes them", async () => {
   const ext = await harness();
-  // The reconcile lab currently holds a pending receipt; consume it into history
-  // via the SDK so the default listing excludes it (--include-reconciled keeps it).
+  // A state mark alone cannot prove the decision was represented in history.
+  // The current SDK keeps that receipt pending until audited reconciliation.
   const receipts = await listMergeReceipts(reconciledLab.path, { includeReconciled: true });
   assert.strictEqual(receipts.length, 1, "reconcile lab should start with one pending receipt");
   await markMergeReceiptReconciled(reconciledLab.path, receipts[0]);
+  assert.strictEqual((await listMergeReceipts(reconciledLab.path)).length, 1,
+    "an unaudited state mark must not settle the receipt");
+  // Finish this disposable Git merge, then use the public audited workflow to
+  // append the decision event and settle both durable and clone-local copies.
+  for (const args of [["add", ".agents/pm"], ["commit", "-qm", "resolve synthetic merge"]]) {
+    const finished = spawnSync("git", args, { cwd: reconciledLab.path, encoding: "utf8" });
+    assert.strictEqual(finished.status, 0, finished.stderr);
+  }
+  const reconciled = await runMergeReconcile({ author: "pm-ops-test", message: "Audited synthetic merge settlement" }, {
+    path: join(reconciledLab.path, ".agents/pm"), noExtensions: true, quiet: true,
+  });
+  assert.strictEqual(reconciled.ok, true, JSON.stringify(reconciled.validation));
+  assert.strictEqual(reconciled.receipts.reconciled, 1);
 
   const defaulted = await runCmd<MergeReceiptsResult>(ext, "ops merge-receipts", { repos: [reconciledLab.path] });
   assert.strictEqual(defaulted.summary.total_pending, 0, "a reconciled receipt no longer counts as pending");
