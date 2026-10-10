@@ -88,14 +88,21 @@ pre-existing opt-in skips. Statements, branches, functions and lines each reach
 100% over 23 authored source files. The configured docstring gate checks 222
 declarations in 23 files; that selected denominator does not establish complete
 internal documentation. Final duplication checking measures zero duplicated
-lines out of 22,903, across 46 sources and zero clone pairs. Production dependency
+lines out of 23,023, across 48 sources and zero clone pairs. Production dependency
 audit reports zero vulnerabilities.
 The separate full dependency audit reports five high-severity affected development
 packages through the retained jscpd 4 compatibility alias; the existing
 `ops-braces-audit` owner retains that work. No compatibility engine was removed
 to obtain a passing audit.
 
-Strict package health passes with merge drivers required. Separate validation
+The prior strict package-health receipt passes with merge drivers required.
+During this continuation, full-extension local health refuses ambient host and
+extension version skew: the global host is 2026.10.10 while this candidate's SDK
+is 2026.10.9, and the pinned host encounters ambient pm-github 2026.10.10.
+Storage-only strict health with extensions disabled passes with required merge
+drivers; it does not certify extension health. Fresh packed consumers separately
+pass strict health in their own isolated installation. No dependency or ambient
+installation was changed to hide that boundary. Separate validation
 refuses twelve pre-existing closed-item completeness violations, plus legacy
 metadata, test-trust and resolution warnings. Retrospective evidence was not
 fabricated. Whole-declaration documentation remains owned by `ops-0c8k`.
@@ -143,14 +150,20 @@ These are real Windows subprocess failures, independent of constructed shim
 bytes or a mocked platform.
 
 Shared test tooling now resolves the npm/npx selected by `where.exe`, reads
-the installed npm package's actual CLI entries and follows its `npm-prefix.js`
-global-installation precedence. Node executes those entries directly with an
+the installed npm package's actual CLI entries. Bundled launchers retain their
+`npm-prefix.js` precedence; generated global shims directly select the adjacent
+package. Node executes those entries directly with an
 argument array and no shell. npm's installed Windows launchers and package
 metadata were checked against npm 11.17.0 and the
 [upstream npm launcher](https://github.com/npm/cli/blob/latest/bin/npm.cmd).
 `npm_execpath` is not required. Other platforms retain the original commands.
 Windows consumers also receive the native system and temporary-directory
-environment needed by Node, npm and Git.
+environment needed by Node, npm and Git. The standalone fixture and native proof
+script explicitly normalize `process.env.PATH` before using a plain environment
+object, preserving Windows' case-insensitive `Path` value when prepending bins.
+CI installs npm 11 beside the selected Node executable, so ignoring the runner's
+user npm configuration cannot fall back to Node 22's bundled npm 10. The guard
+correctly rejected that actual npm 10.9.9 during the intermediate native run.
 
 The existing public CI now runs standalone pack and complete packed npm/Node
 and native Bun consumers on Windows Server 2025 with Node 22 and 26. Each native
@@ -165,7 +178,30 @@ conservative shell auditor. No attestation rule was relaxed.
 Local validation passes `npm run build:test`, the unchanged 27 focused
 subprocess/pack tests without `npm_execpath`, both PM-linked tests and fresh
 packed npm/Node and native Bun acceptance. Project test-result tracking remains
-disabled; owner comments retain the receipts. Native green and source-only
-revert receipts are pending the corrected commit's CI run. The 23 production
-source denominator, two existing opt-in fleet skips, runtime SDK pin and all
-assurance boundaries above remain unchanged.
+disabled; owner comments retain the receipts. Fresh final local packed npm/Node
+and native Bun consumers pass independently. The actual local npm 10.9.4 control
+(`npx --yes --package npm@10.9.4 -- node test/packed-consumer.acceptance.ts`)
+exits 1 at the version guard before any packing.
+
+[Green CI run 38029183548](https://github.com/unbraind/pm-ops/actions/runs/38029183548)
+at source head `086b52e0a1660132b805c3695fd728eb0ccd9dc9` passes both Linux jobs
+and both Windows consumer jobs. Native Windows
+[Node 22](https://github.com/unbraind/pm-ops/actions/runs/38029183548/job/114146337599)
+and [Node 26](https://github.com/unbraind/pm-ops/actions/runs/38029183548/job/114146337560)
+each pass standalone pack without `npm_execpath`, packed npm/Node and native Bun
+acceptance, both independent source-only launcher reverts and the actual npm 10
+negative control. Logs identify real installed `npm-cli.js` and `npx-cli.js`
+entries, each running npm 11.21.0, and record the rejected npm 10.9.4. Both native
+consumer jobs produce candidate tarball SHA-256
+`e6589fc9192822c8f4db09217ebc3f119de978bfadca4bbb639d13e700af0942`.
+Each reverted launcher fails at its specific old diagnostic; the proof script
+restores the repaired source bytes before continuing.
+
+The final unchanged local `npm run release:check` exits 0 with 498 tests:
+496 passed, zero failed, two pre-existing opt-in fleet skips. Statements,
+branches, functions and lines each reach 100% over the same 23 authored
+production sources. New launcher/proof files are test tooling, outside that
+production denominator, and are checked by `build:test` and native CI. There
+were no coverage exclusions, threshold changes, runtime SDK changes or bulk
+dependency updates. The assurance and review boundaries above remain in force.
+Subsequent evidence-only commits do not change the tested consumer source.
