@@ -27,7 +27,7 @@ test("real npm pack never mutates git config and npm install/ci still run prepar
     writeFileSync(join(installed, "package.json"), JSON.stringify({ name: "pm-ops", type: "module", exports: { "./merge-driver/prepare": "./prepare.js" } }));
     writeFileSync(join(installed, "prepare.js"), 'import { execFileSync } from "node:child_process"; execFileSync("git", ["config", "--local", "merge.fixture.driver", "pm merge driver"]);');
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "pack-prepare-fixture", version: "1.0.0", type: "module", scripts: { prepare: "node scripts/prepare-merge-driver.ts" } }));
-    const env: NodeJS.ProcessEnv = { ...process.env, npm_config_userconfig: devNull, NPM_CONFIG_USERCONFIG: devNull };
+    const env: NodeJS.ProcessEnv = { ...process.env, PATH: process.env.PATH, npm_config_userconfig: devNull, NPM_CONFIG_USERCONFIG: devNull };
     delete env.npm_command;
     // A parent's allow-scripts whitelist belongs to that parent's project.
     // npm rejects it as a CLI option during a different project installation.

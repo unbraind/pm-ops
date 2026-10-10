@@ -10,6 +10,15 @@ assert.equal(process.platform, "win32", "These controls require native Windows")
 const env: NodeJS.ProcessEnv = { ...process.env };
 delete env.npm_execpath;
 
+for (const program of ["npm", "npx"] as const) {
+  const launch = npmLauncher(program, ["--version"], env);
+  assert.equal(launch.executable, process.execPath);
+  const actual = spawnSync(launch.executable, launch.args, { env, encoding: "utf8" });
+  assert.equal(actual.status, 0, actual.stderr + actual.stdout);
+  assert.match(actual.stdout.trim(), /^11\./);
+  console.log(program, "Node CLI", launch.args[0], "version", actual.stdout.trim());
+}
+
 for (const file of ["test/pack-prepare.test.ts", "test/packed-consumer.acceptance.ts"]) {
   const repaired = readFileSync(file);
   try {

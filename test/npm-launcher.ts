@@ -11,13 +11,15 @@ export function npmLauncher(program: "npm" | "npx", args: string[], env: NodeJS.
   const shim = execFileSync("where.exe", [program], { env, encoding: "utf8" }).trim().split(/\r?\n/)[0];
   assert.ok(shim, `Cannot locate ${program} on PATH`);
   let metadata = createRequire(join(dirname(shim), "package.json")).resolve("npm/package.json");
-  // npm's own cmd launchers prefer the configured global installation when
-  // present. Read that prefix using the installed script, not a guessed path.
-  const prefix = execFileSync(process.execPath, [join(dirname(metadata), "bin/npm-prefix.js")], {
-    env, encoding: "utf8",
-  }).trim();
-  const globalMetadata = join(prefix, "node_modules/npm/package.json");
-  if (existsSync(globalMetadata)) metadata = globalMetadata;
+  // Node's bundled npm launcher redirects through npm-prefix.js; npm's
+  // generated global-install shim directly targets its adjacent package.
+  if (readFileSync(shim, "utf8").includes("npm-prefix.js")) {
+    const prefix = execFileSync(process.execPath, [join(dirname(metadata), "bin/npm-prefix.js")], {
+      env, encoding: "utf8",
+    }).trim();
+    const globalMetadata = join(prefix, "node_modules/npm/package.json");
+    if (existsSync(globalMetadata)) metadata = globalMetadata;
+  }
   const pkg: unknown = JSON.parse(readFileSync(metadata, "utf8"));
   assert.ok(pkg !== null && typeof pkg === "object" && "name" in pkg && pkg.name === "npm"
     && "bin" in pkg && pkg.bin !== null && typeof pkg.bin === "object"
