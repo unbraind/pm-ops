@@ -24,6 +24,10 @@ import { bashArrays, blockDepthChange, caseDepthChange, commandArguments, comman
 import { tallyFlaggedInvocations } from "./invocation-audit.js";
 /** The flag that attaches a build attestation to the published tarball. */
 export const ATTESTATION_FLAG = "--provenance";
+/** Literal npm verbs whose unknown operands cannot turn them into a publish. */
+const NON_PUBLISH_VERBS = new Set([
+    "add", "audit", "ci", "config", "install", "ls", "pack", "pkg", "run", "test", "version", "view",
+]);
 /** Publishers other than npm, which this repository has no attested path for. */
 export const FOREIGN_PUBLISHERS = new Set(["yarn", "pnpm", "bun"]);
 /** Repository subtrees whose contents are build output rather than a publish path. */
@@ -384,7 +388,24 @@ function publishInvocationsInShell(source, raw) {
                 for (let count = 0; count < change; count += 1)
                     scopes.push(new Map());
             }
-            const resolved = expandScalars(expandArrays(segment, arrays), visibleScalars());
+            const bindings = visibleScalars();
+            const arrayExpanded = expandArrays(segment, arrays);
+            // A quoted executable scalar is one filename, never a command plus
+            // arguments. Retain unresolved evidence when its value spans words;
+            // matching all whitespace-containing tokens later would misclassify
+            // quoted case-arm patterns as executable commands.
+            for (const command of tokenizeCommands(arrayExpanded)) {
+                const executable = commandCandidates(command)[0]?.[0];
+                if (executable?.quoted !== true || executable.unresolved !== true)
+                    continue;
+                for (const reference of executable.value.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/gu)) {
+                    const name = reference[1] ?? reference[2];
+                    const value = bindings.get(name);
+                    if (value !== undefined && /\s/u.test(value))
+                        bindings.delete(name);
+                }
+            }
+            const resolved = expandScalars(arrayExpanded, bindings);
             // Every assignment the segment makes, including the ones whose value
             // could not be read. An unreadable assignment must reach the scope map as
             // `undefined` so `visibleScalars` retires the name: dropping it would
@@ -417,13 +438,21 @@ function publishInvocationsInShell(source, raw) {
             const program = commandName(candidate);
             if (program === undefined)
                 continue;
+            // Alias expansion changes command words before execution. Our tokenizer
+            // cannot prove alias state across shell scopes or evaluator boundaries;
+            // refusing executable alias definitions avoids inventing that evidence.
+            if (program === "alias") {
+                found.push({ file: source.file, program, command: candidate, unresolved: "shell alias expansion" });
+                continue;
+            }
             // Secondary candidate readings compensate for unknown wrapper options;
             // they are not the tokeniser's identified command position. Otherwise an
             // unresolved argument after a literal program (`npm publish $FLAG`) would
             // be reported twice, once as the real publish and once as a phantom whole
             // command. A genuinely unresolved primary position remains fail-closed.
             const unresolvedProgram = program === primaryProgram
-                && (program.startsWith("$") || (program.length === 0 && candidate[0]?.unresolved === true));
+                && (program.startsWith("$") || (!program.includes("\n")
+                    && candidate[0]?.unresolved === true));
             // A spawning wrapper (`xargs npm`, `parallel npm`) names the publisher on
             // the command line but draws its arguments from stdin or a file, so the
             // literal `publish` word is never there for isPublishCommand to find. That
@@ -436,8 +465,12 @@ function publishInvocationsInShell(source, raw) {
             // non-publisher reached this way (`xargs rm -f`) is still dismissed: only
             // a named publisher with unresolved arguments is a publish the scanner
             // cannot disprove.
-            const unresolvedArguments = (program === "npm" || FOREIGN_PUBLISHERS.has(program))
-                && (spawnedAsCommand(command) || spawnedAsCommand(candidate));
+            const args = commandArguments(candidate);
+            const publisher = program === "npm" || FOREIGN_PUBLISHERS.has(program);
+            const spawned = spawnedAsCommand(command) || spawnedAsCommand(candidate);
+            const forwarded = args.some((token) => token.unresolved === true);
+            const unresolvedArguments = publisher && (spawned
+                || (forwarded && !NON_PUBLISH_VERBS.has(args[0].value)));
             const unresolved = unresolvedProgram || unresolvedArguments;
             if (program !== "npm" && !FOREIGN_PUBLISHERS.has(program) && !unresolvedProgram)
                 continue;
@@ -453,7 +486,9 @@ function publishInvocationsInShell(source, raw) {
                 continue;
             // Not de-duplicated: two identical publish lines are two invocations, and
             // collapsing them would report one of them as if the other did not exist.
-            found.push({ file: source.file, program, command: candidate });
+            const unresolvedReason = unresolvedProgram ? "executable expansion"
+                : unresolvedArguments ? "publisher arguments from expansion or spawning input" : undefined;
+            found.push({ file: source.file, program, command: candidate, unresolved: unresolvedReason });
         }
     }
     return found;
@@ -531,6 +566,9 @@ export function auditPublishAttestation(sources) {
         if (!attestationEnabled(invocation.command)) {
             return `${invocation.file}: a publish invocation does not enable ${ATTESTATION_FLAG}, so it would`
                 + ` publish an unattested artifact: ${renderCommand(invocation.command)}`;
+        }
+        if (invocation.unresolved !== undefined) {
+            return `${invocation.file}: cannot prove ${invocation.unresolved}; refusing an unresolved publish path: ${renderCommand(invocation.command)}`;
         }
         return null;
     }, {

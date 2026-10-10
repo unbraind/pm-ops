@@ -21,6 +21,8 @@ export interface PublishInvocation {
     program: string;
     /** The invocation's tokens, quoting resolved. */
     command: ShellCommand;
+    /** Why executable or argument indirection prevents proving effective provenance. */
+    unresolved?: string;
 }
 /** Publishers other than npm, which this repository has no attested path for. */
 export declare const FOREIGN_PUBLISHERS: Set<string>;

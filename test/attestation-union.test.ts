@@ -1372,11 +1372,11 @@ test("a spawning wrapper does not refuse a non-publisher, so releases are not bl
       `${name} should not be refused`,
     );
   }
-  // An attested publish reached through a spawning wrapper is still accepted:
-  // xargs npm publish --provenance carries the flag on the command line.
-  assert.deepEqual(
-    auditPublishAttestation([{ file: "release.yml", text: `${ATTESTED}\nxargs npm publish --provenance` }]).failures,
-    [],
-    "an attested publish behind a spawning wrapper is not refused",
+  // Input arguments can override the literal flag with --provenance=false.
+  // The spawning boundary therefore cannot prove effective provenance.
+  assert.equal(
+    auditPublishAttestation([{ file: "release.yml", text: `${ATTESTED}\nxargs npm publish --provenance` }]).failures.length,
+    1,
+    "unresolved spawning input must not borrow a literal attestation flag",
   );
 });

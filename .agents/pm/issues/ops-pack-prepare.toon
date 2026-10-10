@@ -1,0 +1,31 @@
+id: ops-pack-prepare
+title: Keep merge-driver prepare read-only during npm pack and publish
+description: "Canonical repair for GitHub issue #148. npm prepare during artifact creation must not register clone-local drivers. Companion owner: pm-cli-website-session-2026-10-10."
+type: Issue
+status: in_progress
+priority: 1
+tags: []
+created_at: "2026-10-10T02:41:50.499Z"
+updated_at: "2026-10-10T03:21:30.014Z"
+author: codex-sol
+acceptance_criteria: Real npm pack preserves git config bytes; install and ci still register; broken installations remain fail-closed; revert proof and packed consumer checks.
+repro_steps: Run npm pack on a disposable Git consumer using the shipped prepare template and an installed merge-driver entry; compare git config bytes before and after.
+expected_result: Artifact creation skips registration before resolution; install and ci continue registering clone-local drivers.
+actual_result: All three prepare hooks skip artifact-time registration. Real npm pack preserves config and held lock bytes; install/ci register and broken installation refuses. Three independent hook reverts each fail the regression. Full release gate and packed npm/Bun consumers pass.
+comments[3]{created_at,author,text}:
+  "2026-10-10T02:42:15.573Z",codex-sol,"Reproduce npm prepare under real pack with git config byte comparison; skip only npm_command pack/publish before package resolution; retain existing install/broken-package behavior. Cover canonical local hook too. Companion: pm-cli-website-session-2026-10-10."
+  "2026-10-10T03:02:50.665Z",codex-sol,"Independent implementation reverts: restoring only the template, only the local prepare hook, or only the exported prepare entry each caused test/pack-prepare.test.ts to fail (three separate nonzero runs); repaired bytes restored. Packed npm and native Bun consumers on SDK 2026.10.9 pass scratch creation, validation, strict merge-driver health, npm 11 pack and npm 10.9.4 pack --ignore-scripts with identical Git config bytes. Real install/ci registration remains tested. Initial full-gate fixture exposed inherited npm allow-scripts configuration; fixtures now isolate userconfig and remove only that project-specific parent setting."
+  "2026-10-10T03:21:05.726Z",codex-sol,"Final npm run accept:packed exits 0 on separate npm/Node and native Bun consumers: SDK 2026.10.9 create, validation, strict merge-driver health, actual activation and built auditor; npm 11 pack and npm 10.9.4 pack --ignore-scripts preserve Git config bytes. Tarball SHA-256 1d6b39113d187ae64d31d09477fe080f5dfdedc415f72c5fdc879dc5e64d52e6. Real regression also packs successfully with a held config lock and preserves lock contents; install/ci still register and broken installation refuses. Three independent hook reverts each fail that regression. Final release:check passes 496 tests, zero failures, two existing fleet skips. PM-linked pack test passes again; explicit receipts retained because tracking is disabled."
+files[5]{path,scope}:
+  merge-driver-prepare.ts,project
+  scripts/prepare-merge-driver.ts,project
+  templates/prepare-merge-driver.ts,project
+  test/pack-prepare.test.ts,project
+  test/packed-consumer.acceptance.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/pack-prepare.test.ts,project,codex-sol,"2026-10-10T02:51:09.579Z",local_mutation,fix/canonical-publication-consumer-guards
+  "npm run accept:packed",project,codex-sol,"2026-10-10T03:07:32.450Z",local_mutation,fix/canonical-publication-consumer-guards
+docs[2]{path,scope}:
+  docs/publication-repair.md,project
+  "https://github.com/unbraind/pm-ops/issues/148",project
+body: ""
