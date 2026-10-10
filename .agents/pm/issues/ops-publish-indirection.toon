@@ -6,13 +6,13 @@ status: in_progress
 priority: 0
 tags: []
 created_at: "2026-10-10T02:41:49.896Z"
-updated_at: "2026-10-10T08:06:50.066Z"
+updated_at: "2026-10-10T08:28:00.684Z"
 author: codex-sol
 acceptance_criteria: Real subprocess adversarial fixtures and independent revert proofs; reject unresolved executable indirection; preserve sanctioned workflow; full release and packed npm/Bun checks.
 repro_steps: Execute test/publish-indirection.test.ts against the prior attestation implementation; Bash/xargs inert publisher records show hidden publish calls behind an attested sibling.
 expected_result: Every unresolved executable publisher path is refused; direct sanctioned provenance workflows and provable bindings remain accepted.
 actual_result: "Renewed findings4236759848/9852/9854 repaired. Source c8e15db197f2834de9a0f3279224ce5cf0f9ed3f CI38033875668 passes Linux22/26 and nativeWindows22/26; CodeQL38033875790 passes. Actual npm/npx11.21.0 is asserted; accepted historical proof fails without the diagnostic and repaired source refuses missing objects clearly. Both old launcher source-only controls fail and restore; actual npm10.9.4 is refused before pack. Local release503/505 with2 unchanged opt-in skips and all23production four100, focused34/34, PM-linked3/3, compatibility6/6 and fresh npm/nativeBun packed consumers pass. Five high development findings,12 legacy completeness gaps, ambient extension-health skew and incomplete whole-internal docs/review remain. PM/evidence-only handoff follows; root verifies/closes."
-comments[32]:
+comments[39]:
   - created_at: "2026-10-10T02:42:14.991Z"
     author: codex-sol
     text: "Owner search found historical scalar/spawning-wrapper repairs but no owner for #149; this item owns canonical alias/function/indirect spawning repair. Plan: executable safe stubs prove real argv and audit refusal, then mutation restores only prior implementation to prove regression detection. Companion: pm-cli-website-session-2026-10-10. No workflow execution or publication authorized."
@@ -110,6 +110,27 @@ comments[32]:
   - created_at: "2026-10-10T08:06:49.584Z"
     author: codex-root-regex
     text: "Verified narrow performance fix: complete release:check507 total505 pass0 fail2 unchanged opt-in skips, all23 production sources four100; root independently compares Git/LCOV exact23 inventory and allDA/FNDA/BRDA counters positive. Runtime source fingerprints stayed frozen. Corrected46 focused cases pass; original2s-child timeout is genuine. Root independently reconfirms the separate unquoted nested parameter-substitution gap (zero audit failures) while quoted equivalent is detected; that semantic obligation remains open under this owner and is not repaired/certified by CodeQL16 fix. Fresh packed npm/native Bun results follow in final receipt."
+  - created_at: "2026-10-10T08:20:43.274Z"
+    author: codex-root-nested
+    text: "Continue verified semantic obligation: real Bash command substitutions inside unquoted parameter defaults execute publishers that tokenizer skipped. Root will extend the existing real Bash/inert registry corpus before repair, preserve quoted/single-quoted/escaped defaults, and examine nested arithmetic substitutions as an equivalent source-to-sink path. No registry calls or telemetry configuration changes; same current owner, no duplicate issue."
+  - created_at: "2026-10-10T08:23:55.458Z"
+    author: codex-root-nested
+    text: "Seven added real Bash/inert registry cases genuinely execute the hidden publisher and fail the original scanner audit assertions (parameter defaults, backticks, nested defaults, quoted braces and three arithmetic contexts). Initial arithmetic operand-prefix prototype changes the existing public token-shape contract and is rejected by its old regression. Candidate now retains internal arithmetic mode and returns only actually nested commands, preserving outer operand tokens; parameter-body quote/escape tracking finds actual substitutions and excludes single-quoted/escaped literals. Focused134 parser/attestation controls are being verified before independent candidate review; no complete gate claimed for this revision."
+  - created_at: "2026-10-10T08:24:33.990Z"
+    author: codex-nested-reviewer
+    text: "Independent read-only review started from tokenizer source, public types, direct attestation callers, and focused real-Bash controls. Scope: nested parameter/arithmetic publisher enumeration, return shape, recursion and compatibility boundaries. No predecessor rationale used."
+  - created_at: "2026-10-10T08:27:56.897Z"
+    author: codex-nested-reviewer
+    text: "Independent source invariant: every potentially executed publisher must be enumerated with its own argument evidence; an attested sibling cannot attest a hidden publisher. Literal single-quoted and escaped substitutions must remain data. Arithmetic operands must contribute only nested executable substitutions. Direct callers at attestation.ts:336,458,476,489 and shell-scan.ts:1274,1863 consume the flat ShellCommand[]; nested execution scope is not represented."
+  - created_at: "2026-10-10T08:27:57.799Z"
+    author: codex-nested-reviewer
+    text: "Confirmed surviving bypass (pre-existing, still present): with X unset and an attested sibling, echo ${X:-`printf %s \\`npm publish; printf 0\\``} executes an additional unattested publisher in real Bash -e, exits 0, and auditPublishAttestation returns zero failures. Equivalent echo $((1 + `printf %s \\`npm publish; printf 0\\``)), its double-quoted form, and parameter-wrapped arithmetic all reproduce. shell-scan.ts:244 closes backticks at the first escaped delimiter; nested enumeration retains printf but omits npm. Baseline and candidate both return zero failures. This is an in-scope surviving nested-form bypass, not a new regression."
+  - created_at: "2026-10-10T08:27:58.663Z"
+    author: codex-nested-reviewer
+    text: "Confirmed candidate regression through direct callers: FLAG=--provenance; then on separate lines echo ${X:-$(unset FLAG)}; npm publish $FLAG. Real Bash -e exits 0 and invokes npm publish --provenance because command substitution cannot unset the parent binding. Candidate refuses the final invocation as unresolved; baseline accepts. Arithmetic echo $((1 + $(unset FLAG;printf 0))) reproduces the same baseline-pass/candidate-fail result. attestation.ts:476 applies unsetNames from all newly enumerated nested commands to the parent scope; shellScalarsByLine at shell-scan.ts:1863 likewise deletes the parent binding. Flat enumeration needs scope-aware consumption or equivalent protection."
+  - created_at: "2026-10-10T08:27:59.363Z"
+    author: codex-nested-reviewer
+    text: "Independent verification: node --test test/publish-indirection.test.ts passed 41/41; linked node --test test/publish-indirection.test.ts test/shell-command-scan.test.ts passed 53/53. PM test --run --progress also executed the item existing linked focused commands; all six passed (includes pack-prepare and windows-proof-history). Focused real-Bash controls covered quoted/unquoted/single-quoted/escaped/backtick/nested parameter and arithmetic forms, plus attested nested publishers. In-memory baseline differential confirmed changed rejects and both findings. ShellCommand[] token keys/types, literal snapshots, outer-first order, function length 1, and optional depth behavior remain compatible; source adds optional arithmetic boolean, dist declaration is unchanged until root build. Depth >8 still returns [], so bounded enumeration is not complete beyond that inherited cap. Existing hostile suffix deadline test passed. PM test result tracking is disabled; outcomes are documented here. Source/test files remained read-only and unstaged; root owns final verification and disclosure."
 files[10]:
   - path: .github/workflows/ci.yml
     scope: project
@@ -133,7 +154,7 @@ files[10]:
     scope: project
   - path: test/windows-proof-history.test.ts
     scope: project
-tests[5]:
+tests[6]:
   - command: node --test test/publish-indirection.test.ts
     scope: project
     provenance:
@@ -168,6 +189,13 @@ tests[5]:
     provenance:
       author: codex-regex-reviewer
       created_at: "2026-10-10T07:58:09.481Z"
+      source_kind: local_mutation
+      source_ref: fix/canonical-publication-consumer-guards
+  - command: node --test test/publish-indirection.test.ts test/shell-command-scan.test.ts
+    scope: project
+    provenance:
+      author: codex-nested-reviewer
+      created_at: "2026-10-10T08:25:55.678Z"
       source_kind: local_mutation
       source_ref: fix/canonical-publication-consumer-guards
 docs[8]:
