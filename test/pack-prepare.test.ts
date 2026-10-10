@@ -3,13 +3,20 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import test from "node:test";
 
 const packageRoot = resolve(import.meta.dirname, "..");
 
 /** Execute real npm/git commands in a disposable consumer and require successful completion. */
 function execute(root: string, program: string, args: string[], env: NodeJS.ProcessEnv): string {
+  if (process.platform === "win32" && program === "npm") {
+    // Windows cannot spawn npm's cmd shim without a shell. The npm test
+    // runner supplies its actual CLI path, so Node can execute it directly.
+    assert.ok(env.npm_execpath, "Run this Windows fixture through the npm test runner");
+    args = [env.npm_execpath, ...args];
+    program = process.execPath;
+  }
   const result = spawnSync(program, args, { cwd: root, encoding: "utf8", env });
   assert.equal(result.status, 0, result.stderr + result.stdout);
   return result.stdout + result.stderr;
@@ -72,12 +79,16 @@ test("real npm pack never mutates git config and npm install/ci still run prepar
     // npm prunes extraneous dependencies, so its pm-ops entry is unnecessary.
     const bin = join(root, "bin");
     mkdirSync(bin);
-    writeFileSync(join(bin, "pm"), '#!/bin/sh\ngit config --local merge.fixture.driver "pm merge driver"\n');
-    chmodSync(join(bin, "pm"), 0o755);
+    /** npm's lifecycle shell resolves the appropriate native launcher on each platform. */
+    const launcher = join(bin, process.platform === "win32" ? "pm.cmd" : "pm");
+    writeFileSync(launcher, process.platform === "win32"
+      ? '@echo off\r\ngit config --local merge.fixture.driver "pm merge driver"\r\n'
+      : '#!/bin/sh\ngit config --local merge.fixture.driver "pm merge driver"\n');
+    chmodSync(launcher, 0o755);
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "pack-prepare-fixture", version: "1.0.0", scripts: { prepare: `node ${JSON.stringify(join(packageRoot, "scripts/prepare-merge-driver.ts"))}` } }));
     for (const command of ["install", "ci"]) {
       execute(root, "git", ["config", "--local", "--unset", "merge.fixture.driver"], env);
-      execute(root, "npm", [command, "--no-audit", "--no-fund"], { ...env, PATH: `${bin}:${env.PATH}` });
+      execute(root, "npm", [command, "--no-audit", "--no-fund"], { ...env, PATH: `${bin}${delimiter}${env.PATH}` });
       assert.match(execute(root, "git", ["config", "--local", "--get", "merge.fixture.driver"], env), /pm merge driver/);
     }
   } finally {

@@ -74,7 +74,7 @@ export interface PublishInvocation {
 
 /** Literal npm verbs whose unknown operands cannot turn them into a publish. */
 const NON_PUBLISH_VERBS = new Set([
-  "add", "audit", "ci", "config", "install", "ls", "pack", "pkg", "run", "test", "version", "view",
+  "add", "audit", "ci", "config", "install", "ls", "pack", "ping", "pkg", "run", "test", "version", "view", "whoami",
 ]);
 
 /** Publishers other than npm, which this repository has no attested path for. */

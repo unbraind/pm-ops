@@ -70,6 +70,7 @@ test("sanctioned literal bindings and non-publishing shell commands remain accep
     'FLAGS=(--provenance --access public)\nnpm publish "${FLAGS[@]}"',
     'deploy() { npm publish --provenance; }\ndeploy',
     'npm ci\nnpm view "$PACKAGE" version\nprintf "%s" "alias deploy=npm"\nprintf "%s\\n" main | xargs git checkout',
+    'npm whoami --registry "$REGISTRY"\nnpm ping --registry "$REGISTRY"',
     'echo "npm $@"\n# alias deploy="npm publish"',
   ]) {
     const script = `npm publish --provenance\n${body}`;

@@ -40,6 +40,8 @@ function run(cwd: string, program: string, args: string[], extra: NodeJS.Process
 }
 
 try {
+  assert.match(run(source, "npm", ["--version"]).trim(), /^11\./,
+    "npm 11 pack acceptance requires an independently verified npm 11 executable");
   run(source, "npm", ["pack", "--pack-destination", root]);
   const archives = readdirSync(root).filter((name) => name.endsWith(".tgz"));
   assert.equal(archives.length, 1);

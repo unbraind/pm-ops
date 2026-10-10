@@ -13,6 +13,20 @@ prove the result when later arguments can disable it.
 
 ## Behavioral evidence
 
+The current review correction additionally permits read-only `npm whoami` and
+`npm ping` with unresolved registry operands. The prior auditor rejects the real
+regression; unknown verbs remain fail-closed. The pack/install fixture uses a
+Windows cmd launcher and native PATH delimiter, invoking npm's installed CLI
+through Node on Windows. Native Windows execution of this fixture remains
+unverified locally. Packed acceptance verifies the ambient npm major before
+claiming an npm 11 pack receipt; an actual npm 10.9.4 executable is rejected
+before packing. These fixes address comments 4236402851, 4236402857 and 4236402861.
+
+The unchanged complete release gate passes 496 tests with two pre-existing opt-in
+skips and all four 100% coverage metrics over 23 authored runtime/tool/template
+files. The final focused corpus/pack run passes 27 tests and typechecking. Fresh
+packed npm/Node and native Bun consumers pass with the new npm-major proof.
+
 - `node --test test/publish-indirection.test.ts test/pack-prepare.test.ts`:
   27 passed, zero failures/skips. Twenty-three Bash/xargs subprocess cases retain
   real expansion and forwarding while an inert publisher records its arguments.
