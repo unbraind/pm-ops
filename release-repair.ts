@@ -214,20 +214,25 @@ export function repairReleaseCompleteness(root: string, fetcher: CompletenessFet
     for (const plan of plans) {
       let remote = client.remoteTag(root, plan.tag);
       if (remote === null) {
+        // Report a repair only for a create call that succeeded; an accepted pre-existing or lost-response result is named as such.
+        let created = true;
         try { client.createTag(slug, plan.tag, plan.commit); }
         catch (error) {
+          created = false;
           if (client.remoteTag(root, plan.tag) !== plan.commit) throw error;
         }
         remote = client.remoteTag(root, plan.tag);
-        notes.push(`repaired tag ${plan.tag}`);
+        notes.push(created ? `repaired tag ${plan.tag}` : `tag ${plan.tag} confirmed at the planned commit after a failed create call`);
       }
       if (remote !== plan.commit) throw new Error(`remote tag changed for ${plan.tag}`);
       if (!fetcher.githubReleaseForTag(slug, plan.tag)) {
+        let created = true;
         try { client.createRelease(slug, plan.tag, plan.notes); }
         catch (error) {
+          created = false;
           if (!fetcher.githubReleaseForTag(slug, plan.tag)) throw error;
         }
-        notes.push(`repaired GitHub Release ${plan.tag}`);
+        notes.push(created ? `repaired GitHub Release ${plan.tag}` : `GitHub Release ${plan.tag} confirmed present after a failed create call`);
       }
     }
     const finalTags = [...new Set([...tags, ...candidates.filter((tag) => client.remoteTag(root, tag) !== null)])];

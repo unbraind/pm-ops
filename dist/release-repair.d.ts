@@ -28,6 +28,30 @@ export interface RepairClient {
     /** Create only a missing release with committed changelog notes. */
     createRelease(slug: string, tag: string, notes: string): void;
 }
+/** The subset of a verified SLSA v1 statement used to bind the source commit. */
+export interface ProvenanceStatement {
+    /** Provenance schema discriminator. */
+    predicateType: string;
+    /** Signed build definition with source dependencies. */
+    predicate: {
+        buildDefinition: {
+            /** The signed workflow invocation; only the approved release workflow on main may authorize repair. */
+            externalParameters?: {
+                workflow?: {
+                    path?: string;
+                    ref?: string;
+                    repository?: string;
+                };
+            };
+            resolvedDependencies: {
+                uri: string;
+                digest: {
+                    gitCommit: string;
+                };
+            }[];
+        };
+    };
+}
 /**
  * Extract a unique source identity from npm's successful signature-audit output.
  * Raw registry metadata or a merely present attestation is never sufficient.

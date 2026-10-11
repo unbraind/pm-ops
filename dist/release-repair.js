@@ -7,6 +7,10 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { auditReleaseCompleteness, defaultExec, isReleaseTag, npmVersionToTag, repoSlugFromUrl, repositoryUrl, tagToNpmVersion, } from "./release-completeness.js";
+/** The only workflow file whose npm provenance may authorize tag and release repair. */
+const RELEASE_WORKFLOW_PATH = ".github/workflows/release.yml";
+/** The only ref whose release builds may authorize repair. */
+const RELEASE_WORKFLOW_REF = "refs/heads/main";
 /**
  * Extract a unique source identity from npm's successful signature-audit output.
  * Raw registry metadata or a merely present attestation is never sufficient.
@@ -26,11 +30,18 @@ export function evidenceFromAudit(name, version, gitHead, output) {
         const statement = JSON.parse(Buffer.from(attestation.bundle.dsseEnvelope.payload, "base64").toString("utf8"));
         if (statement.predicateType !== attestation.predicateType)
             throw new Error("provenance schema mismatch");
+        const workflow = statement.predicate.buildDefinition.externalParameters?.workflow;
+        if (workflow?.path !== RELEASE_WORKFLOW_PATH || workflow.ref !== RELEASE_WORKFLOW_REF || typeof workflow.repository !== "string") {
+            throw new Error("provenance was not built by the approved release workflow and ref");
+        }
+        const workflowRepository = repoSlugFromUrl(workflow.repository);
         for (const dependency of statement.predicate.buildDefinition.resolvedDependencies) {
             const repository = repoSlugFromUrl(dependency.uri.replace(/^git\+/, "").split("@")[0]);
             const commit = dependency.digest.gitCommit;
             if (!repository || !/^[a-f0-9]{40}$/.test(commit))
                 throw new Error("unrecognized signed source identity");
+            if (repository !== workflowRepository)
+                throw new Error("signed workflow repository differs from the signed source repository");
             sources.push({ repository, commit });
         }
     }
@@ -159,27 +170,32 @@ export function repairReleaseCompleteness(root, fetcher, client) {
         for (const plan of plans) {
             let remote = client.remoteTag(root, plan.tag);
             if (remote === null) {
+                // Report a repair only for a create call that succeeded; an accepted pre-existing or lost-response result is named as such.
+                let created = true;
                 try {
                     client.createTag(slug, plan.tag, plan.commit);
                 }
                 catch (error) {
+                    created = false;
                     if (client.remoteTag(root, plan.tag) !== plan.commit)
                         throw error;
                 }
                 remote = client.remoteTag(root, plan.tag);
-                notes.push(`repaired tag ${plan.tag}`);
+                notes.push(created ? `repaired tag ${plan.tag}` : `tag ${plan.tag} confirmed at the planned commit after a failed create call`);
             }
             if (remote !== plan.commit)
                 throw new Error(`remote tag changed for ${plan.tag}`);
             if (!fetcher.githubReleaseForTag(slug, plan.tag)) {
+                let created = true;
                 try {
                     client.createRelease(slug, plan.tag, plan.notes);
                 }
                 catch (error) {
+                    created = false;
                     if (!fetcher.githubReleaseForTag(slug, plan.tag))
                         throw error;
                 }
-                notes.push(`repaired GitHub Release ${plan.tag}`);
+                notes.push(created ? `repaired GitHub Release ${plan.tag}` : `GitHub Release ${plan.tag} confirmed present after a failed create call`);
             }
         }
         const finalTags = [...new Set([...tags, ...candidates.filter((tag) => client.remoteTag(root, tag) !== null)])];

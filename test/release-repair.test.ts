@@ -172,6 +172,12 @@ test("uncertain tag and release writes reconcile only proven matching state", as
       f.client.createRelease = (...args) => { if (succeeds) createRelease(...args); throw new Error("lost release response"); };
       const result = repairReleaseCompleteness(f.cwd, f.fetcher, f.client);
       assert.equal(result.failures.length, succeeds ? 0 : 1);
+      // A failed create call is never reported as a repair this run made.
+      assert.ok(!result.notes.some((note) => note.startsWith("repaired ")), result.notes.join("; "));
+      if (succeeds) {
+        assert.ok(result.notes.includes(`tag ${tag} confirmed at the planned commit after a failed create call`), result.notes.join("; "));
+        assert.ok(result.notes.includes(`GitHub Release ${tag} confirmed present after a failed create call`), result.notes.join("; "));
+      }
     } finally { f.cleanup(); }
   }
   const f = await fixture();
