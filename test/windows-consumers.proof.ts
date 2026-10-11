@@ -1,15 +1,13 @@
 /** Native Windows real-consumer controls: independently revert each launcher and refuse npm 10. */
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { npmLauncher } from "./npm-launcher.ts";
+import { historicalExecute, historicalRun } from "./historical-launchers.ts";
+import { replaceFunction } from "./function-control.ts";
 
-const historicalCommit = "ea29cb425a72b6729d24b00df4573e8c092c7cfa";
-const historical = spawnSync("git", ["cat-file", "-e", `${historicalCommit}^{commit}`], { encoding: "utf8" });
-assert.equal(historical.status, 0,
-  `Historical source-only proof commit ${historicalCommit} is unavailable; fetch full branch history (fetch-depth: 0) before rerunning; no historical proof was skipped`);
 assert.equal(process.platform, "win32", "These controls require native Windows");
 const env: NodeJS.ProcessEnv = { ...process.env, PATH: process.env.PATH };
 delete env.npm_execpath;
@@ -26,7 +24,8 @@ for (const program of ["npm", "npx"] as const) {
 for (const file of ["test/pack-prepare.test.ts", "test/packed-consumer.acceptance.ts"]) {
   const repaired = readFileSync(file);
   try {
-    writeFileSync(file, execFileSync("git", ["show", `${historicalCommit}:${file}`]));
+    writeFileSync(file, replaceFunction(repaired.toString("utf8"), file.endsWith(".test.ts") ? "execute" : "run",
+      file.endsWith(".test.ts") ? historicalExecute : historicalRun));
     const result = spawnSync(process.execPath, file.endsWith(".test.ts") ? ["--test", file] : [file], {
       env, encoding: "utf8", timeout: 180_000,
     });

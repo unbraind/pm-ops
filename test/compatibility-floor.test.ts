@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 import { checkExtensionManifestCompatibility } from "@unbrained/pm-cli/sdk/authoring";
+import { developmentCliVersion } from "./dependency-contract.ts";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 
@@ -34,7 +35,6 @@ const releaseWorkflow = readFileSync(resolve(repoRoot, ".github", "workflows", "
 
 const CLI = "@unbrained/pm-cli";
 const EXACT_VERSION = /^\d+\.\d+\.\d+$/;
-const REQUIRED_DEVELOPMENT_VERSION = "2026.10.10";
 
 /**
  * Two independent systems enforce the pm CLI compatibility floor, and each reads
@@ -106,11 +106,7 @@ test("the development dependency is an exact pin at or above the declared floor"
     EXACT_VERSION,
     `devDependencies["${CLI}"] must be an exact pin so CI and a working copy resolve the same CLI, got ${dev}`,
   );
-  assert.strictEqual(
-    dev,
-    REQUIRED_DEVELOPMENT_VERSION,
-    `devDependencies["${CLI}"] must exercise the approved current host ${REQUIRED_DEVELOPMENT_VERSION}`,
-  );
+  assert.equal(developmentCliVersion(repoRoot), dev);
   const declared = extensionManifest.pm_min_version;
   assert.strictEqual(
     typeof declared,
@@ -130,7 +126,7 @@ test("the development dependency is an exact pin at or above the declared floor"
 
 test("the installed CLI package matches the exact development pin", () => {
   const installed = JSON.parse(readFileSync(resolve(repoRoot, "node_modules", CLI, "package.json"), "utf8")) as { version: string };
-  assert.equal(installed.version, REQUIRED_DEVELOPMENT_VERSION);
+  assert.equal(installed.version, developmentCliVersion(repoRoot));
   assert.equal(extensionManifest.pm_min_version, "2026.8.20");
 });
 

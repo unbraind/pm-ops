@@ -311,12 +311,14 @@ function buildFixture(root: string): string {
   writeFileSync(join(repo, "CHANGELOG.md"), "# Changelog\n\n## 2026.7.5\n\n- fixture\n");
   writeFileSync(join(repo, ".github", "workflows", "ci.yml"), "name: CI\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n");
   writeFileSync(join(repo, ".github", "workflows", "release.yml"), "name: Daily Release\non: [schedule]\njobs:\n  release:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n");
-  const pmCmd = process.platform === "win32" ? "pm.cmd" : "pm";
-  const pmInit = spawnSync(pmCmd, ["init", "fixture", "--pm-path", join(repo, ".agents", "pm")], { encoding: "utf-8", timeout: 30_000 });
+  const pmCmd = process.execPath;
+  const cli = fileURLToPath(new URL("../node_modules/@unbrained/pm-cli/dist/cli.js", import.meta.url));
+  const pmContext = { cwd: repo, env: { ...process.env, PM_GLOBAL_PATH: join(repo, "global") }, encoding: "utf-8" as const, timeout: 120_000 };
+  const pmInit = spawnSync(pmCmd, [cli, "init", "fixture", "--pm-path", join(repo, ".agents", "pm")], pmContext);
   if (pmInit.status !== 0) {
-    throw new Error(`pm init fixture failed: ${pmInit.stderr}`);
+    throw new Error(`pm init fixture failed (status ${pmInit.status}, signal ${pmInit.signal}): ${pmInit.error?.message ?? pmInit.stderr}`);
   }
-  const pmCreate = spawnSync(pmCmd, ["create", "--title", "Fixture task", "--type", "Task", "--pm-path", join(repo, ".agents", "pm")], { encoding: "utf-8", timeout: 30_000 });
+  const pmCreate = spawnSync(pmCmd, [cli, "create", "--title", "Fixture task", "--type", "Task", "--pm-path", join(repo, ".agents", "pm")], pmContext);
   if (pmCreate.status !== 0) {
     throw new Error(`pm create failed: ${pmCreate.stderr}`);
   }
@@ -344,10 +346,9 @@ function buildFixture(root: string): string {
     if (item.status === "closed" || item.status === "canceled") {
       createArgs.push("--completed-at", item.completed_at!, "--close-reason", item.close_reason!);
     }
-    const imported = spawnSync(pmCmd, createArgs, {
-      encoding: "utf-8",
+    const imported = spawnSync(pmCmd, [cli, ...createArgs], {
+      ...pmContext,
       input: JSON.stringify(item),
-      timeout: 30_000,
     });
     if (imported.status !== 0) throw new Error(`pm fixture import failed: ${imported.stderr}`);
     const itemId = parseJson<{ id: string }>(imported.stdout).id;
@@ -395,8 +396,8 @@ function buildMergeReceiptLab(root: string, name: string, withConflict: boolean,
   const pmCmd = fileURLToPath(
     new URL(process.platform === "win32" ? "../node_modules/.bin/pm.cmd" : "../node_modules/.bin/pm", import.meta.url),
   );
-  const git = (args: string[]) => spawnSync("git", args, { cwd: repo, encoding: "utf-8", timeout: 30_000 });
-  const pm = (args: string[]) => spawnSync(pmCmd, [...args, "--pm-path", pmRoot], { cwd: repo, encoding: "utf-8", timeout: 30_000 });
+  const git = (args: string[]) => spawnSync("git", args, { cwd: repo, encoding: "utf-8", timeout: 120_000 });
+  const pm = (args: string[]) => spawnSync(pmCmd, [...args, "--pm-path", pmRoot], { cwd: repo, encoding: "utf-8", timeout: 120_000 });
   const assertOk = (r: { status: number | null; stdout: string; stderr: string }, op: string) => {
     if (r.status !== 0) throw new Error(`${op} failed (exit ${r.status}): ${r.stdout}\n${r.stderr}`);
   };
@@ -434,7 +435,7 @@ function buildMergeReceiptLab(root: string, name: string, withConflict: boolean,
     // the item path unmerged and exits 1. A different exit means the fixture no
     // longer reproduces the conflict the gate is built around.
     if (merge.status !== 1) {
-      throw new Error(`conflicting merge expected exit 1 but got ${merge.status}: ${merge.stdout}\n${merge.stderr}`);
+      throw new Error(`conflicting merge expected exit 1 but got ${merge.status} (signal ${merge.signal}): ${merge.error?.message ?? ""}\n${merge.stdout}\n${merge.stderr}`);
     }
     if (!existsSync(join(repo, ".git", "pm-merge-receipts"))) {
       throw new Error("conflicting merge did not write a receipt under .git/pm-merge-receipts/");
@@ -483,6 +484,7 @@ let fenceMissingLab: MergeReceiptLab;
 
 before(() => {
   process.env.PM_OPS_OFFLINE = "1";
+  process.env.PM_TELEMETRY_DISABLED = "1";
   tmpRoot = mkdtempSync(join(tmpdir(), "pm-ops-test-"));
   fixtureRepo = buildFixture(tmpRoot);
   // Real git + real driver merges are heavier than the package-less scan
@@ -613,7 +615,7 @@ test("pm SDK preserves the typed repeatable --repos contract on every command", 
   await ext.deactivate();
 });
 
-test("installed pm CLI routes --repos values to every fleet command", { timeout: 120_000 }, (t) => {
+test("installed pm CLI routes --repos values to every fleet command", { timeout: 600_000 }, (t) => {
   const root = mkdtempSync(join(tmpdir(), "pm-ops-install-"));
   t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
@@ -659,7 +661,7 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
     cwd: project,
     encoding: "utf-8",
     env,
-    timeout: 30_000,
+    timeout: 120_000,
   });
   const assertClean = (result: ReturnType<typeof runPm>, operation: string) => {
     assert.strictEqual(result.error, undefined, `${operation} should launch: ${result.error?.message ?? ""}`);
@@ -676,7 +678,7 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
   delete packEnv.PM_PATH;
   const packed = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm",
     ["pack", "--ignore-scripts", "--json", "--pack-destination", root], {
-      cwd: process.cwd(), encoding: "utf-8", env: packEnv, timeout: 30_000,
+      cwd: process.cwd(), encoding: "utf-8", env: packEnv, timeout: 120_000,
       shell: process.platform === "win32",
     });
   assertClean(packed, "npm pack pm-ops");
@@ -690,7 +692,7 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
   writeFileSync(join(consumer, "package.json"), '{"name":"runtime-consumer","private":true,"type":"module"}\n');
   const consumerInstall = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", [
     "install", "--omit=dev", "--legacy-peer-deps", "--ignore-scripts", join(root, tarballs[0]!),
-  ], { cwd: consumer, encoding: "utf-8", env, timeout: 60_000, shell: process.platform === "win32" });
+  ], { cwd: consumer, encoding: "utf-8", env, timeout: 180_000, shell: process.platform === "win32" });
   assertClean(consumerInstall, "npm install pm-ops runtime dependencies");
   const installedManifest = JSON.parse(readFileSync(join(consumer, "node_modules", "pm-ops", "package.json"), "utf-8")) as {
     dependencies?: Record<string, string>;

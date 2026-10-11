@@ -8,18 +8,21 @@ import test from "node:test";
 import { auditPublishAttestation } from "../attestation.ts";
 import { shellScalars, tokenizeCommands } from "../shell-scan.ts";
 
-test("quoted expansion scanning stays bounded on hostile delimiter suffixes", /** Exercise actual malformed library input in a child with an unchanged parser deadline and exact token assertions. */ () => {
+test("quoted expansion scanning stays bounded on hostile delimiter suffixes", /** Enforce the same parser CPU budget and exact token assertions independently of child startup delays. */ () => {
   const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
     import assert from "node:assert/strict";
     import { tokenizeCommands } from "./shell-scan.ts";
+    const startedAt = process.cpuUsage();
     for (const payload of ["\u0024{" + "@".repeat(80000), "\u0024{".repeat(12000) + "@".repeat(20000), "\u0024{".repeat(12000)]) {
       const word = tokenizeCommands('echo "' + payload + '"')[0][1];
       assert.equal(word.value, payload);
       assert.equal(word.unresolved, true);
       assert.equal(word.multipleWords, undefined);
     }
-  `], { cwd: process.cwd(), encoding: "utf8", timeout: 2000 });
-  assert.equal(result.error, undefined, "real malformed shell input must complete within the isolated parser budget");
+    const used = process.cpuUsage(startedAt);
+    assert.ok((used.user + used.system) / 1000 < 2000, "malformed shell parsing exceeds its unchanged 2000ms CPU budget");
+  `], { cwd: process.cwd(), encoding: "utf8", timeout: 120_000 });
+  assert.equal(result.error, undefined, "real malformed shell input must complete within the bounded child lifetime");
   assert.equal(result.status, 0, result.stderr);
 });
 
