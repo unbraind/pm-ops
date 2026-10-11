@@ -132,7 +132,7 @@
     "fast-glob": "3.3.3",
     "jscpd": "5.4.0",
     "jscpd4": "npm:jscpd@4.3.0",
-    "pm-changelog": "2026.10.4"
+    "pm-changelog": "2026.10.5"
   },
   "keywords": [
     "pm-cli",
