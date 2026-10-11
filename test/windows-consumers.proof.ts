@@ -5,9 +5,13 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { npmLauncher } from "./npm-launcher.ts";
-import { historicalExecute, historicalRun } from "./historical-launchers.ts";
+import { historicalExecute, historicalRun } from "./fixtures/historical-windows-proof.ts";
 import { replaceFunction } from "./function-control.ts";
 
+const historicalCommit = "3fca1f2561719bdbf062160b652be1cbe907c51b";
+const historical = spawnSync("git", ["cat-file", "-e", `${historicalCommit}^{commit}`], { encoding: "utf8" });
+assert.equal(historical.status, 0,
+  `Historical source-only proof commit ${historicalCommit} is unavailable; fetch full branch history (fetch-depth: 0) before rerunning; no historical proof was skipped`);
 assert.equal(process.platform, "win32", "These controls require native Windows");
 const env: NodeJS.ProcessEnv = { ...process.env, PATH: process.env.PATH };
 delete env.npm_execpath;
