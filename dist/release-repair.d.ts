@@ -32,6 +32,13 @@ export interface RepairClient {
 export interface ProvenanceStatement {
     /** Provenance schema discriminator. */
     predicateType: string;
+    /** Signed artifacts; repair requires exactly the coordinate's npm tarball. */
+    subject?: {
+        name?: string;
+        digest?: {
+            sha512?: string;
+        };
+    }[];
     /** Signed build definition with source dependencies. */
     predicate: {
         buildDefinition: {
@@ -56,7 +63,7 @@ export interface ProvenanceStatement {
  * Extract a unique source identity from npm's successful signature-audit output.
  * Raw registry metadata or a merely present attestation is never sufficient.
  */
-export declare function evidenceFromAudit(name: string, version: string, gitHead: string, output: string): NpmEvidence;
+export declare function evidenceFromAudit(name: string, version: string, gitHead: string, output: string, integrity: string): NpmEvidence;
 /** Build the live adapter. All npm operations download/read; scripts are disabled. */
 export declare function makeRepairClient(exec?: RepairExecutor): RepairClient;
 /** Extract exactly one nonempty version section from an immutable changelog. */

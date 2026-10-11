@@ -295,6 +295,15 @@ test("live adapter constructs only conditional GitHub writes and read-only npm o
   assert.deepEqual(fetcher.npmVersions(name), []);
 });
 
+test("scoped packages bind the percent-encoded purl subject", () => {
+  const commit = "a".repeat(40);
+  const scoped = "@example/sample-package";
+  /** Rename the audited coordinate and its subject to the scoped package. */
+  const rename = (subject: string) => (f: typeof recorded) => { f.verified[0]!.name = scoped; f.statement.subject[0]!.name = subject; };
+  assert.equal(evidenceFromAudit(scoped, version, commit, auditOutput(commit, rename(`pkg:npm/%40example/sample-package@${version}`)), integrity).commit, commit);
+  assert.throws(() => evidenceFromAudit(scoped, version, commit, auditOutput(commit, rename(`pkg:npm/@example/sample-package@${version}`)), integrity), /provenance subject/);
+});
+
 test("adapter refuses bad coordinate, unreadable tags and cleans up failing process calls", () => {
   const commit = "a".repeat(40);
   assert.throws(() => makeRepairClient(() => "{}").npmEvidence(name, version), /coordinate mismatch/);
@@ -305,6 +314,12 @@ test("adapter refuses bad coordinate, unreadable tags and cleans up failing proc
     throw new Error("process failed");
   });
   assert.throws(() => failing.npmEvidence(name, version), /process failed/);
+  // Registry metadata without dist.integrity cannot satisfy the tarball-digest binding.
+  const withoutIntegrity = makeRepairClient((command, args) => {
+    if (command === "npm" && args[0] === "view") return JSON.stringify({ name, version, gitHead: commit });
+    return command === "npm" && args[0] === "audit" ? auditOutput(commit) : "";
+  });
+  assert.throws(() => withoutIntegrity.npmEvidence(name, version), /provenance subject/);
   assert.throws(() => failing.createRelease(slug, tag, "notes"), /process failed/);
   for (const directory of directories) assert.equal(existsSync(directory), false);
   assert.equal(makeRepairClient(() => "").remoteTag(".", tag), null);
