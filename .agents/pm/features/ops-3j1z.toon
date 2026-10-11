@@ -6,9 +6,13 @@ status: open
 priority: 2
 tags: []
 created_at: "2026-08-31T12:41:05.904Z"
-updated_at: "2026-08-31T12:41:06.996Z"
+updated_at: "2026-10-10T02:50:36.303Z"
 author: claude-orchestrator
 acceptance_criteria: "For each release tag with a published npm version and no GitHub Release, the release job creates the missing GitHub Release from that version's committed changelog section; the step is idempotent, so a run with nothing to repair makes no API writes; a tag with no published npm version is never given a GitHub Release, since that would assert a release that was never published; the repair is covered by hermetic tests with an injected client and no network"
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   ops-i8yp,blocked_by,"2026-08-31T12:41:06.966Z",claude-orchestrator,"cli:update:dep",detected
+comments[1]{created_at,author,text}:
+  "2026-10-10T02:50:31.421Z",codex-sol,"Independent read-only assessment of PR #150 at 0a04adfa2e507339ab90e0f0bf6a75b177c7173b: npm audit signatures is a real verification boundary, source/commit checks and preflight no-write behavior are sensible. Injected verified-audit fixtures show evidenceFromAudit accepts absent externalParameters.workflow and an unapproved workflow path/ref. This is parser-contract evidence, not a live signature bypass; source authorization requirements need explicit review. No branch modification or release write performed. CodeRabbit final-head review reports no actionable comments; Greptile only trial-ended bodies, Sourcery quota plus guide, Cubic neutral and no Gemini/Copilot receipts. CodeQL command-injection comments are option-shaped false positives mitigated by release-tag validation; prior regex finding was fixed and regression tested. Green CI is not complete review approval. Companion: pm-cli-website-session-2026-10-10."
+docs[1]{path,scope}:
+  "https://github.com/unbraind/pm-ops/pull/150",project
 body: ""

@@ -298,7 +298,9 @@ canonical implementation.
 
 Consumers copy [`templates/prepare-merge-driver.ts`](templates/prepare-merge-driver.ts) unchanged to
 `scripts/prepare-merge-driver.ts` and set `"prepare": "node scripts/prepare-merge-driver.ts"`. The
-template imports **nothing** from pm-ops. pm-ops is a devDependency, so a checkout installed with
+template skips `npm pack` and `npm publish` before resolving the installer, with one notice,
+so artifact creation preserves clone-local Git configuration. `npm install`, `npm ci`,
+and direct invocation still register drivers. The template imports **nothing** from pm-ops. pm-ops is a devDependency, so a checkout installed with
 `npm install --omit=dev` (scripts enabled) does not have it, and a static
 `import … from "pm-ops/merge-driver"` would fail at module load, before any fallback could run.
 Dynamic `import()` is forbidden by the fleet lint gate. Instead the template resolves
@@ -319,7 +321,8 @@ those consumer layouts with a stub `pm` on PATH.
 - **present `pm` whose `pm merge install` fails**: non-zero exit with that command's output
 - **Windows**: honours quoted PATH entries and PATHEXT shims, and sets `shell: true` only on `win32` so `.cmd` launchers run; the POSIX path is never faked
 
-This repository's own `prepare` script is that launcher (with an `isMainInvocation` guard so the suite can import it). To (re)run manually: `npm run merge:install`.
+This repository's own `prepare` hook and exported executable entry apply the same artifact-time guard.
+The local hook also keeps an `isMainInvocation` guard so the suite can import it. To (re)run manually: `npm run merge:install`.
 ## Canonical code-quality exports
 
 The package publishes one strict ESLint flat-config factory and one
@@ -443,3 +446,29 @@ itself lists each affected stream in its output; `pm history --verify <id>` spot
 content, so `reconcile` only re-greens the hash chain (no data loss) — see the authoritative
 [pm-cli merge-safety guide](https://github.com/unbraind/pm-cli/blob/main/docs/MERGE_SAFETY.md). The
 older blunt `pm history-repair --all` remains available as a lower-level primitive.
+
+### Publish indirection boundary
+
+The canonical attestation auditor refuses executable shell aliases, unresolved publisher
+subcommands and forwarded arguments. Input from `xargs` or `parallel` can append
+`--provenance=false`, so a literal `--provenance` on the wrapper is insufficient.
+Unresolved executable expansion and quoted executable variables with multiword
+values are also refused.
+Use direct `npm publish --provenance`, provable literal scalar/array bindings,
+or functions containing a fully literal publish command. Ordinary npm reads,
+non-publisher spawning commands and displayed shell text remain supported.
+Parameter defaults, arithmetic operands and escaped nested backticks retain
+their executable children. Substitutions and standalone subshells are audited
+with independent state before parent expansion: a child unset cannot erase a
+parent flag, and a child cannot borrow parent or sibling provenance. Literal
+bindings made in the child can prove its flags; inherited child references,
+conditional array state, append and indexed mutations are conservatively
+unresolved. Enumeration retains the existing depth cap and is not a complete
+shell interpreter.
+The auditor is conservative: it does not execute tracked scripts or prove general
+shell programs safe. Alias use is refused even when an alias appears attested.
+
+`test/publish-indirection.test.ts` runs Bash and xargs against an inert publisher
+to preserve actual shell semantics; `test/pack-prepare.test.ts` compares real Git
+config bytes around npm pack and checks install/ci registration. Artifact-time
+refusal does not bypass broken-package guards during installation.

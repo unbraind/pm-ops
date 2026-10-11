@@ -260,6 +260,14 @@ test("a shared bash options array is expanded into each invocation that uses it"
   assert.equal(auditInvocations([{ file: ".github/workflows/release.yml", text: withoutFlag }]).failures.length, 1);
 });
 
+test("changelog arrays use the last whole-file declaration even after an invocation", () => {
+  const source = { file: "release.sh", text: [
+    "common=()", 'pm-changelog --release-version-from-package "${common[@]}"', `common=(${DATE_FLAG})`,
+  ].join("\n") };
+  assert.deepEqual(auditInvocations([source]).failures, []);
+  assert.equal(auditInvocations([{ ...source, text: source.text + "\ncommon=()" }]).failures.length, 1);
+});
+
 test("a backslash continuation is one logical command, not fragments", () => {
   const text = `pm-changelog \\\n  --release-version-from-package \\\n  ${DATE_FLAG}`;
   assert.equal(joinContinuations(text).split("\n").length, 1);
