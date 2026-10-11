@@ -1,0 +1,53 @@
+{
+  "name": "sample-package",
+  "version": "2026.8.28",
+  "gitHead": "COMMIT",
+  "invalid": [],
+  "verified": [
+    {
+      "name": "sample-package",
+      "version": "2026.8.28",
+      "registry": "https://registry.npmjs.org/",
+      "attestationBundles": [
+        {
+          "predicateType": "https://slsa.dev/provenance/v1",
+          "bundle": {
+            "dsseEnvelope": {
+              "payload": "PAYLOAD"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "statement": {
+    "predicateType": "https://slsa.dev/provenance/v1",
+    "subject": [
+      {
+        "name": "pkg:npm/sample-package@2026.8.28",
+        "digest": {
+          "sha512": "2a4e8ec5b5398b4659c1a3646b344f86d3c031ab197d28d778bd0262e9db5cc768d6b2e87c1c99fb39993871cb906aabacec9e6a52dfbbeeade21eac1c985202"
+        }
+      }
+    ],
+    "predicate": {
+      "buildDefinition": {
+        "externalParameters": {
+          "workflow": {
+            "ref": "refs/heads/main",
+            "repository": "https://github.com/example/sample-package",
+            "path": ".github/workflows/release.yml"
+          }
+        },
+        "resolvedDependencies": [
+          {
+            "uri": "git+https://github.com/example/sample-package@refs/heads/main",
+            "digest": {
+              "gitCommit": "COMMIT"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -932,10 +932,8 @@ jobs:
       # means the daily run reports the gap every day until it is repaired,
       # rather than only on days that happen to release.
       #
-      # This detects; it does not yet repair. Creating the missing GitHub
-      # Release for an already-tagged, already-published version is tracked
-      # separately, because it is a write path that deserves its own review
-      # rather than being folded into a change about detection.
+      # Explicit repair opt-in: only verified published versions can authorize
+      # missing refs/releases. The default CLI invocation remains report-only.
       - name: Audit release completeness
         if: always()
         # Without this the audit's `gh` calls abort with "To use GitHub CLI in a
@@ -948,4 +946,4 @@ jobs:
         # protected PR" - inside the noise.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: npm run verify:release-completeness
+        run: npm run verify:release-completeness -- --repair
