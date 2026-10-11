@@ -6,17 +6,16 @@ status: in_progress
 priority: 1
 tags: []
 created_at: "2026-10-11T06:12:11.492Z"
-updated_at: "2026-10-11T08:17:31.062Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-11T08:36:49.346Z"
 author: codex-agent
 parent: ops-hiee
 repro_steps: "Clone the feature branch into a fresh repository and run node --test test/windows-proof-history.test.ts; git show b89fd6f36adf91c9bfc784c7ab643d9ce9cb7eae:test/windows-consumers.proof.ts fails."
 expected_result: "Native proof controls and the missing-history diagnostic test run in a fresh clone using durable reachable history or reviewed committed fixtures, without skipped controls or weakened assertions."
 actual_result: "CI Linux suite: 597 tests, 594 passed, 1 failed, 2 optional skips. Both Windows jobs fail the same historical proof test before native consumer controls. Fresh clone selected test: 0 passed, 1 failed, 0 skipped."
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-10-11T08:16:31.940Z",codex-agent,"Confirmed root cause in CI run 38117928292 and a fresh single-branch clone: 1 test, 0 passed, 1 failed while loading b89fd6f proof source. Both checkout jobs already use fetch-depth: 0. Main 3fca1f2 has the same test; passing run 38122425892 includes c69400b, which independently replaces historical controls with frozen function strings. The feature merge did not introduce a separate checkout or test difference. Vendoring the complete pre-diagnostic proof preserves the explicit missing-history refusal test. Frozen old launcher functions preserve current consumer assertions; the availability guard names reachable main squash commit 3fca1f2. Preparing the same focused change in a separate main PR."
   "2026-10-11T08:16:57.359Z",codex-agent,"Behavioral revert proof: replacing only replaceFunction with a no-op while retaining the new tests yields 2 tests, 1 pass, 1 failure. Removing only the explicit missing-history assertion from the native proof yields 2 tests, 1 pass, 1 failure. Both changes were restored; node --test test/windows-proof-history.test.ts and pm test ops-kw02 --run --progress each pass 2/2 with zero failures or skips. Linked result tracking is disabled by existing configuration, so this comment records the receipt."
+  "2026-10-11T08:36:43.832Z",codex-agent,"Final feature-branch receipts: npm run release:check (Node 24), bun run release:check (Node 22 on PATH), and env HOME=$(mktemp -d) GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 npm run release:check (Node 22) all pass. Each suite reports 598 tests, 596 passed, 0 failed, 2 pre-existing optional fleet-data skips, 0 canceled/TODO; all 25 configured source files report 100/100/100/100. CI run 38124385545 passes Linux Node 22/26 and native Windows Node 22/26. Windows logs explicitly reject both source-only function reverts and actual npm 10.9.4 before packing. Both regression behavioral reverts fail 1/2 as expected; restored focused and PM-linked regressions pass 2/2. Separate main PR #156 also passes all four CI jobs. Result recording remains disabled by existing PM configuration; these comments preserve receipts. No new PM CLI/SDK defect was found."
 files[5]{path,scope}:
   test/fixtures/historical-windows-proof.md,project
   test/fixtures/historical-windows-proof.ts,project
@@ -25,7 +24,8 @@ files[5]{path,scope}:
   test/windows-proof-history.test.ts,project
 tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/windows-proof-history.test.ts,project,codex-agent,"2026-10-11T06:15:11.785Z",local_mutation,feat/release-triple-repair
-docs[2]{path,scope}:
+docs[3]{path,scope}:
   docs/publication-repair.md,project
+  "https://github.com/unbraind/pm-ops/pull/156",project
   test/fixtures/historical-windows-proof.md,project
 body: ""

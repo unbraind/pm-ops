@@ -6,14 +6,12 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-08-31T12:41:05.904Z"
-updated_at: "2026-10-11T08:17:33.035Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-11T08:36:47.144Z"
 author: claude-orchestrator
 acceptance_criteria: "For each release tag with a published npm version and no GitHub Release, the release job creates the missing GitHub Release from that version's committed changelog section; the step is idempotent, so a run with nothing to repair makes no API writes; a tag with no published npm version is never given a GitHub Release, since that would assert a release that was never published; the repair is covered by hermetic tests with an injected client and no network"
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   ops-i8yp,blocked_by,"2026-08-31T12:41:06.966Z",claude-orchestrator,"cli:update:dep",detected
-comments[18]{created_at,author,text}:
+comments[20]{created_at,author,text}:
   "2026-10-07T21:42:08.963Z",codex-sol,"Baseline acceptance: built package and compiled completeness verifier exercised with a real SDK-created scratch pm tracker and local git release tag v2026.08.28. Recorded npm inventory contains 2026.8.28 and GitHub has no release. Two successive audits both report the same missing GitHub Release and perform zero repairs. Plan: explicit --repair flag, verified npm provenance naming gitHead and repository, committed manifest/changelog checks, preflight all candidates before writes, conditional tag creation and idempotent release creation; never publish. Tests use recorded verification output, injected process boundary and local git repositories."
   "2026-10-07T21:47:24.750Z",codex-sol,"Implemented conservative preflight and conditional repair adapter, including verified npm signature-audit bundles rather than trusting dist.attestations presence. Daily workflow explicitly passes --repair after the current release; default invocation remains report-only. Recovery checks all incomplete candidates before writes and uses only immutable committed changelog sections. Repeated and concurrent recovery is exercised with local git remotes and real SDK-created trackers. npm signature audit is the cryptographic verification boundary; tests inject recorded command responses and never call write APIs."
   "2026-10-07T21:49:17.016Z",codex-sol,"Read-only recording from npm 11.17.0 for published pm-ops 2026.8.28 captured real verified bundles and caught the actual attestationBundles array shape. Added offline regression fixture. Historical registry gitHead differs from the signed source commit, so repair correctly refuses this coordinate instead of treating a valid signature as evidence of the release commit. This is covered by existing owner items ops-xf9a and ops-uizs; no duplicate or upstream issue filed."
@@ -32,6 +30,8 @@ comments[18]{created_at,author,text}:
   "2026-10-11T05:54:21.311Z",codex-agent,"Final maintenance receipt: the unchanged installed --repos acceptance passed in a focused retry (1/1, zero failures/skips/canceled/TODO; selected case about 110 seconds, total with setup about 292 seconds). This does not supersede the three failed full-gate receipts. The remainder of release:check passed independently: production audit zero vulnerabilities, dry-run pack 58 files with shasum e1f7fe3640f99ed4b1686bebe301987354cd3fe3, changelog consistency/date, 1 provenance-bearing publish invocation and all 8 canonical/installed lifecycle policies. Source comparisons preserve both reviewed repair behavior and main publisher/artifact-time behavior; dist rebuilt without differences. Trusted PM reconciliation preserved both main events with zero reverted fields, and new tracker/receipt content passed privacy checks. No new CLI defect was established; list-open is deprecated, initial context signals were rebuilt, and result recording is disabled by existing policy. Workflow authorization review, development audit owner ops-braces-audit and timing owner ops-gp0d remain open boundaries. Claim release and final scripted changelog regeneration follow; item remains in_progress for orchestrator verification. No push, PR merge, artifact release/tag, publication, upstream write or hosted change performed."
   "2026-10-11T06:15:51.014Z",codex-agent,"Pushed merged head 733202d and posted resolution receipt on PR #150. Fresh CI run 38116691747 exposes an inherited main-side failure unrelated to repair: a Windows proof regression reads b89fd6f36adf91c9bfc784c7ab643d9ce9cb7eae from development history absent in the fresh checkout. Linux Node 22: 597 tests, 594 passed, 1 failed, 2 optional skips; both Windows jobs fail the same test before native controls. A fresh single-branch clone reproduces 0 passed, 1 failed, 0 skipped; git cat-file confirms b89 is absent, although the canonical object cache contains it outside feature ancestry. Follow-up ops-kw02 owns portable historical proof evidence. Preserve main and reviewed repair behavior; keep this PR blocked rather than weakening or skipping the proof."
   "2026-10-11T08:12:48.690Z",codex-agent,"Investigating the sole CI failure after the main merge. Both CI checkout jobs already use fetch-depth: 0; the merged regression test reads proof source from a deleted squash-merged PR commit. Comparing the passing dependency branch and preparing durable frozen historical controls without changing thresholds or feature behavior."
+  "2026-10-11T08:26:55.685Z",codex-agent,"Proof repair commit 5276de5 passes all four CI jobs on Node 22/26 and native Windows consumers in run 38124385545. Linux suites report 598 tests: 596 passed, 0 failed, 2 pre-existing optional fleet-data skips; all 25 configured source files report 100/100/100/100. The local npm run release:check also passes with the same counts. The separate main fix is PR #156, commit 83cc5c0, run 38124425559: all four jobs pass; Linux has 579 tests, 577 passed, 0 failed, 2 optional skips. Bun and isolated Git identity gates are running. The successful comparison branch had its own frozen-control change; checkout depth and the merged test were otherwise identical to main. No release-repair behavior, threshold or timeout changed."
+  "2026-10-11T08:36:45.177Z",codex-agent,"CI repair is complete: npm, Bun and isolated Git identity release gates all pass at unchanged thresholds and timeouts (598 tests: 596 passed, 0 failed, 2 existing optional skips; 100/100/100/100 across 25 configured sources). The focused PM-linked regression passes 2/2; the existing repair suite remains covered by every complete gate. All four Linux/Windows CI jobs pass in run 38124385545. Main has the same squash-history defect and is fixed independently in PR #156. No reviewed release-repair behavior changed. Leaving both items in_progress and releasing claims for orchestrator verification."
 files[18]{path,scope}:
   .github/workflows/release.yml,project
   package-lock.json,project
@@ -51,8 +51,25 @@ files[18]{path,scope}:
   test/release-workflow.test.ts,project
   test/windows-consumers.proof.ts,project
   test/windows-proof-history.test.ts,project
-tests[1]{command,path,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
-  node --test test/release-repair.test.ts test/verify-release-completeness.test.ts,test/release-repair.test.ts,project,180,none,snapshot,codex-sol,"2026-10-07T21:55:23.120Z",local_mutation,feat/release-triple-repair
+tests[2]:
+  - command: node --test test/release-repair.test.ts test/verify-release-completeness.test.ts
+    path: test/release-repair.test.ts
+    scope: project
+    timeout_seconds: 180
+    pm_context_mode: none
+    workspace_context_mode: snapshot
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-07T21:55:23.120Z"
+      source_kind: local_mutation
+      source_ref: feat/release-triple-repair
+  - command: node --test test/windows-proof-history.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-11T08:26:46.715Z"
+      source_kind: local_mutation
+      source_ref: feat/release-triple-repair
 docs[5]{path,scope}:
   docs/publication-repair.md,project
   "https://github.com/unbraind/pm-ops/pull/150",project
