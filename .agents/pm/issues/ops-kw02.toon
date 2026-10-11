@@ -2,21 +2,30 @@ id: ops-kw02
 title: Make historical Windows proof evidence available in fresh clones
 description: "After merging reviewed repair PR #150 with main, CI run 38116691747 fails on Linux and Windows because test/windows-proof-history.test.ts loads test/windows-consumers.proof.ts from b89fd6f36adf91c9bfc784c7ab643d9ce9cb7eae, a development commit outside branch ancestry. The canonical object cache masks this failure. A fresh single-branch clone of #150 reproduces it. Preserve strict historical source-only proof refusal while replacing unavailable development-history dependencies with portable, provenance-linked evidence. This follow-up does not change reviewed repair behavior."
 type: Issue
-status: open
+status: in_progress
 priority: 1
 tags: []
 created_at: "2026-10-11T06:12:11.492Z"
-updated_at: "2026-10-11T06:15:13.512Z"
+updated_at: "2026-10-11T08:17:31.062Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 parent: ops-hiee
 repro_steps: "Clone the feature branch into a fresh repository and run node --test test/windows-proof-history.test.ts; git show b89fd6f36adf91c9bfc784c7ab643d9ce9cb7eae:test/windows-consumers.proof.ts fails."
 expected_result: "Native proof controls and the missing-history diagnostic test run in a fresh clone using durable reachable history or reviewed committed fixtures, without skipped controls or weakened assertions."
 actual_result: "CI Linux suite: 597 tests, 594 passed, 1 failed, 2 optional skips. Both Windows jobs fail the same historical proof test before native consumer controls. Fresh clone selected test: 0 passed, 1 failed, 0 skipped."
-files[2]{path,scope}:
+comments[2]{created_at,author,text}:
+  "2026-10-11T08:16:31.940Z",codex-agent,"Confirmed root cause in CI run 38117928292 and a fresh single-branch clone: 1 test, 0 passed, 1 failed while loading b89fd6f proof source. Both checkout jobs already use fetch-depth: 0. Main 3fca1f2 has the same test; passing run 38122425892 includes c69400b, which independently replaces historical controls with frozen function strings. The feature merge did not introduce a separate checkout or test difference. Vendoring the complete pre-diagnostic proof preserves the explicit missing-history refusal test. Frozen old launcher functions preserve current consumer assertions; the availability guard names reachable main squash commit 3fca1f2. Preparing the same focused change in a separate main PR."
+  "2026-10-11T08:16:57.359Z",codex-agent,"Behavioral revert proof: replacing only replaceFunction with a no-op while retaining the new tests yields 2 tests, 1 pass, 1 failure. Removing only the explicit missing-history assertion from the native proof yields 2 tests, 1 pass, 1 failure. Both changes were restored; node --test test/windows-proof-history.test.ts and pm test ops-kw02 --run --progress each pass 2/2 with zero failures or skips. Linked result tracking is disabled by existing configuration, so this comment records the receipt."
+files[5]{path,scope}:
+  test/fixtures/historical-windows-proof.md,project
+  test/fixtures/historical-windows-proof.ts,project
+  test/function-control.ts,project
   test/windows-consumers.proof.ts,project
   test/windows-proof-history.test.ts,project
 tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/windows-proof-history.test.ts,project,codex-agent,"2026-10-11T06:15:11.785Z",local_mutation,feat/release-triple-repair
-docs[1]{path,scope}:
+docs[2]{path,scope}:
   docs/publication-repair.md,project
+  test/fixtures/historical-windows-proof.md,project
 body: ""

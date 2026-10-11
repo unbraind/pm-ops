@@ -6,12 +6,14 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-08-31T12:41:05.904Z"
-updated_at: "2026-10-11T06:16:25.986Z"
+updated_at: "2026-10-11T08:17:33.035Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: claude-orchestrator
 acceptance_criteria: "For each release tag with a published npm version and no GitHub Release, the release job creates the missing GitHub Release from that version's committed changelog section; the step is idempotent, so a run with nothing to repair makes no API writes; a tag with no published npm version is never given a GitHub Release, since that would assert a release that was never published; the repair is covered by hermetic tests with an injected client and no network"
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   ops-i8yp,blocked_by,"2026-08-31T12:41:06.966Z",claude-orchestrator,"cli:update:dep",detected
-comments[17]{created_at,author,text}:
+comments[18]{created_at,author,text}:
   "2026-10-07T21:42:08.963Z",codex-sol,"Baseline acceptance: built package and compiled completeness verifier exercised with a real SDK-created scratch pm tracker and local git release tag v2026.08.28. Recorded npm inventory contains 2026.8.28 and GitHub has no release. Two successive audits both report the same missing GitHub Release and perform zero repairs. Plan: explicit --repair flag, verified npm provenance naming gitHead and repository, committed manifest/changelog checks, preflight all candidates before writes, conditional tag creation and idempotent release creation; never publish. Tests use recorded verification output, injected process boundary and local git repositories."
   "2026-10-07T21:47:24.750Z",codex-sol,"Implemented conservative preflight and conditional repair adapter, including verified npm signature-audit bundles rather than trusting dist.attestations presence. Daily workflow explicitly passes --repair after the current release; default invocation remains report-only. Recovery checks all incomplete candidates before writes and uses only immutable committed changelog sections. Repeated and concurrent recovery is exercised with local git remotes and real SDK-created trackers. npm signature audit is the cryptographic verification boundary; tests inject recorded command responses and never call write APIs."
   "2026-10-07T21:49:17.016Z",codex-sol,"Read-only recording from npm 11.17.0 for published pm-ops 2026.8.28 captured real verified bundles and caught the actual attestationBundles array shape. Added offline regression fixture. Historical registry gitHead differs from the signed source commit, so repair correctly refuses this coordinate instead of treating a valid signature as evidence of the release commit. This is covered by existing owner items ops-xf9a and ops-uizs; no duplicate or upstream issue filed."
@@ -29,25 +31,32 @@ comments[17]{created_at,author,text}:
   "2026-10-11T05:46:35.924Z",codex-agent,"Required full gate receipts: the normal npm run release:check failed with 597 tests, 512 passed, 83 failed, 2 optional fleet-data skips; Bun and the required isolated-HOME npm run each failed with 597 tests, 594 passed, 1 failed, 2 identical optional skips. All runs had 0 canceled/TODO. The latter two reported 100 percent statements/branches/functions/lines across all 25 configured source files; their only failure was the unchanged 30-second pm package install child in the packed --repos acceptance. Coverage reports are invalidated on failed runs as designed. Linked isolated-HOME acceptance passed 55/55 with zero skips and the unchanged 180-second linked timeout. The function-only revert proof loaded and failed three assertions, then restoration/rebuild passed. The installer owner ops-gp0d is enriched; an unchanged focused retry and the verifiers skipped by the failed chain are running. Full release gates remain red; no approval or publication readiness is claimed."
   "2026-10-11T05:54:21.311Z",codex-agent,"Final maintenance receipt: the unchanged installed --repos acceptance passed in a focused retry (1/1, zero failures/skips/canceled/TODO; selected case about 110 seconds, total with setup about 292 seconds). This does not supersede the three failed full-gate receipts. The remainder of release:check passed independently: production audit zero vulnerabilities, dry-run pack 58 files with shasum e1f7fe3640f99ed4b1686bebe301987354cd3fe3, changelog consistency/date, 1 provenance-bearing publish invocation and all 8 canonical/installed lifecycle policies. Source comparisons preserve both reviewed repair behavior and main publisher/artifact-time behavior; dist rebuilt without differences. Trusted PM reconciliation preserved both main events with zero reverted fields, and new tracker/receipt content passed privacy checks. No new CLI defect was established; list-open is deprecated, initial context signals were rebuilt, and result recording is disabled by existing policy. Workflow authorization review, development audit owner ops-braces-audit and timing owner ops-gp0d remain open boundaries. Claim release and final scripted changelog regeneration follow; item remains in_progress for orchestrator verification. No push, PR merge, artifact release/tag, publication, upstream write or hosted change performed."
   "2026-10-11T06:15:51.014Z",codex-agent,"Pushed merged head 733202d and posted resolution receipt on PR #150. Fresh CI run 38116691747 exposes an inherited main-side failure unrelated to repair: a Windows proof regression reads b89fd6f36adf91c9bfc784c7ab643d9ce9cb7eae from development history absent in the fresh checkout. Linux Node 22: 597 tests, 594 passed, 1 failed, 2 optional skips; both Windows jobs fail the same test before native controls. A fresh single-branch clone reproduces 0 passed, 1 failed, 0 skipped; git cat-file confirms b89 is absent, although the canonical object cache contains it outside feature ancestry. Follow-up ops-kw02 owns portable historical proof evidence. Preserve main and reviewed repair behavior; keep this PR blocked rather than weakening or skipping the proof."
-files[13]{path,scope}:
+  "2026-10-11T08:12:48.690Z",codex-agent,"Investigating the sole CI failure after the main merge. Both CI checkout jobs already use fetch-depth: 0; the merged regression test reads proof source from a deleted squash-merged PR commit. Comparing the passing dependency branch and preparing durable frozen historical controls without changing thresholds or feature behavior."
+files[18]{path,scope}:
   .github/workflows/release.yml,project
   package-lock.json,project
   package.json,project
   release-completeness.ts,project
   release-repair.ts,project
   scripts/verify-release-completeness.ts,project
+  test/fixtures/historical-windows-proof.md,project
+  test/fixtures/historical-windows-proof.ts,project
   test/fixtures/npm-signature-audit.json,project
   test/fixtures/README.md,project
   test/fixtures/release-provenance.json,project
+  test/function-control.ts,project
   test/pack-prepare.test.ts,project
   test/publish-indirection.test.ts,project
   test/release-repair.test.ts,project
   test/release-workflow.test.ts,project
+  test/windows-consumers.proof.ts,project
+  test/windows-proof-history.test.ts,project
 tests[1]{command,path,scope,timeout_seconds,pm_context_mode,workspace_context_mode,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/release-repair.test.ts test/verify-release-completeness.test.ts,test/release-repair.test.ts,project,180,none,snapshot,codex-sol,"2026-10-07T21:55:23.120Z",local_mutation,feat/release-triple-repair
-docs[4]{path,scope}:
+docs[5]{path,scope}:
   docs/publication-repair.md,project
   "https://github.com/unbraind/pm-ops/pull/150",project
   README.md,project
+  test/fixtures/historical-windows-proof.md,project
   test/fixtures/README.md,project
 body: ""
