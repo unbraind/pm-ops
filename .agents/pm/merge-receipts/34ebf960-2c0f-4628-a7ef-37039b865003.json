@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "id": "34ebf960-2c0f-4628-a7ef-37039b865003",
+  "item_path": ".agents/pm/features/ops-3j1z.toon",
+  "item_id": "ops-3j1z",
+  "requested_preference": "ours",
+  "requested_preference_applied": false,
+  "conflict_resolution": "latest_document_update",
+  "fields_from_theirs": [],
+  "union_fields": [
+    "comments",
+    "docs"
+  ],
+  "merged_field_hashes": {
+    "comments": "c15c0452bd04b525a8d8a15dff5246b0994651a9a5526ba6ac627505eec987e3",
+    "docs": "c9be3b6180cf9afccdd8ab42d0232477dd0db200c91419b6bf2a7ae4be4c2577"
+  },
+  "decisions": [],
+  "state": "reconciled",
+  "created_at": "2026-10-11T04:59:13.624Z",
+  "value_availability": "hash_only",
+  "value_policy": "bounded_non_sensitive_scalars_v1",
+  "reconciled_at": "2026-10-11T05:00:38.014Z"
+}
