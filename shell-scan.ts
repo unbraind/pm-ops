@@ -49,6 +49,8 @@ export interface ShellToken {
    * different security meaning in command position.
    */
   unresolved?: boolean;
+  /** True when unresolved expansion can produce multiple arguments despite some quoting. */
+  multipleWords?: true;
   /**
    * True when the word's FIRST character came from inside quotes.
    *
@@ -235,24 +237,39 @@ function isBraceBoundary(character: string | undefined): boolean {
  *
  * @param text - The full text being scanned.
  * @param start - Index of the character that opens the substitution.
+ * @param prefixLength - Opening width; standalone subshells use one character.
  * @returns The inner text and the index just past the closing delimiter.
  */
-function readSubstitution(text: string, start: number): { inner: string; end: number } {
+function readSubstitution(text: string, start: number, prefixLength = 2): { inner: string; end: number } {
   if (text[start] === "`") {
-    const close = text.indexOf("`", start + 1);
-    if (close === -1) return { inner: text.slice(start + 1), end: text.length };
-    return { inner: text.slice(start + 1, close), end: close + 1 };
+    /** Decoded child source, with precisely one backtick escape layer removed. */
+    let inner = "";
+    for (let index = start + 1; index < text.length; index += 1) {
+      /** Current source character and its possible escape operand. */
+      const character = text[index]!;
+      if (character === "`") return { inner, end: index + 1 };
+      /** Only shell-special backtick escapes are removed. */
+      const next = text[index + 1];
+      // Backtick evaluation removes one escape layer before parsing its body.
+      // An escaped delimiter therefore belongs to that child, not this close.
+      if (character === "\\" && (next === "`" || next === "$" || next === "\\" || next === "\n")) {
+        if (next !== "\n") inner += next;
+        index += 1;
+      } else inner += character;
+    }
+    return { inner, end: text.length };
   }
   // A parenthesis inside quotes is a literal, not a delimiter. Counting it
   // closes the substitution early and truncates the body, so
   // `$(echo ")" && npm publish)` loses the publish entirely.
   let depth = 1;
-  let index = start + 2;
+  let index = start + prefixLength;
   let single = false;
   let double = false;
   while (index < text.length && depth > 0) {
     const character = text[index]!;
     if (character === "\\") index += 2;
+    else if (character === "`" && !single) index = readSubstitution(text, index).end;
     else {
       // Quote state is bounded to one line. A workflow's prose carries
       // apostrophes -- "GitHub's", "workflow's" -- inside double-quoted
@@ -268,7 +285,21 @@ function readSubstitution(text: string, start: number): { inner: string; end: nu
       index += 1;
     }
   }
-  return { inner: text.slice(start + 2, index), end: index + 1 };
+  return { inner: text.slice(start + prefixLength, index), end: Math.min(index + 1, text.length) };
+}
+
+/** A lexical child region, before any parent binding is expanded. */
+interface ShellChildRegion {
+  /** First character of the opening delimiter. */
+  start: number;
+  /** First character after the closing delimiter, or end of truncated input. */
+  end: number;
+  /** Child source after the backtick escape layer is removed. */
+  text: string;
+  /** Arithmetic operands contain substitutions but are not shell commands. */
+  arithmetic: boolean;
+  /** Standalone subshells have no unresolved output word in their parent. */
+  subshell?: true;
 }
 
 /**
@@ -290,22 +321,40 @@ function readSubstitution(text: string, start: number): { inner: string; end: nu
  * @returns Every simple command found, outermost first.
  */
 export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
+  return scanShellCommands(text, depth, false);
+}
+
+/**
+ * Scan public tokens or collect lexical children without entering their scopes.
+ * Arithmetic mode suppresses operand commands while retaining executable children.
+ * The public entry retains its existing signature and token object contract.
+ */
+function scanShellCommands(text: string, depth: number, arithmetic: boolean, children?: ShellChildRegion[]): ShellCommand[] {
   if (depth > 8) return [];
   const commands: ShellCommand[] = [];
-  const nested: string[] = [];
+  /** Child extents collected in lexical order before outer-first recursion. */
+  const nested: ShellChildRegion[] = [];
   let command: ShellCommand = [];
   let value = "";
   let quoted = false;
   let unresolved = false;
+  let multipleWords = false;
   let startsQuoted = false;
   let started = false;
+  // Monotone delimiter caches make quoted parameter classification linear:
+  // each search resumes past its last match, including an absent end sentinel.
+  let parameterClose = -1;
+  let parameterAt = -1;
 
   const endWord = (): void => {
     if (!started) return;
-    command.push(unresolved ? { value, quoted, unresolved, startsQuoted } : { value, quoted, startsQuoted });
+    const token: ShellToken = unresolved ? { value, quoted, unresolved, startsQuoted } : { value, quoted, startsQuoted };
+    if (quoted && multipleWords) token.multipleWords = true;
+    command.push(token);
     value = "";
     quoted = false;
     unresolved = false;
+    multipleWords = false;
     startsQuoted = false;
     started = false;
   };
@@ -359,14 +408,28 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
         }
         if (inner === "`" || (inner === "$" && text[index + 1] === "(")) {
           const { inner: body, end } = readSubstitution(text, index);
-          // `$((...))` is arithmetic expansion, not a command substitution;
-          // its expression must not be recursively invented as a command.
-          if (inner === "`" || text[index + 2] !== "(") nested.push(body);
+          // Arithmetic text is an operand, while command substitutions inside
+          // it still execute. Retain that mode instead of inventing commands.
+          nested.push({ start: index, end, text: body, arithmetic: inner !== "`" && text[index + 2] === "(" });
           unresolved = true;
           index = end;
           continue;
         }
-        if (inner === "$") unresolved = true;
+        if (inner === "$") {
+          unresolved = true;
+          if (text[index + 1] === "@") multipleWords = true;
+          else if (text[index + 1] === "{") {
+            if (parameterClose < index + 2) {
+              const found = text.indexOf("}", index + 2);
+              parameterClose = found === -1 ? text.length : found;
+            }
+            if (parameterAt < index + 2) {
+              const found = text.indexOf("@", index + 2);
+              parameterAt = found === -1 ? text.length : found;
+            }
+            if (parameterClose < text.length && parameterAt < parameterClose) multipleWords = true;
+          }
+        }
         value += inner;
         index += 1;
       }
@@ -377,9 +440,10 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
     }
     if (character === "`" || (character === "$" && text[index + 1] === "(")) {
       const { inner, end } = readSubstitution(text, index);
-      // Arithmetic expansion has the same `$(` prefix but executes no command.
-      if (character === "`" || text[index + 2] !== "(") nested.push(inner);
+      // Preserve arithmetic operands while discovering actual nested commands.
+      nested.push({ start: index, end, text: inner, arithmetic: character !== "`" && text[index + 2] === "(" });
       unresolved = true;
+      multipleWords = true;
       index = end - 1;
       if (!started) startsQuoted = false;
       started = true;
@@ -391,27 +455,53 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
       // not shattered into `$`, a variable name, and a literal argument.
       let end = index + 2;
       let depth = 1;
+      /** Quotes local to the parameter word protect its literal delimiters. */
+      let parameterSingle = false;
+      /** Double-quoted default operands still permit executable substitutions. */
+      let parameterDouble = false;
       while (end < text.length && depth > 0) {
-        if (text[end] === "\\") end += 2;
+        /** Current parameter character before substitution-aware advancement. */
+        const parameter = text[end]!;
+        if (parameter === "\\" && !parameterSingle) end += 2;
+        else if (parameter === "'" && !parameterDouble) { parameterSingle = !parameterSingle; end += 1; }
+        else if (parameter === '"' && !parameterSingle) { parameterDouble = !parameterDouble; end += 1; }
+        else if (!parameterSingle && (parameter === "`" || (parameter === "$" && text[end + 1] === "("))) {
+          /** Consume a whole child before counting the parameter's own braces. */
+          const substitution = readSubstitution(text, end);
+          nested.push({ start: end, end: substitution.end, text: substitution.inner, arithmetic: parameter !== "`" && text[end + 2] === "(" });
+          end = substitution.end;
+        }
         else {
-          if (text[end] === "{") depth += 1;
-          else if (text[end] === "}") depth -= 1;
+          if (!parameterSingle && !parameterDouble) {
+            if (parameter === "{") depth += 1;
+            else if (parameter === "}") depth -= 1;
+          }
           end += 1;
         }
       }
       value += text.slice(index, end);
       unresolved = true;
+      multipleWords = true;
       if (!started) startsQuoted = false;
       started = true;
       index = end - 1;
       continue;
     }
-    if (character === "$") unresolved = true;
+    if (character === "$") { unresolved = true; multipleWords = true; }
     if (character === " " || character === "\t" || character === "\r") {
       endWord();
       continue;
     }
     if (isOperatorStart(character)) {
+      if (children !== undefined && !arithmetic && character === "(" && !started
+        && command.every(/** Only shell control words can precede a standalone subshell. */ (token) => ["if", "then", "else", "do", "!"].includes(token.value))) {
+        /** Standalone child groups are isolated only for lexical-state consumers. */
+        const child = readSubstitution(text, index, 1);
+        nested.push({ start: index, end: child.end, text: child.inner, arithmetic: text[index + 1] === "(", subshell: true });
+        index = child.end - 1;
+        endCommand();
+        continue;
+      }
       // `{` and `}` are reserved WORDS, not metacharacters: they delimit a
       // brace group only as a complete standalone word in command position.
       // A brace embedded in a larger word (`xargs -I{}`) is a literal, and a
@@ -454,7 +544,12 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
   }
   endCommand();
 
-  for (const body of nested) commands.push(...tokenizeCommands(body, depth + 1));
+  if (arithmetic) commands.length = 0;
+  if (children !== undefined) {
+    children.push(...nested);
+    return commands;
+  }
+  for (const body of nested) commands.push(...scanShellCommands(body.text, depth + 1, body.arithmetic));
   for (const found of [...commands]) {
     // A YAML key's value is shell text, and it may arrive as ONE quoted word:
     // `run: "npm publish"` leaves a single token holding the whole command, so
@@ -485,6 +580,31 @@ export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
     }
   }
   return commands;
+}
+
+/**
+ * Protect lexical child state from parent structural scans and expansion.
+ *
+ * The shared scanner supplies the exact substitution boundaries. Neutral
+ * placeholders preserve outer unresolved words and line indexing. Callers
+ * audit each returned child independently; inherited bindings are unproven.
+ */
+export function isolateShellChildren(text: string, depth = 0, arithmetic = false): { parent: string; children: ShellChildRegion[] } {
+  /** Direct lexical children; nested children are inspected by the caller. */
+  const children: ShellChildRegion[] = [];
+  scanShellCommands(text, depth, arithmetic, children);
+  /** Parent shell source with neutral child placeholders. */
+  let parent = "";
+  /** First unrendered source character, advancing monotonically. */
+  let offset = 0;
+  for (const child of children) {
+    /** Keep physical line indexing after removing the child's structural effects. */
+    const newlines = text.slice(child.start, child.end).match(/\n/g)?.join("") ?? "";
+    parent += text.slice(offset, child.start) + (child.subshell === true ? "(:)" : child.arithmetic ? "$((0))" : "$(:)") + newlines;
+    offset = child.end;
+  }
+  parent += text.slice(offset);
+  return { parent: arithmetic ? "" : parent, children };
 }
 
 /**
@@ -892,7 +1012,7 @@ function foldScalarLines(lines: readonly string[]): string[] {
  * other rule in the scanner already tolerates leading whitespace
  * (`STANDALONE_ASSIGNMENT` opens with `^[ \t]*`, control closers and function
  * openers are matched against trimmed syntax, a comment starts after any
- * separator or whitespace, and `bashArrays` anchors on a word boundary), so
+ * separator or whitespace, and `bashArrays` uses a whitespace boundary), so
  * this function changes nothing else about what the scanner sees.
  *
  * Only `run:` blocks are dedented, because `run` is the key GitHub Actions
@@ -980,15 +1100,74 @@ export function dedentRunBlocks(text: string): string {
   return output.join("\n");
 }
 
+/** One supported array declaration with its lexical source extent. */
+interface BashArrayDeclaration {
+  /** Assigned array name. */
+  name: string;
+  /** Literal source operands with whitespace collapsed. */
+  value: string;
+  /** First character of the assigned name, excluding preceding whitespace. */
+  start: number;
+  /** First character following the closing parenthesis. */
+  end: number;
+}
+
 /**
- * A supported Bash array declaration, with quoted and escaped parentheses kept
- * inside the declaration rather than mistaken for its closing delimiter.
+ * Enumerate literal declarations with original UTF-16 extents in source order.
  *
- * Unsupported constructs such as command substitutions are deliberately left
- * unmatched. Their references then remain unresolved and the attestation audit
- * fails closed instead of guessing at an array's contents.
+ * Candidates start at input start or after ECMAScript whitespace, with an ASCII
+ * identifier immediately followed by `=(`. Bare inner parentheses are rejected;
+ * quotes and backslash pairs preserve literal source, including substitutions
+ * inside quotes. This helper does not filter enclosing comments or shell scopes.
+ *
+ * Backward tables record the exclusive closing offset (zero means failure) for
+ * each suffix entered bare, single-quoted or double-quoted. Every transition
+ * uses an already computed later suffix, so malformed candidates never rescan
+ * quotes or remaining input. The forward name scan advances monotonically;
+ * successful extents do not overlap, so their total projection cost is linear.
+ * Time and auxiliary storage are O(text.length), including malformed recovery.
+ *
+ * @param text - Exact source text; continuations are not joined here.
+ * @returns Literal operands with whitespace collapsed and non-overlapping extents.
  */
-const BASH_ARRAY_DECLARATION = /(?:^|\s)([A-Za-z_][A-Za-z0-9_]*)=\(((?:\\[\s\S]|'[^']*'|"(?:\\[\s\S]|[^"\\])*"|[^\\'"()])*)\)/g;
+export function bashArrayDeclarations(text: string): BashArrayDeclaration[] {
+  const bare = new Uint32Array(text.length + 2);
+  const single = new Uint32Array(text.length + 2);
+  const double = new Uint32Array(text.length + 2);
+  for (let index = text.length - 1; index >= 0; index -= 1) {
+    const character = text[index]!;
+    single[index] = character === "'" ? bare[index + 1]! : single[index + 1]!;
+    double[index] = character === '"' ? bare[index + 1]!
+      : character === "\\" ? double[index + 2]! : double[index + 1]!;
+    if (character === ")") bare[index] = index + 1;
+    else if (character === "(") bare[index] = 0;
+    else if (character === "\\") bare[index] = bare[index + 2]!;
+    else if (character === "'") bare[index] = single[index + 1]!;
+    else if (character === '"') bare[index] = double[index + 1]!;
+    else bare[index] = bare[index + 1]!;
+  }
+
+  const declarations: BashArrayDeclaration[] = [];
+  let index = 0;
+  while (index < text.length) {
+    if ((index > 0 && !/\s/.test(text[index - 1]!)) || !/[A-Za-z_]/.test(text[index]!)) {
+      index += 1;
+      continue;
+    }
+    const start = index;
+    index += 1;
+    while (index < text.length && /[A-Za-z0-9_]/.test(text[index]!)) index += 1;
+    if (text[index] !== "=" || text[index + 1] !== "(") continue;
+    const body = index + 2;
+    const end = bare[body]!;
+    if (end === 0) continue;
+    declarations.push({
+      name: text.slice(start, index), value: text.slice(body, end - 1).replace(/\s+/g, " ").trim(), start, end,
+    });
+    index = end;
+  }
+  return declarations;
+}
 
 /**
  * Index bash array assignments so a shared options array can be expanded.
@@ -1004,8 +1183,8 @@ const BASH_ARRAY_DECLARATION = /(?:^|\s)([A-Za-z_][A-Za-z0-9_]*)=\(((?:\\[\s\S]|
  */
 export function bashArrays(text: string): Map<string, string> {
   const arrays = new Map<string, string>();
-  for (const match of text.matchAll(BASH_ARRAY_DECLARATION)) {
-    arrays.set(match[1]!, match[2]!.replace(/\s+/g, " ").trim());
+  for (const declaration of bashArrayDeclarations(text)) {
+    arrays.set(declaration.name, declaration.value);
   }
   return arrays;
 }
@@ -1227,6 +1406,9 @@ function readableValue(value: string | undefined): string | undefined {
  */
 export function scalarAssignmentEvents(segment: string): Map<string, string | undefined> {
   const assignments = new Map<string, string | undefined>();
+  /** Append and indexed writes replace usable evidence with unprovable state. */
+  const mutation = /^\s*(?:(?:then|do|else|export|declare|readonly|local)\s+)?([A-Za-z_][A-Za-z0-9_]*)(?:\+|\[[^\]\n]*\]\+?)=/u.exec(segment);
+  if (mutation !== null) assignments.set(mutation[1]!, undefined);
   for (const opening of leadingAssignments(segment)) {
     assignments.set(opening.name, readableValue(opening.value));
   }

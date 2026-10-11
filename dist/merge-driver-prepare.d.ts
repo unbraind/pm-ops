@@ -6,8 +6,9 @@
  * `npm install --omit=dev` checkout does not have it and a static import fails
  * before any fallback can run. The canonical launcher
  * (`templates/prepare-merge-driver.ts`) instead resolves this subpath and runs
- * it in a child process. Running it performs {@link runPrepareMergeDriver} and
- * reports its status as the process exit code.
+ * it in a child process. Artifact-time prepare exits with one notice before
+ * registering drivers. Otherwise it performs {@link runPrepareMergeDriver}
+ * and reports its status as the process exit code.
  *
  * @packageDocumentation
  */

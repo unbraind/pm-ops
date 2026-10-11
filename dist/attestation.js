@@ -20,10 +20,14 @@
 import { execFileSync } from "node:child_process";
 import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 import { resolve } from "node:path";
-import { bashArrays, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, dedentRunBlocks, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, joinContinuations, scalarAssignmentEvents, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
+import { bashArrayDeclarations, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, dedentRunBlocks, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, isolateShellChildren, joinContinuations, scalarAssignmentEvents, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
 import { tallyFlaggedInvocations } from "./invocation-audit.js";
 /** The flag that attaches a build attestation to the published tarball. */
 export const ATTESTATION_FLAG = "--provenance";
+/** Literal npm verbs whose unknown operands cannot turn them into a publish. */
+const NON_PUBLISH_VERBS = new Set([
+    "add", "audit", "ci", "config", "install", "ls", "pack", "ping", "pkg", "run", "test", "version", "view", "whoami",
+]);
 /** Publishers other than npm, which this repository has no attested path for. */
 export const FOREIGN_PUBLISHERS = new Set(["yarn", "pnpm", "bun"]);
 /** Repository subtrees whose contents are build output rather than a publish path. */
@@ -173,6 +177,10 @@ const VALUE_TAKING_FLAGS = new Set([
     "--userconfig", "--globalconfig", "--cache", "--prefix", "--loglevel",
     "--provenance-file", "--auth-type", "--before", "--omit", "--include",
 ]);
+/** Known npm boolean options whose literal true/false operands precede a verb. */
+const BOOLEAN_FLAGS = new Set([
+    "--global", "-g", "--ignore-scripts", "--json", "--audit", "--no-audit", "--fund", "--no-fund",
+]);
 /**
  * Decide whether one command is a direct `npm publish`.
  *
@@ -279,11 +287,40 @@ function startsIfSiblingArm(segment) {
  * otherwise looks like fragments, none of which carries the flag.
  *
  * @param source - The file's path and contents.
+ * @param raw - Shell body before lexical child isolation and continuation folding.
+ * @param depth - Shared bounded child-recursion depth.
+ * @param arithmetic - Inspect only executable children of arithmetic operands.
  * @returns The publish invocations found, in file order.
  */
-function publishInvocationsInShell(source, raw) {
-    const text = joinContinuations(raw);
-    const arrays = bashArrays(text);
+function publishInvocationsInShell(source, raw, depth = 0, arithmetic = false) {
+    if (depth > 8)
+        return [];
+    /** Child lexical state is audited separately before parent bindings are expanded. */
+    const isolated = isolateShellChildren(joinContinuations(raw), depth, arithmetic);
+    /** Original heredoc body positions protect stdin data from array normalization. */
+    const originalBodies = heredocBodyLines(isolated.parent.split("\n"));
+    /** Fold only supported declarations, retaining their original line count. */
+    let text = "";
+    /** Original source offset at the end of the last normalized declaration. */
+    let offset = 0;
+    /** Original physical line index used for heredoc data protection. */
+    let lineAt = 0;
+    for (const declaration of bashArrayDeclarations(isolated.parent)) {
+        /** Unchanged prefix advances the original heredoc line cursor monotonically. */
+        const prefix = isolated.parent.slice(offset, declaration.start);
+        text += prefix;
+        lineAt += prefix.split("\n").length - 1;
+        /** Preserve heredoc data; executable multiline declarations become one segment. */
+        const original = isolated.parent.slice(declaration.start, declaration.end);
+        /** Move internal newlines after the declaration without losing line count. */
+        const newlineCount = original.split("\n").length - 1;
+        text += originalBodies[lineAt] === true ? original : original.replace(/\n/g, " ") + "\n".repeat(newlineCount);
+        lineAt += newlineCount;
+        offset = declaration.end;
+    }
+    text += isolated.parent.slice(offset);
+    /** Arrays acquire evidence at their own declaration, never from a later sibling. */
+    const arrays = new Map();
     const lines = text.split("\n");
     const bodies = heredocBodyLines(lines);
     const bodyExpansion = heredocExpansionLines(lines);
@@ -384,18 +421,56 @@ function publishInvocationsInShell(source, raw) {
                 for (let count = 0; count < change; count += 1)
                     scopes.push(new Map());
             }
-            const resolved = expandScalars(expandArrays(segment, arrays), visibleScalars());
+            const bindings = visibleScalars();
+            const arrayExpanded = expandArrays(segment, arrays);
+            // A quoted executable scalar is one filename, never a command plus
+            // arguments. Retain unresolved evidence when its value spans words;
+            // matching all whitespace-containing tokens later would misclassify
+            // quoted case-arm patterns as executable commands.
+            for (const command of tokenizeCommands(arrayExpanded)) {
+                const executable = commandCandidates(command)[0]?.[0];
+                if (executable?.quoted !== true || executable.unresolved !== true)
+                    continue;
+                for (const reference of executable.value.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/gu)) {
+                    const name = reference[1] ?? reference[2];
+                    const value = bindings.get(name);
+                    if (value !== undefined && /\s/u.test(value))
+                        bindings.delete(name);
+                }
+            }
+            const resolved = expandScalars(arrayExpanded, bindings);
             // Every assignment the segment makes, including the ones whose value
             // could not be read. An unreadable assignment must reach the scope map as
             // `undefined` so `visibleScalars` retires the name: dropping it would
             // leave the previous binding visible, and a `--provenance` the shell has
             // replaced would go on attesting the publish that expands it.
             pendingAssignments = scalarAssignmentEvents(segment);
+            for (const name of pendingAssignments.keys()) {
+                arrays.delete(name);
+            }
+            // A local literal declaration can restore a retired array. Conditional
+            // declarations remain unproven rather than borrowing another arm's flags.
+            for (const declaration of bashArrayDeclarations(segment)) {
+                /** Data-shaped declarations inside another command do not bind arrays. */
+                const opening = segment.slice(0, declaration.start).trim();
+                /** Only whitespace or a trailing shell comment may follow the declaration. */
+                const closing = segment.slice(declaration.end).trim();
+                if (!/^(?:export|then|do|else)?$/.test(opening) || (closing !== "" && !closing.startsWith("#")))
+                    continue;
+                pendingAssignments.set(declaration.name, undefined);
+                if (scopes.length === 1 && assignmentEligible) {
+                    arrays.set(declaration.name, declaration.value);
+                }
+                else
+                    arrays.delete(declaration.name);
+            }
             pendingAssignmentEligible = assignmentEligible;
             const currentScope = scopes[scopes.length - 1];
             for (const command of tokenizeCommands(segment)) {
-                for (const name of unsetNames(command))
+                for (const name of unsetNames(command)) {
                     currentScope.set(name, undefined);
+                    arrays.delete(name);
+                }
             }
             assignmentEligible = false;
             return resolved;
@@ -417,13 +492,21 @@ function publishInvocationsInShell(source, raw) {
             const program = commandName(candidate);
             if (program === undefined)
                 continue;
+            // Alias expansion changes command words before execution. Our tokenizer
+            // cannot prove alias state across shell scopes or evaluator boundaries;
+            // refusing executable alias definitions avoids inventing that evidence.
+            if (program === "alias") {
+                found.push({ file: source.file, program, command: candidate, unresolved: "shell alias expansion" });
+                continue;
+            }
             // Secondary candidate readings compensate for unknown wrapper options;
             // they are not the tokeniser's identified command position. Otherwise an
             // unresolved argument after a literal program (`npm publish $FLAG`) would
             // be reported twice, once as the real publish and once as a phantom whole
             // command. A genuinely unresolved primary position remains fail-closed.
             const unresolvedProgram = program === primaryProgram
-                && (program.startsWith("$") || (program.length === 0 && candidate[0]?.unresolved === true));
+                && (program.startsWith("$") || (!program.includes("\n")
+                    && candidate[0]?.unresolved === true));
             // A spawning wrapper (`xargs npm`, `parallel npm`) names the publisher on
             // the command line but draws its arguments from stdin or a file, so the
             // literal `publish` word is never there for isPublishCommand to find. That
@@ -436,8 +519,52 @@ function publishInvocationsInShell(source, raw) {
             // non-publisher reached this way (`xargs rm -f`) is still dismissed: only
             // a named publisher with unresolved arguments is a publish the scanner
             // cannot disprove.
-            const unresolvedArguments = (program === "npm" || FOREIGN_PUBLISHERS.has(program))
-                && (spawnedAsCommand(command) || spawnedAsCommand(candidate));
+            const args = commandArguments(candidate);
+            const publisher = program === "npm" || FOREIGN_PUBLISHERS.has(program);
+            const spawned = spawnedAsCommand(command) || spawnedAsCommand(candidate);
+            const forwarded = args.some((token) => token.unresolved === true);
+            let verb = args[0];
+            if (program === "npm" && forwarded) {
+                // Only known options have a provable operand boundary. An unquoted
+                // expansion can insert extra command words, so it cannot be skipped
+                // merely because one of those words might eventually say whoami.
+                for (let index = 0; index < args.length; index += 1) {
+                    const token = args[index];
+                    verb = undefined;
+                    if (token.unresolved === true && (!token.quoted || token.multipleWords === true))
+                        break;
+                    if (token.value === "--") {
+                        verb = args[index + 1];
+                        break;
+                    }
+                    const equals = token.value.indexOf("=");
+                    const flag = equals < 0 ? token.value : token.value.slice(0, equals);
+                    if (VALUE_TAKING_FLAGS.has(flag)) {
+                        if (equals < 0) {
+                            const operand = args[index + 1];
+                            if (operand === undefined || (operand.unresolved === true && (!operand.quoted || operand.multipleWords === true)))
+                                break;
+                            index += 1;
+                        }
+                        continue;
+                    }
+                    if (BOOLEAN_FLAGS.has(flag)) {
+                        if (equals >= 0) {
+                            const value = token.value.slice(equals + 1);
+                            if (value !== "true" && value !== "false")
+                                break;
+                        }
+                        else if (args[index + 1]?.value === "true" || args[index + 1]?.value === "false") {
+                            index += 1;
+                        }
+                        continue;
+                    }
+                    verb = token;
+                    break;
+                }
+            }
+            const unresolvedArguments = publisher && (spawned
+                || (forwarded && (verb?.unresolved === true || !NON_PUBLISH_VERBS.has(verb?.value ?? ""))));
             const unresolved = unresolvedProgram || unresolvedArguments;
             if (program !== "npm" && !FOREIGN_PUBLISHERS.has(program) && !unresolvedProgram)
                 continue;
@@ -453,8 +580,13 @@ function publishInvocationsInShell(source, raw) {
                 continue;
             // Not de-duplicated: two identical publish lines are two invocations, and
             // collapsing them would report one of them as if the other did not exist.
-            found.push({ file: source.file, program, command: candidate });
+            const unresolvedReason = unresolvedProgram ? "executable expansion"
+                : unresolvedArguments ? "publisher arguments from expansion or spawning input" : undefined;
+            found.push({ file: source.file, program, command: candidate, unresolved: unresolvedReason });
         }
+    }
+    for (const child of isolated.children) {
+        found.push(...publishInvocationsInShell(source, child.text, depth + 1, child.arithmetic));
     }
     return found;
 }
@@ -524,6 +656,9 @@ export function renderCommand(command) {
 export function auditPublishAttestation(sources) {
     const invocations = sources.flatMap(publishInvocationsIn);
     const { failures, notes } = tallyFlaggedInvocations(invocations, (invocation) => {
+        if (invocation.unresolved !== undefined) {
+            return `${invocation.file}: cannot prove ${invocation.unresolved}; refusing an unresolved publish path: ${renderCommand(invocation.command)}`;
+        }
         if (invocation.program !== "npm") {
             return `${invocation.file}: \`${invocation.program} publish\` is a publish path with no attested`
                 + ` equivalent configured in this repository: ${renderCommand(invocation.command)}`;

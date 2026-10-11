@@ -13,8 +13,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-import { bashArrays, dedentRunBlocks, expandArrays, joinContinuations, tokenizeCommands } from "../shell-scan.ts";
-import { auditPublishAttestation } from "../attestation.ts";
+import { bashArrayDeclarations, bashArrays, dedentRunBlocks, expandArrays, joinContinuations, tokenizeCommands } from "../shell-scan.ts";
+import { auditPublishAttestation, publishInvocationsIn } from "../attestation.ts";
 import { isMainInvocation } from "../scripts/main-invocation.ts";
 
 test("quoted YAML command values are recursively tokenized", () => {
@@ -31,6 +31,81 @@ test("an unknown array reference is left in place rather than erased", () => {
 
 test("bashArrays collapses whitespace so a multi-line declaration is one flag string", () => {
   assert.equal(bashArrays("common=(\n  --a\n  --b\n)").get("common"), "--a --b");
+});
+
+test("array declarations retain exact UTF-16 extents and empty operands", () => {
+  assert.deepEqual(bashArrayDeclarations(""), []);
+  assert.deepEqual(bashArrayDeclarations("A=()"), [{ name: "A", value: "", start: 0, end: 4 }]);
+  assert.deepEqual(bashArrayDeclarations("  _x2=( a )tail"), [{ name: "_x2", value: "a", start: 2, end: 11 }]);
+  assert.deepEqual(bashArrayDeclarations("😀 A=(x)\nB=(y)"), [
+    { name: "A", value: "x", start: 3, end: 8 },
+    { name: "B", value: "y", start: 9, end: 14 },
+  ]);
+});
+
+test("array candidates require ECMAScript whitespace and immediate assignment syntax", () => {
+  for (const text of [";A=(x)", "éA=(x)", "9A=(x)", "A =()", "A= ()", "A+=()", "A[0]=()", "A", "A="]) {
+    assert.deepEqual(bashArrayDeclarations(text), [], text);
+  }
+  assert.deepEqual([...bashArrays("# A=(x)\u00a0B=(y)\u2028C=(z)\ufeffD=()")], [
+    ["A", "x"], ["B", "y"], ["C", "z"], ["D", ""],
+  ]);
+});
+
+test("array operands preserve quotes, escapes and broad literal source", () => {
+  const cases: readonly (readonly [string, string])[] = [
+    ["A=( \n\t )", ""],
+    ["A=('' \"\")", "'' \"\""],
+    ["A=('a(b)\\c'\"d(e)\"tail)", "'a(b)\\c'\"d(e)\"tail"],
+    ["A=(\\(x\\) \\\" \\' \\\\)", "\\(x\\) \\\" \\' \\\\"],
+    ['A=("a\\"b\\)c")', '"a\\"b\\)c"'],
+    ["A=('a\n  b' \"c\t\td\" e\\\nf)", "'a b' \"c d\" e\\ f"],
+    ['A=($VAR `literal` # ; & | "$(literal)" \'"\')', '$VAR `literal` # ; & | "$(literal)" \'"\''],
+  ];
+  for (const [text, value] of cases) assert.deepEqual([...bashArrays(text)], [["A", value]], text);
+});
+
+test("malformed array candidates recover later valid starts without whole-shell filtering", () => {
+  for (const text of ["A=(", "A=(x", "A=('x)", 'A=("x)', "A=(x\\", 'A=("x\\']) {
+    assert.deepEqual(bashArrayDeclarations(text), [], text);
+  }
+  assert.deepEqual([...bashArrays("A=( bare ( B=(ok) C=())")], [["B", "ok"], ["C", ""]]);
+  assert.deepEqual([...bashArrays("A=('broken\n B=(ok)")], [["B", "ok"]]);
+  assert.deepEqual([...bashArrays('A=("broken\n B=(ok)')], [["B", "ok"]]);
+  assert.deepEqual([...bashArrays("A=($(echo x)) B=(ok)")], [["B", "ok"]]);
+  assert.deepEqual([...bashArrays("echo ' A=(ok) '")], [["A", "ok"]]);
+  assert.deepEqual([...bashArrays("A=(x\n y)) B=(ok)")], [["A", "x y"], ["B", "ok"]]);
+});
+
+test("successful arrays consume their extent and keep duplicate declaration order", () => {
+  const text = 'A=(" B=(inner)") Z=(first) A=(last) Z=(broken';
+  assert.deepEqual(bashArrayDeclarations(text).map(({ name, value }) => ({ name, value })), [
+    { name: "A", value: '" B=(inner)"' }, { name: "Z", value: "first" }, { name: "A", value: "last" },
+  ]);
+  assert.deepEqual([...bashArrays(text)], [["A", "last"], ["Z", "first"]]);
+  assert.deepEqual(bashArrayDeclarations(text), bashArrayDeclarations(text));
+  assert.deepEqual(bashArrayDeclarations("A=()B=() C=()"), [
+    { name: "A", value: "", start: 0, end: 4 }, { name: "C", value: "", start: 9, end: 13 },
+  ]);
+});
+
+test("empty known arrays expand while quoted, escaped and unknown references stay literal", () => {
+  const arrays = bashArrays("A=()");
+  assert.equal(expandArrays('cmd "${A[@]}" ${A[@]}', arrays), "cmd  ");
+  assert.equal(expandArrays("cmd '${A[@]}' \\${A[@]} ${missing[@]} ${A[*]}", arrays), "cmd '${A[@]}' \\${A[@]} ${missing[@]} ${A[*]}");
+});
+
+test("attestation binds empty and duplicate arrays in source order", () => {
+  const source = { file: "release.sh", text: [
+    "FLAGS=(--provenance)", 'npm publish "${FLAGS[@]}"', "FLAGS=()", 'npm publish "${FLAGS[@]}"',
+    "FLAGS=('unused)' --provenance)", 'npm publish "${FLAGS[@]}"',
+  ].join("\n") };
+  assert.deepEqual(publishInvocationsIn(source).map(({ command }) => command.map(({ value }) => value)), [
+    ["npm", "publish", "--provenance"], ["npm", "publish"], ["npm", "publish", "unused)", "--provenance"],
+  ]);
+  const result = auditPublishAttestation([source]);
+  assert.equal(result.failures.length, 1);
+  assert.match(result.failures[0]!, /npm publish/);
 });
 
 test("the main-invocation guard answers both ways", () => {
