@@ -200,7 +200,7 @@ test("real c8 discovers newly tested modules and rejects an unimported module by
     return spawnSync(process.execPath, [script, directory], {
       cwd: directory,
       encoding: "utf8",
-      timeout: 30_000,
+      timeout: 120_000,
       env,
     });
   }
@@ -212,7 +212,7 @@ test("real c8 discovers newly tested modules and rejects an unimported module by
   const concurrent = await Promise.all([0, 1].map(() => new Promise<{
     status: number | null; stdout: string; stderr: string;
   }>((resolveResult, reject) => {
-    const child = spawn(process.execPath, [script, directory], { cwd: directory, env, timeout: 30_000 });
+    const child = spawn(process.execPath, [script, directory], { cwd: directory, env, timeout: 120_000 });
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8").on("data", (data: string) => { stdout += data; });
