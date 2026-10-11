@@ -24,6 +24,13 @@
     "predicateType": "https://slsa.dev/provenance/v1",
     "predicate": {
       "buildDefinition": {
+        "externalParameters": {
+          "workflow": {
+            "ref": "refs/heads/main",
+            "repository": "https://github.com/example/sample-package",
+            "path": ".github/workflows/release.yml"
+          }
+        },
         "resolvedDependencies": [
           {
             "uri": "git+https://github.com/example/sample-package@refs/heads/main",

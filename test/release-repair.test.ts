@@ -19,7 +19,7 @@ const changelog = "# Changelog\n\n## 2026.8.28 - 2026-08-28\n\n### Fixed\n\n- Co
 const recorded = JSON.parse(readFileSync(new URL("./fixtures/release-provenance.json", import.meta.url), "utf8")) as {
   name: string; version: string; gitHead: string; invalid: unknown[];
   verified: { name: string; version: string; registry: string; attestationBundles: { predicateType: string; bundle: { dsseEnvelope: { payload: string } } }[] }[];
-  statement: { predicateType: string; predicate: { buildDefinition: { resolvedDependencies: { uri: string; digest: { gitCommit: string } }[] } } };
+  statement: { predicateType: string; predicate: { buildDefinition: { externalParameters?: { workflow?: { path?: string; ref?: string; repository?: string } }; resolvedDependencies: { uri: string; digest: { gitCommit: string } }[] } } };
 };
 
 /** Substitute the fixture commit into the normalized npm signature-audit response. */
@@ -234,6 +234,11 @@ test("verified npm audit rejects missing, ambiguous, invalid and mismatching pro
     (f: typeof recorded) => { f.statement.predicate.buildDefinition.resolvedDependencies[0]!.digest.gitCommit = "short"; },
     (f: typeof recorded) => { f.statement.predicate.buildDefinition.resolvedDependencies[0]!.digest.gitCommit = "b".repeat(40); },
     (f: typeof recorded) => { f.statement.predicate.buildDefinition.resolvedDependencies = []; },
+    (f: typeof recorded) => { delete f.statement.predicate.buildDefinition.externalParameters; },
+    (f: typeof recorded) => { f.statement.predicate.buildDefinition.externalParameters!.workflow!.path = ".github/workflows/other.yml"; },
+    (f: typeof recorded) => { f.statement.predicate.buildDefinition.externalParameters!.workflow!.ref = "refs/heads/feature"; },
+    (f: typeof recorded) => { delete f.statement.predicate.buildDefinition.externalParameters!.workflow!.repository; },
+    (f: typeof recorded) => { f.statement.predicate.buildDefinition.externalParameters!.workflow!.repository = "https://github.com/example/other-package"; },
     (f: typeof recorded) => { f.statement.predicate.buildDefinition.resolvedDependencies.push(structuredClone(f.statement.predicate.buildDefinition.resolvedDependencies[0]!)); },
   ]) assert.throws(() => evidenceFromAudit(name, version, commit, auditOutput(commit, change)));
   assert.throws(() => evidenceFromAudit(name, version, "short", auditOutput(commit)));

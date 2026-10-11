@@ -50,6 +50,8 @@ interface ProvenanceStatement {
   /** Signed build definition with source dependencies. */
   predicate: {
     buildDefinition: {
+      /** The signed workflow invocation; only the approved release workflow on main may authorize repair. */
+      externalParameters?: { workflow?: { path?: string; ref?: string; repository?: string } };
       resolvedDependencies: { uri: string; digest: { gitCommit: string } }[];
     };
   };
@@ -68,6 +70,11 @@ interface SignatureReport {
   }[];
 }
 
+/** The only workflow file whose npm provenance may authorize tag and release repair. */
+const RELEASE_WORKFLOW_PATH = ".github/workflows/release.yml";
+/** The only ref whose release builds may authorize repair. */
+const RELEASE_WORKFLOW_REF = "refs/heads/main";
+
 /**
  * Extract a unique source identity from npm's successful signature-audit output.
  * Raw registry metadata or a merely present attestation is never sufficient.
@@ -84,10 +91,16 @@ export function evidenceFromAudit(name: string, version: string, gitHead: string
     if (attestation.predicateType !== "https://slsa.dev/provenance/v1") continue;
     const statement = JSON.parse(Buffer.from(attestation.bundle.dsseEnvelope.payload, "base64").toString("utf8")) as ProvenanceStatement;
     if (statement.predicateType !== attestation.predicateType) throw new Error("provenance schema mismatch");
+    const workflow = statement.predicate.buildDefinition.externalParameters?.workflow;
+    if (workflow?.path !== RELEASE_WORKFLOW_PATH || workflow.ref !== RELEASE_WORKFLOW_REF || typeof workflow.repository !== "string") {
+      throw new Error("provenance was not built by the approved release workflow and ref");
+    }
+    const workflowRepository = repoSlugFromUrl(workflow.repository);
     for (const dependency of statement.predicate.buildDefinition.resolvedDependencies) {
       const repository = repoSlugFromUrl(dependency.uri.replace(/^git\+/, "").split("@")[0]!);
       const commit = dependency.digest.gitCommit;
       if (!repository || !/^[a-f0-9]{40}$/.test(commit)) throw new Error("unrecognized signed source identity");
+      if (repository !== workflowRepository) throw new Error("signed workflow repository differs from the signed source repository");
       sources.push({ repository, commit });
     }
   }
