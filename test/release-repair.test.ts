@@ -15,11 +15,13 @@ const tag = "v2026.08.28";
 const version = "2026.8.28";
 const slug = "example/sample-package";
 const name = "sample-package";
+/** Registry integrity of the synthetic tarball named by the fixture's provenance subject. */
+const integrity = "sha512-Kk6OxbU5i0ZZwaNkazRPhtPAMasZfSjXeL0CYunbXMdo1rLofByZ+zmZOHHLkGqrrOyealLfu+6t4h6sHJhSAg==";
 const changelog = "# Changelog\n\n## 2026.8.28 - 2026-08-28\n\n### Fixed\n\n- Committed recovery notes.\n\n## 2026.8.27 - 2026-08-27\n\n- Earlier release.\n";
 const recorded = JSON.parse(readFileSync(new URL("./fixtures/release-provenance.json", import.meta.url), "utf8")) as {
   name: string; version: string; gitHead: string; invalid: unknown[];
   verified: { name: string; version: string; registry: string; attestationBundles: { predicateType: string; bundle: { dsseEnvelope: { payload: string } } }[] }[];
-  statement: ProvenanceStatement;
+  statement: ProvenanceStatement & { subject: { name: string; digest: { sha512: string } }[] };
 };
 
 /** Substitute the fixture commit into the normalized npm signature-audit response. */
@@ -57,7 +59,7 @@ async function fixture(options: { tag?: boolean; release?: boolean; version?: st
   const releases = new Set(options.release ? [tag] : []);
   const writes: string[] = [];
   const bodies: string[] = [];
-  const evidence: NpmEvidence = evidenceFromAudit(name, version, commit, auditOutput(commit));
+  const evidence: NpmEvidence = evidenceFromAudit(name, version, commit, auditOutput(commit), integrity);
   const adapter = makeRepairClient((command, args, execOptions) => {
     if (command === "git") return execFileSync(command, args, { ...execOptions, encoding: "utf8", stdio: "pipe" });
     assert.fail("local adapter must only run git");
@@ -225,7 +227,7 @@ test("notes require one exact nonempty committed version section", () => {
 
 test("verified npm audit rejects missing, ambiguous, invalid and mismatching provenance", () => {
   const commit = "a".repeat(40);
-  assert.equal(evidenceFromAudit(name, version, commit, auditOutput(commit)).commit, commit);
+  assert.equal(evidenceFromAudit(name, version, commit, auditOutput(commit), integrity).commit, commit);
   for (const change of [
     (f: typeof recorded) => { f.invalid.push({ code: "EATTESTATIONVERIFY" }); },
     (f: typeof recorded) => { f.invalid = null as unknown as unknown[]; },
@@ -241,14 +243,20 @@ test("verified npm audit rejects missing, ambiguous, invalid and mismatching pro
     (f: typeof recorded) => { f.statement.predicate.buildDefinition.resolvedDependencies[0]!.digest.gitCommit = "b".repeat(40); },
     (f: typeof recorded) => { f.statement.predicate.buildDefinition.resolvedDependencies = []; },
     (f: typeof recorded) => { delete f.statement.predicate.buildDefinition.externalParameters; },
+    (f: typeof recorded) => { f.statement.subject = []; },
+    (f: typeof recorded) => { f.statement.subject.push(structuredClone(f.statement.subject[0]!)); },
+    (f: typeof recorded) => { f.statement.subject[0]!.name = "pkg:npm/other-package@2026.8.28"; },
+    (f: typeof recorded) => { f.statement.subject[0]!.digest.sha512 = "0".repeat(128); },
     (f: typeof recorded) => { f.statement.predicate.buildDefinition.externalParameters!.workflow!.path = ".github/workflows/other.yml"; },
     (f: typeof recorded) => { f.statement.predicate.buildDefinition.externalParameters!.workflow!.ref = "refs/heads/feature"; },
     (f: typeof recorded) => { delete f.statement.predicate.buildDefinition.externalParameters!.workflow!.repository; },
     (f: typeof recorded) => { f.statement.predicate.buildDefinition.externalParameters!.workflow!.repository = "https://github.com/example/other-package"; },
     (f: typeof recorded) => { f.statement.predicate.buildDefinition.resolvedDependencies.push(structuredClone(f.statement.predicate.buildDefinition.resolvedDependencies[0]!)); },
-  ]) assert.throws(() => evidenceFromAudit(name, version, commit, auditOutput(commit, change)));
-  assert.throws(() => evidenceFromAudit(name, version, "short", auditOutput(commit)));
-  assert.throws(() => evidenceFromAudit(name, version, commit, "not JSON"));
+  ]) assert.throws(() => evidenceFromAudit(name, version, commit, auditOutput(commit, change), integrity));
+  assert.throws(() => evidenceFromAudit(name, version, "short", auditOutput(commit), integrity));
+  assert.throws(() => evidenceFromAudit(name, version, commit, "not JSON", integrity));
+  assert.throws(() => evidenceFromAudit(name, version, commit, auditOutput(commit), ""), /provenance subject/);
+  assert.throws(() => evidenceFromAudit(name, version, commit, auditOutput(commit), integrity.replace("sha512-", "sha1-")), /provenance subject/);
 });
 
 test("live adapter constructs only conditional GitHub writes and read-only npm operations", () => {
@@ -261,7 +269,7 @@ test("live adapter constructs only conditional GitHub writes and read-only npm o
     if (options.cwd !== undefined) scratchDirectories.add(options.cwd);
     if (command === "npm") {
       assert.ok(["view", "install", "audit"].includes(args[0]!));
-      if (args[0] === "view") return JSON.stringify({ name, version, gitHead: commit });
+      if (args[0] === "view") return JSON.stringify({ name, version, gitHead: commit, dist: { integrity } });
       if (args[0] === "audit") return auditOutput(commit);
       assert.ok(args.includes("--ignore-scripts"));
       return "";
@@ -292,7 +300,7 @@ test("adapter refuses bad coordinate, unreadable tags and cleans up failing proc
   assert.throws(() => makeRepairClient(() => "{}").npmEvidence(name, version), /coordinate mismatch/);
   const directories: string[] = [];
   const failing = makeRepairClient((command, args, options = {}) => {
-    if (command === "npm" && args[0] === "view") return JSON.stringify({ name, version, gitHead: commit });
+    if (command === "npm" && args[0] === "view") return JSON.stringify({ name, version, gitHead: commit, dist: { integrity } });
     if (options.cwd) directories.push(options.cwd);
     throw new Error("process failed");
   });
@@ -334,11 +342,13 @@ test("entry point requires exact repair flag and injects the hermetic client", a
 test("recorded historical npm audit proves signed source and refuses registry gitHead drift", () => {
   const output = readFileSync(new URL("./fixtures/npm-signature-audit.json", import.meta.url), "utf8");
   const signed = "c7da4bf04039c3e0543026d003e9ee7bcd8615cd";
-  assert.deepEqual(evidenceFromAudit("pm-ops", version, signed, output), {
+  // Registry dist.integrity of pm-ops@2026.8.28; the recorded subject digest is its hex form.
+  const registryIntegrity = "sha512-NQXbnyrCj0is2vHKjBTMisFIVFjMdDdulzlsz1dEW1UphdwPpeoraJeO10DF5oTy/i15eORQvbwdsDGpV1Cw2w==";
+  assert.deepEqual(evidenceFromAudit("pm-ops", version, signed, output, registryIntegrity), {
     name: "pm-ops", version, gitHead: signed, commit: signed, repository: "unbraind/pm-ops",
   });
   const publishedGitHead = "5b6fbe73b7072d49c41d5cb3cad4d44142f3fe4a";
-  assert.throws(() => evidenceFromAudit("pm-ops", version, publishedGitHead, output), /gitHead does not match/);
+  assert.throws(() => evidenceFromAudit("pm-ops", version, publishedGitHead, output, registryIntegrity), /gitHead does not match/);
 });
 
 

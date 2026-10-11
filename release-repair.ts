@@ -47,6 +47,8 @@ export interface RepairClient {
 export interface ProvenanceStatement {
   /** Provenance schema discriminator. */
   predicateType: string;
+  /** Signed artifacts; repair requires exactly the coordinate's npm tarball. */
+  subject?: { name?: string; digest?: { sha512?: string } }[];
   /** Signed build definition with source dependencies. */
   predicate: {
     buildDefinition: {
@@ -75,11 +77,21 @@ const RELEASE_WORKFLOW_PATH = ".github/workflows/release.yml";
 /** The only ref whose release builds may authorize repair. */
 const RELEASE_WORKFLOW_REF = "refs/heads/main";
 
+/** The package URL npm provenance uses as the subject name; scoped names encode the leading `@`. */
+function npmPurl(name: string, version: string): string {
+  return `pkg:npm/${name.startsWith("@") ? `%40${name.slice(1)}` : name}@${version}`;
+}
+
+/** Decode a registry `sha512-<base64>` integrity to the hex digest provenance subjects carry; anything else cannot match. */
+function integrityHex(integrity: string): string | null {
+  return integrity.startsWith("sha512-") ? Buffer.from(integrity.slice(7), "base64").toString("hex") : null;
+}
+
 /**
  * Extract a unique source identity from npm's successful signature-audit output.
  * Raw registry metadata or a merely present attestation is never sufficient.
  */
-export function evidenceFromAudit(name: string, version: string, gitHead: string, output: string): NpmEvidence {
+export function evidenceFromAudit(name: string, version: string, gitHead: string, output: string, integrity: string): NpmEvidence {
   const report = JSON.parse(output) as SignatureReport;
   if (!Array.isArray(report.invalid) || report.invalid.length !== 0 || !Array.isArray(report.verified)) {
     throw new Error("npm signature audit is incomplete or contains invalid evidence");
@@ -91,6 +103,11 @@ export function evidenceFromAudit(name: string, version: string, gitHead: string
     if (attestation.predicateType !== "https://slsa.dev/provenance/v1") continue;
     const statement = JSON.parse(Buffer.from(attestation.bundle.dsseEnvelope.payload, "base64").toString("utf8")) as ProvenanceStatement;
     if (statement.predicateType !== attestation.predicateType) throw new Error("provenance schema mismatch");
+    // The signed subject must be exactly this coordinate's tarball, not merely an attestation npm accepted.
+    if (statement.subject?.length !== 1 || statement.subject[0]!.name !== npmPurl(name, version)
+      || statement.subject[0]!.digest?.sha512 !== integrityHex(integrity)) {
+      throw new Error("provenance subject does not match the package coordinate and tarball digest");
+    }
     const workflow = statement.predicate.buildDefinition.externalParameters?.workflow;
     if (workflow?.path !== RELEASE_WORKFLOW_PATH || workflow.ref !== RELEASE_WORKFLOW_REF || typeof workflow.repository !== "string") {
       throw new Error("provenance was not built by the approved release workflow and ref");
@@ -115,14 +132,14 @@ export function makeRepairClient(exec: RepairExecutor = defaultExec): RepairClie
   return {
     /** Verify the exact registry coordinate in a disposable script-disabled install. */
     npmEvidence(name, version) {
-      const metadata = JSON.parse(exec("npm", ["view", `${name}@${version}`, "--json", "--prefer-online", "--registry=https://registry.npmjs.org/"], {})) as { name: string; version: string; gitHead: string };
+      const metadata = JSON.parse(exec("npm", ["view", `${name}@${version}`, "--json", "--prefer-online", "--registry=https://registry.npmjs.org/"], {})) as { name: string; version: string; gitHead: string; dist?: { integrity?: string } };
       if (metadata.name !== name || metadata.version !== version) throw new Error("registry coordinate mismatch");
       const scratch = mkdtempSync(join(tmpdir(), "pm-ops-provenance-"));
       try {
         writeFileSync(join(scratch, "package.json"), JSON.stringify({ name: "release-evidence", version: "1.0.0", private: true }));
         exec("npm", ["install", `${name}@${version}`, "--ignore-scripts", "--no-audit", "--no-fund", "--legacy-peer-deps", "--registry=https://registry.npmjs.org/"], { cwd: scratch });
         const output = exec("npm", ["audit", "signatures", "--json", "--include-attestations", "--registry=https://registry.npmjs.org/"], { cwd: scratch });
-        return evidenceFromAudit(name, version, metadata.gitHead, output);
+        return evidenceFromAudit(name, version, metadata.gitHead, output, metadata.dist?.integrity ?? "");
       } finally {
         rmSync(scratch, { recursive: true, force: true });
       }
