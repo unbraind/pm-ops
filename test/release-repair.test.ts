@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { create, init } from "@unbrained/pm-cli/sdk";
 import { auditReleaseCompleteness, makeFetcher, verify, type CompletenessFetcher } from "../release-completeness.ts";
 import { repairReleaseCompleteness as repairBuiltPackage } from "../dist/release-repair.js";
-import { committedReleaseNotes, evidenceFromAudit, makeRepairClient, repairReleaseCompleteness, type NpmEvidence, type RepairClient, type RepairExecutor } from "../release-repair.ts";
+import { committedReleaseNotes, evidenceFromAudit, makeRepairClient, repairReleaseCompleteness, type NpmEvidence, type ProvenanceStatement, type RepairClient, type RepairExecutor } from "../release-repair.ts";
 import { runIfMain } from "../scripts/verify-release-completeness.ts";
 
 const tag = "v2026.08.28";
@@ -19,7 +19,7 @@ const changelog = "# Changelog\n\n## 2026.8.28 - 2026-08-28\n\n### Fixed\n\n- Co
 const recorded = JSON.parse(readFileSync(new URL("./fixtures/release-provenance.json", import.meta.url), "utf8")) as {
   name: string; version: string; gitHead: string; invalid: unknown[];
   verified: { name: string; version: string; registry: string; attestationBundles: { predicateType: string; bundle: { dsseEnvelope: { payload: string } } }[] }[];
-  statement: { predicateType: string; predicate: { buildDefinition: { externalParameters?: { workflow?: { path?: string; ref?: string; repository?: string } }; resolvedDependencies: { uri: string; digest: { gitCommit: string } }[] } } };
+  statement: ProvenanceStatement;
 };
 
 /** Substitute the fixture commit into the normalized npm signature-audit response. */

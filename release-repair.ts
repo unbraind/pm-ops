@@ -44,7 +44,7 @@ export interface RepairClient {
 }
 
 /** The subset of a verified SLSA v1 statement used to bind the source commit. */
-interface ProvenanceStatement {
+export interface ProvenanceStatement {
   /** Provenance schema discriminator. */
   predicateType: string;
   /** Signed build definition with source dependencies. */
