@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Repair an incomplete release triple, instead of only reporting it every day ([ops-3j1z](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-3j1z.toon))
+
+### Fixed
+
+- Make historical Windows proof evidence available in fresh clones ([ops-kw02](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-kw02.toon))
+
+### Other
+
+- Certify pm-ops on PM CLI/SDK 2026.10.10 with linear declaration scanner ([ops-hiee](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-hiee.toon))
+
 ## 2026.10.5 - 2026-10-05
 
 ### Fixed
