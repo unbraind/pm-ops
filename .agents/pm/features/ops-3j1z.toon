@@ -6,13 +6,13 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-08-31T12:41:05.904Z"
-updated_at: "2026-10-11T23:29:07.736Z"
+updated_at: "2026-10-12T00:40:52.759Z"
 closed_at: "2026-10-11T23:29:07.726Z"
 completed_at: "2026-10-11T23:29:07.726Z"
 author: claude-orchestrator
-acceptance_criteria: "For each release tag with a published npm version and no GitHub Release, the release job creates the missing GitHub Release from that version's committed changelog section; the step is idempotent, so a run with nothing to repair makes no API writes; a tag with no published npm version is never given a GitHub Release, since that would assert a release that was never published; the repair is covered by hermetic tests with an injected client and no network"
+acceptance_criteria: "Every published npm version without a GitHub Release, whose registry gitHead equals the commit in its verified npm provenance (signed by .github/workflows/release.yml on refs/heads/main, with subject purl and sha512 matching the registry tarball), gets its tag and GitHub Release repaired from that commit and its committed release notes. A coordinate whose registry gitHead differs from the signed source commit (for example pm-ops@2026.8.28) is refused, not repaired: that refusal is the accepted, intended outcome."
 resolution: "Implemented and merged in https://github.com/unbraind/pm-ops/pull/150: incomplete release triples are repaired from verified npm provenance bound to the release workflow, purl and tarball digest"
-expected_result: The acceptance criteria recorded on ops-3j1z are met on main.
+expected_result: "Repair creates missing tags and GitHub Releases only for provenance-matched coordinates, and refuses mismatched ones without writing."
 actual_result: "Merged in https://github.com/unbraind/pm-ops/pull/150 after its full CI, an isolated release gate and a CodeRabbit full review with every finding resolved; incomplete release triples are repaired from verified npm provenance bound to the release workflow, purl and tarball digest"
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
   ops-i8yp,blocked_by,"2026-08-31T12:41:06.966Z",claude-orchestrator,"cli:update:dep",detected

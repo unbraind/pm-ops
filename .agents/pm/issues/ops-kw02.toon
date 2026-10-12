@@ -6,14 +6,14 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-10-11T06:12:11.492Z"
-updated_at: "2026-10-11T23:29:08.647Z"
+updated_at: "2026-10-12T00:39:28.200Z"
 closed_at: "2026-10-11T23:29:08.624Z"
 completed_at: "2026-10-11T23:29:08.624Z"
 author: codex-agent
 parent: ops-hiee
 repro_steps: "Clone the feature branch into a fresh repository and run node --test test/windows-proof-history.test.ts; git show b89fd6f36adf91c9bfc784c7ab643d9ce9cb7eae:test/windows-consumers.proof.ts fails."
 resolution: "Implemented and merged in https://github.com/unbraind/pm-ops/pull/156: historical Windows proof fixtures are vendored so fresh clones no longer need orphaned commits"
-expected_result: The acceptance criteria recorded on ops-kw02 are met on main.
+expected_result: "Native proof controls and the missing-history diagnostic test run in a fresh clone using durable reachable history or reviewed committed fixtures, without skipped controls or weakened assertions."
 actual_result: "Merged in https://github.com/unbraind/pm-ops/pull/156 after its full CI, an isolated release gate and a CodeRabbit full review with every finding resolved; historical Windows proof fixtures are vendored so fresh clones no longer need orphaned commits"
 comments[5]{created_at,author,text}:
   "2026-10-11T08:16:31.940Z",codex-agent,"Confirmed root cause in CI run 38117928292 and a fresh single-branch clone: 1 test, 0 passed, 1 failed while loading b89fd6f proof source. Both checkout jobs already use fetch-depth: 0. Main 3fca1f2 has the same test; passing run 38122425892 includes c69400b, which independently replaces historical controls with frozen function strings. The feature merge did not introduce a separate checkout or test difference. Vendoring the complete pre-diagnostic proof preserves the explicit missing-history refusal test. Frozen old launcher functions preserve current consumer assertions; the availability guard names reachable main squash commit 3fca1f2. Preparing the same focused change in a separate main PR."

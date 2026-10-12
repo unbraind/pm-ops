@@ -6,12 +6,12 @@ status: closed
 priority: 1
 tags[2]: cert,deps
 created_at: "2026-10-04T08:59:29.371Z"
-updated_at: "2026-10-11T23:29:09.630Z"
+updated_at: "2026-10-12T00:40:53.444Z"
 closed_at: "2026-10-11T23:29:09.598Z"
 completed_at: "2026-10-11T23:29:09.598Z"
 author: pi-cert-a
 resolution: "Implemented and merged in https://github.com/unbraind/pm-ops/pull/155: pm-ops certified on PM CLI/SDK 2026.10.10 with self-syncing dependency acceptance"
-expected_result: The acceptance criteria recorded on ops-hiee are met on main.
+expected_result: "pm-ops passes its complete isolated release gate on PM CLI/SDK 2026.10.10 with the linear declaration scanner, and weekly Dependabot toolchain bumps pass CI without hand edits (verified by Dependabot #153 and #154 auto-merging)."
 actual_result: "Merged in https://github.com/unbraind/pm-ops/pull/155 after its full CI, an isolated release gate and a CodeRabbit full review with every finding resolved; pm-ops certified on PM CLI/SDK 2026.10.10 with self-syncing dependency acceptance"
 comments[39]{created_at,author,text}:
   "2026-10-04T08:59:35.779Z",pi-cert-a,"Starting certification on PM CLI 2026.10.4. Pinning @unbrained/pm-cli to 2026.10.4 (supersedes Dependabot #138 which proposed 2026.10.1), @babel/eslint-parser ^8.0.6 (#126), jscpd ^5.4.0 (#139), @types/node lockfile 26.6.4 (newer than #137's 26.6.3), and codeql-action SHAs 2892aa5e (#127). Security alert #3 (brace-expansion) fixed via npm audit fix -> 5.0.12; npm audit --omit=dev clean. Note: the braces GHSA-vfj7-8cjw-p6xm advisory flags ALL published braces versions (vulnerable <=3.0.3, no patched release); its only path into the tree is the jscpd4 dev alias kept for duplication-gate v4-engine parity tests (peer floor jscpd >=4.3.0 <6.0.0), so it is refused rather than weakening the gate."
