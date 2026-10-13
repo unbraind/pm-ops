@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Reject unresolved alias and function publish indirection in canonical attestation auditor ([ops-publish-indirection](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-publish-indirection.toon))
+- Keep merge-driver prepare read-only during npm pack and publish ([ops-pack-prepare](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-pack-prepare.toon))
+
+### Other
+
+- Characterize pre-existing fleet workflow scanner refusals ([ops-0u7l](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-0u7l.toon))
+
 ## 2026.10.12 - 2026-10-12
 
 ### Added
