@@ -6,15 +6,13 @@ status: in_progress
 priority: 1
 tags: []
 created_at: "2026-10-10T02:41:50.499Z"
-updated_at: "2026-10-13T14:50:52.190Z"
-assignee: pi-agent
-claim_principal: pi-agent
+updated_at: "2026-10-13T14:59:24.158Z"
 author: codex-sol
 acceptance_criteria: Real npm pack preserves git config bytes; install and ci still register; broken installations remain fail-closed; revert proof and packed consumer checks.
 repro_steps: Run npm pack on a disposable Git consumer using the shipped prepare template and an installed merge-driver entry; compare git config bytes before and after.
 expected_result: Artifact creation skips registration before resolution; install and ci continue registering clone-local drivers.
 actual_result: All three prepare hooks skip artifact-time registration. Real npm pack preserves config and held lock bytes; install/ci register and broken installation refuses. Three independent hook reverts each fail the regression. Full release gate and packed npm/Bun consumers pass.
-comments[10]{created_at,author,text}:
+comments[11]{created_at,author,text}:
   "2026-10-10T02:42:15.573Z",codex-sol,"Reproduce npm prepare under real pack with git config byte comparison; skip only npm_command pack/publish before package resolution; retain existing install/broken-package behavior. Cover canonical local hook too. Companion: pm-cli-website-session-2026-10-10."
   "2026-10-10T03:02:50.665Z",codex-sol,"Independent implementation reverts: restoring only the template, only the local prepare hook, or only the exported prepare entry each caused test/pack-prepare.test.ts to fail (three separate nonzero runs); repaired bytes restored. Packed npm and native Bun consumers on SDK 2026.10.9 pass scratch creation, validation, strict merge-driver health, npm 11 pack and npm 10.9.4 pack --ignore-scripts with identical Git config bytes. Real install/ci registration remains tested. Initial full-gate fixture exposed inherited npm allow-scripts configuration; fixtures now isolate userconfig and remove only that project-specific parent setting."
   "2026-10-10T03:21:05.726Z",codex-sol,"Final npm run accept:packed exits 0 on separate npm/Node and native Bun consumers: SDK 2026.10.9 create, validation, strict merge-driver health, actual activation and built auditor; npm 11 pack and npm 10.9.4 pack --ignore-scripts preserve Git config bytes. Tarball SHA-256 1d6b39113d187ae64d31d09477fe080f5dfdedc415f72c5fdc879dc5e64d52e6. Real regression also packs successfully with a held config lock and preserves lock contents; install/ci still register and broken installation refuses. Three independent hook reverts each fail that regression. Final release:check passes 496 tests, zero failures, two existing fleet skips. PM-linked pack test passes again; explicit receipts retained because tracking is disabled."
@@ -25,6 +23,7 @@ comments[10]{created_at,author,text}:
   "2026-10-13T13:06:02.711Z",codex-sol,"Relaunch inspection: main already contains the pack/publish guards and real pack regression from merged PR #152. Reusing this owner; strengthen canonical-template install/ci coverage and repeat source-only behavioral revert proof. No consumer rollout."
   "2026-10-13T13:19:52.649Z",codex-sol,"Fresh source-only revert proof: restored only templates/prepare-merge-driver.ts from before merged PR #152 while retaining current tests. node --test test/pack-prepare.test.ts exits 1 with npm pack changed git config (1 passed, 1 failed). The template was restored byte-for-byte. The fixed real npm test also verifies the copied canonical template registers all five actual pm merge drivers during npm install and ci."
   "2026-10-13T14:42:40.733Z",pi-agent,"Continuation re-verification. Repeated the source-only behavioral revert proof for the pack regression: restoring only templates/prepare-merge-driver.ts from before merged PR #152 while keeping the current tests fails node --test test/pack-prepare.test.ts (1 pass, 1 fail: npm pack changed git config); the fixed template was restored byte-for-byte and the full file then passes 2/2, including install/ci registering all five actual merge drivers via the copied canonical template. Full npm release:check exits 0 with 675/677 tests passing (2 existing opt-in skips); bun run release:check exits 0; npm run accept:packed exits 0 for npm/Node and native Bun consumers with config byte identity."
+  "2026-10-13T14:59:19.682Z",pi-agent,"Delivery: PR #161 covers the completed pack regression alongside the auditor repair, with the rollout list of the 21 template copies. Claim released for orchestrator verification; item left open."
 files[5]{path,scope}:
   merge-driver-prepare.ts,project
   scripts/prepare-merge-driver.ts,project
@@ -34,10 +33,11 @@ files[5]{path,scope}:
 tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref},updated_by,updated_at}:
   node --test test/pack-prepare.test.ts,project,600,codex-sol,"2026-10-10T02:51:09.579Z",local_mutation,fix/canonical-publication-consumer-guards,codex-sol,"2026-10-13T13:20:36.907Z"
   "npm run accept:packed",project,900,codex-sol,"2026-10-10T03:07:32.450Z",local_mutation,fix/canonical-publication-consumer-guards,pi-agent,"2026-10-13T14:50:52.190Z"
-docs[5]{path,scope}:
+docs[6]{path,scope}:
   docs/canonical-publication-regressions.md,project
   docs/publication-repair.md,project
   "https://github.com/unbraind/pm-ops/actions/runs/38033875668",project
   "https://github.com/unbraind/pm-ops/issues/148",project
   "https://github.com/unbraind/pm-ops/pull/152",project
+  "https://github.com/unbraind/pm-ops/pull/161",project
 body: ""

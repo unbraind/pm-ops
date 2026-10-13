@@ -6,15 +6,13 @@ status: in_progress
 priority: 0
 tags: []
 created_at: "2026-10-10T02:41:49.896Z"
-updated_at: "2026-10-13T14:57:18.462Z"
-assignee: pi-agent
-claim_principal: pi-agent
+updated_at: "2026-10-13T14:59:22.868Z"
 author: codex-sol
 acceptance_criteria: Real subprocess adversarial fixtures and independent revert proofs; reject unresolved executable indirection; preserve sanctioned workflow; full release and packed npm/Bun checks.
 repro_steps: Execute test/publish-indirection.test.ts against the prior attestation implementation; Bash/xargs inert publisher records show hidden publish calls behind an attested sibling.
 expected_result: Every unresolved executable publisher path is refused; direct sanctioned provenance workflows and provable bindings remain accepted.
 actual_result: "Linear array declaration scanner preserves actual source/API grammar, UTF-16 extents, broad literal operands, failed-candidate recovery and duplicate/source ordering. Independent source/API review of dbff42a reports no own findings; PM-only evidence de10cfe adopted. Frozen unchanged release:check passes 576/578 tests with zero failures and two existing opt-in skips; all 23 production sources have 100% on all four metrics and every 11281 DA, 358 FNDA, 3009 BRDA counter positive. Fresh packed npm/Node and native Bun use published SDK 2026.10.10 with exact installed-version, built API, child-scope, activation/validation/health and npm 11/10 config byte checks. Four root-supplied metadata findings corrected without source changes. All candidate source/test/package/dist/config hashes match. Existing development audit, legacy completeness, whole docs, privacy and quorum owners remain open; root retains CodeQL/current-head native CI and review. No resource investigation, attack probe, suppression, closure or publication."
-comments[60]:
+comments[61]:
   - created_at: "2026-10-10T02:42:14.991Z"
     author: codex-sol
     text: "Owner search found historical scalar/spawning-wrapper repairs but no owner for #149; this item owns canonical alias/function/indirect spawning repair. Plan: executable safe stubs prove real argv and audit refusal, then mutation restores only prior implementation to prove regression detection. Companion: pm-cli-website-session-2026-10-10. No workflow execution or publication authorized."
@@ -196,6 +194,9 @@ comments[60]:
   - created_at: "2026-10-13T14:57:18.462Z"
     author: pi-agent
     text: "pm test --run receipts: the newly linked corpus command (current branch source_ref) passed under pm (75/75). The nine commands linked during merged PR #152 carry a foreign source_ref, so pm test refuses them in this clone with trust_refusal (reason foreign_source_ref, current branch differs); each was instead executed directly and passed: publish-indirection 96/96, pack-prepare 2/2, windows-proof-history 2/2, shell-command-scan 20/20, quoted-expansion pattern 2/2, publish-indirection+shell-command-scan 116/116, nested-substitution proof (accepted-source assertion failure confirmed, restored candidate passes), combined scan with published-attestation 70/70, combined scan with ops 130 passed/0 failed/2 existing opt-in skips. Full-gate receipts: npm release:check 675/677 with two existing opt-in skips, zero failures; bun run release:check exits 0; accept:packed exits 0."
+  - created_at: "2026-10-13T14:59:18.560Z"
+    author: pi-agent
+    text: "Delivery: PR #161 opens the candidate as a single PR covering #148 and #149, with the fleet workflow inventory table and the mechanical rollout list in the body and docs/canonical-publication-regressions.md. Claim released for orchestrator verification; item left open."
 files[19]:
   - path: .github/workflows/ci.yml
     scope: project
@@ -310,7 +311,7 @@ tests[10]:
       created_at: "2026-10-13T13:16:22.576Z"
       source_kind: local_mutation
       source_ref: fix/ops-148-149-canonical-pack-and-indirection
-docs[9]:
+docs[10]:
   - path: docs/canonical-publication-regressions.md
     scope: project
   - path: docs/publication-repair.md
@@ -324,6 +325,8 @@ docs[9]:
   - path: "https://github.com/unbraind/pm-ops/issues/149"
     scope: project
   - path: "https://github.com/unbraind/pm-ops/pull/152"
+    scope: project
+  - path: "https://github.com/unbraind/pm-ops/pull/161"
     scope: project
   - path: README.md
     scope: project
