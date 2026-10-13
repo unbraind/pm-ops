@@ -21,7 +21,7 @@ import { execFileSync } from "node:child_process";
 import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse } from "yaml";
-import { bashArrayDeclarations, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, isolateShellChildren, joinContinuations, scalarAssignmentEvents, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
+import { bashArrayDeclarations, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, declarationPrefixLength, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, isolateShellChildren, joinContinuations, scalarAssignmentEvents, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
 import { tallyFlaggedInvocations } from "./invocation-audit.js";
 /** The flag that attaches a build attestation to the published tarball. */
 export const ATTESTATION_FLAG = "--provenance";
@@ -29,8 +29,12 @@ export const ATTESTATION_FLAG = "--provenance";
 const NON_PUBLISH_VERBS = new Set([
     "add", "audit", "ci", "config", "install", "ls", "pack", "ping", "pkg", "run", "test", "version", "view", "whoami",
 ]);
-/** Interpreters that can reinterpret dynamic command strings. */
-const EVALUATORS = new Set(["eval", "bash", "sh", "dash", "zsh", "ksh"]);
+/**
+ * Shell evaluators whose dynamic payloads cannot prove publish provenance.
+ * Keep the shell names aligned with SHELL_INTERPRETERS and the shell scanner.
+ * BusyBox sh/ash applets are normalized by the shared command-prefix scan.
+ */
+const EVALUATORS = new Set(["eval", "bash", "sh", "dash", "zsh", "ksh", "mksh", "ash", "yash", "posh"]);
 /** Publishers other than npm, which this repository has no attested path for. */
 export const FOREIGN_PUBLISHERS = new Set(["yarn", "pnpm", "bun"]);
 /** Repository subtrees whose contents are build output rather than a publish path. */
@@ -68,7 +72,7 @@ export const FOREIGN_PUBLISHERS = new Set(["yarn", "pnpm", "bun"]);
  * interpreter it exists to introduce.
  */
 const ENV_OPTIONS_WITH_OPERAND = new Set(["-u", "--unset", "-C", "--chdir"]);
-const SHELL_INTERPRETERS = new Set(["sh", "bash", "dash", "zsh", "ksh", "mksh", "ash"]);
+const SHELL_INTERPRETERS = new Set(["sh", "bash", "dash", "zsh", "ksh", "mksh", "ash", "yash", "posh"]);
 /**
  * The final path segment of a word, so an interpreter is compared by name.
  *
@@ -649,13 +653,29 @@ function executableShellBodies(source) {
  * Dynamic evaluators can reinterpret words as shell syntax. Executable arrays
  * have unproved word boundaries even when their elements include provenance.
  * Literal scalar publishers and literal evaluator bodies remain supported.
+ * Bindings made through declaration builtins (`export E=eval`,
+ * `readonly E=eval`, `declare E=eval`) are recorded like bare ones, because a
+ * binding scan that stops at the keyword leaves the routed `$E` unrefused.
  */
 function opaquePublishInvocations(source, body) {
     const found = [];
     const commands = tokenizeCommands(joinContinuations(body));
     const opaqueVariables = new Set();
     for (const command of commands) {
-        for (const token of command) {
+        // A declaration builtin and its option words are not the first
+        // non-assignment word: `export E=eval`, `readonly E=eval`, `declare -x
+        // E=eval` (and `typeset`/`local`) all bind `E` the way a bare assignment
+        // does. Stopping at the keyword left the binding unrecorded, and a later
+        // `$E "$PUB --provenance"` then expanded an evaluator the binding-aware
+        // scan had already resolved -- the precise refusal this loop keeps.
+        let index = 0;
+        while (index < command.length) {
+            const prefix = declarationPrefixLength(command, index);
+            if (prefix > 0) {
+                index += prefix;
+                continue;
+            }
+            const token = command[index];
             const binding = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/su.exec(token.value);
             if (binding === null || token.startsQuoted)
                 break;
@@ -664,6 +684,7 @@ function opaquePublishInvocations(source, body) {
                 return name !== undefined && (name === "alias" || EVALUATORS.has(name));
             }))
                 opaqueVariables.add(binding[1]);
+            index += 1;
         }
     }
     for (const command of commands) {

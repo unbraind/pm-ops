@@ -264,6 +264,24 @@ export declare function bashArrayDeclarations(text: string): BashArrayDeclaratio
  */
 export declare function bashArrays(text: string): Map<string, string>;
 /**
+ * Count the declaration tokens an assignment command opens with.
+ *
+ * The keyword itself and the option words that follow it (`declare -x E=eval`)
+ * are declaration syntax rather than assignments, so a caller scanning a
+ * command's tokens for `NAME=value` bindings starts at the returned offset. A
+ * command that opens with no declaration builtin returns 0, so callers that
+ * treat 0 as "no prefix to skip" keep their existing behavior. The option
+ * words are skipped without knowing each builtin's option table: an unknown
+ * option's operand can only delay where the binding scan starts, and a later
+ * start cannot invent a binding, only miss one -- which the callers pair with
+ * their own fail-closed refusal.
+ *
+ * @param command - One simple command's tokens.
+ * @param start - Index of the first token to consider as the possible keyword.
+ * @returns The number of leading declaration tokens, 0 when there is none.
+ */
+export declare function declarationPrefixLength(command: ShellCommand, start?: number): number;
+/**
  * Read persistent literal assignments from one control-operator-delimited segment.
  *
  * The line segmenter has already separated `;`, `&&`, and `||`. Shell keywords
@@ -274,6 +292,12 @@ export declare function bashArrays(text: string): Map<string, string>;
  * The ordinary line-opening parser remains the more permissive path for quoted
  * and escaped literal values. A compound-position assignment is read only when
  * its token was wholly unquoted and substitution-free.
+ *
+ * Declaration builtins ({@link DECLARATION_BUILTINS}) and their option words
+ * are stepped over wherever an assignment run reaches them, because
+ * `export E=eval` and `readonly E=eval` bind `E` exactly as a bare `E=eval`
+ * does. Stopping at the keyword would leave the binding unread, and a binding
+ * the value scanner cannot see is the one a routed `$E` publish hides behind.
  *
  * Uncertainty is reported, never dropped. An assignment whose value cannot be
  * read maps its name to `undefined`, which says the shell replaced the binding

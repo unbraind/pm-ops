@@ -269,6 +269,21 @@ test("compound assignment indexing accepts only provably literal assignment comm
     assert.equal(literalScalarAssignments(segment).get("NPM"), "npm", segment);
   }
   assert.equal(literalScalarAssignments("then export NPM=npm").get("NPM"), "npm");
+  for (const segment of [
+    "then readonly NPM=npm",
+    "then declare NPM=npm",
+    "then typeset NPM=npm",
+    "then local NPM=npm",
+    "then declare -x NPM=npm",
+    "readonly NPM=npm",
+    "declare NPM=npm",
+    "typeset NPM=npm",
+    "local NPM=npm",
+    "declare -x NPM=npm",
+  ]) {
+    assert.equal(literalScalarAssignments(segment).get("NPM"), "npm", segment);
+  }
+  assert.equal(literalScalarAssignments("declare NPM=npm echo").size, 0, "a trailing command word makes the assignment its environment");
   for (const uncertain of [
     "then",
     "then echo",

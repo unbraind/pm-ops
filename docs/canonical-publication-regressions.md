@@ -50,3 +50,11 @@ Identified with `grep -l` over fleet script files:
 - `scripts/verify-release-publish-attestation.ts` package auditor launchers (22): pm-ado, pm-beads, pm-brief, pm-changelog, pm-context, pm-csv, pm-gantt-chart, pm-github, pm-graph, pm-jev, pm-jira, pm-linear, pm-lint, pm-presets, pm-rl, pm-slack, pm-slack-standup, pm-starter, pm-todos, pm-ts-starter, pm-vcs, pm-web.
 
 The pm-ops repository has its own source-relative launchers. After this PR merges and the package is released, the orchestrator can refresh the copies and remove pm-web's local indirection layer against the new canonical package. This PR performs no rollout, release or publication.
+
+## Review round 2
+
+The evaluator sets now include `mksh`, `ash`, `yash` and `posh`. The shared command-prefix scan recognizes `busybox sh` and `busybox ash` while preserving the shell operand for recursive scanning and dynamic-payload refusal. Non-shell BusyBox applets do not evaluate displayed shell text. The corpus includes literal unattested and dynamic evaluator rejections, literal attested evaluator controls, and a direct `npm publish --provenance` non-vacuity control.
+
+Declaration binding scans share a prefix helper for `export`, `readonly`, `declare`, `typeset` and `local`, including option words such as `declare -x`. The opaque evaluator scan records these bindings before scalar expansion can hide a routed evaluator. The scalar scan supports literal provenance flags declared with the same builtins. Corpus fixtures reject each routed evaluator form beside an attested sibling.
+
+The review's OpenGrep `exec` warning refers to `RegExp.exec` inspecting a shell token. The scanner does not execute the inspected shell source.

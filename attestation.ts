@@ -29,6 +29,7 @@ import {
   commandArguments,
   commandCandidates,
   commandName,
+  declarationPrefixLength,
   expandArrays,
   expandScalars,
   heredocBodyLines,
@@ -79,8 +80,12 @@ const NON_PUBLISH_VERBS = new Set([
   "add", "audit", "ci", "config", "install", "ls", "pack", "ping", "pkg", "run", "test", "version", "view", "whoami",
 ]);
 
-/** Interpreters that can reinterpret dynamic command strings. */
-const EVALUATORS = new Set(["eval", "bash", "sh", "dash", "zsh", "ksh"]);
+/**
+ * Shell evaluators whose dynamic payloads cannot prove publish provenance.
+ * Keep the shell names aligned with SHELL_INTERPRETERS and the shell scanner.
+ * BusyBox sh/ash applets are normalized by the shared command-prefix scan.
+ */
+const EVALUATORS = new Set(["eval", "bash", "sh", "dash", "zsh", "ksh", "mksh", "ash", "yash", "posh"]);
 
 /** Publishers other than npm, which this repository has no attested path for. */
 export const FOREIGN_PUBLISHERS = new Set(["yarn", "pnpm", "bun"]);
@@ -121,7 +126,7 @@ export const FOREIGN_PUBLISHERS = new Set(["yarn", "pnpm", "bun"]);
  */
 const ENV_OPTIONS_WITH_OPERAND = new Set(["-u", "--unset", "-C", "--chdir"]);
 
-const SHELL_INTERPRETERS = new Set(["sh", "bash", "dash", "zsh", "ksh", "mksh", "ash"]);
+const SHELL_INTERPRETERS = new Set(["sh", "bash", "dash", "zsh", "ksh", "mksh", "ash", "yash", "posh"]);
 
 /**
  * The final path segment of a word, so an interpreter is compared by name.
@@ -690,19 +695,36 @@ function executableShellBodies(source: SourceFile): string[] {
  * Dynamic evaluators can reinterpret words as shell syntax. Executable arrays
  * have unproved word boundaries even when their elements include provenance.
  * Literal scalar publishers and literal evaluator bodies remain supported.
+ * Bindings made through declaration builtins (`export E=eval`,
+ * `readonly E=eval`, `declare E=eval`) are recorded like bare ones, because a
+ * binding scan that stops at the keyword leaves the routed `$E` unrefused.
  */
 function opaquePublishInvocations(source: SourceFile, body: string): PublishInvocation[] {
   const found: PublishInvocation[] = [];
   const commands = tokenizeCommands(joinContinuations(body));
   const opaqueVariables = new Set<string>();
   for (const command of commands) {
-    for (const token of command) {
+    // A declaration builtin and its option words are not the first
+    // non-assignment word: `export E=eval`, `readonly E=eval`, `declare -x
+    // E=eval` (and `typeset`/`local`) all bind `E` the way a bare assignment
+    // does. Stopping at the keyword left the binding unrecorded, and a later
+    // `$E "$PUB --provenance"` then expanded an evaluator the binding-aware
+    // scan had already resolved -- the precise refusal this loop keeps.
+    let index = 0;
+    while (index < command.length) {
+      const prefix = declarationPrefixLength(command, index);
+      if (prefix > 0) {
+        index += prefix;
+        continue;
+      }
+      const token = command[index]!;
       const binding = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/su.exec(token.value);
       if (binding === null || token.startsQuoted) break;
       if (tokenizeCommands(binding[2]!).some((bound) => {
         const name = commandName(bound);
         return name !== undefined && (name === "alias" || EVALUATORS.has(name));
       })) opaqueVariables.add(binding[1]!);
+      index += 1;
     }
   }
   for (const command of commands) {

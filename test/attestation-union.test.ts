@@ -258,6 +258,8 @@ test("an unattested publish smuggled through an interpreter or a substitution is
     `eval '${UNATTESTED}'`,
     `bash -c "${UNATTESTED}"`,
     `sh -c '${UNATTESTED}'`,
+    `mksh -c "${UNATTESTED}"`,
+    `ash -c '${UNATTESTED}'`,
     `output=$(${UNATTESTED})`,
     "output=`npm publish --access public`",
     `echo hi && eval "${UNATTESTED}"`,
