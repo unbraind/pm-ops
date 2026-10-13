@@ -20,7 +20,8 @@
 import { execFileSync } from "node:child_process";
 import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 import { resolve } from "node:path";
-import { bashArrayDeclarations, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, dedentRunBlocks, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, isolateShellChildren, joinContinuations, scalarAssignmentEvents, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
+import { parse } from "yaml";
+import { bashArrayDeclarations, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, isolateShellChildren, joinContinuations, scalarAssignmentEvents, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
 import { tallyFlaggedInvocations } from "./invocation-audit.js";
 /** The flag that attaches a build attestation to the published tarball. */
 export const ATTESTATION_FLAG = "--provenance";
@@ -28,6 +29,8 @@ export const ATTESTATION_FLAG = "--provenance";
 const NON_PUBLISH_VERBS = new Set([
     "add", "audit", "ci", "config", "install", "ls", "pack", "ping", "pkg", "run", "test", "version", "view", "whoami",
 ]);
+/** Interpreters that can reinterpret dynamic command strings. */
+const EVALUATORS = new Set(["eval", "bash", "sh", "dash", "zsh", "ksh"]);
 /** Publishers other than npm, which this repository has no attested path for. */
 export const FOREIGN_PUBLISHERS = new Set(["yarn", "pnpm", "bun"]);
 /** Repository subtrees whose contents are build output rather than a publish path. */
@@ -599,34 +602,97 @@ function publishInvocationsInShell(source, raw, depth = 0, arithmetic = false) {
  * non-vacuity guard is repository-wide, one attested publish elsewhere then
  * satisfies it and the whole run passes clean. */
 const MANIFEST_PATH = /(?:^|\/)package\.json$/;
+/** Return a mapping only for structured executable metadata. */
+function mapping(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+        ? value : undefined;
+}
 /**
- * Find every publish invocation in one source, isolating package scripts.
- *
- * npm launches every manifest script in a fresh shell, so scalar evidence from
- * one body can never attest a publish in another body. A workflow file's `run:`
- * blocks are dedented first — before {@link joinContinuations} and heredoc
- * detection — because that is what happens to them before bash sees the text:
- * YAML strips the block indentation when it delivers the value. The order
- * matters: `dedentRunBlocks` reads the raw YAML line structure to find block
- * headers and strip their indentation, and `joinContinuations` would merge a
- * `run:` header with the next line when a backslash continuation sits between
- * them, destroying the header the dedent needs to see. Heredoc detection runs
- * after both, because a heredoc terminator must match at the start of the line
- * bash receives — which is the dedented, continuation-joined text. The one
- * scanner rule that is whitespace-sensitive is the heredoc terminator, so
- * dedenting before that rule runs is what makes a `run: |2` block's heredoc
- * terminator match instead of swallowing the rest of the file.
- *
- * @param source - The file's path and contents.
- * @returns The publish invocations found, in file and script order.
+ * Extract independent package scripts, workflow steps and composite-action steps.
+ * Metadata is never shell evidence; malformed sources and non-string commands
+ * throw so an attested sibling cannot hide an unreadable publish path.
+ */
+function executableShellBodies(source) {
+    if (MANIFEST_PATH.test(source.file)) {
+        const data = mapping(JSON.parse(source.text));
+        const scripts = mapping(data?.scripts);
+        return Object.values(scripts ?? {}).map((body) => {
+            if (typeof body !== "string")
+                throw new Error("non-string package script");
+            return body;
+        });
+    }
+    if (!isWorkflowYaml(source.file))
+        return [source.text];
+    const data = mapping(parse(source.text));
+    const jobs = Object.values(mapping(data?.jobs) ?? {});
+    const containers = /(^|\/)action\.ya?ml$/.test(source.file)
+        ? [mapping(data?.runs)] : jobs.map(mapping);
+    const bodies = [];
+    for (const container of containers) {
+        const steps = container?.steps;
+        if (!Array.isArray(steps))
+            continue;
+        for (const value of steps) {
+            const step = mapping(value);
+            if (step === undefined || !Object.hasOwn(step, "run"))
+                continue;
+            if (typeof step.run !== "string")
+                throw new Error("non-string workflow run body");
+            bodies.push(step.run);
+        }
+    }
+    return bodies;
+}
+/**
+ * Retain the consumer's conservative refusals before literal expansion.
+ * Dynamic evaluators can reinterpret words as shell syntax. Executable arrays
+ * have unproved word boundaries even when their elements include provenance.
+ * Literal scalar publishers and literal evaluator bodies remain supported.
+ */
+function opaquePublishInvocations(source, body) {
+    const found = [];
+    const commands = tokenizeCommands(joinContinuations(body));
+    const opaqueVariables = new Set();
+    for (const command of commands) {
+        for (const token of command) {
+            const binding = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/su.exec(token.value);
+            if (binding === null || token.startsQuoted)
+                break;
+            if (tokenizeCommands(binding[2]).some((bound) => {
+                const name = commandName(bound);
+                return name !== undefined && (name === "alias" || EVALUATORS.has(name));
+            }))
+                opaqueVariables.add(binding[1]);
+        }
+    }
+    for (const command of commands) {
+        for (const candidate of commandCandidates(command)) {
+            const program = commandName(candidate);
+            if (program === undefined)
+                continue;
+            const reference = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/u.exec(program);
+            const routedEvaluator = reference !== null && opaqueVariables.has(reference[1]);
+            const dynamicEvaluator = EVALUATORS.has(program) && commandArguments(candidate).some((token) => token.unresolved);
+            const executableArray = program === commandName(command) && program.startsWith("$") && /\[[ @*]*\]/u.test(program);
+            if (dynamicEvaluator || executableArray || routedEvaluator) {
+                found.push({ file: source.file, program, command: candidate,
+                    unresolved: dynamicEvaluator || routedEvaluator ? "dynamic shell evaluator payload" : "array executable expansion" });
+            }
+        }
+    }
+    return found;
+}
+/**
+ * Find publish paths in independent executable bodies, retaining opaque-path refusals.
+ * @param source - Repository-relative path and executable source text.
+ * @returns Literal publish invocations and conservative opaque-path refusals.
+ * @throws If executable metadata cannot be parsed or a command is not a string.
  */
 export function publishInvocationsIn(source) {
-    const bodies = MANIFEST_PATH.test(source.file)
-        ? manifestCommandBodies(source.text)
-        : isWorkflowYaml(source.file)
-            ? [dedentRunBlocks(source.text)]
-            : [source.text];
-    return bodies.flatMap((body) => publishInvocationsInShell(source, body));
+    return executableShellBodies(source).flatMap((body) => [
+        ...publishInvocationsInShell(source, body), ...opaquePublishInvocations(source, body),
+    ]);
 }
 /**
  * Render an invocation back to a readable command for a report line.
@@ -654,7 +720,16 @@ export function renderCommand(command) {
  * @returns Failures and per-file notes.
  */
 export function auditPublishAttestation(sources) {
-    const invocations = sources.flatMap(publishInvocationsIn);
+    const invocations = [];
+    const parseFailures = [];
+    for (const source of sources) {
+        try {
+            invocations.push(...publishInvocationsIn(source));
+        }
+        catch {
+            parseFailures.push(`${source.file}: executable source cannot be parsed; refusing an unresolvable publish path`);
+        }
+    }
     const { failures, notes } = tallyFlaggedInvocations(invocations, (invocation) => {
         if (invocation.unresolved !== undefined) {
             return `${invocation.file}: cannot prove ${invocation.unresolved}; refusing an unresolved publish path: ${renderCommand(invocation.command)}`;
@@ -674,8 +749,8 @@ export function auditPublishAttestation(sources) {
         emptyScan: "no npm publish invocation was found in any tracked file - the scan is looking in the wrong place",
     });
     return {
-        failures,
-        notes,
+        failures: [...(parseFailures.length > 0 && invocations.length === 0 ? [] : failures), ...parseFailures],
+        notes: parseFailures.length > 0 ? [] : notes,
         recognition: invocations.length === 0
             ? { kind: "none" }
             : { kind: "recognized", count: invocations.length },

@@ -85,25 +85,10 @@ export declare function isPublishCommand(command: ShellCommand): boolean;
  */
 export declare function attestationEnabled(command: ShellCommand): boolean;
 /**
- * Find every publish invocation in one source, isolating package scripts.
- *
- * npm launches every manifest script in a fresh shell, so scalar evidence from
- * one body can never attest a publish in another body. A workflow file's `run:`
- * blocks are dedented first — before {@link joinContinuations} and heredoc
- * detection — because that is what happens to them before bash sees the text:
- * YAML strips the block indentation when it delivers the value. The order
- * matters: `dedentRunBlocks` reads the raw YAML line structure to find block
- * headers and strip their indentation, and `joinContinuations` would merge a
- * `run:` header with the next line when a backslash continuation sits between
- * them, destroying the header the dedent needs to see. Heredoc detection runs
- * after both, because a heredoc terminator must match at the start of the line
- * bash receives — which is the dedented, continuation-joined text. The one
- * scanner rule that is whitespace-sensitive is the heredoc terminator, so
- * dedenting before that rule runs is what makes a `run: |2` block's heredoc
- * terminator match instead of swallowing the rest of the file.
- *
- * @param source - The file's path and contents.
- * @returns The publish invocations found, in file and script order.
+ * Find publish paths in independent executable bodies, retaining opaque-path refusals.
+ * @param source - Repository-relative path and executable source text.
+ * @returns Literal publish invocations and conservative opaque-path refusals.
+ * @throws If executable metadata cannot be parsed or a command is not a string.
  */
 export declare function publishInvocationsIn(source: SourceFile): PublishInvocation[];
 /**

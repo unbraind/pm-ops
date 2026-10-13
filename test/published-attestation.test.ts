@@ -538,9 +538,9 @@ test("a brace group before the keyword does not hide the opener", () => {
 
 test("an escape naming no code point leaves the scan running", () => {
   // A throw here would abort the whole attestation scan, so a malformed key
-  // would become a way to stop the gate running rather than a key that simply
-  // is not `run`. Both an out-of-range value and a surrogate half are refused
-  // as unusable and left as written.
+  // would become a way to stop the gate running. Invalid YAML escapes now
+  // produce a parse refusal; the audit still completes and never invents run
+  // evidence from an out-of-range value or a surrogate half.
   for (const escape of ["\\UFFFFFFFF", "\\uD800"]) {
     const result = auditPublishAttestation([{
       file: ".github/workflows/release.yml",

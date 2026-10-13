@@ -697,8 +697,22 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
   const installedManifest = JSON.parse(readFileSync(join(consumer, "node_modules", "pm-ops", "package.json"), "utf-8")) as {
     dependencies?: Record<string, string>;
   };
-  assert.deepEqual(Object.keys(installedManifest.dependencies ?? {}).sort(), ["@toon-format/toon", "typescript"],
-    "the extension package must keep gate tooling out of runtime dependencies");
+  assert.deepEqual(Object.keys(installedManifest.dependencies ?? {}).sort(), ["@toon-format/toon", "typescript", "yaml"],
+    "runtime analyzers require YAML; lint and duplication tooling remain optional peers");
+  const auditorProbe = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    import assert from "node:assert/strict";
+    import { auditPublishAttestation } from "pm-ops/attestation";
+    const good = { file: "scripts/good.sh", text: "npm publish --provenance" };
+    assert.deepEqual(auditPublishAttestation([good]).failures, []);
+    for (const body of ['PUB="npm publish"; eval "$PUB --provenance"',
+      'PUB=(npm publish --provenance); \${PUB[@]}',
+      'ship() { npm "$@"; }; ship publish --provenance']) {
+      assert.ok(auditPublishAttestation([good, { file: "scripts/release.sh", text: body }]).failures.length > 0);
+    }
+    const workflow = "jobs:\\n  release:\\n    steps:\\n      - run: FLAG=--provenance\\n      - run: npm publish $FLAG\\n";
+    assert.ok(auditPublishAttestation([good, { file: ".github/workflows/release.yml", text: workflow }]).failures.length > 0);
+  `], { cwd: consumer, encoding: "utf-8", env, timeout: 30_000 });
+  assertClean(auditorProbe, "packed auditor resolves YAML and refuses indirect or cross-step publishes");
   for (const gateTool of ["eslint", "jscpd", "@babel/eslint-parser", "@babel/plugin-syntax-typescript"]) {
     assert.equal(existsSync(join(consumer, "node_modules", gateTool)), false,
       `${gateTool} must not be installed for the main extension surface`);

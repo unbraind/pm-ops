@@ -259,13 +259,13 @@ test("dedenting does not refuse a publish that carries --provenance on every pat
     "    runs-on: ubuntu-latest",
     "    steps:",
     "      - run: |2",
-    "        FLAG=--provenance",
-    "        cat <<EOF",
-    "          heredoc payload",
-    "        EOF",
-    "        npm publish $FLAG",
+    "          FLAG=--provenance",
+    "          cat <<EOF",
+    "            heredoc payload",
+    "          EOF",
+    "          npm publish $FLAG",
     "      - run: |",
-    "        npm publish --provenance",
+    "          npm publish --provenance",
   ].join("\n");
   const result = auditPublishAttestation([{ file: ".github/workflows/release.yml", text: workflow }]);
   assert.equal(result.failures.length, 0,
@@ -297,4 +297,14 @@ test("a sequence entry's marker counts toward the indentation an indicator measu
     dedentRunBlocks(["  - - run: |2", "        echo hi"].join("\n")),
     ["  - - run: |2", "echo hi"].join("\n"),
   );
+});
+
+
+test("the exported YAML dedenter preserves quoted-key decoding independently of the auditor", () => {
+  for (const key of ["run", "'run'", "\"run\"", "\"r\\u0075n\"", "\"r\\U00000075n\"", "\"ru\\x6e\""]) {
+    assert.equal(dedentRunBlocks(`  ${key}: |\n    npm publish --provenance`), `  ${key}: |\nnpm publish --provenance`, key);
+  }
+  for (const key of ["\"ru\\nn\"", "\"no\\qte\"", "\"r\\UFFFFFFFFn\"", "\"r\\uD800n\"", "'NOTE''S'", "\"NO\\\"TE\""]) {
+    assert.equal(dedentRunBlocks(`  ${key}: |\n    npm publish --provenance`), `  ${key}: |\n`, key);
+  }
 });

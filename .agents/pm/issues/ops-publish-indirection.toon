@@ -6,13 +6,15 @@ status: in_progress
 priority: 0
 tags: []
 created_at: "2026-10-10T02:41:49.896Z"
-updated_at: "2026-10-10T09:50:37.012Z"
+updated_at: "2026-10-13T14:57:18.462Z"
+assignee: pi-agent
+claim_principal: pi-agent
 author: codex-sol
 acceptance_criteria: Real subprocess adversarial fixtures and independent revert proofs; reject unresolved executable indirection; preserve sanctioned workflow; full release and packed npm/Bun checks.
 repro_steps: Execute test/publish-indirection.test.ts against the prior attestation implementation; Bash/xargs inert publisher records show hidden publish calls behind an attested sibling.
 expected_result: Every unresolved executable publisher path is refused; direct sanctioned provenance workflows and provable bindings remain accepted.
 actual_result: "Linear array declaration scanner preserves actual source/API grammar, UTF-16 extents, broad literal operands, failed-candidate recovery and duplicate/source ordering. Independent source/API review of dbff42a reports no own findings; PM-only evidence de10cfe adopted. Frozen unchanged release:check passes 576/578 tests with zero failures and two existing opt-in skips; all 23 production sources have 100% on all four metrics and every 11281 DA, 358 FNDA, 3009 BRDA counter positive. Fresh packed npm/Node and native Bun use published SDK 2026.10.10 with exact installed-version, built API, child-scope, activation/validation/health and npm 11/10 config byte checks. Four root-supplied metadata findings corrected without source changes. All candidate source/test/package/dist/config hashes match. Existing development audit, legacy completeness, whole docs, privacy and quorum owners remain open; root retains CodeQL/current-head native CI and review. No resource investigation, attack probe, suppression, closure or publication."
-comments[54]:
+comments[60]:
   - created_at: "2026-10-10T02:42:14.991Z"
     author: codex-sol
     text: "Owner search found historical scalar/spawning-wrapper repairs but no owner for #149; this item owns canonical alias/function/indirect spawning repair. Plan: executable safe stubs prove real argv and audit refusal, then mutation restores only prior implementation to prove regression detection. Companion: pm-cli-website-session-2026-10-10. No workflow execution or publication authorized."
@@ -176,7 +178,25 @@ comments[54]:
   - created_at: "2026-10-10T09:50:35.282Z"
     author: codex-linear-array-repair
     text: "Final ordinary gates pass on frozen dbff42a source bytes: release:check 576/578, zero failed/canceled/TODO, two existing opt-in skips; all 23 production sources four metrics 100%. Independent LCOV/source inventory equality and every counter positive: 11281 DA, 358 FNDA, 3009 BRDA. Fresh packed npm/Node and native Bun SDK 2026.10.10 pass installed version, built array offsets/recovery, retained nested controls, actual activation, synthetic create/validate/strict health and npm 11/10 Git configuration byte identity. Source fingerprint digest fbf4d0c7786beaef5e791dcd50afc94e033b4a4ac1d9038965f3356d3641b711; LCOV digest f6da7295e5133c548d9ac89a8c6ed00db1d04675f36f22494dfc385bb1c5c2de; tarball 7db108f49a626867130ab93fd3bcce0fd2393e7cc11a3348c156584d6af0a7c6. Separate release completeness 46 tags, production audit zero, development five high and validation 12 legacy completeness errors/history drift zero. Documentation and PM-only review corrections preserve every accepted source/test/package/dist/config byte. All predecessor history retained. Root handles current-head CodeQL, native CI, external review and closure."
-files[17]:
+  - created_at: "2026-10-13T13:06:36.310Z"
+    author: codex-sol
+    text: "Relaunch inspection: PR #152 already rejects aliases and forwarding/spawned arguments, but the complete pm-web adversarial corpus and independent workflow-body checks are absent. Port that corpus first, reproduce remaining failures against current canonical code, and repair only demonstrated gaps. Check every fleet workflow and list copied launchers in the PR; no consumer edits."
+  - created_at: "2026-10-13T13:14:58.849Z"
+    author: codex-sol
+    text: "Transferred the pm-web corpus. Current-main baseline fails eight assertions among 72 tests: dynamic eval with a provenance flag, executable array expansions, independent workflow bodies, malformed-source refusal and metadata isolation. The repair parses YAML steps as separate shell scopes (including composites), retains existing alias/function/xargs rejection, and refuses dynamic evaluator payloads and executable arrays before expansion. Fleet comparison: 112 YAML workflows checked; all 22 previously passing workflows still pass, 84 have no publish path, and six retain pre-existing refusals. No fleet source changed."
+  - created_at: "2026-10-13T13:19:56.845Z"
+    author: codex-sol
+    text: "Fresh source-only behavioral revert: restored only attestation.ts from main commit 4bcf3d4 while retaining the corpus and installed dependencies. node --test test/publish-indirection-corpus.test.ts exits 1: 64 passed, nine failed among 73 counted tests, with assertion failures and no module-load errors. Exact fixed source bytes restored. PM-linked corpus execution passes. Additional evaluator-wrapper/scalar controls are being added before full gates; fleet scanner limitations are followed by ops-0u7l."
+  - created_at: "2026-10-13T13:37:03.415Z"
+    author: codex-sol
+    text: "First isolated npm gate completed 676 counted tests: 673 passed, one dependency-contract assertion failed, two existing opt-in skips. Canonical attestation reached 100% on all four metrics; retained shell-scan YAML key helpers fell below coverage because the auditor no longer calls them. Updating the runtime-dependency contract for the exported YAML auditor and exercising the public dedenter directly, including malformed escapes. Added a real installed-tarball auditor probe so YAML availability and conservative refusals are verified without dev tooling. Full gates will be rerun unchanged after these test repairs."
+  - created_at: "2026-10-13T14:42:34.444Z"
+    author: pi-agent
+    text: "Continuation re-verification after the previous implementer was interrupted. Rebuilt dist from the unchanged candidate source: byte-identical. Re-ran the full adversarial corpus node --test test/publish-indirection-corpus.test.ts: 75/75 pass. Repeated the source-only behavioral revert proof: restoring only attestation.ts from main 4bcf3d4 fails 10 of 75 corpus tests (65 pass), fixed bytes restored byte-for-byte. Reproduced the fleet inventory with the packaged proof script against the fleet checkout: 112 workflow files, 22 PASS, 84 NO_PUBLISH, 6 FAIL; the 22-passing set is identical to the baseline's, and all 6 FAILs are a subset of the baseline's 9 pre-existing refusals. npm release:check exits 0 (677 tests: 675 pass, 0 fail, 2 existing opt-in skips; attestation.ts and shell-scan.ts 100% on all four metrics); bun run release:check exits 0; npm run accept:packed exits 0 on npm/Node and native Bun."
+  - created_at: "2026-10-13T14:57:18.462Z"
+    author: pi-agent
+    text: "pm test --run receipts: the newly linked corpus command (current branch source_ref) passed under pm (75/75). The nine commands linked during merged PR #152 carry a foreign source_ref, so pm test refuses them in this clone with trust_refusal (reason foreign_source_ref, current branch differs); each was instead executed directly and passed: publish-indirection 96/96, pack-prepare 2/2, windows-proof-history 2/2, shell-command-scan 20/20, quoted-expansion pattern 2/2, publish-indirection+shell-command-scan 116/116, nested-substitution proof (accepted-source assertion failure confirmed, restored candidate passes), combined scan with published-attestation 70/70, combined scan with ops 130 passed/0 failed/2 existing opt-in skips. Full-gate receipts: npm release:check 675/677 with two existing opt-in skips, zero failures; bun run release:check exits 0; accept:packed exits 0."
+files[19]:
   - path: .github/workflows/ci.yml
     scope: project
   - path: attestation.ts
@@ -192,6 +212,8 @@ files[17]:
     note: Independent cache branch and direct caller review
   - path: test/compatibility-floor.test.ts
     scope: project
+  - path: test/fleet-publish-attestation.proof.ts
+    scope: project
   - path: test/nested-substitution.proof.ts
     scope: project
   - path: test/npm-launcher.ts
@@ -201,6 +223,8 @@ files[17]:
   - path: test/pack-prepare.test.ts
     scope: project
   - path: test/packed-consumer.acceptance.ts
+    scope: project
+  - path: test/publish-indirection-corpus.test.ts
     scope: project
   - path: test/publish-indirection.test.ts
     scope: project
@@ -213,7 +237,7 @@ files[17]:
     scope: project
   - path: test/windows-proof-history.test.ts
     scope: project
-tests[9]:
+tests[10]:
   - command: node --test test/publish-indirection.test.ts
     scope: project
     provenance:
@@ -278,7 +302,17 @@ tests[9]:
       created_at: "2026-10-10T09:41:47.825Z"
       source_kind: local_mutation
       source_ref: fix/canonical-publication-consumer-guards
-docs[8]:
+  - command: node --test test/publish-indirection-corpus.test.ts
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-13T13:16:22.576Z"
+      source_kind: local_mutation
+      source_ref: fix/ops-148-149-canonical-pack-and-indirection
+docs[9]:
+  - path: docs/canonical-publication-regressions.md
+    scope: project
   - path: docs/publication-repair.md
     scope: project
   - path: "https://github.com/unbraind/pm-ops/actions/runs/38028728667"
