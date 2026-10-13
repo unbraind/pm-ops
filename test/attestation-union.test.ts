@@ -64,7 +64,10 @@ function trackedFixture(files: Record<string, string>): string {
   execFileSync("git", ["init", "-q", "."], { cwd: root });
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(join(root, path, ".."), { recursive: true });
-    writeFileSync(join(root, path), text);
+    const body = path.startsWith(".github/workflows/")
+      ? `jobs:\n  release:\n    steps:\n      - run: |\n${text.split("\n").map((line) => `          ${line.trimStart()}`).join("\n")}\n`
+      : text;
+    writeFileSync(join(root, path), body);
   }
   execFileSync("git", ["add", "-A"], { cwd: root });
   return root;
@@ -255,6 +258,8 @@ test("an unattested publish smuggled through an interpreter or a substitution is
     `eval '${UNATTESTED}'`,
     `bash -c "${UNATTESTED}"`,
     `sh -c '${UNATTESTED}'`,
+    `mksh -c "${UNATTESTED}"`,
+    `ash -c '${UNATTESTED}'`,
     `output=$(${UNATTESTED})`,
     "output=`npm publish --access public`",
     `echo hi && eval "${UNATTESTED}"`,
@@ -564,13 +569,13 @@ test("a prefix option's operand is not mistaken for the program", () => {
   // across the fleet costs an outage rather than a missed publish.
   for (const line of ["env -u parallel npm --version", "env -C xargs npm ci", "sudo -u xargs npm ci", "nice -n parallel npm ci"]) {
     const result = auditPublishAttestation([
-      { file: ".github/workflows/release.yml", text: `          ${ATTESTED}\n          ${line}` },
+      { file: "scripts/release.sh", text: `          ${ATTESTED}\n          ${line}` },
     ]);
     assert.deepEqual(result.failures, [], line);
   }
   // The wrapper is still caught when it really is in command position.
   const wrapped = auditPublishAttestation([
-    { file: ".github/workflows/release.yml", text: `          ${ATTESTED}\n          env -i xargs npm` },
+    { file: "scripts/release.sh", text: `          ${ATTESTED}\n          env -i xargs npm` },
   ]);
   assert.equal(wrapped.failures.length, 1, "a genuine wrapper behind a no-operand option is still audited");
 });

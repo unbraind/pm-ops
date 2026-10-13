@@ -269,6 +269,21 @@ test("compound assignment indexing accepts only provably literal assignment comm
     assert.equal(literalScalarAssignments(segment).get("NPM"), "npm", segment);
   }
   assert.equal(literalScalarAssignments("then export NPM=npm").get("NPM"), "npm");
+  for (const segment of [
+    "then readonly NPM=npm",
+    "then declare NPM=npm",
+    "then typeset NPM=npm",
+    "then local NPM=npm",
+    "then declare -x NPM=npm",
+    "readonly NPM=npm",
+    "declare NPM=npm",
+    "typeset NPM=npm",
+    "local NPM=npm",
+    "declare -x NPM=npm",
+  ]) {
+    assert.equal(literalScalarAssignments(segment).get("NPM"), "npm", segment);
+  }
+  assert.equal(literalScalarAssignments("declare NPM=npm echo").size, 0, "a trailing command word makes the assignment its environment");
   for (const uncertain of [
     "then",
     "then echo",
@@ -538,9 +553,9 @@ test("a brace group before the keyword does not hide the opener", () => {
 
 test("an escape naming no code point leaves the scan running", () => {
   // A throw here would abort the whole attestation scan, so a malformed key
-  // would become a way to stop the gate running rather than a key that simply
-  // is not `run`. Both an out-of-range value and a surrogate half are refused
-  // as unusable and left as written.
+  // would become a way to stop the gate running. Invalid YAML escapes now
+  // produce a parse refusal; the audit still completes and never invents run
+  // evidence from an out-of-range value or a surrogate half.
   for (const escape of ["\\UFFFFFFFF", "\\uD800"]) {
     const result = auditPublishAttestation([{
       file: ".github/workflows/release.yml",

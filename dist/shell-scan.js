@@ -154,8 +154,12 @@ function basename(word) {
     const segments = word.split("/");
     return segments[segments.length - 1];
 }
-/** Commands whose string argument is itself shell text to be scanned. */
-const SHELL_EVALUATORS = new Set(["eval", "bash", "sh", "dash", "zsh", "ksh"]);
+/**
+ * Commands whose string argument is shell text to scan recursively.
+ * Keep shell names aligned with the attestation evaluator/interpreter sets.
+ * The command-prefix scan exposes BusyBox sh/ash applets as these shell names.
+ */
+const SHELL_EVALUATORS = new Set(["eval", "bash", "sh", "dash", "zsh", "ksh", "mksh", "ash", "yash", "posh"]);
 /** True when the character ends a word outside of quotes. */
 function isOperatorStart(character) {
     return character === ";"
@@ -699,6 +703,13 @@ function scanCommandPrefix(command) {
             continue;
         }
         const second = command[index + 1];
+        // BusyBox selects its shell with an applet operand. Consume only the
+        // router so sh/ash remains the evaluator, including its -c payload.
+        if (base === "busybox" && (second?.value === "sh" || second?.value === "ash")) {
+            sawPrefix = true;
+            index += 1;
+            continue;
+        }
         if (second !== undefined && TWO_WORD_PREFIXES.get(base)?.has(second.value) === true) {
             sawPrefix = true;
             index += 2;
@@ -1212,7 +1223,7 @@ function leadingAssignments(line) {
     let index = 0;
     let unterminated = false;
     for (;;) {
-        const head = /^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=/.exec(line.slice(index));
+        const head = /^[ \t]*(?:(?:export|readonly|declare|typeset|local)(?:[ \t]+--?[A-Za-z0-9]*)*[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=/.exec(line.slice(index));
         if (head === null)
             break;
         index += head[0].length;
@@ -1318,6 +1329,44 @@ function readableValue(value) {
     return /[$`"'(){};&|<>#]/u.test(value) ? undefined : value;
 }
 /**
+ * Declaration builtins that prefix assignments without changing what is bound.
+ *
+ * `export E=eval`, `readonly E=eval`, `declare E=eval`, `typeset E=eval` and
+ * `local E=eval` all bind `E` exactly as a bare `E=eval` does; the builtin only
+ * adds properties such as export or immutability. A binding scan that stops at
+ * the first non-assignment word therefore reads none of them, and the binding
+ * is the evidence that later refuses `$E` as a routed evaluator. `local` and
+ * `typeset` bind in a function scope in real shells, but recording that
+ * conservatively in the enclosing scan is fail-closed, while skipping the
+ * word leaves the binding invisible to every consumer of the scan.
+ */
+const DECLARATION_BUILTINS = new Set(["export", "readonly", "declare", "typeset", "local"]);
+/**
+ * Count the declaration tokens an assignment command opens with.
+ *
+ * The keyword itself and the option words that follow it (`declare -x E=eval`)
+ * are declaration syntax rather than assignments, so a caller scanning a
+ * command's tokens for `NAME=value` bindings starts at the returned offset. A
+ * command that opens with no declaration builtin returns 0, so callers that
+ * treat 0 as "no prefix to skip" keep their existing behavior. The option
+ * words are skipped without knowing each builtin's option table: an unknown
+ * option's operand can only delay where the binding scan starts, and a later
+ * start cannot invent a binding, only miss one -- which the callers pair with
+ * their own fail-closed refusal.
+ *
+ * @param command - One simple command's tokens.
+ * @param start - Index of the first token to consider as the possible keyword.
+ * @returns The number of leading declaration tokens, 0 when there is none.
+ */
+export function declarationPrefixLength(command, start = 0) {
+    if (!DECLARATION_BUILTINS.has(command[start]?.value ?? ""))
+        return 0;
+    let end = start + 1;
+    while (command[end]?.value.startsWith("-"))
+        end += 1;
+    return end - start;
+}
+/**
  * Read persistent literal assignments from one control-operator-delimited segment.
  *
  * The line segmenter has already separated `;`, `&&`, and `||`. Shell keywords
@@ -1328,6 +1377,12 @@ function readableValue(value) {
  * The ordinary line-opening parser remains the more permissive path for quoted
  * and escaped literal values. A compound-position assignment is read only when
  * its token was wholly unquoted and substitution-free.
+ *
+ * Declaration builtins ({@link DECLARATION_BUILTINS}) and their option words
+ * are stepped over wherever an assignment run reaches them, because
+ * `export E=eval` and `readonly E=eval` bind `E` exactly as a bare `E=eval`
+ * does. Stopping at the keyword would leave the binding unread, and a binding
+ * the value scanner cannot see is the one a routed `$E` publish hides behind.
  *
  * Uncertainty is reported, never dropped. An assignment whose value cannot be
  * read maps its name to `undefined`, which says the shell replaced the binding
@@ -1371,8 +1426,7 @@ export function scalarAssignmentEvents(segment) {
         const leadingControl = ["then", "do", "else"].includes(command[0].value);
         while (["then", "do", "else"].includes(command[index]?.value ?? ""))
             index += 1;
-        if (command[index]?.value === "export")
-            index += 1;
+        index += declarationPrefixLength(command, index);
         const grouped = segment.trimStart().startsWith("(") || segment.trimStart().startsWith("{");
         if (!leadingControl && !grouped && commandIndex === 0)
             continue;

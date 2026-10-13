@@ -6,13 +6,13 @@ status: in_progress
 priority: 1
 tags: []
 created_at: "2026-10-10T02:41:50.499Z"
-updated_at: "2026-10-10T07:25:01.718Z"
+updated_at: "2026-10-13T16:08:59.933Z"
 author: codex-sol
 acceptance_criteria: Real npm pack preserves git config bytes; install and ci still register; broken installations remain fail-closed; revert proof and packed consumer checks.
 repro_steps: Run npm pack on a disposable Git consumer using the shipped prepare template and an installed merge-driver entry; compare git config bytes before and after.
 expected_result: Artifact creation skips registration before resolution; install and ci continue registering clone-local drivers.
 actual_result: All three prepare hooks skip artifact-time registration. Real npm pack preserves config and held lock bytes; install/ci register and broken installation refuses. Three independent hook reverts each fail the regression. Full release gate and packed npm/Bun consumers pass.
-comments[7]{created_at,author,text}:
+comments[14]{created_at,author,text}:
   "2026-10-10T02:42:15.573Z",codex-sol,"Reproduce npm prepare under real pack with git config byte comparison; skip only npm_command pack/publish before package resolution; retain existing install/broken-package behavior. Cover canonical local hook too. Companion: pm-cli-website-session-2026-10-10."
   "2026-10-10T03:02:50.665Z",codex-sol,"Independent implementation reverts: restoring only the template, only the local prepare hook, or only the exported prepare entry each caused test/pack-prepare.test.ts to fail (three separate nonzero runs); repaired bytes restored. Packed npm and native Bun consumers on SDK 2026.10.9 pass scratch creation, validation, strict merge-driver health, npm 11 pack and npm 10.9.4 pack --ignore-scripts with identical Git config bytes. Real install/ci registration remains tested. Initial full-gate fixture exposed inherited npm allow-scripts configuration; fixtures now isolate userconfig and remove only that project-specific parent setting."
   "2026-10-10T03:21:05.726Z",codex-sol,"Final npm run accept:packed exits 0 on separate npm/Node and native Bun consumers: SDK 2026.10.9 create, validation, strict merge-driver health, actual activation and built auditor; npm 11 pack and npm 10.9.4 pack --ignore-scripts preserve Git config bytes. Tarball SHA-256 1d6b39113d187ae64d31d09477fe080f5dfdedc415f72c5fdc879dc5e64d52e6. Real regression also packs successfully with a held config lock and preserves lock contents; install/ci still register and broken installation refuses. Three independent hook reverts each fail that regression. Final release:check passes 496 tests, zero failures, two existing fleet skips. PM-linked pack test passes again; explicit receipts retained because tracking is disabled."
@@ -20,18 +20,90 @@ comments[7]{created_at,author,text}:
   "2026-10-10T07:02:35.793Z",codex-sol,Prepare implementation remains unchanged. Renewed Windows CI pins actual npm11.21.0 and retains source-only pack/consumer launcher reverts plus actual npm10 refusal. Historical proof now refuses absent commit evidence explicitly; no fallback fixture or skipped historical assertion.
   "2026-10-10T07:16:35.816Z",codex-sol,"Fresh npm run accept:packed passes separate npm/Node and nativeBun consumers on actual npm11.21.0: SDK9 create/validate/strict merge-driver health, built auditor and actual SDK activation, pack/config byte identity and npm10 --ignore-scripts comparison. Candidate tarball SHA25682e47d38acf871c9aaba4d4c8f8390c47c4bf6fadd3cba30b1963ca4ebfaffe9. Prepare implementation and existing packed-consumer fixtures remain byte-identical to accepted b89."
   "2026-10-10T07:24:58.403Z",codex-sol,"Native source c8e15db CI38033875668 Windows22/26 both pass real standalone pack without npm_execpath, packed npm/nativeBun SDK9 consumers, historical-object diagnostic and both independent old launcher failures/restorations. Actual npm/npx11.21.0 checked; actual npm10.9.4 rejected before pack. Native tarball SHA256817e771bef6c9021a6a7f35ab5e9f3f05cb9a72ad2faaa801964f37c8b197397. Existing prepare code and packed fixtures unchanged; claim released for root verification, never closed."
-files[5]{path,scope}:
-  merge-driver-prepare.ts,project
-  scripts/prepare-merge-driver.ts,project
-  templates/prepare-merge-driver.ts,project
-  test/pack-prepare.test.ts,project
-  test/packed-consumer.acceptance.ts,project
-tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
-  node --test test/pack-prepare.test.ts,project,codex-sol,"2026-10-10T02:51:09.579Z",local_mutation,fix/canonical-publication-consumer-guards
-  "npm run accept:packed",project,codex-sol,"2026-10-10T03:07:32.450Z",local_mutation,fix/canonical-publication-consumer-guards
-docs[4]{path,scope}:
+  "2026-10-13T13:06:02.711Z",codex-sol,"Relaunch inspection: main already contains the pack/publish guards and real pack regression from merged PR #152. Reusing this owner; strengthen canonical-template install/ci coverage and repeat source-only behavioral revert proof. No consumer rollout."
+  "2026-10-13T13:19:52.649Z",codex-sol,"Fresh source-only revert proof: restored only templates/prepare-merge-driver.ts from before merged PR #152 while retaining current tests. node --test test/pack-prepare.test.ts exits 1 with npm pack changed git config (1 passed, 1 failed). The template was restored byte-for-byte. The fixed real npm test also verifies the copied canonical template registers all five actual pm merge drivers during npm install and ci."
+  "2026-10-13T14:42:40.733Z",pi-agent,"Continuation re-verification. Repeated the source-only behavioral revert proof for the pack regression: restoring only templates/prepare-merge-driver.ts from before merged PR #152 while keeping the current tests fails node --test test/pack-prepare.test.ts (1 pass, 1 fail: npm pack changed git config); the fixed template was restored byte-for-byte and the full file then passes 2/2, including install/ci registering all five actual merge drivers via the copied canonical template. Full npm release:check exits 0 with 675/677 tests passing (2 existing opt-in skips); bun run release:check exits 0; npm run accept:packed exits 0 for npm/Node and native Bun consumers with config byte identity."
+  "2026-10-13T14:59:19.682Z",pi-agent,"Delivery: PR #161 covers the completed pack regression alongside the auditor repair, with the rollout list of the 21 template copies. Claim released for orchestrator verification; item left open."
+  "2026-10-13T15:02:28.551Z",pi-agent,"CI on the PR still fails pm health with history_drift_chain_mismatch/history_drift_hash_mismatch for this item: the tracker carries a tests_update entry written by a 2026.10.13 host, while the repo pinned @unbrained/pm-cli 2026.10.10, which drops per-test updated_by/updated_at fields when hashing. Fix: bump the exact devDependency pin to 2026.10.13 so the pinned host matches the history, without rewriting history. Verified with the pinned host: pm health ok (authority ok) and pm history ops-pack-prepare --verify passes (34 entries, hash chain current_matches_latest true)."
+  "2026-10-13T15:48:11.097Z",pi-agent,"Revert proof: with only the pin reverted (package.json + package-lock.json back to 2026.10.10, node_modules reinstalled to match), the pinned host reproduces the exact CI failure: pm health reports ok:false with history_drift_chain_mismatch:ops-pack-prepare and history_drift_hash_mismatch:ops-pack-prepare, and pm history ops-pack-prepare --verify reports verification ok:false. Restoring the 2026.10.13 pin returns pm health to ok:true (authority ok) and history verification to ok:true. Gates run directly at unchanged thresholds, both exit 0: npm run release:check and bun run release:check (with a clean HOME and no global git config, since the suite exercises git). Note: running the full release:check through the pm test harness fails on one lifecycle-policy non-vacuity test, because the harness reserves/injects PM_PATH for sandbox safety and that test builds a cwd-relative temp tracker; the same gate passes when run directly, matching CI."
+  "2026-10-13T16:08:58.741Z",pi-agent,"Pushed the pin bump (package.json + package-lock.json to 2026.10.13). CI at the pushed head: test (22) pass, test (26) pass, windows-consumers (22) pass, windows-consumers (26) pass, codeql pass. npm run release:check and bun run release:check both exit 0 (677 tests, 675 pass, 0 fail, 2 skipped); one earlier bun gate run failed only on a transient npm audit registry error and passed on retry. Stopping here; leaving the item open for the orchestrator to verify and close."
+files[7]:
+  - path: merge-driver-prepare.ts
+    scope: project
+  - path: package-lock.json
+    scope: project
+    note: locked CLI version synced to the new pin
+  - path: package.json
+    scope: project
+    note: exact devDependency pin bumped to 2026.10.13
+  - path: scripts/prepare-merge-driver.ts
+    scope: project
+  - path: templates/prepare-merge-driver.ts
+    scope: project
+  - path: test/pack-prepare.test.ts
+    scope: project
+  - path: test/packed-consumer.acceptance.ts
+    scope: project
+tests[6]:
+  - command: node --test test/pack-prepare.test.ts
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-10T02:51:09.579Z"
+      source_kind: local_mutation
+      source_ref: fix/canonical-publication-consumer-guards
+    updated_by: codex-sol
+    updated_at: "2026-10-13T13:20:36.907Z"
+  - command: "npm run accept:packed"
+    scope: project
+    timeout_seconds: 900
+    provenance:
+      author: codex-sol
+      created_at: "2026-10-10T03:07:32.450Z"
+      source_kind: local_mutation
+      source_ref: fix/canonical-publication-consumer-guards
+    updated_by: pi-agent
+    updated_at: "2026-10-13T14:50:52.190Z"
+  - command: node_modules/.bin/pm health
+    scope: project
+    provenance:
+      author: pi-agent
+      created_at: "2026-10-13T15:02:35.889Z"
+      source_kind: local_mutation
+      source_ref: fix/ops-148-149-canonical-pack-and-indirection
+  - command: node_modules/.bin/pm history ops-pack-prepare --verify
+    scope: project
+    provenance:
+      author: pi-agent
+      created_at: "2026-10-13T15:02:37.114Z"
+      source_kind: local_mutation
+      source_ref: fix/ops-148-149-canonical-pack-and-indirection
+  - command: "npm run release:check"
+    scope: project
+    timeout_seconds: 1800
+    provenance:
+      author: pi-agent
+      created_at: "2026-10-13T15:16:47.096Z"
+      source_kind: local_mutation
+      source_ref: fix/ops-148-149-canonical-pack-and-indirection
+    updated_by: pi-agent
+    updated_at: "2026-10-13T15:22:49.483Z"
+  - command: "bun run release:check"
+    scope: project
+    timeout_seconds: 1800
+    provenance:
+      author: pi-agent
+      created_at: "2026-10-13T15:16:49.374Z"
+      source_kind: local_mutation
+      source_ref: fix/ops-148-149-canonical-pack-and-indirection
+    updated_by: pi-agent
+    updated_at: "2026-10-13T15:22:51.011Z"
+docs[6]{path,scope}:
+  docs/canonical-publication-regressions.md,project
   docs/publication-repair.md,project
   "https://github.com/unbraind/pm-ops/actions/runs/38033875668",project
   "https://github.com/unbraind/pm-ops/issues/148",project
   "https://github.com/unbraind/pm-ops/pull/152",project
+  "https://github.com/unbraind/pm-ops/pull/161",project
 body: ""

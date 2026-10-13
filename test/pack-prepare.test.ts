@@ -1,7 +1,7 @@
 /** Packing must preserve clone-local Git configuration while installs still register drivers. */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import test from "node:test";
@@ -88,5 +88,46 @@ test("real npm pack never mutates git config and npm install/ci still run prepar
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("the copied canonical template registers actual pm drivers on install and ci", () => {
+  const parent = mkdtempSync(join(tmpdir(), "pm-ops-clone-"));
+  const root = join(parent, "clone");
+  const env: NodeJS.ProcessEnv = { ...process.env,
+    PATH: `${join(packageRoot, "node_modules/.bin")}${delimiter}${process.env.PATH}`,
+    npm_config_userconfig: devNull, NPM_CONFIG_USERCONFIG: devNull,
+    PM_PATH: join(root, ".agents/pm"), PM_GLOBAL_PATH: join(parent, "global"),
+  };
+  delete env.npm_command;
+  delete env.PM_SOURCE_PM_PATH;
+  delete env.PM_SOURCE_WORKSPACE_ROOT;
+  for (const key of Object.keys(env)) {
+    if (key.toLowerCase() === "npm_config_allow_scripts") delete env[key];
+  }
+  try {
+    mkdirSync(join(parent, "node_modules"));
+    symlinkSync(packageRoot, join(parent, "node_modules/pm-ops"), "dir");
+    mkdirSync(join(root, "scripts"), { recursive: true });
+    copyFileSync(join(packageRoot, "templates/prepare-merge-driver.ts"), join(root, "scripts/prepare-merge-driver.ts"));
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "canonical-clone-fixture", version: "1.0.0", type: "module",
+      scripts: { prepare: "node scripts/prepare-merge-driver.ts" } }));
+    execute(root, "git", ["init", "-q"], env);
+    execute(root, process.execPath, [join(packageRoot, "node_modules/@unbrained/pm-cli/dist/cli.js"),
+      "init", "--defaults", "--agent-guidance", "skip", "--prefix", "pack"], env);
+    for (const command of ["install", "ci"]) {
+      execute(root, "git", ["config", "--local", "merge.pm-item-toon.driver", "unregistered"], env);
+      execute(root, "git", ["config", "--local", "--remove-section", "merge.pm-item-toon"], env);
+      execute(root, "npm", [command, "--no-audit", "--no-fund"], env);
+      for (const driver of ["pm-item-toon", "pm-item-markdown", "pm-history", "pm-relationship", "pm-json"]) {
+        assert.match(execute(root, "git", ["config", "--local", "--get", `merge.${driver}.driver`], env), /merge driver/);
+      }
+    }
+    const config = readFileSync(join(root, ".git/config"));
+    execute(root, "npm", ["pack", "--pack-destination", parent], env);
+    assert.deepEqual(readFileSync(join(root, ".git/config")), config);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
   }
 });
