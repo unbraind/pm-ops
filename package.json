@@ -103,8 +103,7 @@
     "@babel/plugin-syntax-typescript": "^8.0.3",
     "@unbrained/pm-cli": ">=2026.8.20",
     "eslint": "^10.10.0",
-    "fast-glob": "^3.3.3",
-    "jscpd": ">=4.3.0 <6.0.0"
+    "jscpd": ">=5.0.0 <6.0.0"
   },
   "peerDependenciesMeta": {
     "@babel/eslint-parser": {
@@ -114,9 +113,6 @@
       "optional": true
     },
     "eslint": {
-      "optional": true
-    },
-    "fast-glob": {
       "optional": true
     },
     "jscpd": {
@@ -130,9 +126,7 @@
     "@unbrained/pm-cli": "2026.10.13",
     "c8": "12.0.0",
     "eslint": "10.12.0",
-    "fast-glob": "3.3.3",
     "jscpd": "5.4.1",
-    "jscpd4": "npm:jscpd@4.3.0",
     "pm-changelog": "2026.10.5"
   },
   "keywords": [

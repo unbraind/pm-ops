@@ -1,19 +1,14 @@
 /**
  * Canonical TypeScript duplication analysis and fail-closed gate for the fleet.
  *
- * Two jscpd majors are supported, and their engines are structurally
- * different, so the analyzer dispatches on the installed major:
- *
- * - jscpd 4 ships a Node.js programmatic API, used directly so consumer
- *   launchers stay small while preserving the detector's clone locations.
- * - jscpd 5 replaced the Node.js API with a self-contained Rust binary, so
- *   the analyzer runs the binary with its JSON reporter and parses the report.
+ * jscpd 5 runs as a self-contained Rust binary with a validated JSON report.
+ * Source discovery uses Node's built-in glob and preserves the authored scope.
  */
-import fastGlob from "fast-glob";
+import { glob, lstat, readdir } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, matchesGlob, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 /**
  * Default globs scanned by the duplication gate: every authored TypeScript
@@ -144,13 +139,6 @@ function relativeSource(repoRoot, sourceId) {
 function cloneEnd(repoRoot, sourceId, startLine, endLine) {
     return { file: relativeSource(repoRoot, sourceId), startLine, endLine };
 }
-/** Convert one jscpd 4 clone into the public report's line-range shape. */
-function mapProgrammaticClone(repoRoot, clone) {
-    return {
-        first: cloneEnd(repoRoot, clone.duplicationA.sourceId, clone.duplicationA.start.line, clone.duplicationA.end.line),
-        second: cloneEnd(repoRoot, clone.duplicationB.sourceId, clone.duplicationB.start.line, clone.duplicationB.end.line),
-    };
-}
 /** Convert one jscpd 5 clone into the public report's line-range shape. */
 function mapReportedClone(repoRoot, clone) {
     return {
@@ -158,111 +146,87 @@ function mapReportedClone(repoRoot, clone) {
         second: cloneEnd(repoRoot, clone.secondFile.name, clone.secondFile.start, clone.secondFile.end),
     };
 }
-/** Turn configured glob entries into the one fast-glob pattern jscpd accepts. */
+/** Turn configured glob entries into the one brace-union pattern jscpd accepts. */
 function combineGlobs(globs) {
     if (globs.length === 0)
         throw new Error("duplication-gate: at least one source glob is required");
     return globs.length === 1 ? globs[0] : `{${globs.join(",")}}`;
 }
-/** Match the files jscpd is expected to analyze with the same scope and ignores. */
-function globMatchedSources(repoRoot, pattern) {
-    return fastGlob.sync(pattern, {
-        absolute: true,
-        cwd: repoRoot,
-        dot: true,
-        followSymbolicLinks: false,
-        ignore: [...DUPLICATION_IGNORES],
-        onlyFiles: true,
-    })
-        // The same authored-source scope as the docstring gate: `.ts`, `.tsx`,
-        // `.mts`, and `.cts` sources, minus the `.d.ts` / `.d.mts` / `.d.cts`
-        // ambient-declaration forms. Inlining this keeps the matched-source set —
-        // the basis of both engines' fail-closed count reconciliation — in one
-        // place next to the glob that produced it.
-        .filter((source) => (source.endsWith(".ts") || source.endsWith(".tsx") || source.endsWith(".mts") || source.endsWith(".cts"))
-        && !source.endsWith(".d.ts") && !source.endsWith(".d.mts") && !source.endsWith(".d.cts"))
-        .map((source) => relativeSource(repoRoot, source))
-        .sort();
+/** Expand comma brace unions so leading negative alternatives remain excludes. */
+function expandGlobUnions(pattern) {
+    const union = /\{([^{}]*,[^{}]*)\}/.exec(pattern);
+    if (!union)
+        return [pattern];
+    return union[1].split(",").flatMap((alternative) => expandGlobUnions(pattern.slice(0, union.index) + alternative + pattern.slice(union.index + union[0].length)));
 }
-/** Build the bounded jscpd 4 options shared by matching and actual analysis. */
-function duplicationOptions(repoRoot, pattern, minTokens) {
-    return {
-        path: [repoRoot],
-        pattern,
-        minTokens,
-        minLines: 1,
-        maxLines: MAX_DUPLICATION_LINES,
-        maxSize: MAX_DUPLICATION_SIZE,
-        format: ["typescript", "tsx"],
-        ignore: [...DUPLICATION_IGNORES],
-        absolute: true,
-        gitignore: false,
-        noSymlinks: true,
-        reporters: [],
-        silent: true,
-    };
+/**
+ * Prefix ordinary path segments before native matching to preserve dot:true.
+ * The common prefix makes hidden names ordinary without changing wildcard,
+ * character-class or extglob matching; globstars retain their native meaning.
+ */
+function dotInclusivePath(path) {
+    return path.split("/").map((segment) => segment === "**" ? segment : `x${segment}`).join("/");
+}
+/**
+ * Discover authored sources with built-in glob, preserving fast-glob's scope.
+ * Hidden entries supplement native glob because Bun omits even explicit .*.
+ * Native path matching on prefixed segments retains the former dot:true policy.
+ * lstat rejects discovered symlinks; explicit symlink bases retain prior scope.
+ */
+export async function globMatchedSources(repoRoot, pattern) {
+    const root = resolve(repoRoot);
+    const patterns = expandGlobUnions(pattern);
+    const positives = patterns.filter((value) => !value.startsWith("!"));
+    const includes = positives.map((value) => dotInclusivePath(relativeSource(root, value)));
+    const excludes = [...DUPLICATION_IGNORES, ...patterns.filter((value) => value.startsWith("!"))
+            .map((value) => value.slice(1))].map((value) => dotInclusivePath(relativeSource(root, value)));
+    const sources = [];
+    // Begin at each literal pattern base, preserving ../ and explicit symlink bases.
+    const directories = [...new Set(positives.map((value) => {
+            const literal = relativeSource(root, value).split(/[?*[{(]/, 1)[0];
+            return resolve(root, literal.endsWith("/") ? literal : dirname(literal));
+        }))].filter((directory) => statSync(directory, { throwIfNoEntry: false }) !== undefined);
+    const visited = new Set();
+    for (const directory of directories) {
+        if (visited.has(directory))
+            continue;
+        visited.add(directory);
+        const entries = new Set();
+        for await (const entry of glob("*", { cwd: directory }))
+            entries.add(entry);
+        for (const entry of await readdir(directory)) {
+            if (entry.startsWith("."))
+                entries.add(entry);
+        }
+        for (const entry of entries) {
+            const absolute = resolve(directory, entry);
+            const source = relativeSource(root, absolute);
+            const candidate = dotInclusivePath(source);
+            if (excludes.some((exclude) => matchesGlob(candidate, exclude)))
+                continue;
+            const stat = await lstat(absolute);
+            if (stat.isDirectory())
+                directories.push(absolute);
+            if (stat.isFile() && includes.some((include) => matchesGlob(candidate, include))
+                && (source.endsWith(".ts") || source.endsWith(".tsx") || source.endsWith(".mts") || source.endsWith(".cts"))) {
+                sources.push(source);
+            }
+        }
+    }
+    return [...new Set(sources)].sort();
 }
 /** Compute the duplicated-line percentage jscpd's own line counts imply. */
 function percentageOf(duplicatedLines, totalLines) {
     return totalLines > 0 ? (duplicatedLines / totalLines) * 100 : 0;
 }
-/**
- * Resolve the installed jscpd package, preferring the repository root.
- *
- * Consumers install jscpd as their own (optional) peer dependency, so the
- * repository root is where the analyzer must find it; this module's own
- * directory keeps the gate working for this repository's runs. jscpd 4
- * resolves through its programmatic entry point, while jscpd 5 exposes no
- * entry at all and resolves through its package manifest; when jscpd is
- * installed nowhere, the manifest lookup throws Node's own not-found error.
- */
+/** Resolve a consumer's jscpd 5 package before falling back to this package. */
 function resolveJscpdEntry(repoRoot) {
-    try {
-        const entryPath = require.resolve("jscpd", { paths: [repoRoot, import.meta.dirname] });
-        const packageDir = packageDirOf(entryPath);
-        return { major: majorOf(packageDir), packageDir, entryPath };
-    }
-    catch {
-        // jscpd 5 has no package entry point; its manifest is the only anchor.
-        const manifestPath = require.resolve("jscpd/package.json", { paths: [repoRoot, import.meta.dirname] });
-        const packageDir = dirname(manifestPath);
-        return { major: majorOf(packageDir), packageDir, entryPath: manifestPath };
-    }
-}
-/** Read the engine generation from a jscpd package's manifest. */
-function majorOf(packageDir) {
-    const manifest = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8"));
-    return Number.parseInt(String(manifest.version), 10);
-}
-/** The directory of a package entry, walking up to the package manifest. */
-function packageDirOf(entryPath) {
-    let directory = dirname(entryPath);
-    while (!existsSync(join(directory, "package.json")))
-        directory = dirname(directory);
-    return directory;
-}
-/**
- * Analyze with jscpd 4's programmatic API.
- *
- * jscpd 4 publishes a per-file statistic, so files the globs matched but
- * jscpd never analyzed fail the gate closed through `skippedSources`.
- */
-async function analyzeWithProgrammatic(installation, repoRoot, pattern, minTokens, matchedSources) {
-    const api = require(installation.entryPath);
-    const result = await api.detectClonesAndStatistic(duplicationOptions(repoRoot, pattern, minTokens));
-    const analyzedSources = ["typescript", "tsx"].flatMap((format) => Object.keys(result.statistic.formats[format]?.sources ?? {}))
-        .map((source) => relativeSource(repoRoot, source))
-        .sort();
-    const analyzed = new Set(analyzedSources);
-    return {
-        percentage: percentageOf(result.statistic.total.duplicatedLines, result.statistic.total.lines),
-        totalLines: result.statistic.total.lines,
-        duplicatedLines: result.statistic.total.duplicatedLines,
-        sources: result.statistic.total.sources,
-        skippedSources: matchedSources.filter((source) => !analyzed.has(source)),
-        cloneCount: result.clones.length,
-        clones: result.clones.map((clone) => mapProgrammaticClone(repoRoot, clone)),
-    };
+    const manifestPath = require.resolve("jscpd/package.json", { paths: [repoRoot, import.meta.dirname] });
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const major = Number.parseInt(String(manifest.version), 10);
+    if (major !== 5)
+        throw new Error("duplication: jscpd >=5.0.0 <6.0.0 is required");
+    return { packageDir: dirname(manifestPath) };
 }
 /**
  * Analyze with jscpd 5's binary through its JSON reporter.
@@ -330,11 +294,8 @@ export function duplicationGateDiagnostic(report) {
     return undefined;
 }
 /**
- * Analyze a repository's TypeScript sources with the installed jscpd major.
- *
- * jscpd 4 runs through its Node.js API and jscpd 5 through its Rust binary,
- * and both are resolved from the repository root so a consumer's own jscpd
- * dependency is the engine that answers.
+ * Analyze a repository's TypeScript sources with the installed jscpd 5 binary.
+ * Resolve from the repository root so the consumer's own dependency answers.
  *
  * @param options - Repository root and optional source globs.
  * @returns Aggregate percentage and every clone pair found by jscpd.
@@ -343,12 +304,9 @@ export async function analyzeDuplication(options = {}) {
     const repoRoot = resolve(options.repoRoot ?? defaultRepoRoot);
     const pattern = combineGlobs(options.globs ?? DEFAULT_DUPLICATION_GLOBS);
     const minTokens = options.minTokens ?? 50;
-    const matchedSources = globMatchedSources(repoRoot, pattern);
+    const matchedSources = await globMatchedSources(repoRoot, pattern);
     const installation = resolveJscpdEntry(repoRoot);
-    if (installation.major >= 5) {
-        return analyzeWithBinary(installation, repoRoot, pattern, minTokens, matchedSources);
-    }
-    return analyzeWithProgrammatic(installation, repoRoot, pattern, minTokens, matchedSources);
+    return analyzeWithBinary(installation, repoRoot, pattern, minTokens, matchedSources);
 }
 /**
  * Run the configured duplication threshold gate and print every clone pair.

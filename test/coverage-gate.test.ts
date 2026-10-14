@@ -8,6 +8,7 @@ import { spawn, spawnSync, type SpawnSyncReturns } from "node:child_process";
 import {
   chmodSync,
   existsSync,
+  globSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -19,7 +20,6 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import test, { after, before } from "node:test";
-import glob from "fast-glob";
 
 import { runCoverageGate } from "../scripts/coverage-gate.ts";
 import { QUALITY_PROVIDER_ID, qualityMeasurementProvider } from "../assurance.ts";
@@ -261,11 +261,9 @@ test("coverage gate defaults to its package root and includes the independent pa
   // coverageGate.sources or reusing the gate's recursive collector. This covers
   // runtime code, release tooling, and shipped TypeScript templates, while
   // excluding tests, declarations, dependencies, generated output, and metadata.
-  const inventory = glob.sync("**/*.ts", {
+  const inventory = globSync("**/*.ts", {
     cwd: packageRoot,
-    dot: true,
-    followSymbolicLinks: false,
-    ignore: [
+    exclude: [
       "**/*.d.ts",
       "**/{node_modules,dist,dist-test,coverage,test,tests,public,.agents,.git,.github}/**",
     ],

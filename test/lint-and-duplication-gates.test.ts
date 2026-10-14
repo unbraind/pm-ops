@@ -280,45 +280,7 @@ test("duplication gate fails closed for missing, malformed, unreadable, and empt
 });
 
 
-/** Create a package fixture whose `jscpd` dependency is the real jscpd 4 package. */
-function jscpd4Fixture(name: string, duplicationGate: Record<string, unknown>): string {
-  const directory = packageFixture(name, duplicationGate);
-  mkdirSync(join(directory, "node_modules"), { recursive: true });
-  symlinkSync(
-    resolve(import.meta.dirname, "../node_modules/jscpd4"),
-    join(directory, "node_modules", "jscpd"),
-    "dir",
-  );
-  return directory;
-}
-
-test("duplication analyzer reports the same clone pairs through the real jscpd 4 and jscpd 5 engines", async () => {
-  const v4 = jscpd4Fixture("engine-parity-v4", { threshold: 0, minTokens: 20 });
-  duplicateSources(v4, "test");
-  const v5 = packageFixture("engine-parity-v5", { threshold: 0, minTokens: 20 });
-  duplicateSources(v5, "test");
-  const globs = ["src/**/*.ts", "test/**/*.ts"];
-  const report4 = await analyzeDuplication({ repoRoot: v4, globs, minTokens: 20 });
-  const report5 = await analyzeDuplication({ repoRoot: v5, globs, minTokens: 20 });
-  assert.deepEqual(report5.clones, report4.clones);
-  assert.equal(report4.cloneCount, 1);
-  assert.equal(report4.sources, 2);
-  assert.equal(report5.sources, 2);
-  assert.deepEqual(report4.skippedSources, []);
-  assert.deepEqual(report5.skippedSources, []);
-  assert.equal(report4.clones[0]?.first.startLine, 1);
-  assert.equal(report4.clones[0]?.second.endLine, 11);
-
-  const empty4 = await analyzeDuplication({ repoRoot: v4, globs: ["nope/**/*.ts"] });
-  assert.equal(empty4.sources, 0);
-  assert.deepEqual(empty4.skippedSources, []);
-  assert.equal(empty4.percentage, 0);
-
-  const gate = await gateFailureOutput(v4, { globs });
-  assert.match(gate.errors, /exceeds the configured 0% threshold/);
-});
-
-test("both real jscpd engines include TSX clones in mixed TypeScript globs", async () => {
+test("the real jscpd 5 engine includes TSX clones in mixed TypeScript globs", async () => {
   const source = [
     "export function Widget() {",
     "  const firstValue = 1;",
@@ -333,7 +295,6 @@ test("both real jscpd engines include TSX clones in mixed TypeScript globs", asy
     "}",
   ].join("\n") + "\n";
   for (const [version, fixture] of [
-    ["jscpd4", jscpd4Fixture("tsx-clones-v4", { threshold: 0, minTokens: 20 })],
     ["jscpd5", packageFixture("tsx-clones-v5", { threshold: 0, minTokens: 20 })],
   ] as const) {
     writeFileSync(join(fixture, "src", "First.tsx"), source);
@@ -351,7 +312,7 @@ test("both real jscpd engines include TSX clones in mixed TypeScript globs", asy
   }
 });
 
-test("both real jscpd engines include .mts and .cts clones in mixed TypeScript globs", async () => {
+test("the real jscpd 5 engine includes .mts and .cts clones in mixed TypeScript globs", async () => {
   const globs = ["src/**/*.{ts,tsx,mts,cts}"];
   const source = [
     "export function repeatedModuleValue(): number {",
@@ -367,7 +328,6 @@ test("both real jscpd engines include .mts and .cts clones in mixed TypeScript g
     "}",
   ].join("\n") + "\n";
   for (const [version, fixture] of [
-    ["jscpd4", jscpd4Fixture("mts-cts-clones-v4", { threshold: 0, minTokens: 20 })],
     ["jscpd5", packageFixture("mts-cts-clones-v5", { threshold: 0, minTokens: 20 })],
   ] as const) {
     writeFileSync(join(fixture, "src", "First.mts"), source);
@@ -386,9 +346,8 @@ test("both real jscpd engines include .mts and .cts clones in mixed TypeScript g
   }
 });
 
-test("both real jscpd engines scan clean .mts and .cts sources under the default globs", async () => {
+test("the real jscpd 5 engine scans clean .mts and .cts sources under the default globs", async () => {
   for (const [version, fixture] of [
-    ["jscpd4", jscpd4Fixture("mts-cts-clean-v4", { threshold: 0 })],
     ["jscpd5", packageFixture("mts-cts-clean-v5", { threshold: 0 })],
   ] as const) {
     writeFileSync(join(fixture, "src", "clean.mts"), "export const cleanModuleValue = 1;\n");
@@ -402,7 +361,6 @@ test("both real jscpd engines scan clean .mts and .cts sources under the default
 
 test("duplication scope excludes .d.mts and .d.cts ambient declarations under the default globs", async () => {
   for (const [version, fixture] of [
-    ["jscpd4", jscpd4Fixture("mts-cts-declarations-v4", { threshold: 0 })],
     ["jscpd5", packageFixture("mts-cts-declarations-v5", { threshold: 0 })],
   ] as const) {
     writeFileSync(join(fixture, "src", "authored.mts"), "export const authoredModuleValue = 1;\n");
@@ -440,9 +398,8 @@ test("jscpd 5 completeness probe ignores a consumer threshold without losing sou
   assert.equal(relativeReport.sources, 2);
 });
 
-test("both engines count canonical TSX sources once across symlinked paths", async () => {
+test("jscpd 5 counts canonical TSX sources once across symlinked paths", async () => {
   for (const [version, fixture] of [
-    ["jscpd4", jscpd4Fixture("tsx-symlink-v4", { threshold: 0 })],
     ["jscpd5", packageFixture("tsx-symlink-v5", { threshold: 0 })],
   ] as const) {
     writeFileSync(join(fixture, "src", "Widget.tsx"), "export const Widget = <div>real source</div>;\n");
@@ -546,4 +503,14 @@ test("direct gate launchers preserve success and failure statuses", async () => 
   const lintFailure = spawnSync(process.execPath, [lintScript], { cwd: lintDirty, encoding: "utf8" });
   assert.equal(lintFailure.status, 1);
   assert.match(lintFailure.stderr, /Use a precise type instead of explicit any/);
+});
+
+test("duplication rejects unsupported installed jscpd majors before invoking an engine", async () => {
+  for (const version of ["4.3.0", "6.0.0", undefined]) {
+    const fixture = packageFixture(`unsupported-engine-${String(version)}`, { threshold: 0 });
+    const engine = join(fixture, "node_modules", "jscpd");
+    mkdirSync(engine, { recursive: true });
+    writeFileSync(join(engine, "package.json"), JSON.stringify({ version }));
+    await assert.rejects(analyzeDuplication({ repoRoot: fixture }), /jscpd >=5\.0\.0 <6\.0\.0 is required/);
+  }
 });

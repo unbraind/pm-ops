@@ -1,13 +1,8 @@
 /**
  * Canonical TypeScript duplication analysis and fail-closed gate for the fleet.
  *
- * Two jscpd majors are supported, and their engines are structurally
- * different, so the analyzer dispatches on the installed major:
- *
- * - jscpd 4 ships a Node.js programmatic API, used directly so consumer
- *   launchers stay small while preserving the detector's clone locations.
- * - jscpd 5 replaced the Node.js API with a self-contained Rust binary, so
- *   the analyzer runs the binary with its JSON reporter and parses the report.
+ * jscpd 5 runs as a self-contained Rust binary with a validated JSON report.
+ * Source discovery uses Node's built-in glob and preserves the authored scope.
  */
 /**
  * Default globs scanned by the duplication gate: every authored TypeScript
@@ -50,7 +45,7 @@ export interface DuplicationReport {
 export interface DuplicationGateOptions {
     /** Repository root containing package.json and the TypeScript files to scan. */
     readonly repoRoot?: string;
-    /** Fast-glob patterns passed to jscpd; defaults to every TypeScript file. */
+    /** Glob patterns passed to jscpd; defaults to every TypeScript file. */
     readonly globs?: readonly string[];
     /** Minimum jscpd token count; defaults to 50 for direct analysis callers. */
     readonly minTokens?: number;
@@ -102,14 +97,18 @@ interface ReportedAnalysis {
  * @returns The clone pairs and aggregate line statistics, validated.
  */
 export declare function parseJscpdReport(report: unknown): ReportedAnalysis;
+/**
+ * Discover authored sources with built-in glob, preserving fast-glob's scope.
+ * Hidden entries supplement native glob because Bun omits even explicit .*.
+ * Native path matching on prefixed segments retains the former dot:true policy.
+ * lstat rejects discovered symlinks; explicit symlink bases retain prior scope.
+ */
+export declare function globMatchedSources(repoRoot: string, pattern: string): Promise<string[]>;
 /** Return the fail-closed diagnostic for an empty or partially analyzed scope. */
 export declare function duplicationGateDiagnostic(report: Pick<DuplicationReport, "sources" | "skippedSources">): string | undefined;
 /**
- * Analyze a repository's TypeScript sources with the installed jscpd major.
- *
- * jscpd 4 runs through its Node.js API and jscpd 5 through its Rust binary,
- * and both are resolved from the repository root so a consumer's own jscpd
- * dependency is the engine that answers.
+ * Analyze a repository's TypeScript sources with the installed jscpd 5 binary.
+ * Resolve from the repository root so the consumer's own dependency answers.
  *
  * @param options - Repository root and optional source globs.
  * @returns Aggregate percentage and every clone pair found by jscpd.

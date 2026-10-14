@@ -1,17 +1,34 @@
 id: ops-braces-audit
-title: Eliminate the unpatched braces dependency while preserving jscpd 4 parity acceptance
-description: "Full npm audit reports GHSA-vfj7-8cjw-p6xm on braces 3.0.3 via micromatch, fast-glob, @jscpd/finder and the jscpd4 4.3.0 alias. npm latest braces is 3.0.3 and no patched registry release exists. Removing the alias would remove required real-engine parity tests, which is forbidden. Certification ops-hiee stays NOT READY for this independent audit gate."
+title: Remove the unpatched braces chain with built-in fs.glob and jscpd 5 only
+description: "Replace fast-glob with stable Node filesystem glob discovery while preserving configured scope, dotfiles, ignores, symlink exclusions and deterministic paths. Remove the jscpd4 alias and its programmatic API/parity tests; require jscpd >=5.0.0 <6.0.0. Consumers remove their fast-glob devDependency after upgrading. The orchestrator supersedes the former jscpd4-retention requirement."
 type: Issue
-status: open
+status: in_progress
 priority: 1
 tags[2]: dependencies,security
 created_at: "2026-10-04T10:51:17.651Z"
-updated_at: "2026-10-04T10:51:18.521Z"
+updated_at: "2026-10-14T05:04:44.563Z"
 author: codex-sol
 repro_steps: npm ci; npm audit; npm ls braces; npm view braces version
-expected_result: Both npm audit and npm audit --omit=dev return zero vulnerabilities without deleting jscpd4 engine-parity tests or weakening thresholds.
-actual_result: "npm audit: 5 high findings in the same unpatched braces chain; npm audit --omit=dev: zero vulnerabilities."
-files[2]{path,scope,note}:
-  package.json,project,Required jscpd4 parity dependency
-  test/lint-and-duplication-gates.test.ts,project,Real jscpd4 parity tests must remain
+resolution: Replace npm fast-glob discovery with Node built-ins; remove jscpd4 support and its dependency chain; retain jscpd 5 real-engine tests and all 100% coverage thresholds. Consumers remove fast-glob after the released upgrade. Native Bun negative-extglob parity is tracked separately.
+expected_result: "Both npm audit variants report zero vulnerabilities, npm ls braces is empty, npm and Bun release checks retain all 100% thresholds, and packed duplication gates run without fast-glob."
+actual_result: Candidate npm audit and npm audit --omit=dev each report 0 vulnerabilities; npm ls braces and npm ls fast-glob are empty. Six filesystem contracts pass against both original and replacement matchers; all 25 focused Node tests and four packed npm/native Bun clean/duplicate scenarios pass.
+comments[6]{created_at,author,text}:
+  "2026-10-14T04:26:33.307Z",codex-agent,"The orchestrator supersedes the old prohibition on removing the jscpd4 alias: jscpd 5 only is now required. Plan: pin existing filesystem glob semantics before replacing fast-glob with stable Node fs.glob, remove both vulnerable dependency sources, preserve 100% thresholds, and verify npm/Bun release and packed consumers without fast-glob."
+  "2026-10-14T04:31:38.087Z",codex-agent,"Baseline: npm ci reports 5 high vulnerabilities; npm audit --omit=dev reports 0. Four filesystem contract tests pass on the original fast-glob matcher before replacement. Native glob requires compatibility handling for dotfiles and brace-union negative patterns; these are pinned by the tests."
+  "2026-10-14T04:43:42.152Z",codex-agent,"Discovery preserves explicit symlink bases and paths outside the repo root, with six filesystem contracts verified against the original fast-glob function first. Node native glob and path.matchesGlob replace npm glob dependencies; hidden-entry supplementation and lstat avoid Bun fs.glob limitations. Consumer follow-up after release: delete fast-glob devDependency and refresh lockfiles in pm-web, pm-graph, pm-gantt-chart, pm-jev, pm-lint, pm-review, pm-slack-standup and pm-ts-starter."
+  "2026-10-14T04:44:40.562Z",codex-agent,"Behavioural proof: the same six filesystem tests pass on the original fast-glob matcher and on the restored built-in matcher. In disposable copies changing only globMatchedSources, omitting hidden includes or removing canonical ignores causes pinned tests to fail. No coverage threshold changed."
+  "2026-10-14T04:47:10.999Z",codex-agent,"Runtime boundary: all six scope contracts pass on Node; native Bun default-glob packed gates pass, but Bun 1.3.5 path.matchesGlob rejects the negative-extglob control. Tracked as ops-bun-negative-extglobs. Documented consumer launchers invoke Node. Full release gates retain two existing opt-in live-fleet skips when PM_OPS_TEST_REPOS is unset; this PR does not certify live fleet state."
+  "2026-10-14T05:04:40.323Z",codex-agent,"Final candidate gates: env -u PM_PATH -u PM_AUTHOR HOME=$(mktemp -d) GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 npm run release:check and the same with bun run release:check both passed: 717 tests, 715 passed, 0 failed/cancelled/todo, 2 existing opt-in live-fleet skips. Coverage: 100% statements, branches, functions and lines across 25 source files; docstrings: 232 declarations across 25 files; duplication: 61 sources, 0 clone pairs, 0%. Both npm audits report 0 vulnerabilities; braces and fast-glob dependency trees are empty. Node 22.19 focused tests: 25/25 passed. Both linked commands pass together, including four packed npm/native Bun clean/duplicate scenarios. Behavioural proof: original and restored matchers 6/6; hidden-include mutation 4 failures; ignore mutation 5 failures. No PM CLI/SDK bump or threshold change. pm test injects npm allow-scripts configuration rejected by project installs; the disposable packed fixture clears it. Known native Bun negative-extglob limitation remains in ops-bun-negative-extglobs; requested publish-wrapper issue is ops-third-party-publish-wrappers. Consumer upgrades remain follow-up after release."
+files[6]{path,scope,note}:
+  duplication.ts,project,Built-in glob discovery with dot-inclusive native path matching
+  package.json,project,Remove fast-glob and jscpd4; require jscpd 5
+  test/coverage-gate.test.ts,project,Remove the final test-only fast-glob import
+  test/duplication-glob.test.ts,project,Filesystem contracts pinned on fast-glob before replacement
+  test/duplication-packed.acceptance.ts,project,Packed npm and native Bun clean and duplicate gates without fast-glob or braces
+  test/lint-and-duplication-gates.test.ts,project,Retain real jscpd 5 tests; remove jscpd 4 parity
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/duplication-glob.test.ts test/lint-and-duplication-gates.test.ts,project,codex-agent,"2026-10-14T04:33:55.291Z",local_mutation,fix/braces-free-duplication-gate
+  node test/duplication-packed.acceptance.ts,project,codex-agent,"2026-10-14T04:49:37.495Z",local_mutation,fix/braces-free-duplication-gate
+docs[1]{path,scope,note}:
+  README.md,project,Consumers remove fast-glob after upgrading
 body: ""
