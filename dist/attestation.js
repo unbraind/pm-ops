@@ -20,7 +20,7 @@
 import { execFileSync } from "node:child_process";
 import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 import { resolve } from "node:path";
-import { parse } from "yaml";
+import { isNode, parse, parseDocument } from "yaml";
 import { bashArrayDeclarations, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, declarationPrefixLength, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, isolateShellChildren, joinContinuations, scalarAssignmentEvents, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
 import { tallyFlaggedInvocations } from "./invocation-audit.js";
 /** The flag that attaches a build attestation to the published tarball. */
@@ -37,6 +37,55 @@ const NON_PUBLISH_VERBS = new Set([
 const EVALUATORS = new Set(["eval", "bash", "sh", "dash", "zsh", "ksh", "mksh", "ash", "yash", "posh"]);
 /** Publishers other than npm, which this repository has no attested path for. */
 export const FOREIGN_PUBLISHERS = new Set(["yarn", "pnpm", "bun"]);
+/** Dependency executables that publish by default, outside tracked repository source. */
+const DEFAULT_PUBLISH_WRAPPERS = new Set(["semantic-release", "np", "release-it"]);
+/** Explicit commands that do not invoke the dependency wrapper's publish operation. */
+const WRAPPER_NON_PUBLISH_VERBS = new Map([
+    ["lerna", new Set(["run", "list", "ls", "changed", "diff", "info"])],
+    ["changeset", new Set(["add", "init", "status", "version", "pre", "tag"])],
+]);
+/** Global wrapper options whose separate operand cannot be a publish subcommand. */
+const WRAPPER_VALUE_FLAGS = new Set(["--scope", "--ignore", "--loglevel", "--since", "--concurrency", "--cwd", "--output"]);
+/** Normalize binary paths and npm package selectors to known wrapper names. */
+function publishWrapperName(word) {
+    if (/^@changesets\/cli(?:@[^/]+)?$/u.test(word))
+        return "changeset";
+    return leafName(word).replace(/@[^/]*$/u, "");
+}
+/**
+ * Recognize dependency publish operations without interpreting or executing dependency code.
+ * Only standalone informational flags and explicit non-publish verbs prove a control.
+ * Unknown verbs/options or spawning input cannot borrow that proof.
+ */
+function dependencyPublishWrapper(command, spawned) {
+    const name = publishWrapperName(command[0].value);
+    const nonPublish = WRAPPER_NON_PUBLISH_VERBS.get(name);
+    if (!DEFAULT_PUBLISH_WRAPPERS.has(name) && nonPublish === undefined)
+        return undefined;
+    const args = commandArguments(command);
+    if (!spawned && args.length > 0 && args.every((token) => !token.unresolved
+        && ["--help", "-h", "--version", "-v"].includes(token.value)))
+        return undefined;
+    if (nonPublish !== undefined && !spawned) {
+        for (let index = 0; index < args.length; index += 1) {
+            const token = args[index];
+            if (token.unresolved)
+                return name;
+            if (WRAPPER_VALUE_FLAGS.has(token.value)) {
+                const operand = args[++index];
+                if (operand === undefined || operand.unresolved)
+                    return name;
+                continue;
+            }
+            if (/^--[^=]+=/.test(token.value) || token.value === "--")
+                continue;
+            return nonPublish.has(token.value) ? undefined : name;
+        }
+        // Bare subcommand routers show usage (changeset defaults to adding a changeset).
+        return undefined;
+    }
+    return name;
+}
 /** Repository subtrees whose contents are build output rather than a publish path. */
 /**
  * Interpreters whose shebang means the file's body is written in shell.
@@ -526,6 +575,11 @@ function publishInvocationsInShell(source, raw, depth = 0, arithmetic = false) {
             // non-publisher reached this way (`xargs rm -f`) is still dismissed: only
             // a named publisher with unresolved arguments is a publish the scanner
             // cannot disprove.
+            const wrapper = dependencyPublishWrapper(candidate, spawnedAsCommand(command) || spawnedAsCommand(candidate));
+            if (wrapper !== undefined) {
+                found.push({ file: source.file, program: wrapper, command: candidate, wrapper });
+                continue;
+            }
             const args = commandArguments(candidate);
             const publisher = program === "npm" || FOREIGN_PUBLISHERS.has(program);
             const spawned = spawnedAsCommand(command) || spawnedAsCommand(candidate);
@@ -611,42 +665,61 @@ function mapping(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value)
         ? value : undefined;
 }
-/**
- * Extract independent package scripts, workflow steps and composite-action steps.
- * Metadata is never shell evidence; malformed sources and non-string commands
- * throw so an attested sibling cannot hide an unreadable publish path.
- */
+/** Extract structured commands together with their original scalar source ranges. */
 function executableShellBodies(source) {
-    if (MANIFEST_PATH.test(source.file)) {
-        const data = mapping(JSON.parse(source.text));
-        const scripts = mapping(data?.scripts);
-        return Object.values(scripts ?? {}).map((body) => {
-            if (typeof body !== "string")
-                throw new Error("non-string package script");
-            return body;
-        });
+    if (!MANIFEST_PATH.test(source.file) && !isWorkflowYaml(source.file)) {
+        return [{ text: source.text, raw: source.text, line: 1 }];
     }
-    if (!isWorkflowYaml(source.file))
-        return [source.text];
-    const data = mapping(parse(source.text));
-    const jobs = Object.values(mapping(data?.jobs) ?? {});
+    const manifest = MANIFEST_PATH.test(source.file);
+    const data = mapping(manifest ? JSON.parse(source.text) : parse(source.text));
+    const document = parseDocument(source.text);
+    /** Preserve the diagnostic extent even for a YAML alias to executable text. */
+    const bodyAt = (path, text) => {
+        if (typeof text !== "string")
+            throw new Error("non-string executable body");
+        const node = document.getIn(path, true);
+        if (!isNode(node))
+            throw new Error("missing executable source range");
+        // Nodes from parseDocument carry ranges; programmatically created nodes are never used here.
+        const [start, end] = node.range;
+        return { text, raw: source.text.slice(start, end), line: source.text.slice(0, start).split("\n").length };
+    };
+    if (manifest) {
+        return Object.entries(mapping(data?.scripts) ?? {}).map(([key, text]) => bodyAt(["scripts", key], text));
+    }
     const containers = /(^|\/)action\.ya?ml$/.test(source.file)
-        ? [mapping(data?.runs)] : jobs.map(mapping);
+        ? [{ path: ["runs"], value: data?.runs }]
+        : Object.entries(mapping(data?.jobs) ?? {}).map(([key, value]) => ({ path: ["jobs", key], value }));
     const bodies = [];
     for (const container of containers) {
-        const steps = container?.steps;
+        const steps = mapping(container.value)?.steps;
         if (!Array.isArray(steps))
             continue;
-        for (const value of steps) {
+        for (const [index, value] of steps.entries()) {
             const step = mapping(value);
             if (step === undefined || !Object.hasOwn(step, "run"))
                 continue;
-            if (typeof step.run !== "string")
-                throw new Error("non-string workflow run body");
-            bodies.push(step.run);
+            bodies.push(bodyAt([...container.path, "steps", index, "run"], step.run));
         }
     }
     return bodies;
+}
+/**
+ * Locate literal wrapper words inside the command's source extent, ignoring comments.
+ * Escaped/folded scalars and expanded executables report their containing scalar line
+ * when the physical source has no literal executable word. Repeated words consume
+ * successive occurrences so two invocations on different lines stay distinguishable.
+ */
+function wrapperSourceLine(body, wrapper, cursors) {
+    let locations = cursors.get(wrapper);
+    if (locations === undefined) {
+        locations = body.raw.split("\n").flatMap((line, index) => tokenizeCommands(line)
+            .flatMap(commandCandidates)
+            .filter((command) => publishWrapperName(command[0].value) === wrapper)
+            .map(() => body.line + index)).values();
+        cursors.set(wrapper, locations);
+    }
+    return locations.next().value ?? body.line;
 }
 /**
  * Retain the consumer's conservative refusals before literal expansion.
@@ -711,9 +784,13 @@ function opaquePublishInvocations(source, body) {
  * @throws If executable metadata cannot be parsed or a command is not a string.
  */
 export function publishInvocationsIn(source) {
-    return executableShellBodies(source).flatMap((body) => [
-        ...publishInvocationsInShell(source, body), ...opaquePublishInvocations(source, body),
-    ]);
+    return executableShellBodies(source).flatMap((body) => {
+        const cursors = new Map();
+        return [...publishInvocationsInShell(source, body.text), ...opaquePublishInvocations(source, body.text)]
+            .map((invocation) => invocation.wrapper === undefined ? invocation : {
+            ...invocation, line: wrapperSourceLine(body, invocation.wrapper, cursors),
+        });
+    });
 }
 /**
  * Render an invocation back to a readable command for a report line.
@@ -752,6 +829,10 @@ export function auditPublishAttestation(sources) {
         }
     }
     const { failures, notes } = tallyFlaggedInvocations(invocations, (invocation) => {
+        if (invocation.wrapper !== undefined) {
+            return `${invocation.file}:${invocation.line}: cannot certify provenance for third-party publish wrapper`
+                + ` \`${invocation.wrapper}\`; dependency source is outside the tracked audit boundary: ${renderCommand(invocation.command)}`;
+        }
         if (invocation.unresolved !== undefined) {
             return `${invocation.file}: cannot prove ${invocation.unresolved}; refusing an unresolved publish path: ${renderCommand(invocation.command)}`;
         }

@@ -23,6 +23,10 @@ export interface PublishInvocation {
     command: ShellCommand;
     /** Why executable or argument indirection prevents proving effective provenance. */
     unresolved?: string;
+    /** Known dependency publisher whose effective provenance is outside tracked source. */
+    wrapper?: string;
+    /** Physical source line for a dependency-wrapper diagnostic. */
+    line?: number;
 }
 /** Publishers other than npm, which this repository has no attested path for. */
 export declare const FOREIGN_PUBLISHERS: Set<string>;

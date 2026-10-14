@@ -2,14 +2,32 @@ id: ops-third-party-publish-wrappers
 title: "Recognize third-party publish wrappers (semantic-release, np, release-it, lerna publish, changeset publish) in the canonical attestation auditor"
 description: "CodeRabbit on pm-ops#162 noted that npm-installed publish wrappers invoke npm publish from dependency source outside the tracked repository. isExecutableSource covers tracked wrappers only. Track recognition and fail-closed provenance auditing for semantic-release, np, release-it, lerna publish, and changeset publish; implementation is out of scope for the braces dependency PR."
 type: Issue
-status: open
+status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-14T04:31:33.376Z"
-updated_at: "2026-10-14T04:31:33.376Z"
+updated_at: "2026-10-14T18:21:56.010Z"
 author: codex-agent
 acceptance_criteria: "Recognize semantic-release, np, release-it, lerna publish, and changeset publish in package scripts and workflow run steps.; Fail closed when wrapper provenance cannot be certified, without executing or publishing anything.; Add real scratch repository regressions for each wrapper, plus non-publish lerna and changeset controls and tracked-wrapper coverage.; Document the dependency-source boundary and wrapper diagnostics; retain existing attestation regressions and unchanged coverage thresholds."
 repro_steps: Create a scratch repository with a package script or release workflow invoking each npm-installed wrapper; omit direct npm publish and tracked wrapper source; run the canonical attestation auditor and inspect whether it recognizes a publish path or incorrectly reports no publish commands.
 expected_result: Known dependency publish wrappers are recognized and unresolved provenance is refused with actionable diagnostics.
 actual_result: "Tracked executable source is audited, but npm-installed publish wrappers can hide the publish path from source scanning."
+comments[4]{created_at,author,text}:
+  "2026-10-14T18:05:05.211Z",codex-agent,"Plan: recognize known dependency publishers through literal executable and package-runner forms; refuse uncertifiable dependency provenance without execution. Preserve tracked-source scanning and precise non-publishing controls. Add real tracked scratch-repository regressions, location diagnostics, boundary docs, behavioral revert proof, isolated release gates and packed runtime acceptance."
+  "2026-10-14T18:13:10.844Z",codex-agent,"Implemented dependency-wrapper recognition and refusal diagnostics with structured executable scalar ranges. Pure informational argv and explicit non-publish router verbs pass; provenance flags, dry-run, publish-disabling settings and opaque spawning input do not certify dependency code. Focused scratch-repository suite passed 416/416; preparing full coverage and behavioral revert verification."
+  "2026-10-14T18:16:07.744Z",codex-agent,"Behavioral revert proof: replaced only dependencyPublishWrapper with a no-recognition return while retaining all fixtures and runner parsing. All 300/300 tracked wrapper/runner/source fixtures incorrectly passed beside an attested sibling, and the regression suite failed as required. Restored recognition before validation. Source commands were never executed."
+  "2026-10-14T18:21:55.331Z",codex-agent,"Final validation: isolated npm and Bun release:check both passed with 1138 passed, 0 failed/canceled/todo and 2 existing opt-in live-fleet skips (1140 total); all four coverage dimensions remain 100%. Focused and pinned-pm linked regressions passed 417/417 with no skips. npm run accept:packed passed for npm/Node and native Bun, including wrapper controls, real tracker create/validate/strict merge-driver health, npm 11 pack and npm 10 ignore-scripts config byte identity. Behavioral revert produced 331 failures and 86 passing controls; all 300 tracked wrapper fixtures incorrectly passed without recognition. Test-result tracking is disabled by project configuration, so this comment records the linked-run result. No pm CLI/SDK defect was encountered. README and auditor docs record conservative dependency-source and source-location boundaries. Changelog regeneration produced unchanged content; final changelog check follows tracker writes."
+files[4]{path,scope}:
+  attestation.ts,project
+  shell-scan.ts,project
+  test/packed-consumer.acceptance.ts,project
+  test/third-party-publish-wrappers.test.ts,project
+tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/third-party-publish-wrappers.test.ts,project,codex-agent,"2026-10-14T18:13:11.634Z",local_mutation,feat/third-party-publish-wrappers
+  "env -u PM_PATH -u PM_AUTHOR HOME=$(mktemp -d) GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 npm run release:check",project,codex-agent,"2026-10-14T18:21:53.101Z",local_mutation,feat/third-party-publish-wrappers
+  "env -u PM_PATH -u PM_AUTHOR HOME=$(mktemp -d) GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 bun run release:check",project,codex-agent,"2026-10-14T18:21:53.819Z",local_mutation,feat/third-party-publish-wrappers
+  "npm run accept:packed",project,codex-agent,"2026-10-14T18:21:54.504Z",local_mutation,feat/third-party-publish-wrappers
+docs[2]{path,scope}:
+  docs/canonical-publication-regressions.md,project
+  README.md,project
 body: ""
