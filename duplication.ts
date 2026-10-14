@@ -7,7 +7,7 @@
 
 import { glob, lstat, readdir } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, matchesGlob, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -111,6 +111,16 @@ const DUPLICATION_IGNORES = [
   "**/*.d.cts",
 ] as const;
 const require = createRequire(import.meta.url);
+
+/**
+ * Conservative byte budget for the explicit jscpd scan-path arguments.
+ *
+ * Windows builds its child command line with a hard 32 767-character limit,
+ * far below the Linux argv ceiling, so the explicit path list switches to a
+ * temporary jscpd config file once it alone would crowd that limit; the fixed
+ * flags and per-argument quoting still need the remaining headroom.
+ */
+const MAX_SCAN_PATH_ARGV_BYTES = 16 * 1024;
 
 /** Return whether an unknown JSON value is a record with string keys. */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -426,6 +436,44 @@ function percentageOf(duplicatedLines: number, totalLines: number): number {
   return totalLines > 0 ? (duplicatedLines / totalLines) * 100 : 0;
 }
 
+/**
+ * Build the jscpd scan-target arguments for one analysis.
+ *
+ * The matched sources are handed to jscpd as explicit scan paths, because its
+ * own walker only walks each scan root and cannot reach a configured scope
+ * outside the repository root, which the source discovery accepts; the paths
+ * are resolved absolute so jscpd's working directory is irrelevant, and the
+ * `--pattern` filter is dropped because jscpd would re-apply it to the already
+ * discovered paths and drop them. An empty match keeps the repository-root
+ * scan with the configured pattern, so the completeness receipt still proves
+ * the zero-source result instead of an empty argument list. An explicit list
+ * too long for a conservative argv budget — which also clears Windows's
+ * 32 767-character command-line ceiling — moves into a temporary jscpd config
+ * file instead of being chunked: chunks would miss every clone pair whose
+ * files land in different chunks and undercount duplication for a fail-closed
+ * gate.
+ *
+ * @param repoRoot - Repository root the matched sources are relative to.
+ * @param pattern - The combined glob pattern of the configured scope.
+ * @param matchedSources - Repository-relative sources matched by the scope.
+ * @param outputDir - Scratch directory for the analysis report and list file.
+ * @returns The jscpd positional and `--config` scan-target arguments.
+ */
+export function jscpdScanArguments(
+  repoRoot: string,
+  pattern: string,
+  matchedSources: readonly string[],
+  outputDir: string,
+): string[] {
+  if (matchedSources.length === 0) return [repoRoot, "--pattern", pattern];
+  const paths = matchedSources.map((source) => resolve(repoRoot, source));
+  const argvBytes = paths.reduce((total, path) => total + Buffer.byteLength(path, "utf8") + 3, 0);
+  if (argvBytes <= MAX_SCAN_PATH_ARGV_BYTES) return paths;
+  const listPath = join(outputDir, "pm-ops-scan-paths.jscpd.json");
+  writeFileSync(listPath, `${JSON.stringify({ path: paths }, undefined, 2)}\n`);
+  return ["--config", listPath];
+}
+
 /** Resolve a consumer's jscpd 5 package before falling back to this package. */
 function resolveJscpdEntry(repoRoot: string): JscpdInstallation {
   const manifestPath = require.resolve("jscpd/package.json", { paths: [repoRoot, import.meta.dirname] });
@@ -441,6 +489,8 @@ function resolveJscpdEntry(repoRoot: string): JscpdInstallation {
  * jscpd 5 is a self-contained Rust binary driven by `run-jscpd.js`, and its
  * JSON report carries only aggregate source counts. A second one-token scan
  * proves that its format filter read every in-scope file, including short ones.
+ * The scan targets come from {@link jscpdScanArguments}, so the walker scans
+ * exactly the discovered sources, including a scope outside the root.
  */
 function analyzeWithBinary(
   installation: JscpdInstallation,
@@ -451,13 +501,13 @@ function analyzeWithBinary(
 ): DuplicationReport {
   const outputDir = mkdtempSync(join(tmpdir(), "pm-ops-jscpd-"));
   try {
+    const scanArguments = jscpdScanArguments(repoRoot, pattern, matchedSources, outputDir);
     const run = (tokens: number): ReportedAnalysis => {
       // The package gate owns its threshold; an ambient .jscpd.json must not
       // make either scan exit before its JSON source-count receipt is read.
       const result = spawnSync(process.execPath, [
         join(installation.packageDir, "run-jscpd.js"),
-        repoRoot,
-        "--pattern", pattern,
+        ...scanArguments,
         "--format", "typescript,tsx",
         "--min-tokens", String(tokens),
         "--min-lines", "1",

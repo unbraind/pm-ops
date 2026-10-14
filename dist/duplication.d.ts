@@ -128,6 +128,30 @@ export declare function expandGlobUnions(pattern: string): string[];
  * lstat rejects discovered symlinks; explicit symlink bases retain prior scope.
  */
 export declare function globMatchedSources(repoRoot: string, pattern: string): Promise<string[]>;
+/**
+ * Build the jscpd scan-target arguments for one analysis.
+ *
+ * The matched sources are handed to jscpd as explicit scan paths, because its
+ * own walker only walks each scan root and cannot reach a configured scope
+ * outside the repository root, which the source discovery accepts; the paths
+ * are resolved absolute so jscpd's working directory is irrelevant, and the
+ * `--pattern` filter is dropped because jscpd would re-apply it to the already
+ * discovered paths and drop them. An empty match keeps the repository-root
+ * scan with the configured pattern, so the completeness receipt still proves
+ * the zero-source result instead of an empty argument list. An explicit list
+ * too long for a conservative argv budget — which also clears Windows's
+ * 32 767-character command-line ceiling — moves into a temporary jscpd config
+ * file instead of being chunked: chunks would miss every clone pair whose
+ * files land in different chunks and undercount duplication for a fail-closed
+ * gate.
+ *
+ * @param repoRoot - Repository root the matched sources are relative to.
+ * @param pattern - The combined glob pattern of the configured scope.
+ * @param matchedSources - Repository-relative sources matched by the scope.
+ * @param outputDir - Scratch directory for the analysis report and list file.
+ * @returns The jscpd positional and `--config` scan-target arguments.
+ */
+export declare function jscpdScanArguments(repoRoot: string, pattern: string, matchedSources: readonly string[], outputDir: string): string[];
 /** Return the fail-closed diagnostic for an empty or partially analyzed scope. */
 export declare function duplicationGateDiagnostic(report: Pick<DuplicationReport, "sources" | "skippedSources">): string | undefined;
 /**

@@ -144,6 +144,7 @@ jobs:
         run: |
           Remove-Item Env:npm_execpath -ErrorAction SilentlyContinue
           node test/packed-consumer.acceptance.ts
+          node test/duplication-packed.acceptance.ts
 
       - name: Missing historical proof diagnostic
         run: node --test test/windows-proof-history.test.ts

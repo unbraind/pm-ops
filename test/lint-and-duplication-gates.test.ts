@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import test, { after, before } from "node:test";
 
 import { ESLint } from "eslint";
 
-import { analyzeDuplication, duplicationGateDiagnostic, parseJscpdReport, runDuplicationGate } from "../duplication.ts";
+import { analyzeDuplication, duplicationGateDiagnostic, jscpdScanArguments, parseJscpdReport, runDuplicationGate } from "../duplication.ts";
 import { fleetEslintConfig, runLintGate } from "../eslint.ts";
 
 let root: string;
@@ -381,6 +381,69 @@ test("jscpd 5 refuses a TSX file omitted even by the one-token source probe", as
   );
   const gate = await gateFailureOutput(fixture, { globs: ["src/**/*.{ts,tsx}"] });
   assert.match(gate.errors, /jscpd scanned 0 of 1 in-scope TypeScript sources/);
+});
+
+test("jscpd scan arguments carry matched sources explicitly and move oversized lists into a config file", () => {
+  const outputDir = mkdtempSync(join(tmpdir(), "pm-ops-scan-arguments-"));
+  try {
+    assert.deepEqual(jscpdScanArguments("/repo", "**/*.ts", [], outputDir), ["/repo", "--pattern", "**/*.ts"]);
+    const short = ["src/first.ts", "src/second.ts"];
+    assert.deepEqual(
+      jscpdScanArguments("/repo", "**/*.ts", short, outputDir),
+      short.map((source) => resolve("/repo", source)),
+    );
+    const many = Array.from(
+      { length: 400 },
+      (_, index) => `src/sourceFileWithAVeryLongAuthoredName${String(index).padStart(4, "0")}.ts`,
+    );
+    const oversized = jscpdScanArguments("/repo", "**/*.ts", many, outputDir);
+    assert.equal(oversized.length, 2);
+    assert.equal(oversized[0], "--config");
+    const config = JSON.parse(readFileSync(oversized[1]!, "utf8")) as { path?: unknown };
+    assert.ok(Array.isArray(config.path));
+    assert.deepEqual(config.path, many.map((source) => resolve("/repo", source)));
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
+});
+
+test("duplication gate scans matched sources outside the repository root", async () => {
+  const outer = mkdtempSync(join(tmpdir(), "pm-ops-out-of-root-"));
+  try {
+    const repoRoot = join(outer, "inner");
+    mkdirSync(join(repoRoot, "src"), { recursive: true });
+    mkdirSync(join(outer, "outside"), { recursive: true });
+    writeFileSync(
+      join(repoRoot, "package.json"),
+      `${JSON.stringify({ duplicationGate: { threshold: 100, minTokens: 20 } })}\n`,
+    );
+    const source = [
+      "export function repeatedValue(): number {",
+      "  const firstValue = 1;",
+      "  const secondValue = 2;",
+      "  const thirdValue = 3;",
+      "  const fourthValue = 4;",
+      "  const fifthValue = 5;",
+      "  const sixthValue = 6;",
+      "  const seventhValue = 7;",
+      "  const eighthValue = 8;",
+      "  return firstValue + secondValue + thirdValue + fourthValue + fifthValue + sixthValue + seventhValue + eighthValue;",
+      "}",
+    ].join("\n") + "\n";
+    writeFileSync(join(repoRoot, "src", "first.ts"), source);
+    writeFileSync(join(outer, "outside", "second.ts"), source);
+    const globs = ["src/**/*.ts", "../outside/**/*.ts"];
+    const report = await analyzeDuplication({ repoRoot, globs, minTokens: 20 });
+    assert.equal(report.sources, 2);
+    assert.equal(report.cloneCount, 1);
+    assert.equal(report.clones[0]?.first.file, "src/first.ts");
+    assert.equal(report.clones[0]?.second.file, "../outside/second.ts");
+    const logs: string[] = [];
+    await runDuplicationGate({ repoRoot, globs, log: (message) => logs.push(message) });
+    assert.match(logs.join("\n"), /src\/first\.ts:1-11 <-> \.\.\/outside\/second\.ts:1-11/);
+  } finally {
+    rmSync(outer, { recursive: true, force: true });
+  }
 });
 
 test("jscpd 5 completeness probe ignores a consumer threshold without losing source count", async () => {
