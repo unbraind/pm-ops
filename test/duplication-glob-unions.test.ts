@@ -46,8 +46,11 @@ test("hostile leading-brace inputs complete in linear time instead of polynomial
   const started = performance.now();
   assert.deepEqual(expandGlobUnions(unterminated), [unterminated], "no brace union to expand");
   assert.throws(() => expandGlobUnions(terminated), /brace expansion exceeds 1024 alternatives/);
+  // The polynomial regex took ~19 s on this input and the linear scanner takes
+  // ~1 ms, so a 1 s bound still catches the regression while tolerating a
+  // loaded runner, a GC pause or coverage instrumentation.
   assert.ok(
-    performance.now() - started < 50,
+    performance.now() - started < 1_000,
     "leading '{{,' with fifty thousand commas must not backtrack polynomially",
   );
 });
