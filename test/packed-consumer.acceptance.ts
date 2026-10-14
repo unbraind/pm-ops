@@ -130,6 +130,14 @@ for (const [body, refused] of ${JSON.stringify(nestedCases)}) {
   const result = auditPublishAttestation([{ file: "release.sh", text: "npm publish --provenance\\n" + body.replaceAll("\\\\n", "\\n") }]);
   assert.equal(result.failures.length > 0, refused, body);
 }
+for (const command of ["semantic-release", "np patch", "release-it --ci", "lerna publish", "changeset publish", "npm exec -- np patch", "npx @changesets/cli publish"]) {
+  const wrapper = auditPublishAttestation([{ file: "release.sh", text: "npm publish --provenance\\n" + command }]);
+  assert.equal(wrapper.recognition.count, 2, command);
+  assert.match(wrapper.failures[0], /release.sh:2: cannot certify provenance for third-party publish wrapper/);
+}
+for (const command of ["np --help", "lerna run build", "changeset version", "npm exec --package np -- node build.mjs"]) {
+  assert.deepEqual(auditPublishAttestation([{ file: "release.sh", text: "npm publish --provenance\\n" + command }]).failures, [], command);
+}
 const activation = await activateExtensionForTest(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser", "services"] });
 assert.deepEqual(activation.failed, []);
 const result = await runRegisteredCommandForTest(activation.commands, { command: "ops status", pmRoot: process.env.PM_PATH, options: { repos: ["."] } });

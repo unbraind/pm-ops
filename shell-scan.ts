@@ -166,6 +166,11 @@ const TWO_WORD_PREFIXES = new Map([
  * costs an outage rather than a missed publish.
  */
 const PREFIX_OPTIONS_WITH_OPERAND = new Map([
+  ["npx", new Set(["-p", "--package", "--cache", "--userconfig", "--registry"])],
+  ["npm", new Set(["-p", "--package", "--workspace", "-w", "--prefix", "--cache", "--userconfig", "--registry"])],
+  ["pnpm", new Set(["--package", "--filter", "-C", "--dir"])],
+  ["yarn", new Set(["-p", "--package", "--cwd"])],
+  ["bunx", new Set(["-p", "--package"])],
   ["env", new Set(["-u", "--unset", "-C", "--chdir"])],
   ["sudo", new Set(["-u", "--user", "-g", "--group", "-p", "--prompt", "-h", "--host", "-r", "--role", "-t", "--type", "-C", "--close-from", "-D", "--chdir", "-R", "--chroot", "-U", "--other-user"])],
   ["doas", new Set(["-u", "-C"])],
@@ -735,6 +740,7 @@ function scanCommandPrefix(command: ShellCommand): PrefixScan {
     }
     if (second !== undefined && TWO_WORD_PREFIXES.get(base)?.has(second.value) === true) {
       sawPrefix = true;
+      lastPrefix = base;
       index += 2;
       continue;
     }

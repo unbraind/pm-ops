@@ -491,6 +491,23 @@ shell interpreter.
 The auditor is conservative: it does not execute tracked scripts or prove general
 shell programs safe. Alias use is refused even when an alias appears attested.
 
+Dependency-installed publishers have a separate boundary: their internal publish
+commands live outside tracked source. The auditor recognizes `semantic-release`,
+`np`, `release-it`, `lerna publish` and `changeset publish`, including binary paths,
+versioned package selectors, `@changesets/cli`, and `npx`, `pnpm dlx`, `bunx`,
+`yarn dlx` and `npm exec` binary invocations. Each refusal names the wrapper,
+repository-relative file and physical source line. A wrapper's `--provenance`,
+configuration or environment does not certify what its dependency code publishes;
+the audit never installs or executes that code. Use the sanctioned direct
+`npm publish --provenance` path for certifiable publication.
+
+Pure literal informational argv (`--help`, `-h`, `--version`, `-v`) passes.
+`lerna run build` and `changeset version` are non-publish controls; their tracked
+script bodies remain independently scanned. Dry-run and publish-disabling flags
+are conservatively refused because plugin, lifecycle and dependency execution
+remains outside this proof. The complete subcommand and diagnostic-location
+boundary is documented in [the auditor docs](docs/canonical-publication-regressions.md#dependency-publish-wrappers).
+
 `test/publish-indirection.test.ts` runs Bash and xargs against an inert publisher
 to preserve actual shell semantics; `test/pack-prepare.test.ts` compares real Git
 config bytes around npm pack and checks install/ci registration. Artifact-time

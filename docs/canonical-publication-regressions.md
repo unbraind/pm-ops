@@ -58,3 +58,62 @@ The evaluator sets now include `mksh`, `ash`, `yash` and `posh`. The shared comm
 Declaration binding scans share a prefix helper for `export`, `readonly`, `declare`, `typeset` and `local`, including option words such as `declare -x`. The opaque evaluator scan records these bindings before scalar expansion can hide a routed evaluator. The scalar scan supports literal provenance flags declared with the same builtins. Corpus fixtures reject each routed evaluator form beside an attested sibling.
 
 The review's OpenGrep `exec` warning refers to `RegExp.exec` inspecting a shell token. The scanner does not execute the inspected shell source.
+
+## Dependency publish wrappers
+
+`ops-third-party-publish-wrappers` covers the publish commands implemented by
+npm dependencies whose source is absent from the tracked repository. Scanning
+all tracked executable sources cannot certify these dependencies. Recognition
+is by command position, after the shared shell scanner consumes executable
+prefixes and package runners; it does not reject unrelated programs such as
+`git` or `node`.
+
+The recognized binaries are `semantic-release`, `np`, `release-it`, `lerna` and
+`changeset`. The first three publish by default. The latter two route explicit
+subcommands. Binary paths such as `./node_modules/.bin/np`, versioned runner
+selectors such as `np@latest`, and `@changesets/cli` selectors are recognized.
+Supported runner forms include `npx`, `pnpm dlx`, `bunx`, `yarn dlx`, and binary
+invocations through `npm exec` (with or without `--`). Separate package-option
+operands are consumed as operands: `npm exec --package np -- node` runs `node`,
+whereas `npm exec --package np -- np patch` invokes the recognized publisher.
+No dependency installation, script evaluation or registry publication occurs.
+
+| Command boundary | Verdict |
+| --- | --- |
+| `semantic-release`, `np [version]`, `release-it [options]` | Recognized; dependency provenance cannot be certified |
+| `lerna publish`, `changeset publish` | Recognized; dependency provenance cannot be certified |
+| Unknown or dynamic router verbs, unknown separated options before a verb | Refused conservatively |
+| Pure literal argv made only of `--help`, `-h`, `--version`, `-v` | Informational control; no wrapper publish finding |
+| `lerna run`, `list`, `ls`, `changed`, `diff`, `info` | Explicit non-publish operations; operands cannot change the selected verb |
+| `changeset add`, `init`, `status`, `version`, `pre`, `tag` | Explicit non-publish operations |
+| Bare `lerna` / `changeset` | Usage / changeset creation; no publish operation |
+| `lerna run build`, `changeset version` | Required non-publish controls; tracked scripts are still audited separately |
+| `np --help $FLAGS`, `xargs np --help`, `lerna publish --help` | Refused; pure informational argv is not established |
+| Wrapper `--provenance`, dry-run, publish-disabling flags or configuration | No dependency-source certification; refused |
+| Direct `npm publish --provenance` in the sanctioned workflow | Existing attested path passes unchanged |
+
+Diagnostics name the normalized wrapper, file, physical line and rendered
+command, and explain that dependency source lies outside the audit boundary.
+JSON script and YAML run scalar ranges isolate location lookup from metadata.
+Literal executable words within multiline source retain their physical lines;
+quoted or escaped scalars, YAML aliases and expanded executable names without
+a literal source word report the containing executable extent's start line.
+Repeated literal invocations retain separate locations. This location policy
+does not change the scanner's existing shell enumeration limits.
+
+`test/third-party-publish-wrappers.test.ts` creates real Git repositories and
+stages executable files for the canonical `verify` read. Every binary/runner
+combination is exercised in a package script, workflow run block, shell script,
+and extensionless shell source. Each wrapper is tested both with an attested
+sibling and alone. Controls preserve non-vacuity through a sanctioned attested
+sibling. A source sentinel must remain absent after auditing. Published npm and
+native Bun consumers also exercise wrapper refusal and required controls through
+the packed attestation export.
+
+The behavioral revert replaces only `dependencyPublishWrapper` with a return
+that recognizes no wrapper, retaining runner parsing and the fixtures. With
+that change, all 300 tracked wrapper/runner/source fixtures incorrectly pass
+the audit beside an attested sibling, and the 417-test regression suite reports
+331 failures (86 controls still pass). Restoring recognition yields 417/417
+passing regressions. The proof uses real Git indexes and never runs source
+commands or publishes a package.
