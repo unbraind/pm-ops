@@ -152,12 +152,114 @@ function combineGlobs(globs) {
         throw new Error("duplication-gate: at least one source glob is required");
     return globs.length === 1 ? globs[0] : `{${globs.join(",")}}`;
 }
-/** Expand comma brace unions so leading negative alternatives remain excludes. */
-function expandGlobUnions(pattern) {
-    const union = /\{([^{}]*,[^{}]*)\}/.exec(pattern);
-    if (!union)
+/**
+ * Locate the leftmost expandable brace union with one linear, backtrack-free pass.
+ *
+ * The union is the first `{` whose closing `}` arrives before any other `{`
+ * and whose content contains at least one `,`, so nested and non-comma braces
+ * are left untouched. Commas are only counted, never materialised, so a
+ * wide hostile union is refused before its alternatives are ever built. This
+ * replaces the backtracking regular expression CodeQL flags as polynomial
+ * (js/polynomial-redos): every character is examined at most once, and a
+ * candidate scan that reaches a nested `{` simply restarts from that brace
+ * while a comma-less `{...}` resumes after its closing brace, so hostile
+ * inputs such as `{{,` followed by many commas cost one pass instead of
+ * polynomial backtracking.
+ *
+ * @param pattern - The combined glob pattern to scan.
+ * @returns The leftmost union, or `undefined` when nothing can be expanded.
+ */
+function firstBraceUnion(pattern) {
+    let start = pattern.indexOf("{");
+    while (start >= 0) {
+        let commas = 0;
+        let index = start + 1;
+        let nested = -1;
+        let closed = -1;
+        while (index < pattern.length) {
+            const character = pattern[index];
+            if (character === "{") {
+                nested = index;
+                break;
+            }
+            if (character === "}") {
+                closed = index;
+                break;
+            }
+            if (character === ",")
+                commas += 1;
+            index += 1;
+        }
+        if (closed >= 0) {
+            if (commas > 0)
+                return { start, end: closed, commas };
+            start = pattern.indexOf("{", closed + 1);
+            continue;
+        }
+        if (nested < 0)
+            return undefined;
+        start = nested;
+    }
+    return undefined;
+}
+/**
+ * Maximum brace-union alternatives one configured glob may expand into.
+ *
+ * The duplication gate refuses a configured glob whose brace expansion would
+ * produce more than this many alternatives, so a hostile configuration
+ * cannot explode memory; realistic configurations expand to a handful.
+ */
+export const MAX_GLOB_UNION_ALTERNATIVES = 1024;
+/**
+ * Expand comma brace unions so leading negative alternatives remain excludes.
+ *
+ * The leftmost expandable union is expanded first and every alternative is
+ * expanded recursively before the next, preserving the exact left-to-right
+ * expansion order; nested and non-comma braces are left literal. Expansion is
+ * refused with a clear error as soon as it would exceed
+ * {@link MAX_GLOB_UNION_ALTERNATIVES} alternatives: every alternative always
+ * contributes at least one expanded pattern, so a union wider than the
+ * remaining budget overflows immediately, before its alternatives are built.
+ *
+ * @param pattern - The combined glob pattern to expand.
+ * @returns The expanded patterns, in the previous left-to-right order.
+ * @throws When the expansion would exceed {@link MAX_GLOB_UNION_ALTERNATIVES}.
+ */
+export function expandGlobUnions(pattern) {
+    return expandGlobUnionsWithin(pattern, MAX_GLOB_UNION_ALTERNATIVES, pattern);
+}
+/**
+ * Expand brace unions under a remaining alternative budget.
+ *
+ * Every alternative contributes at least one expanded pattern, so a union
+ * whose alternative count exceeds the remaining budget always overflows and
+ * is refused before its alternatives are split; otherwise each alternative
+ * is expanded with the budget the alternatives already produced have not
+ * consumed.
+ *
+ * @param pattern - The combined glob pattern to expand.
+ * @param budget - Maximum alternatives still allowed from this pattern.
+ * @param original - The original configured pattern, reported on refusal.
+ * @returns The expanded patterns, in the previous left-to-right order.
+ */
+function expandGlobUnionsWithin(pattern, budget, original) {
+    const union = firstBraceUnion(pattern);
+    if (union === undefined)
         return [pattern];
-    return union[1].split(",").flatMap((alternative) => expandGlobUnions(pattern.slice(0, union.index) + alternative + pattern.slice(union.index + union[0].length)));
+    if (union.commas + 1 > budget) {
+        throw new Error(unionOverflowMessage(original));
+    }
+    const alternatives = pattern.slice(union.start + 1, union.end).split(",");
+    const expanded = [];
+    for (const alternative of alternatives) {
+        expanded.push(...expandGlobUnionsWithin(pattern.slice(0, union.start) + alternative + pattern.slice(union.end + 1), budget - expanded.length, original));
+    }
+    return expanded;
+}
+/** Render the refusal for a glob whose expansion exceeds the alternative limit. */
+function unionOverflowMessage(pattern) {
+    const preview = pattern.length > 64 ? `${pattern.slice(0, 64)}…` : pattern;
+    return `duplication-gate: glob brace expansion exceeds ${MAX_GLOB_UNION_ALTERNATIVES} alternatives: ${preview}`;
 }
 /**
  * Prefix ordinary path segments before native matching to preserve dot:true.

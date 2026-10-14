@@ -98,6 +98,30 @@ interface ReportedAnalysis {
  */
 export declare function parseJscpdReport(report: unknown): ReportedAnalysis;
 /**
+ * Maximum brace-union alternatives one configured glob may expand into.
+ *
+ * The duplication gate refuses a configured glob whose brace expansion would
+ * produce more than this many alternatives, so a hostile configuration
+ * cannot explode memory; realistic configurations expand to a handful.
+ */
+export declare const MAX_GLOB_UNION_ALTERNATIVES = 1024;
+/**
+ * Expand comma brace unions so leading negative alternatives remain excludes.
+ *
+ * The leftmost expandable union is expanded first and every alternative is
+ * expanded recursively before the next, preserving the exact left-to-right
+ * expansion order; nested and non-comma braces are left literal. Expansion is
+ * refused with a clear error as soon as it would exceed
+ * {@link MAX_GLOB_UNION_ALTERNATIVES} alternatives: every alternative always
+ * contributes at least one expanded pattern, so a union wider than the
+ * remaining budget overflows immediately, before its alternatives are built.
+ *
+ * @param pattern - The combined glob pattern to expand.
+ * @returns The expanded patterns, in the previous left-to-right order.
+ * @throws When the expansion would exceed {@link MAX_GLOB_UNION_ALTERNATIVES}.
+ */
+export declare function expandGlobUnions(pattern: string): string[];
+/**
  * Discover authored sources with built-in glob, preserving fast-glob's scope.
  * Hidden entries supplement native glob because Bun omits even explicit .*.
  * Native path matching on prefixed segments retains the former dot:true policy.

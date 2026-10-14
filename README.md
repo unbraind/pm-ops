@@ -370,7 +370,11 @@ clone pair with both file line ranges, and fails when the measured percentage
 is above the configured threshold. jscpd 5 scans TS, TSX, MTS, and
 CTS sources; the gate checks its source count with a one-token pass
 and refuses an incomplete scan. `globs` and `minTokens` can be overridden for direct analysis;
-the gate uses `minTokens: 50` when the field is omitted.
+the gate uses `minTokens: 50` when the field is omitted. Comma brace unions in
+a configured glob are expanded with a single linear pass and left-to-right
+order, and a glob whose brace expansion would produce more than 1024
+alternatives is refused with a clear error, so a hostile configured glob
+cannot slow the gate down or explode memory.
 
 ### Consumers
 
