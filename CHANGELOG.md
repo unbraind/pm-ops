@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- Remove the unpatched braces chain with built-in fs.glob and jscpd 5 only ([ops-braces-audit](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-braces-audit.toon))
+
 ## 2026.10.14 - 2026-10-14
 
 ### Fixed
