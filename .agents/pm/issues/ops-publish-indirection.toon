@@ -2,16 +2,19 @@ id: ops-publish-indirection
 title: Reject unresolved alias and function publish indirection in canonical attestation auditor
 description: "Canonical repair for GitHub issue #149. Real shell aliases, forwarding functions and variable-routed xargs can execute unattested publishes while a sanctioned sibling satisfies non-vacuity. Companion owner: pm-cli-website-session-2026-10-10."
 type: Issue
-status: in_progress
+status: closed
 priority: 0
 tags: []
 created_at: "2026-10-10T02:41:49.896Z"
-updated_at: "2026-10-13T18:16:29.095Z"
+updated_at: "2026-10-13T22:22:06.999Z"
+closed_at: "2026-10-13T22:22:06.977Z"
+completed_at: "2026-10-13T22:22:06.977Z"
 author: codex-sol
 acceptance_criteria: Real subprocess adversarial fixtures and independent revert proofs; reject unresolved executable indirection; preserve sanctioned workflow; full release and packed npm/Bun checks.
 repro_steps: Execute test/publish-indirection.test.ts against the prior attestation implementation; Bash/xargs inert publisher records show hidden publish calls behind an attested sibling.
-expected_result: Every unresolved executable publisher path is refused; direct sanctioned provenance workflows and provable bindings remain accepted.
-actual_result: "PR #161 round 2: both evaluator sets cover mksh, ash, yash and posh; shared prefix scan handles BusyBox sh/ash. Shared declaration-prefix handling records export, readonly, declare, typeset and local bindings plus flags before dynamic-evaluator refusal. Focused corpus/API tests pass 211/211; independent evaluator and declaration reversions produce 14 and 8 behavioral failures respectively among 109 corpus tests. Isolated npm and Bun release gates each pass 709/711 with zero failures and two existing opt-in skips; 25 measured sources have all four coverage dimensions at 100%. Fleet comparison against prior PR head retains all 112 verdicts: 22 PASS, 84 NO_PUBLISH and six existing FAIL. No rollout, publication or item closure."
+resolution: Implemented and merged in #161 (370fdb8).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #161 as 370fdb8; checks successful at head d6d3764: CodeQL, codeql, test (22), test (26), windows-consumers (22), windows-consumers (26)."
 comments[65]:
   - created_at: "2026-10-10T02:42:14.991Z"
     author: codex-sol
@@ -358,4 +361,5 @@ docs[10]:
   - path: shell-scan.ts
     scope: project
     note: Token provenance and recursion contract docstrings
+close_reason: "Delivered by #161 \"Reject unresolved publish indirection in the canonical attestation auditor and complete the pack regression\" (merged as 370fdb8). Checks successful at the PR head d6d3764: CodeQL, codeql, test (22), test (26), windows-consumers (22), windows-consumers (26)."
 body: ""
