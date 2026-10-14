@@ -17,9 +17,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import test, { after, before } from "node:test";
-import glob from "fast-glob";
 
 import { runCoverageGate } from "../scripts/coverage-gate.ts";
 import { QUALITY_PROVIDER_ID, qualityMeasurementProvider } from "../assurance.ts";
@@ -97,6 +96,38 @@ function exit(code: number): never {
 /** Read every c8 include argument in order, without consulting coverage reports. */
 function includedSources(args: readonly string[]): string[] {
   return args.flatMap((arg, index) => arg === "--include" ? [args[index + 1]] : []);
+}
+
+/**
+ * Independently discover every authored TypeScript source under a package
+ * root, including hidden files and files inside hidden directories.
+ *
+ * Node's built-in glob skips dot entries during `**` traversal and offers no
+ * opt-out, while the gate's collector reads directories directly and keeps
+ * hidden `.ts` sources; the inventory therefore walks the tree with
+ * `readdirSync` instead of globbing — still a separate implementation that
+ * neither reads `coverageGate.sources` nor reuses the gate's collector —
+ * pruning the same documented non-source directories and declaration files
+ * so the two lists stay comparable.
+ */
+function independentInventory(packageRoot: string): string[] {
+  const skipDirs = new Set([
+    "node_modules", "dist", "dist-test", "coverage", "test", "tests",
+    "public", ".agents", ".git", ".github",
+  ]);
+  const found: string[] = [];
+  const walk = (target: string): void => {
+    for (const entry of readdirSync(target, { withFileTypes: true })) {
+      const path = join(target, entry.name);
+      if (entry.isDirectory()) {
+        if (!skipDirs.has(entry.name)) walk(path);
+      } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts")) {
+        found.push(relative(packageRoot, path).split(sep).join("/"));
+      }
+    }
+  };
+  walk(packageRoot);
+  return [...new Set(found)].sort();
 }
 
 /** Write an lcov source-file list for the fixture package. */
@@ -257,19 +288,12 @@ test("real c8 discovers newly tested modules and rejects an unimported module by
 
 test("coverage gate defaults to its package root and includes the independent package inventory", () => {
   const packageRoot = resolve(import.meta.dirname, "..");
-  // The package denominator comes from a different glob engine, without reading
-  // coverageGate.sources or reusing the gate's recursive collector. This covers
-  // runtime code, release tooling, and shipped TypeScript templates, while
-  // excluding tests, declarations, dependencies, generated output, and metadata.
-  const inventory = glob.sync("**/*.ts", {
-    cwd: packageRoot,
-    dot: true,
-    followSymbolicLinks: false,
-    ignore: [
-      "**/*.d.ts",
-      "**/{node_modules,dist,dist-test,coverage,test,tests,public,.agents,.git,.github}/**",
-    ],
-  }).sort();
+  // The package denominator comes from a separate implementation that neither
+  // reads coverageGate.sources nor reuses the gate's recursive collector. This
+  // covers runtime code, release tooling, and shipped TypeScript templates,
+  // while excluding tests, declarations, dependencies, generated output, and
+  // metadata.
+  const inventory = independentInventory(packageRoot);
   assert.ok(inventory.length > 0, "the independent source inventory must be nonempty");
   const spawn = ((_command: string, args: readonly string[]) => {
     const included = includedSources(args);
@@ -282,6 +306,38 @@ test("coverage gate defaults to its package root and includes the independent pa
     runCoverageGate({ spawn, exit });
   } finally {
     rmSync(join(packageRoot, "coverage", "lcov.info"), { force: true });
+  }
+});
+
+test("coverage gate includes hidden TypeScript sources in its independent inventory", () => {
+  const directory = fixture("hidden-inventory", {
+    sources: ["."],
+    tests: [],
+    thresholds: { statements: 100, lines: 100, branches: 100, functions: 100 },
+  });
+  mkdirSync(join(directory, ".tooling"), { recursive: true });
+  writeFileSync(join(directory, ".hidden.ts"), "export const hidden = 1;\n");
+  writeFileSync(join(directory, ".tooling", "helper.ts"), "export const helper = 2;\n");
+  writeFileSync(join(directory, "src", ".secret.ts"), "export const secret = 3;\n");
+  const inventory = independentInventory(directory);
+  assert.deepStrictEqual(inventory, [
+    ".hidden.ts",
+    ".tooling/helper.ts",
+    "src/.secret.ts",
+    "src/index.ts",
+    "src/nested/worker.ts",
+  ]);
+  const spawn = ((_command: string, args: readonly string[]) => {
+    const included = includedSources(args);
+    assert.deepStrictEqual(included, inventory,
+      "hidden authored sources must enter c8's denominator like the walk does");
+    writeLcov(directory, included, args);
+    return spawnResult();
+  }) as unknown as typeof spawnSync;
+  try {
+    runCoverageGate({ repoRoot: directory, spawn, exit });
+  } finally {
+    rmSync(join(directory, "coverage", "lcov.info"), { force: true });
   }
 });
 

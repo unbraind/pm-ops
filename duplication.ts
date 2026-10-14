@@ -1,20 +1,15 @@
 /**
  * Canonical TypeScript duplication analysis and fail-closed gate for the fleet.
  *
- * Two jscpd majors are supported, and their engines are structurally
- * different, so the analyzer dispatches on the installed major:
- *
- * - jscpd 4 ships a Node.js programmatic API, used directly so consumer
- *   launchers stay small while preserving the detector's clone locations.
- * - jscpd 5 replaced the Node.js API with a self-contained Rust binary, so
- *   the analyzer runs the binary with its JSON reporter and parses the report.
+ * jscpd 5 runs as a self-contained Rust binary with a validated JSON report.
+ * Source discovery uses Node's built-in glob and preserves the authored scope.
  */
 
-import fastGlob from "fast-glob";
+import { glob, lstat, readdir } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, matchesGlob, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 
 /**
@@ -53,7 +48,7 @@ export interface DuplicationReport {
 export interface DuplicationGateOptions {
   /** Repository root containing package.json and the TypeScript files to scan. */
   readonly repoRoot?: string;
-  /** Fast-glob patterns passed to jscpd; defaults to every TypeScript file. */
+  /** Glob patterns passed to jscpd; defaults to every TypeScript file. */
   readonly globs?: readonly string[];
   /** Minimum jscpd token count; defaults to 50 for direct analysis callers. */
   readonly minTokens?: number;
@@ -96,52 +91,9 @@ interface ReportedAnalysis {
   };
 }
 
-/** One cloned file end as reported by jscpd 4's programmatic API. */
-interface ProgrammaticCloneEnd {
-  readonly sourceId: string;
-  readonly start: { readonly line: number };
-  readonly end: { readonly line: number };
-}
-
-/** jscpd 4's structural API surface, read from @jscpd/core's published types. */
-interface ProgrammaticApi {
-  detectClonesAndStatistic(options: ProgrammaticOptions): Promise<{
-    clones: readonly { readonly duplicationA: ProgrammaticCloneEnd; readonly duplicationB: ProgrammaticCloneEnd }[];
-    statistic: {
-      readonly total: { readonly lines: number; readonly duplicatedLines: number; readonly sources: number };
-      readonly formats: Readonly<Record<string, { readonly sources: Readonly<Record<string, unknown>> } | undefined>>;
-    };
-  }>;
-}
-
-/** The jscpd 4 option subset the analyzer passes, from IOptions's shape. */
-interface ProgrammaticOptions {
-  readonly path: readonly string[];
-  readonly pattern: string;
-  readonly minTokens: number;
-  readonly minLines: number;
-  readonly maxLines: number;
-  readonly maxSize: string;
-  readonly format: readonly string[];
-  readonly ignore: readonly string[];
-  readonly absolute: boolean;
-  readonly gitignore: boolean;
-  readonly noSymlinks: boolean;
-  readonly reporters: readonly string[];
-  readonly silent: boolean;
-}
-
-/** Where the installed jscpd package lives and which engine generation it is. */
+/** Directory of the installed jscpd 5 package. */
 interface JscpdInstallation {
-  /** Major version of the installed jscpd package. */
-  readonly major: number;
-  /** Directory of the installed jscpd package. */
   readonly packageDir: string;
-  /**
-   * jscpd 4's programmatic entry point, or jscpd 5's package manifest, which
-   * is the only package anchor its binary-only layout exposes.
-   */
-  readonly entryPath: string;
 }
 
 const defaultRepoRoot = process.cwd();
@@ -159,6 +111,16 @@ const DUPLICATION_IGNORES = [
   "**/*.d.cts",
 ] as const;
 const require = createRequire(import.meta.url);
+
+/**
+ * Conservative byte budget for the explicit jscpd scan-path arguments.
+ *
+ * Windows builds its child command line with a hard 32 767-character limit,
+ * far below the Linux argv ceiling, so the explicit path list switches to a
+ * temporary jscpd config file once it alone would crowd that limit; the fixed
+ * flags and per-argument quoting still need the remaining headroom.
+ */
+const MAX_SCAN_PATH_ARGV_BYTES = 16 * 1024;
 
 /** Return whether an unknown JSON value is a record with string keys. */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -278,17 +240,6 @@ function cloneEnd(repoRoot: string, sourceId: string, startLine: number, endLine
   return { file: relativeSource(repoRoot, sourceId), startLine, endLine };
 }
 
-/** Convert one jscpd 4 clone into the public report's line-range shape. */
-function mapProgrammaticClone(
-  repoRoot: string,
-  clone: { readonly duplicationA: ProgrammaticCloneEnd; readonly duplicationB: ProgrammaticCloneEnd },
-): DuplicationClone {
-  return {
-    first: cloneEnd(repoRoot, clone.duplicationA.sourceId, clone.duplicationA.start.line, clone.duplicationA.end.line),
-    second: cloneEnd(repoRoot, clone.duplicationB.sourceId, clone.duplicationB.start.line, clone.duplicationB.end.line),
-  };
-}
-
 /** Convert one jscpd 5 clone into the public report's line-range shape. */
 function mapReportedClone(repoRoot: string, clone: ReportedClone): DuplicationClone {
   return {
@@ -297,50 +248,187 @@ function mapReportedClone(repoRoot: string, clone: ReportedClone): DuplicationCl
   };
 }
 
-/** Turn configured glob entries into the one fast-glob pattern jscpd accepts. */
+/** Turn configured glob entries into the one brace-union pattern jscpd accepts. */
 function combineGlobs(globs: readonly string[]): string {
   if (globs.length === 0) throw new Error("duplication-gate: at least one source glob is required");
   return globs.length === 1 ? globs[0]! : `{${globs.join(",")}}`;
 }
 
-/** Match the files jscpd is expected to analyze with the same scope and ignores. */
-function globMatchedSources(repoRoot: string, pattern: string): string[] {
-  return fastGlob.sync(pattern, {
-    absolute: true,
-    cwd: repoRoot,
-    dot: true,
-    followSymbolicLinks: false,
-    ignore: [...DUPLICATION_IGNORES],
-    onlyFiles: true,
-  })
-    // The same authored-source scope as the docstring gate: `.ts`, `.tsx`,
-    // `.mts`, and `.cts` sources, minus the `.d.ts` / `.d.mts` / `.d.cts`
-    // ambient-declaration forms. Inlining this keeps the matched-source set —
-    // the basis of both engines' fail-closed count reconciliation — in one
-    // place next to the glob that produced it.
-    .filter((source) => (source.endsWith(".ts") || source.endsWith(".tsx") || source.endsWith(".mts") || source.endsWith(".cts"))
-      && !source.endsWith(".d.ts") && !source.endsWith(".d.mts") && !source.endsWith(".d.cts"))
-    .map((source) => relativeSource(repoRoot, source))
-    .sort();
+/** One comma brace union located by the linear leftmost-union scanner. */
+interface BraceUnion {
+  /** Index of the union's opening brace. */
+  readonly start: number;
+  /** Index of the union's closing brace. */
+  readonly end: number;
+  /** Number of commas between the union's braces, so `alternatives` is `commas + 1`. */
+  readonly commas: number;
 }
 
-/** Build the bounded jscpd 4 options shared by matching and actual analysis. */
-function duplicationOptions(repoRoot: string, pattern: string, minTokens: number): ProgrammaticOptions {
-  return {
-    path: [repoRoot],
-    pattern,
-    minTokens,
-    minLines: 1,
-    maxLines: MAX_DUPLICATION_LINES,
-    maxSize: MAX_DUPLICATION_SIZE,
-    format: ["typescript", "tsx"],
-    ignore: [...DUPLICATION_IGNORES],
-    absolute: true,
-    gitignore: false,
-    noSymlinks: true,
-    reporters: [],
-    silent: true,
-  };
+/**
+ * Locate the leftmost expandable brace union with one linear, backtrack-free pass.
+ *
+ * The union is the first `{` whose closing `}` arrives before any other `{`
+ * and whose content contains at least one `,`, so nested and non-comma braces
+ * are left untouched. Commas are only counted, never materialised, so a
+ * wide hostile union is refused before its alternatives are ever built. This
+ * replaces the backtracking regular expression CodeQL flags as polynomial
+ * (js/polynomial-redos): every character is examined at most once, and a
+ * candidate scan that reaches a nested `{` simply restarts from that brace
+ * while a comma-less `{...}` resumes after its closing brace, so hostile
+ * inputs such as `{{,` followed by many commas cost one pass instead of
+ * polynomial backtracking.
+ *
+ * @param pattern - The combined glob pattern to scan.
+ * @returns The leftmost union, or `undefined` when nothing can be expanded.
+ */
+function firstBraceUnion(pattern: string): BraceUnion | undefined {
+  let start = pattern.indexOf("{");
+  while (start >= 0) {
+    let commas = 0;
+    let index = start + 1;
+    let nested = -1;
+    let closed = -1;
+    while (index < pattern.length) {
+      const character = pattern[index]!;
+      if (character === "{") {
+        nested = index;
+        break;
+      }
+      if (character === "}") {
+        closed = index;
+        break;
+      }
+      if (character === ",") commas += 1;
+      index += 1;
+    }
+    if (closed >= 0) {
+      if (commas > 0) return { start, end: closed, commas };
+      start = pattern.indexOf("{", closed + 1);
+      continue;
+    }
+    if (nested < 0) return undefined;
+    start = nested;
+  }
+  return undefined;
+}
+
+/**
+ * Maximum brace-union alternatives one configured glob may expand into.
+ *
+ * The duplication gate refuses a configured glob whose brace expansion would
+ * produce more than this many alternatives, so a hostile configuration
+ * cannot explode memory; realistic configurations expand to a handful.
+ */
+export const MAX_GLOB_UNION_ALTERNATIVES = 1024;
+
+/**
+ * Expand comma brace unions so leading negative alternatives remain excludes.
+ *
+ * The leftmost expandable union is expanded first and every alternative is
+ * expanded recursively before the next, preserving the exact left-to-right
+ * expansion order; nested and non-comma braces are left literal. Expansion is
+ * refused with a clear error as soon as it would exceed
+ * {@link MAX_GLOB_UNION_ALTERNATIVES} alternatives: every alternative always
+ * contributes at least one expanded pattern, so a union wider than the
+ * remaining budget overflows immediately, before its alternatives are built.
+ *
+ * @param pattern - The combined glob pattern to expand.
+ * @returns The expanded patterns, in the previous left-to-right order.
+ * @throws When the expansion would exceed {@link MAX_GLOB_UNION_ALTERNATIVES}.
+ */
+export function expandGlobUnions(pattern: string): string[] {
+  return expandGlobUnionsWithin(pattern, MAX_GLOB_UNION_ALTERNATIVES, pattern);
+}
+
+/**
+ * Expand brace unions under a remaining alternative budget.
+ *
+ * Every alternative contributes at least one expanded pattern, so a union
+ * whose alternative count exceeds the remaining budget always overflows and
+ * is refused before its alternatives are split; otherwise each alternative
+ * is expanded with the budget the alternatives already produced have not
+ * consumed.
+ *
+ * @param pattern - The combined glob pattern to expand.
+ * @param budget - Maximum alternatives still allowed from this pattern.
+ * @param original - The original configured pattern, reported on refusal.
+ * @returns The expanded patterns, in the previous left-to-right order.
+ */
+function expandGlobUnionsWithin(pattern: string, budget: number, original: string): string[] {
+  const union = firstBraceUnion(pattern);
+  if (union === undefined) return [pattern];
+  if (union.commas + 1 > budget) {
+    throw new Error(unionOverflowMessage(original));
+  }
+  const alternatives = pattern.slice(union.start + 1, union.end).split(",");
+  const expanded: string[] = [];
+  for (const alternative of alternatives) {
+    expanded.push(...expandGlobUnionsWithin(
+      pattern.slice(0, union.start) + alternative + pattern.slice(union.end + 1),
+      budget - expanded.length,
+      original,
+    ));
+  }
+  return expanded;
+}
+
+/** Render the refusal for a glob whose expansion exceeds the alternative limit. */
+function unionOverflowMessage(pattern: string): string {
+  const preview = pattern.length > 64 ? `${pattern.slice(0, 64)}…` : pattern;
+  return `duplication-gate: glob brace expansion exceeds ${MAX_GLOB_UNION_ALTERNATIVES} alternatives: ${preview}`;
+}
+
+/**
+ * Prefix ordinary path segments before native matching to preserve dot:true.
+ * The common prefix makes hidden names ordinary without changing wildcard,
+ * character-class or extglob matching; globstars retain their native meaning.
+ */
+function dotInclusivePath(path: string): string {
+  return path.split("/").map((segment) => segment === "**" ? segment : `x${segment}`).join("/");
+}
+
+/**
+ * Discover authored sources with built-in glob, preserving fast-glob's scope.
+ * Hidden entries supplement native glob because Bun omits even explicit .*.
+ * Native path matching on prefixed segments retains the former dot:true policy.
+ * lstat rejects discovered symlinks; explicit symlink bases retain prior scope.
+ */
+export async function globMatchedSources(repoRoot: string, pattern: string): Promise<string[]> {
+  const root = resolve(repoRoot);
+  const patterns = expandGlobUnions(pattern);
+  const positives = patterns.filter((value) => !value.startsWith("!"));
+  const includes = positives.map((value) => dotInclusivePath(relativeSource(root, value)));
+  const excludes = [...DUPLICATION_IGNORES, ...patterns.filter((value) => value.startsWith("!"))
+    .map((value) => value.slice(1))].map((value) => dotInclusivePath(relativeSource(root, value)));
+  const sources: string[] = [];
+  // Begin at each literal pattern base, preserving ../ and explicit symlink bases.
+  const directories = [...new Set(positives.map((value) => {
+    const literal = relativeSource(root, value).split(/[?*[{(]/, 1)[0]!;
+    return resolve(root, literal.endsWith("/") ? literal : dirname(literal));
+  }))].filter((directory) => statSync(directory, { throwIfNoEntry: false }) !== undefined);
+  const visited = new Set<string>();
+  for (const directory of directories) {
+    if (visited.has(directory)) continue;
+    visited.add(directory);
+    const entries = new Set<string>();
+    for await (const entry of glob("*", { cwd: directory })) entries.add(entry);
+    for (const entry of await readdir(directory)) {
+      if (entry.startsWith(".")) entries.add(entry);
+    }
+    for (const entry of entries) {
+      const absolute = resolve(directory, entry);
+      const source = relativeSource(root, absolute);
+      const candidate = dotInclusivePath(source);
+      if (excludes.some((exclude) => matchesGlob(candidate, exclude))) continue;
+      const stat = await lstat(absolute);
+      if (stat.isDirectory()) directories.push(absolute);
+      if (stat.isFile() && includes.some((include) => matchesGlob(candidate, include))
+        && (source.endsWith(".ts") || source.endsWith(".tsx") || source.endsWith(".mts") || source.endsWith(".cts"))) {
+        sources.push(source);
+      }
+    }
+  }
+  return [...new Set(sources)].sort();
 }
 
 /** Compute the duplicated-line percentage jscpd's own line counts imply. */
@@ -349,71 +437,50 @@ function percentageOf(duplicatedLines: number, totalLines: number): number {
 }
 
 /**
- * Resolve the installed jscpd package, preferring the repository root.
+ * Build the jscpd scan-target arguments for one analysis.
  *
- * Consumers install jscpd as their own (optional) peer dependency, so the
- * repository root is where the analyzer must find it; this module's own
- * directory keeps the gate working for this repository's runs. jscpd 4
- * resolves through its programmatic entry point, while jscpd 5 exposes no
- * entry at all and resolves through its package manifest; when jscpd is
- * installed nowhere, the manifest lookup throws Node's own not-found error.
- */
-function resolveJscpdEntry(repoRoot: string): JscpdInstallation {
-  try {
-    const entryPath = require.resolve("jscpd", { paths: [repoRoot, import.meta.dirname] });
-    const packageDir = packageDirOf(entryPath);
-    return { major: majorOf(packageDir), packageDir, entryPath };
-  } catch {
-    // jscpd 5 has no package entry point; its manifest is the only anchor.
-    const manifestPath = require.resolve("jscpd/package.json", { paths: [repoRoot, import.meta.dirname] });
-    const packageDir = dirname(manifestPath);
-    return { major: majorOf(packageDir), packageDir, entryPath: manifestPath };
-  }
-}
-
-/** Read the engine generation from a jscpd package's manifest. */
-function majorOf(packageDir: string): number {
-  const manifest = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")) as { version?: unknown };
-  return Number.parseInt(String(manifest.version), 10);
-}
-
-/** The directory of a package entry, walking up to the package manifest. */
-function packageDirOf(entryPath: string): string {
-  let directory = dirname(entryPath);
-  while (!existsSync(join(directory, "package.json"))) directory = dirname(directory);
-  return directory;
-}
-
-/**
- * Analyze with jscpd 4's programmatic API.
+ * The matched sources are handed to jscpd as explicit scan paths, because its
+ * own walker only walks each scan root and cannot reach a configured scope
+ * outside the repository root, which the source discovery accepts; the paths
+ * are resolved absolute so jscpd's working directory is irrelevant, and the
+ * `--pattern` filter is dropped because jscpd would re-apply it to the already
+ * discovered paths and drop them. An empty match keeps the repository-root
+ * scan with the configured pattern, so the completeness receipt still proves
+ * the zero-source result instead of an empty argument list. An explicit list
+ * too long for a conservative argv budget — which also clears Windows's
+ * 32 767-character command-line ceiling — moves into a temporary jscpd config
+ * file instead of being chunked: chunks would miss every clone pair whose
+ * files land in different chunks and undercount duplication for a fail-closed
+ * gate.
  *
- * jscpd 4 publishes a per-file statistic, so files the globs matched but
- * jscpd never analyzed fail the gate closed through `skippedSources`.
+ * @param repoRoot - Repository root the matched sources are relative to.
+ * @param pattern - The combined glob pattern of the configured scope.
+ * @param matchedSources - Repository-relative sources matched by the scope.
+ * @param outputDir - Scratch directory for the analysis report and list file.
+ * @returns The jscpd positional and `--config` scan-target arguments.
  */
-async function analyzeWithProgrammatic(
-  installation: JscpdInstallation,
+export function jscpdScanArguments(
   repoRoot: string,
   pattern: string,
-  minTokens: number,
   matchedSources: readonly string[],
-): Promise<DuplicationReport> {
-  const api = require(installation.entryPath) as ProgrammaticApi;
-  const result = await api.detectClonesAndStatistic(duplicationOptions(repoRoot, pattern, minTokens));
-  const analyzedSources = ["typescript", "tsx"].flatMap((format) => Object.keys(
-    result.statistic.formats[format]?.sources ?? {},
-  ))
-    .map((source) => relativeSource(repoRoot, source))
-    .sort();
-  const analyzed = new Set(analyzedSources);
-  return {
-    percentage: percentageOf(result.statistic.total.duplicatedLines, result.statistic.total.lines),
-    totalLines: result.statistic.total.lines,
-    duplicatedLines: result.statistic.total.duplicatedLines,
-    sources: result.statistic.total.sources,
-    skippedSources: matchedSources.filter((source) => !analyzed.has(source)),
-    cloneCount: result.clones.length,
-    clones: result.clones.map((clone) => mapProgrammaticClone(repoRoot, clone)),
-  };
+  outputDir: string,
+): string[] {
+  if (matchedSources.length === 0) return [repoRoot, "--pattern", pattern];
+  const paths = matchedSources.map((source) => resolve(repoRoot, source));
+  const argvBytes = paths.reduce((total, path) => total + Buffer.byteLength(path, "utf8") + 3, 0);
+  if (argvBytes <= MAX_SCAN_PATH_ARGV_BYTES) return paths;
+  const listPath = join(outputDir, "pm-ops-scan-paths.jscpd.json");
+  writeFileSync(listPath, `${JSON.stringify({ path: paths }, undefined, 2)}\n`);
+  return ["--config", listPath];
+}
+
+/** Resolve a consumer's jscpd 5 package before falling back to this package. */
+function resolveJscpdEntry(repoRoot: string): JscpdInstallation {
+  const manifestPath = require.resolve("jscpd/package.json", { paths: [repoRoot, import.meta.dirname] });
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { version?: unknown };
+  const major = Number.parseInt(String(manifest.version), 10);
+  if (major !== 5) throw new Error("duplication: jscpd >=5.0.0 <6.0.0 is required");
+  return { packageDir: dirname(manifestPath) };
 }
 
 /**
@@ -422,6 +489,8 @@ async function analyzeWithProgrammatic(
  * jscpd 5 is a self-contained Rust binary driven by `run-jscpd.js`, and its
  * JSON report carries only aggregate source counts. A second one-token scan
  * proves that its format filter read every in-scope file, including short ones.
+ * The scan targets come from {@link jscpdScanArguments}, so the walker scans
+ * exactly the discovered sources, including a scope outside the root.
  */
 function analyzeWithBinary(
   installation: JscpdInstallation,
@@ -432,13 +501,13 @@ function analyzeWithBinary(
 ): DuplicationReport {
   const outputDir = mkdtempSync(join(tmpdir(), "pm-ops-jscpd-"));
   try {
+    const scanArguments = jscpdScanArguments(repoRoot, pattern, matchedSources, outputDir);
     const run = (tokens: number): ReportedAnalysis => {
       // The package gate owns its threshold; an ambient .jscpd.json must not
       // make either scan exit before its JSON source-count receipt is read.
       const result = spawnSync(process.execPath, [
         join(installation.packageDir, "run-jscpd.js"),
-        repoRoot,
-        "--pattern", pattern,
+        ...scanArguments,
         "--format", "typescript,tsx",
         "--min-tokens", String(tokens),
         "--min-lines", "1",
@@ -490,11 +559,8 @@ export function duplicationGateDiagnostic(
 }
 
 /**
- * Analyze a repository's TypeScript sources with the installed jscpd major.
- *
- * jscpd 4 runs through its Node.js API and jscpd 5 through its Rust binary,
- * and both are resolved from the repository root so a consumer's own jscpd
- * dependency is the engine that answers.
+ * Analyze a repository's TypeScript sources with the installed jscpd 5 binary.
+ * Resolve from the repository root so the consumer's own dependency answers.
  *
  * @param options - Repository root and optional source globs.
  * @returns Aggregate percentage and every clone pair found by jscpd.
@@ -505,12 +571,9 @@ export async function analyzeDuplication(
   const repoRoot = resolve(options.repoRoot ?? defaultRepoRoot);
   const pattern = combineGlobs(options.globs ?? DEFAULT_DUPLICATION_GLOBS);
   const minTokens = options.minTokens ?? 50;
-  const matchedSources = globMatchedSources(repoRoot, pattern);
+  const matchedSources = await globMatchedSources(repoRoot, pattern);
   const installation = resolveJscpdEntry(repoRoot);
-  if (installation.major >= 5) {
-    return analyzeWithBinary(installation, repoRoot, pattern, minTokens, matchedSources);
-  }
-  return analyzeWithProgrammatic(installation, repoRoot, pattern, minTokens, matchedSources);
+  return analyzeWithBinary(installation, repoRoot, pattern, minTokens, matchedSources);
 }
 
 /**

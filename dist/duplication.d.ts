@@ -1,13 +1,8 @@
 /**
  * Canonical TypeScript duplication analysis and fail-closed gate for the fleet.
  *
- * Two jscpd majors are supported, and their engines are structurally
- * different, so the analyzer dispatches on the installed major:
- *
- * - jscpd 4 ships a Node.js programmatic API, used directly so consumer
- *   launchers stay small while preserving the detector's clone locations.
- * - jscpd 5 replaced the Node.js API with a self-contained Rust binary, so
- *   the analyzer runs the binary with its JSON reporter and parses the report.
+ * jscpd 5 runs as a self-contained Rust binary with a validated JSON report.
+ * Source discovery uses Node's built-in glob and preserves the authored scope.
  */
 /**
  * Default globs scanned by the duplication gate: every authored TypeScript
@@ -50,7 +45,7 @@ export interface DuplicationReport {
 export interface DuplicationGateOptions {
     /** Repository root containing package.json and the TypeScript files to scan. */
     readonly repoRoot?: string;
-    /** Fast-glob patterns passed to jscpd; defaults to every TypeScript file. */
+    /** Glob patterns passed to jscpd; defaults to every TypeScript file. */
     readonly globs?: readonly string[];
     /** Minimum jscpd token count; defaults to 50 for direct analysis callers. */
     readonly minTokens?: number;
@@ -102,14 +97,66 @@ interface ReportedAnalysis {
  * @returns The clone pairs and aggregate line statistics, validated.
  */
 export declare function parseJscpdReport(report: unknown): ReportedAnalysis;
+/**
+ * Maximum brace-union alternatives one configured glob may expand into.
+ *
+ * The duplication gate refuses a configured glob whose brace expansion would
+ * produce more than this many alternatives, so a hostile configuration
+ * cannot explode memory; realistic configurations expand to a handful.
+ */
+export declare const MAX_GLOB_UNION_ALTERNATIVES = 1024;
+/**
+ * Expand comma brace unions so leading negative alternatives remain excludes.
+ *
+ * The leftmost expandable union is expanded first and every alternative is
+ * expanded recursively before the next, preserving the exact left-to-right
+ * expansion order; nested and non-comma braces are left literal. Expansion is
+ * refused with a clear error as soon as it would exceed
+ * {@link MAX_GLOB_UNION_ALTERNATIVES} alternatives: every alternative always
+ * contributes at least one expanded pattern, so a union wider than the
+ * remaining budget overflows immediately, before its alternatives are built.
+ *
+ * @param pattern - The combined glob pattern to expand.
+ * @returns The expanded patterns, in the previous left-to-right order.
+ * @throws When the expansion would exceed {@link MAX_GLOB_UNION_ALTERNATIVES}.
+ */
+export declare function expandGlobUnions(pattern: string): string[];
+/**
+ * Discover authored sources with built-in glob, preserving fast-glob's scope.
+ * Hidden entries supplement native glob because Bun omits even explicit .*.
+ * Native path matching on prefixed segments retains the former dot:true policy.
+ * lstat rejects discovered symlinks; explicit symlink bases retain prior scope.
+ */
+export declare function globMatchedSources(repoRoot: string, pattern: string): Promise<string[]>;
+/**
+ * Build the jscpd scan-target arguments for one analysis.
+ *
+ * The matched sources are handed to jscpd as explicit scan paths, because its
+ * own walker only walks each scan root and cannot reach a configured scope
+ * outside the repository root, which the source discovery accepts; the paths
+ * are resolved absolute so jscpd's working directory is irrelevant, and the
+ * `--pattern` filter is dropped because jscpd would re-apply it to the already
+ * discovered paths and drop them. An empty match keeps the repository-root
+ * scan with the configured pattern, so the completeness receipt still proves
+ * the zero-source result instead of an empty argument list. An explicit list
+ * too long for a conservative argv budget — which also clears Windows's
+ * 32 767-character command-line ceiling — moves into a temporary jscpd config
+ * file instead of being chunked: chunks would miss every clone pair whose
+ * files land in different chunks and undercount duplication for a fail-closed
+ * gate.
+ *
+ * @param repoRoot - Repository root the matched sources are relative to.
+ * @param pattern - The combined glob pattern of the configured scope.
+ * @param matchedSources - Repository-relative sources matched by the scope.
+ * @param outputDir - Scratch directory for the analysis report and list file.
+ * @returns The jscpd positional and `--config` scan-target arguments.
+ */
+export declare function jscpdScanArguments(repoRoot: string, pattern: string, matchedSources: readonly string[], outputDir: string): string[];
 /** Return the fail-closed diagnostic for an empty or partially analyzed scope. */
 export declare function duplicationGateDiagnostic(report: Pick<DuplicationReport, "sources" | "skippedSources">): string | undefined;
 /**
- * Analyze a repository's TypeScript sources with the installed jscpd major.
- *
- * jscpd 4 runs through its Node.js API and jscpd 5 through its Rust binary,
- * and both are resolved from the repository root so a consumer's own jscpd
- * dependency is the engine that answers.
+ * Analyze a repository's TypeScript sources with the installed jscpd 5 binary.
+ * Resolve from the repository root so the consumer's own dependency answers.
  *
  * @param options - Repository root and optional source globs.
  * @returns Aggregate percentage and every clone pair found by jscpd.

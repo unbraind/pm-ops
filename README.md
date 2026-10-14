@@ -367,10 +367,14 @@ The duplication export reads `package.json`, scans `**/*.{ts,tsx,mts,cts}` by
 default (including root sources, `scripts/`, UI components, and tests, while
 skipping `.d.ts` / `.d.mts` / `.d.cts` ambient declarations), reports every
 clone pair with both file line ranges, and fails when the measured percentage
-is above the configured threshold. Both jscpd 4 and 5 scan TS, TSX, MTS, and
-CTS sources; the jscpd 5 gate checks its source count with a one-token pass
+is above the configured threshold. jscpd 5 scans TS, TSX, MTS, and
+CTS sources; the gate checks its source count with a one-token pass
 and refuses an incomplete scan. `globs` and `minTokens` can be overridden for direct analysis;
-the gate uses `minTokens: 50` when the field is omitted.
+the gate uses `minTokens: 50` when the field is omitted. Comma brace unions in
+a configured glob are expanded with a single linear pass and left-to-right
+order, and a glob whose brace expansion would produce more than 1024
+alternatives is refused with a clear error, so a hostile configured glob
+cannot slow the gate down or explode memory.
 
 ### Consumers
 
@@ -378,10 +382,13 @@ The quality exports use optional peer dependencies so installing `pm-ops` as a
 `pm` extension does not download tooling that the extension surface does not
 run. A repository importing `pm-ops/eslint` adds these exact `devDependencies`:
 `@babel/eslint-parser`, `@babel/plugin-syntax-typescript`, and `eslint`. A
-repository importing `pm-ops/duplication` adds `fast-glob` and `jscpd` (either
-jscpd 4.3.0 or 5.2.1 — both majors are supported). A repository using both
-exports adds all five packages, using the version ranges shown in
-`package.json`.
+repository importing `pm-ops/duplication` adds `jscpd` 5.x (`>=5.0.0 <6.0.0`).
+Source discovery uses Node’s built-in filesystem glob on Node >=22.18.0,
+including dotfiles, excluding discovered symlinks and generated/declaration paths, and
+returning sorted repository-relative paths. After upgrading, consumers delete
+their `fast-glob` devDependency and refresh their lockfile. jscpd 4 is no longer
+supported. A repository using both exports adds all four tooling packages,
+using the version ranges shown in `package.json`.
 
 ```ts
 import { analyzeDuplication, runDuplicationGate } from "pm-ops/duplication";
@@ -404,8 +411,7 @@ otherwise, but must remain thin imports of the canonical exports):
     "@babel/eslint-parser": "^8.0.5",
     "@babel/plugin-syntax-typescript": "^8.0.3",
     "eslint": "^10.10.0",
-    "fast-glob": "^3.3.3",
-    "jscpd": ">=4.3.0 <6.0.0",
+    "jscpd": ">=5.0.0 <6.0.0",
     "pm-ops": "<current pm-ops version>"
   },
   "duplicationGate": {
