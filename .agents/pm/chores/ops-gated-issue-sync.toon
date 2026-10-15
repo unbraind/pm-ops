@@ -4,9 +4,9 @@ description: "Adopt the pinned reusable gated GitHub issue sync caller and verif
 type: Chore
 status: in_progress
 priority: 2
-tags: []
+tags[1]: changed
 created_at: "2026-10-15T06:41:08.274Z"
-updated_at: "2026-10-15T06:52:29.775Z"
+updated_at: "2026-10-15T12:26:39.547Z"
 author: codex-agent
 comments[3]{created_at,author,text}:
   "2026-10-15T06:41:10.745Z",codex-agent,"Baseline: CI already supports workflow_dispatch; npm ls braces fast-glob micromatch is empty after #163. npm ci --ignore-scripts reports zero vulnerabilities. The 2026.10.15 pm-github release is absent, so use the prescribed 2026.10.14 immutable workflow pin. Only the caller is needed; canonical gate implementations remain unchanged."
