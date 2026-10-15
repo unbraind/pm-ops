@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { auditPublishAttestation } from "../attestation.ts";
-import { tokenizeCommands } from "../shell-scan.ts";
+import { isolateShellChildren, tokenizeCommands } from "../shell-scan.ts";
 
 /** Exact workflow lines, including the full multiline pathspec assignment. */
 const fleetConstructs = [
@@ -26,9 +26,64 @@ function bash(body: string): string {
   const script = `npm() { printf 'npm:%s\\n' "$*" >&2; }\nx=1\ncurrent_version=1.2.3\nPM_GITHUB_VERSION=1.2.3-4\nPM_SYNC_TRACKER=.agents/pm\nnpm publish --provenance\n${body}`;
   const syntax = spawnSync("bash", ["--noprofile", "--norc", "-n"], { input: script, encoding: "utf8" });
   assert.equal(syntax.status, 0, syntax.stderr);
-  const result = spawnSync("bash", ["--noprofile", "--norc", "-e", "-c", script], { encoding: "utf8" });
+  const result = spawnSync("bash", ["--noprofile", "--norc", "-e", "-c", `${script}\nwait`], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   return result.stderr;
+}
+
+for (const operator of ["<", ">"]) {
+  for (const [context, wrap] of [
+    ["array", (child: string) => `values=( ${child} )`],
+    ["conditional", (child: string) => `[[ -n ${child} ]] || :`],
+    ["case", (child: string) => `case "$x" in ${child}) : ;; esac`],
+    ["argument", (child: string) => `: ${child}`],
+    ["command", (child: string) => `${child} || :`],
+  ] as const) {
+    test(`process substitution child: ${context} ${operator}`, () => {
+      const child = `${operator}(npm publish)`;
+      const body = wrap(child);
+      const start = body.indexOf(child);
+      assert.deepEqual(isolateShellChildren(body), {
+        parent: body.replace(child, "$(:)"),
+        children: [{ start, end: start + child.length, text: "npm publish", arithmetic: false }],
+      });
+    });
+    for (const nested of [false, true]) {
+      test(`process substitution refusal: ${context} ${operator} nested=${nested}`, () => {
+        const child = `${operator}(npm publish)`;
+        const body = wrap(nested ? `$( : ${child} )` : child);
+        assert.equal(bash(body).split("npm:").length - 1, 2, "Bash executes the unattested publisher");
+        for (const result of outcomes(body)) {
+          if (context !== "command") assert.deepEqual(result.recognition, { count: 2, kind: "recognized" });
+          assert.match(result.failures.join("\n"), /unattested artifact: npm publish/u);
+        }
+      });
+    }
+  }
+}
+
+test("a process substitution containing a subshell is executable rather than arithmetic", () => {
+  const body = 'values=( <((npm publish)) >((npm publish)) )';
+  assert.equal(bash(body).split("npm:").length - 1, 3);
+  assert.ok(isolateShellChildren(body).children.every(/** Process children do not inherit arithmetic mode. */ (child) => !child.arithmetic));
+  for (const result of outcomes(body)) {
+    assert.deepEqual(result.recognition, { count: 3, kind: "recognized" });
+    assert.match(result.failures.join("\n"), /unattested artifact: npm publish/u);
+  }
+});
+
+for (const body of [
+  'values=("<(npm publish)" ">(npm publish)")',
+  "values=('<(npm publish)' '>(npm publish)')",
+  'values=(\\<\\(npm\\ publish\\) \\>\\(npm\\ publish\\))',
+  '[[ -n "<(npm publish)" ]]',
+  'case "$x" in "<(npm publish)") : ;; esac',
+  ': "<(npm publish)" ">(npm publish)"',
+]) {
+  test(`process substitution literal acceptance: ${body}`, () => {
+    assert.equal(bash(body).split("npm:").length - 1, 1, "Bash does not execute the literal text");
+    for (const result of outcomes(body)) assert.deepEqual(result.failures, []);
+  });
 }
 
 for (const [index, construct] of fleetConstructs.entries()) {

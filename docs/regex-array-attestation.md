@@ -14,6 +14,16 @@ Run `node --test test/regex-array.test.ts` for real Bash syntax and execution wi
 
 Run `node test/regex-array.proof.ts` for function-only controls against parent 84221c8. The proof restores candidate bytes in a finally block. Reverting scanShellCommands alone causes two exact regex assertions, the exact quoted-array assertion and two variable case-pattern assertions to fail. Reverting scanCommandPrefix alone causes the unresolved-element append assertion to fail. Restoring the candidate passes all three exact fleet fixtures again.
 
+## Review round 1: executable process substitutions
+
+Unquoted `<(...)` and `>(...)` execute Bash children in array elements, conditional operands and case patterns. The shared unquoted substitution branch now discovers these children before handling any of those word contexts. Ordinary argument and command positions use the same discovery; their previous parenthesis splitting could expose simple publishers but did not isolate process children. Double-quoted, single-quoted and escaped process-looking text stays literal. A process child beginning with a subshell is executable, rather than dollar-prefixed arithmetic.
+
+An isolated copy of the pre-fix scanner incorrectly accepts all six direct controls (both operators in each of the three word contexts): one attested sibling is recognized, the hidden publisher is omitted, and zero failures are reported. The candidate enumerates and refuses those publishers.
+
+The Bash-backed suite passes 100 controls, including both process operators in all five contexts, nesting inside command substitutions, exact lexical child boundaries, literal strings and the three original fleet constructs. Each executable fixture runs an inert npm function and waits for asynchronous children; each is audited as shell source and a YAML run body.
+
+Run `node test/process-substitution.proof.ts` for narrowly scoped discovery reverts. Removing discovery independently in array, conditional and case-pattern state makes both direct refusal controls fail by assertion in each context (0 passed, 2 failed), and likewise fails both child-boundary controls. Removing discovery in ordinary contexts fails four child-boundary controls. Restoring candidate bytes passes all 40 selected controls. The original function-only proof also still passes.
+
 ## Read-only built fleet comparison
 
 Both main and candidate used `dist/attestation.js`, `verify(root)` and `report(result, write, exit)` against the same fleet checkouts containing a release workflow. Parenthesized counts are refusals. pm-cli and pm-rust remain out of scope; all other verdicts are unchanged except the two requested repairs.

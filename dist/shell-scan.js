@@ -196,7 +196,7 @@ function isBraceBoundary(character) {
         || character === "\n" || character === "(" || character === ")";
 }
 /**
- * Read a `$(...)` or backtick substitution and return its inner text.
+ * Read a command/process substitution or backtick and return its inner text.
  *
  * Nesting is counted so `$(echo $(npm publish))` yields the whole inner body
  * rather than stopping at the first `)`; a truncated body would drop the
@@ -449,10 +449,11 @@ function scanShellCommands(text, depth, arithmetic, children) {
                 unterminated = true;
             continue;
         }
-        if (character === "`" || (character === "$" && text[index + 1] === "(")) {
+        if (character === "`" || ((character === "$" || character === "<" || character === ">") && text[index + 1] === "(")) {
             const { inner, end } = readSubstitution(text, index);
-            // Preserve arithmetic operands while discovering actual nested commands.
-            nested.push({ start: index, end, text: inner, arithmetic: character !== "`" && text[index + 2] === "(" });
+            // Unquoted process substitutions execute in every word context too.
+            // Only dollar-prefixed arithmetic expansions suppress operand commands.
+            nested.push({ start: index, end, text: inner, arithmetic: character === "$" && text[index + 2] === "(" });
             unresolved = true;
             multipleWords = true;
             index = end - 1;
