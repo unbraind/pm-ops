@@ -239,21 +239,14 @@ function readSubstitution(text, start, prefixLength = 2) {
     let double = false;
     while (index < text.length && depth > 0) {
         const character = text[index];
-        if (character === "\\")
+        if (character === "\\" && !single)
             index += 2;
         else if (character === "`" && !single)
             index = readSubstitution(text, index).end;
         else {
-            // Quote state is bounded to one line. A workflow's prose carries
-            // apostrophes -- "GitHub's", "workflow's" -- inside double-quoted
-            // messages, and letting an unbalanced one persist across lines makes
-            // every later parenthesis look quoted, so the substitution runs on and
-            // swallows unrelated commands.
-            if (character === "\n") {
-                single = false;
-                double = false;
-            }
-            else if (character === "'" && !double)
+            // Bash keeps quoted newlines in the same word. Only a matching quote
+            // closes that region; the other quote kind remains literal prose.
+            if (character === "'" && !double)
                 single = !single;
             else if (character === '"' && !single)
                 double = !double;
@@ -307,6 +300,8 @@ function scanShellCommands(text, depth, arithmetic, children) {
     let multipleWords = false;
     let startsQuoted = false;
     let started = false;
+    /** An incomplete quoted word cannot prove the remaining executable source. */
+    let unterminated = false;
     // Monotone delimiter caches make quoted parameter classification linear:
     // each search resumes past its last match, including an absent end sentinel.
     let parameterClose = -1;
@@ -354,6 +349,8 @@ function scanShellCommands(text, depth, arithmetic, children) {
         }
         if (character === "'") {
             const close = text.indexOf("'", index + 1);
+            if (close === -1)
+                unterminated = true;
             const end = close === -1 ? text.length : close;
             value += text.slice(index + 1, end);
             quoted = true;
@@ -411,6 +408,8 @@ function scanShellCommands(text, depth, arithmetic, children) {
             if (!started)
                 startsQuoted = true;
             started = true;
+            if (index >= text.length)
+                unterminated = true;
             continue;
         }
         if (character === "`" || (character === "$" && text[index + 1] === "(")) {
@@ -534,6 +533,8 @@ function scanShellCommands(text, depth, arithmetic, children) {
         started = true;
     }
     endCommand();
+    if (unterminated)
+        commands.push([{ value: "$", quoted: false, unresolved: true, startsQuoted: false }]);
     if (arithmetic)
         commands.length = 0;
     if (children !== undefined) {
