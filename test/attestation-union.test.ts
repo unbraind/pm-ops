@@ -320,8 +320,8 @@ test("tokenizeCommands resolves quoting, comments and escapes the way a shell do
   assert.deepEqual(tokenizeCommands("# only a comment"), []);
   assert.deepEqual(onlyCommand("npm ci # trailing comment").map((token) => token.value), ["npm", "ci"]);
   assert.deepEqual(tokenizeCommands("a\\"), [[{ value: "a", quoted: false, startsQuoted: false }]], "a trailing backslash does not read past the end");
-  assert.deepEqual(tokenizeCommands("echo 'unterminated").map((c) => c.map((t) => t.value)), [["echo", "unterminated"]]);
-  assert.equal(onlyCommand('cmd "unterminated')[1]!.quoted, true);
+  assert.deepEqual(tokenizeCommands("echo 'unterminated").map((c) => c.map((t) => t.value)), [["echo", "unterminated"], ["$"]], "an incomplete quote carries an unresolved executable marker");
+  assert.equal(tokenizeCommands('cmd "unterminated')[0]![1]!.quoted, true);
   assert.deepEqual(commandArguments(onlyCommand("env A=1 npm publish")).map((token) => token.value), ["publish"]);
   assert.equal(commandName([]), undefined);
   assert.equal(commandName(onlyCommand("A=1 B=2")), undefined, "assignments alone run no command");
@@ -400,7 +400,7 @@ test("unterminated and nested substitutions terminate instead of reading past th
   // commands in its own right. What matters is that neither shape loops or
   // swallows the rest of the file.
   const words = (text: string): string[][] => tokenizeCommands(text).map((command) => command.map((token) => token.value));
-  assert.deepEqual(words('cmd "abc\\'), [["cmd", "abc"]], "a trailing backslash inside quotes stops at the end");
+  assert.deepEqual(words('cmd "abc\\'), [["cmd", "abc"], ["$"]], "a trailing backslash inside quotes stops at the end and refuses incomplete syntax");
   assert.deepEqual(words('cmd "a\\\nb"'), [["cmd", "ab"]], "an escaped newline inside quotes continues the word");
   assert.deepEqual(words("cmd a\\\nb"), [["cmd", "ab"]], "and outside quotes too");
   assert.deepEqual(words("cmd $("), [["cmd", ""]], "an unterminated substitution yields an empty word and no command");
@@ -917,11 +917,9 @@ test("a scalar carrying a substitution or a quote of its own is never inlined", 
   assert.deepEqual(found, ["npm publish --access public --provenance --ignore-scripts"]);
 });
 
-test("a substitution's quote state does not leak across its lines", () => {
-  // Workflow prose carries apostrophes inside double-quoted messages. If an
-  // unbalanced one persisted past the newline, every later parenthesis would
-  // look quoted and the substitution would run on past its real close,
-  // swallowing unrelated commands into it.
+test("a literal apostrophe inside a closed double quote does not leak quote state", () => {
+  // The apostrophe is literal within double quotes; the matching double quote
+  // closes the word before the newline and leaves later commands executable.
   const text = [
     "          x=$(echo \"GitHub's endpoint\"",
     "             npm publish)",
