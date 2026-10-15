@@ -348,6 +348,14 @@ function scanShellCommands(text: string, depth: number, arithmetic: boolean, chi
   let started = false;
   /** An incomplete quoted word cannot prove the remaining executable source. */
   let unterminated = false;
+  /** Conditional operands are words, including regex metacharacters. */
+  let conditional = false;
+  /** The word following an unquoted =~ retains a literal regex end anchor. */
+  let regexOperand = false;
+  /** Compound assignments keep element words out of command position. */
+  let arrayAssignment = false;
+  /** Case subjects and patterns expand words, while each arm body runs commands. */
+  const cases: Array<"subject" | "in" | "pattern" | "body"> = [];
   // Monotone delimiter caches make quoted parameter classification linear:
   // each search resumes past its last match, including an absent end sentinel.
   let parameterClose = -1;
@@ -357,7 +365,18 @@ function scanShellCommands(text: string, depth: number, arithmetic: boolean, chi
     if (!started) return;
     const token: ShellToken = unresolved ? { value, quoted, unresolved, startsQuoted } : { value, quoted, startsQuoted };
     if (quoted && multipleWords) token.multipleWords = true;
-    command.push(token);
+    const caseState = cases.at(-1);
+    const keyword = !token.quoted && token.unresolved !== true;
+    if (caseState === "pattern") {
+      if (keyword && token.value === "esac") cases.pop();
+    } else {
+      if (caseState === "subject") cases[cases.length - 1] = "in";
+      else if (caseState === "in" && keyword && token.value === "in") cases[cases.length - 1] = "pattern";
+      else if (keyword && token.value === "case" && commandName(command) === undefined) cases.push("subject");
+      else if (caseState === "body" && keyword && token.value === "esac" && commandName(command) === undefined) cases.pop();
+      command.push(token);
+    }
+    regexOperand = conditional && !token.quoted && token.value === "=~";
     value = "";
     quoted = false;
     unresolved = false;
@@ -373,6 +392,18 @@ function scanShellCommands(text: string, depth: number, arithmetic: boolean, chi
 
   for (let index = 0; index < text.length; index += 1) {
     const character = text[index]!;
+    if (!started && text.startsWith("[[", index) && isBraceBoundary(text[index + 2])
+      && commandName(command) === undefined) {
+      conditional = true;
+    }
+    if (conditional && !started && text.startsWith("]]", index) && isBraceBoundary(text[index + 2])) {
+      value = "]]";
+      started = true;
+      endCommand();
+      conditional = false;
+      index += 1;
+      continue;
+    }
     if (character === "#" && !started) {
       const newline = text.indexOf("\n", index);
       index = newline === -1 ? text.length : newline;
@@ -496,9 +527,54 @@ function scanShellCommands(text: string, depth: number, arithmetic: boolean, chi
       index = end - 1;
       continue;
     }
-    if (character === "$") { unresolved = true; multipleWords = true; }
+    if (character === "(" && !conditional && !arrayAssignment && !startsQuoted
+      && /^[A-Za-z_][A-Za-z0-9_]*\+?=$/u.test(value)) {
+      arrayAssignment = true;
+      value += character;
+      continue;
+    }
+    if (arrayAssignment) {
+      value += character;
+      if (character === ")") arrayAssignment = false;
+      continue;
+    }
+    if (character === "$" && (!regexOperand || /[A-Za-z0-9_@*#$?!-]/u.test(text[index + 1] ?? ""))) {
+      unresolved = true;
+      multipleWords = true;
+    }
     if (character === " " || character === "\t" || character === "\r") {
       endWord();
+      continue;
+    }
+    if (conditional && isOperatorStart(character)) {
+      // Conditional control operators separate operands, never commands.
+      if (!regexOperand && (character === "&" || character === "|")) {
+        endWord();
+        continue;
+      }
+      // Only substitutions above introduce executable children in [[ ... ]].
+      value += character;
+      started = true;
+      continue;
+    }
+    if (cases.at(-1) === "pattern" && value === "esac" && !quoted && isOperatorStart(character)) endWord();
+    if (cases.at(-1) === "pattern") {
+      if (character === ")") {
+        endCommand();
+        cases[cases.length - 1] = "body";
+      } else if (character === "(" && !started) {
+        // Bash permits an optional opening parenthesis before an arm pattern.
+      } else if (character === "|" || character === "\n") endWord();
+      else {
+        value += character;
+        started = true;
+      }
+      continue;
+    }
+    if (cases.at(-1) === "body" && character === ";" && (text[index + 1] === ";" || text[index + 1] === "&")) {
+      endCommand();
+      cases[cases.length - 1] = "pattern";
+      index += text[index + 1] === ";" && text[index + 2] === "&" ? 2 : 1;
       continue;
     }
     if (isOperatorStart(character)) {
@@ -530,12 +606,6 @@ function scanShellCommands(text: string, depth: number, arithmetic: boolean, chi
           continue;
         }
       }
-      if ((character === "&" || character === "|")
-        && command.some((token) => token.value === "[[")
-        && !command.some((token) => token.value === "]]")) {
-        endWord();
-        continue;
-      }
       // `2>&1` is one redirection, not a command ended by a backgrounding `&`.
       // The `&` belongs to the word only while that word is still an operator
       // awaiting its target.
@@ -552,7 +622,7 @@ function scanShellCommands(text: string, depth: number, arithmetic: boolean, chi
     started = true;
   }
   endCommand();
-  if (unterminated) commands.push([{ value: "$", quoted: false, unresolved: true, startsQuoted: false }]);
+  if (unterminated || conditional || arrayAssignment || cases.length > 0) commands.push([{ value: "$", quoted: false, unresolved: true, startsQuoted: false }]);
 
   if (arithmetic) commands.length = 0;
   if (children !== undefined) {
@@ -713,7 +783,7 @@ function scanCommandPrefix(command: ShellCommand): PrefixScan {
   let lastPrefix: string | undefined;
   while (index < command.length) {
     const token = command[index]!;
-    if (!token.startsQuoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(token.value)) {
+    if (!token.startsQuoted && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(token.value)) {
       index += 1;
       continue;
     }
