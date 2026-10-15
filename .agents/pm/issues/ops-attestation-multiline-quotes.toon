@@ -6,21 +6,42 @@ status: in_progress
 priority: 1
 tags: []
 created_at: "2026-10-15T18:04:04.672Z"
-updated_at: "2026-10-15T18:24:15.341Z"
+updated_at: "2026-10-15T19:01:00.250Z"
 author: codex-agent
-comments[6]{created_at,author,text}:
+comments[11]{created_at,author,text}:
   "2026-10-15T18:04:07.548Z",codex-agent,"Design: remove the newline reset from readSubstitution and preserve quote-specific escape rules. Top-level quote readers already retain newlines; add explicit fail-closed evidence for unterminated quotes if necessary. Extend the existing inert Bash corpus pattern with exact issue input, jq arguments, closed-quote command boundaries, executable substitutions, and malformed input. Keep all resource limits and coverage thresholds unchanged; perform function-only revert controls before release gates."
   "2026-10-15T18:07:13.313Z",codex-agent,"Bash semantic evidence: test/multiline-quote.test.ts checks every valid scenario with bash --noprofile --norc -n, then executes real Bash -e with inert npm/gh functions. printf %q proves jq receives one argument containing the newline; observed npm call counts prove quoted prose remains literal and dollar/backtick substitutions and commands after later quote closes execute. Bash -n rejects all five incomplete quotes with unexpected EOF. Plain single, double, and dollar-single quoted newlines are covered at top level and in substitutions; no new ANSI-C escape decoder is introduced."
   "2026-10-15T18:07:14.706Z",codex-agent,"Function-only behavioral revert proof: node test/multiline-quote.proof.ts passes. Candidate 24/24; reverting only readSubstitution makes all four acceptance regressions fail genuine audit assertions while all 11 hidden-publish refusals and five incomplete-quote refusals pass. Reverting readSubstitution plus scanShellCommands again fails all four acceptance cases, retains 11/11 hidden-publish controls, and fails 5/5 incomplete-quote controls, demonstrating the pre-existing malformed-input gap now guarded by the unresolved marker. Exact candidate bytes restored in finally; restored candidate 24/24. Existing attestation-union and real Bash indirection corpus: 177/177. No fixture or assertion is reverted."
   "2026-10-15T18:07:36.180Z",codex-agent,"Linked pm test runner passed all 201 focused tests (24 new plus 177 existing), zero failures, skipped, canceled or todo. The scanner retains its existing recursion cap and monotone loops; the new hostile-input test scans 480 KB of quoted newline/parenthesis data under the unchanged 2000 ms CPU budget."
   "2026-10-15T18:24:12.329Z",codex-agent,"Final gates all exited 0: npm run release:check; clean-HOME npm run release:check with GIT_CONFIG_GLOBAL=/dev/null and GIT_CONFIG_NOSYSTEM=1; bun run release:check. Each reports 1164 tests: 1162 passed, 0 failed, 0 canceled, 0 todo, 2 optional real-data tests skipped because no external test repos were configured. Each measures 100% statements, branches, functions and lines across all 25 required sources at unchanged thresholds. Duplication: 0/25862 lines, 65 sources, zero clone pairs; docstrings: 25 files and 238 declarations. Production audit, dry-run pack, changelog/date, publish-attestation and lifecycle checks pass. Generated dist scanner artifacts are included."
   "2026-10-15T18:24:13.987Z",codex-agent,"PM execution limitation: the linked 201-test run returned tracking_disabled under the existing project policy, so its pass counts and proof results are recorded in these comments. No PM CLI defect was identified. Remaining evidence boundary: the two optional external real-data scenarios are not certified by these package gates. Ready for orchestrator verification; leave the item in progress."
-files[3]{path,scope,note}:
-  shell-scan.ts,project,Persistent substitution quote state and incomplete-quote refusal
-  test/attestation-union.test.ts,project,Explicit incomplete-token expectations and apostrophe control
-  test/multiline-quote.test.ts,project,Both-direction real Bash regressions and hostile-input CPU bound
-tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "2026-10-15T18:35:24.842Z",codex-agent,"Round 1 verified valid at 5031c441: node --test test/compose-attestation.test.ts fails 0/1 with an unresolved executable expansion from the apostrophe in non-executable name metadata. An attested sibling satisfies the repository non-vacuity guard; the Compose file itself has no publish. origin/main is already contained in this branch. Plan: parse Compose with the existing YAML dependency, restrict traversal to executable service fields and lifecycle commands, preserve exec-form argv boundaries, recurse into explicit shell payloads, and keep malformed metadata fail closed."
+  "2026-10-15T18:41:02.741Z",codex-agent,"Compose extraction now parses the existing YAML dependency with merge/alias support; command and entrypoint use argv, healthcheck CMD uses argv, and CMD-SHELL/string healthchecks or explicit sh -c enter shell scanning. Includes post_start/pre_stop and the documented pre_start commands; build args/environment/labels remain data. Shared publish classification is unchanged. Interpolation remains uncertain, escaped dollars preserve shell bindings, and explicit entrypoint plus command are combined to expose split -c payloads. The Compose regression suite passes 55/55; initial extraction-only revert proof passes 4 and fails 51 assertions, then restored candidate passes 55/55. Full release gates are pending. Spec: https://docs.docker.com/reference/compose-file/services/"
+  "2026-10-15T18:45:02.486Z",codex-agent,"Final Compose regression suite: 56/56 pass, zero failures/skips/canceled/todo. node test/compose-attestation.proof.ts changes ONLY composeExecutableBodies to the former whole-document fallback: candidate 56 pass/0 fail; extraction reverted 4 pass/52 assertion failures (including the apostrophe regression); candidate restored byte-for-byte 56 pass/0 fail. Other classifiers, shell quote handling and tests remain intact. Existing focused scanner suite: 201/201 pass. Added metadata-only override coverage and scalar-versus-list interpolation boundary controls. The exploratory full-suite coverage result is discarded because implementation edits and a temporary revert overlapped it; required npm/Bun release gates will run sequentially on frozen source."
+  "2026-10-15T18:50:03.621Z",codex-agent,"Spec-completeness check added develop.watch sync+exec exec.command (https://docs.docker.com/reference/compose-file/develop/) and inherited entrypoint/command handling for documented pre_start init containers. Final linked commands all pass: existing suite 201/201; Compose suite 60/60; proof candidate 60/0, only composeExecutableBodies reverted 4 pass/56 assertion failures, restored 60/0. No code edits remain planned. The first frozen isolated npm release gate passed 1218 tests with 2 optional real-data skips and four 100% coverage dimensions; final npm/Bun gates are rerun for these additional executable keys."
+  "2026-10-15T19:00:58.562Z",codex-agent,"Final gates on unchanged implementation: npm run release:check under isolated HOME/Git configuration EXIT 0 and bun run release:check EXIT 0. EACH: 1224 total tests, 1222 passed, 0 failed, 0 canceled, 2 optional real-data skips, 0 todo; statements/branches/functions/lines all 100% across 25 required sources. Docstrings: 242 declarations in 25 files. Duplication: 0/26278 lines, 67 sources, zero clone pairs, threshold 0%. Both also pass typecheck, lint, production audit, pack dry run, changelog/date, attestation and lifecycle policy. The optional configured real-repo scan and verify-release scenarios remain unverified; no fleet sweep is claimed. All 3 linked PM commands pass (201 existing tests; 60 Compose tests; extraction-only proof 60/0 -> 4/56 -> 60/0). PM result tracking is configured disabled, so evidence is recorded here. Runtime source attestation.ts SHA256 5e521ecbafde45cbdd587db669edcf2fe2dccfdcb2895556d4d7928e7fbcc647. Generated dist rebuilt. No dependency, coverage or duplication thresholds changed. Item remains in progress for orchestrator verification."
+files[6]:
+  - path: attestation.ts
+    scope: project
+  - path: shell-scan.ts
+    scope: project
+    note: Persistent substitution quote state and incomplete-quote refusal
+  - path: test/attestation-union.test.ts
+    scope: project
+    note: Explicit incomplete-token expectations and apostrophe control
+  - path: test/compose-attestation.proof.ts
+    scope: project
+    note: Reverts only Compose extraction and restores exact source bytes
+  - path: test/compose-attestation.test.ts
+    scope: project
+  - path: test/multiline-quote.test.ts
+    scope: project
+    note: Both-direction real Bash regressions and hostile-input CPU bound
+tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/multiline-quote.test.ts test/attestation-union.test.ts test/publish-indirection.test.ts,project,codex-agent,"2026-10-15T18:07:20.509Z",local_mutation,fix/attestation-multiline-quotes
-docs[1]{path,scope,note}:
+  node --test test/compose-attestation.test.ts,project,codex-agent,"2026-10-15T18:40:54.630Z",local_mutation,fix/attestation-multiline-quotes
+  node test/compose-attestation.proof.ts,project,codex-agent,"2026-10-15T18:44:49.170Z",local_mutation,fix/attestation-multiline-quotes
+docs[2]{path,scope,note}:
+  test/compose-attestation.proof.ts,project,Function-only Compose extraction revert proof
   test/multiline-quote.proof.ts,project,Reproducible function-only revert evidence
 body: ""

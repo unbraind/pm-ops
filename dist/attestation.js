@@ -155,6 +155,8 @@ const WORKFLOW_PATHS = [
  * heredoc terminator indented there is not a terminator in bash either.
  */
 const isWorkflowYaml = (path) => WORKFLOW_PATHS.some((pattern) => pattern.test(path));
+/** Compose file names share one recognizer for enumeration and structured extraction. */
+const COMPOSE_PATH = /(^|\/)(?:docker-)?compose[^/]*\.ya?ml$/;
 /** Tracked paths that can execute a command, matched against the repository-relative path. */
 const EXECUTABLE_PATHS = [
     ...WORKFLOW_PATHS,
@@ -163,7 +165,7 @@ const EXECUTABLE_PATHS = [
     /(^|\/)(Makefile|makefile|GNUmakefile)$/,
     /\.mk$/,
     /(^|\/)Dockerfile([.-][^/]*)?$/,
-    /(^|\/)docker-compose([.-][^/]*)?\.ya?ml$/,
+    COMPOSE_PATH,
 ];
 /**
  * Yield the command text held inside a package manifest.
@@ -537,8 +539,16 @@ function publishInvocationsInShell(source, raw, depth = 0, arithmetic = false) {
         }
         return rendered.join("");
     }).join("\n");
+    const found = classifyPublishCommands(source, tokenizeCommands(expanded));
+    for (const child of isolated.children) {
+        found.push(...publishInvocationsInShell(source, child.text, depth + 1, child.arithmetic));
+    }
+    return found;
+}
+/** Classify already separated command words without reinterpreting argv as shell source. */
+function classifyPublishCommands(source, commands) {
     const found = [];
-    for (const command of tokenizeCommands(expanded)) {
+    for (const command of commands) {
         // Every reading, not just the command's own: a wrapper option that takes a
         // value (`sudo -u root npm publish`) moves the program past where naming it
         // once would look. Missing a publish is a failed audit; offering one that no
@@ -646,9 +656,6 @@ function publishInvocationsInShell(source, raw, depth = 0, arithmetic = false) {
             found.push({ file: source.file, program, command: candidate, unresolved: unresolvedReason });
         }
     }
-    for (const child of isolated.children) {
-        found.push(...publishInvocationsInShell(source, child.text, depth + 1, child.arithmetic));
-    }
     return found;
 }
 /** A path whose final segment is exactly `package.json`.
@@ -665,8 +672,205 @@ function mapping(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value)
         ? value : undefined;
 }
+/** Split Compose's string command syntax into argv; operators and expansions are not shell. */
+function composeWords(value) {
+    if (Array.isArray(value)) {
+        if (!value.every(/** Exec form accepts only complete string arguments. */ (word) => typeof word === "string")) {
+            throw new Error("non-string Compose argument");
+        }
+        return value;
+    }
+    if (typeof value !== "string")
+        throw new Error("invalid Compose command");
+    const words = [];
+    let word = "";
+    let quote = "";
+    let started = false;
+    for (let index = 0; index < value.length; index += 1) {
+        const character = value[index];
+        if (character === "\\" && quote !== "'") {
+            const next = value[++index];
+            if (next === undefined)
+                throw new Error("incomplete Compose escape");
+            // In double quotes only shell quote/escape characters consume a backslash.
+            if (quote === '"' && !['"', "\\", "$", "`", "\n"].includes(next))
+                word += "\\";
+            word += next;
+        }
+        else if (character === quote) {
+            quote = "";
+        }
+        else if (quote === "" && (character === "'" || character === '"')) {
+            quote = character;
+        }
+        else if (quote === "" && /\s/u.test(character)) {
+            if (started)
+                words.push(word);
+            word = "";
+            started = false;
+            continue;
+        }
+        else
+            word += character;
+        started = true;
+    }
+    if (quote !== "")
+        throw new Error("incomplete Compose quote");
+    if (started)
+        words.push(word);
+    return words;
+}
+/** Retain Compose interpolation uncertainty while protecting escaped dollars and argv boundaries. */
+function composeToken(word) {
+    return { value: word.replaceAll("$$", "$"), quoted: true, startsQuoted: true,
+        unresolved: /\$(?:[A-Za-z_{])/u.test(word.replaceAll("$$", "")) };
+}
+/** Extract only Compose service executables; YAML metadata and build arguments remain data. */
+function composeExecutableBodies(source) {
+    const document = parseDocument(source.text, { merge: true });
+    if (document.errors.length > 0)
+        throw new Error("invalid Compose YAML");
+    const data = mapping(document.toJS());
+    if (data === undefined)
+        throw new Error("invalid Compose document");
+    // Override fragments may contain only metadata and inherit their services from another file.
+    const services = data.services === undefined ? {} : mapping(data.services);
+    if (services === undefined)
+        throw new Error("invalid Compose services mapping");
+    const bodies = [];
+    /** Preserve physical source context, including aliases whose resolved nodes live elsewhere. */
+    const append = (path, value, healthcheck = false, splitInterpolation = typeof value === "string") => {
+        if (value === undefined || value === null)
+            return;
+        const node = document.getIn(path, true);
+        // YAML merges may not carry a node at the resolved path; the document still has an extent.
+        const extent = isNode(node) ? node : document.contents;
+        const [start, end] = extent.range;
+        const body = { text: "", raw: source.text.slice(start, end), line: source.text.slice(0, start).split("\n").length };
+        let words;
+        if (healthcheck && typeof value === "string")
+            words = ["sh", "-c", value];
+        else {
+            words = composeWords(value);
+            if (healthcheck) {
+                const mode = words.shift();
+                if (mode === "NONE")
+                    return;
+                if (mode === "CMD-SHELL") {
+                    if (words.length !== 1)
+                        throw new Error("invalid CMD-SHELL payload");
+                    words = ["sh", "-c", words[0]];
+                }
+                else if (mode !== "CMD")
+                    throw new Error("invalid healthcheck mode");
+            }
+        }
+        body.argv = words.map(/** Interpolation precedes scalar splitting; list elements keep their argv boundaries. */ (word) => {
+            const token = composeToken(word);
+            if (splitInterpolation && token.unresolved)
+                token.multipleWords = true;
+            return token;
+        });
+        bodies.push(body);
+    };
+    /** Entrypoint and command compose one argv, so split shell evaluators cannot hide a payload. */
+    const processAt = (path, process) => {
+        if (process.entrypoint !== undefined && process.entrypoint !== null
+            && process.command !== undefined && process.command !== null) {
+            append([...path, "command"], [...composeWords(process.entrypoint), ...composeWords(process.command)], false, typeof process.entrypoint === "string" || typeof process.command === "string");
+        }
+        else {
+            append([...path, "entrypoint"], process.entrypoint);
+            append([...path, "command"], process.command);
+        }
+    };
+    for (const [name, value] of Object.entries(services)) {
+        const service = mapping(value);
+        if (service === undefined)
+            throw new Error("invalid Compose service");
+        const path = ["services", name];
+        processAt(path, service);
+        append([...path, "healthcheck", "test"], mapping(service.healthcheck)?.test, true);
+        // Lifecycle hooks are executable commands in the Compose services specification.
+        for (const hook of ["post_start", "pre_stop", "pre_start"]) {
+            const hooks = service[hook];
+            if (hooks === undefined)
+                continue;
+            if (!Array.isArray(hooks))
+                throw new Error("invalid Compose lifecycle hooks");
+            for (const [index, entry] of hooks.entries()) {
+                const command = mapping(entry);
+                if (command === undefined)
+                    throw new Error("invalid Compose lifecycle command");
+                if (hook === "pre_start")
+                    processAt([...path, hook, index], {
+                        entrypoint: service.entrypoint, command: service.command, ...command,
+                    });
+                else
+                    append([...path, hook, index, "command"], command.command);
+            }
+        }
+        // The Compose Develop specification also executes sync+exec watch commands.
+        const watch = mapping(service.develop)?.watch;
+        if (watch === undefined)
+            continue;
+        if (!Array.isArray(watch))
+            throw new Error("invalid Compose watch rules");
+        for (const [index, entry] of watch.entries()) {
+            const rule = mapping(entry);
+            if (rule === undefined)
+                throw new Error("invalid Compose watch rule");
+            if (typeof rule.action === "string" && composeToken(rule.action).unresolved) {
+                throw new Error("dynamic Compose watch action");
+            }
+            if (rule.action === "sync+exec") {
+                append([...path, "develop", "watch", index, "exec", "command"], mapping(rule.exec)?.command);
+            }
+        }
+    }
+    return bodies;
+}
+/** Audit literal argv directly and enter shell parsing only for an explicit evaluator payload. */
+function publishInvocationsInArgv(source, argv) {
+    const found = classifyPublishCommands(source, [argv]);
+    for (const candidate of commandCandidates(argv)) {
+        const program = commandName(candidate);
+        if (program === undefined || !EVALUATORS.has(program))
+            continue;
+        const args = commandArguments(candidate);
+        if (args.some(/** Compose host interpolation can change evaluator options or script text. */ (token) => token.unresolved)) {
+            found.push({ file: source.file, program, command: candidate, unresolved: "dynamic shell evaluator payload" });
+            continue;
+        }
+        let index = 0;
+        let commandString = program === "eval";
+        if (!commandString) {
+            while (index < args.length) {
+                const flag = args[index].value;
+                if (!flag.startsWith("-") && !flag.startsWith("+"))
+                    break;
+                index += 1;
+                if (flag === "--")
+                    break;
+                if (/^-[^-]*c/u.test(flag))
+                    commandString = true;
+                // Shell option operands are data, not the script or command-string flag.
+                if (/^[+-][a-zA-Z]*[oO][a-zA-Z]*$/u.test(flag) || flag === "--rcfile" || flag === "--init-file")
+                    index += 1;
+            }
+        }
+        if (!commandString || index >= args.length)
+            continue;
+        const payload = program === "eval" ? args : args.slice(index, index + 1);
+        const text = payload.map(/** Eval joins its arguments; sh -c consumes just one. */ (token) => token.value).join(" ");
+        found.push(...publishInvocationsInShell(source, text), ...opaquePublishInvocations(source, text));
+    }
+    return found;
+}
 /** Extract structured commands together with their original scalar source ranges. */
 function executableShellBodies(source) {
+    if (COMPOSE_PATH.test(source.file))
+        return composeExecutableBodies(source);
     if (!MANIFEST_PATH.test(source.file) && !isWorkflowYaml(source.file)) {
         return [{ text: source.text, raw: source.text, line: 1 }];
     }
@@ -786,7 +990,9 @@ function opaquePublishInvocations(source, body) {
 export function publishInvocationsIn(source) {
     return executableShellBodies(source).flatMap((body) => {
         const cursors = new Map();
-        return [...publishInvocationsInShell(source, body.text), ...opaquePublishInvocations(source, body.text)]
+        return (body.argv === undefined
+            ? [...publishInvocationsInShell(source, body.text), ...opaquePublishInvocations(source, body.text)]
+            : publishInvocationsInArgv(source, body.argv))
             .map((invocation) => invocation.wrapper === undefined ? invocation : {
             ...invocation, line: wrapperSourceLine(body, invocation.wrapper, cursors),
         });
