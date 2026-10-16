@@ -99,6 +99,7 @@ try {
     // protect configuration under the exact reported lifecycle behavior.
     run(cwd, "npx", ["--yes", "npm@10.9.4", "pack", "--ignore-scripts", "--pack-destination", root], context);
     assert.deepEqual(readFileSync(config), before);
+    copyFileSync(join(source, "test/fixtures/launchers/v2026.09.23.txt"), join(cwd, "legacy-launcher.txt"));
     /** Built consumers exercise repaired lexical children and conservative inherited state. */
     const nestedCases = [
       ['echo ${X:-$(npm publish)}', true],
@@ -113,6 +114,10 @@ try {
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { auditPublishAttestation } from "pm-ops/attestation";
+import { assertCanonicalLauncher } from "pm-ops/launcher-check";
+assertCanonicalLauncher("scripts/prepare-merge-driver.ts");
+assertCanonicalLauncher("legacy-launcher.txt");
+assert.throws(() => assertCanonicalLauncher("package.json"), /Unrecognized pm-ops prepare launcher/);
 import { bashArrayDeclarations, bashArrays } from "pm-ops/shell-scan";
 import extension from "pm-ops";
 import { activateExtensionForTest, runRegisteredCommandForTest } from "@unbrained/pm-cli/sdk/testing";

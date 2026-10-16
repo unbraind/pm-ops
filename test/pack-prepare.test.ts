@@ -17,6 +17,16 @@ function execute(root: string, program: string, args: string[], env: NodeJS.Proc
   return result.stdout + result.stderr;
 }
 
+/** Require broken installed packages to fail prepare without the omission notice. */
+function assertBrokenInstall(root: string, env: NodeJS.ProcessEnv): string {
+  const result = spawnSync(process.execPath, [join(root, "scripts/prepare-merge-driver.ts")], {
+    cwd: root, encoding: "utf8", env: { ...env, npm_command: "install" },
+  });
+  assert.notEqual(result.status, 0, "install must refuse the broken package");
+  assert.doesNotMatch(result.stderr, /skipping merge-driver install/);
+  return result.stderr;
+}
+
 test("real npm pack never mutates git config and npm install/ci still run prepare", () => {
   const root = mkdtempSync(join(tmpdir(), "pm-ops-pack-"));
   try {
@@ -55,11 +65,7 @@ test("real npm pack never mutates git config and npm install/ci still run prepar
       assert.equal(skipped.split("skipping merge-driver install").length - 1, 1);
       assert.deepEqual(readFileSync(config), before);
     }
-    const broken = spawnSync(process.execPath, [join(root, "scripts/prepare-merge-driver.ts")], {
-      cwd: root, encoding: "utf8", env: { ...env, npm_command: "install" },
-    });
-    assert.notEqual(broken.status, 0, "install must refuse the broken package");
-    assert.doesNotMatch(broken.stderr, /skipping merge-driver install/);
+    assertBrokenInstall(root, env);
     writeFileSync(join(installed, "package.json"), metadata);
     for (const hook of ["templates/prepare-merge-driver.ts", "scripts/prepare-merge-driver.ts", "merge-driver-prepare.ts"]) {
       for (const npmCommand of ["pack", "publish"]) {
@@ -127,6 +133,19 @@ test("the copied canonical template registers actual pm drivers on install and c
     const config = readFileSync(join(root, ".git/config"));
     execute(root, "npm", ["pack", "--pack-destination", parent], env);
     assert.deepEqual(readFileSync(join(root, ".git/config")), config);
+    // Omitted and broken packages must not register drivers in a real clone.
+    unlinkSync(join(parent, "node_modules/pm-ops"));
+    for (const driver of ["pm-item-toon", "pm-item-markdown", "pm-history", "pm-relationship", "pm-json"]) {
+      execute(root, "git", ["config", "--local", "--remove-section", `merge.${driver}`], env);
+    }
+    const unregistered = readFileSync(join(root, ".git/config"));
+    const omitted = execute(root, "npm", ["ci", "--omit=dev", "--no-audit", "--no-fund"], env);
+    assert.equal(omitted.split("pm-ops is not installed (omit-dev install); skipping merge-driver install").length - 1, 1);
+    assert.deepEqual(readFileSync(join(root, ".git/config")), unregistered);
+    const brokenPackage = join(parent, "node_modules/pm-ops");
+    mkdirSync(brokenPackage);
+    assert.match(assertBrokenInstall(root, env), /MODULE_NOT_FOUND/);
+    assert.deepEqual(readFileSync(join(root, ".git/config")), unregistered);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

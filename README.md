@@ -313,8 +313,8 @@ Git never clones `.git/config`, so every fleet package has to run `pm merge inst
 npm `prepare` script or concurrent agents conflict on tracker files. This package is the one
 canonical implementation.
 
-Consumers copy [`templates/prepare-merge-driver.ts`](templates/prepare-merge-driver.ts) unchanged to
-`scripts/prepare-merge-driver.ts` and set `"prepare": "node scripts/prepare-merge-driver.ts"`. The
+Consumers copy the frozen v1 [`templates/prepare-merge-driver.ts`](templates/prepare-merge-driver.ts)
+unchanged **once** to `scripts/prepare-merge-driver.ts` and set `"prepare": "node scripts/prepare-merge-driver.ts"`. The
 template skips `npm pack` and `npm publish` before resolving the installer, with one notice,
 so artifact creation preserves clone-local Git configuration. `npm install`, `npm ci`,
 and direct invocation still register drivers. The template imports **nothing** from pm-ops. pm-ops is a devDependency, so a checkout installed with
@@ -329,8 +329,35 @@ Dynamic `import()` is forbidden by the fleet lint gate. Instead the template res
 - **an unreadable or malformed lookup path**: fails with the original installer resolution error, because a failed presence probe cannot establish absence. The probe retains Node's global lookup paths (including `NODE_PATH`), matching the installer resolution above rather than treating an absent local package as proof of absence everywhere
 - **pm-ops installed**: runs `runPrepareMergeDriver` (below) and propagates its exit status
 
+The template is a frozen dependency-free bootstrap; driver installation behavior lives in the
+package, behind `pm-ops/merge-driver/prepare`. Its recorded SHA-256 in `launcher-check.ts` is
+locked by a test. Editing it requires an explicit launcher version decision and retaining the
+previous hash. Routine pm-ops updates must change package behavior rather than these copied bytes.
+
+Consumer tests should use the exported assertion instead of byte-comparing their copy with the
+installed template:
+
+```ts
+import { assertCanonicalLauncher } from "pm-ops/launcher-check";
+
+// Inside the consumer's existing test:
+assertCanonicalLauncher("scripts/prepare-merge-driver.ts");
+```
+
+`assertCanonicalLauncher(filePath)` returns normally for the frozen template and every previously
+released template revision, and throws for edited/unrecognized content or unreadable files.
+The allowlist is append-only. Existing copies pass after an automatic dependency bump without
+being recopied; acceptance does not upgrade their historical behavior. Copy the frozen template
+once to adopt the current bootstrap. Thereafter dependency updates bring package behavior updates
+without consumer launcher edits. New consumers should always copy the frozen template.
+
+Historical SHA-256 provenance is recorded with release tags and template commits in
+`launcher-check.ts`; `test/fixtures/launchers/` contains the five distinct released byte sequences
+through v2026.10.16. These text fixtures are assertion inputs, never executable launchers.
+
 Fixture tests in `test/merge-driver-launcher.test.ts` execute the shipped template against each of
-those consumer layouts with a stub `pm` on PATH.
+those consumer layouts with a stub `pm` on PATH. `test/pack-prepare.test.ts` also exercises real
+npm install/ci, omit-dev, broken installs and actual Git driver registration in disposable repos.
 
 `runPrepareMergeDriver` (also exported from `pm-ops/merge-driver`) resolves the real `pm` launcher on the supplied PATH/platform, then:
 

@@ -42,6 +42,10 @@
       "types": "./dist/merge-driver-prepare.d.ts",
       "default": "./dist/merge-driver-prepare.js"
     },
+    "./launcher-check": {
+      "types": "./dist/launcher-check.d.ts",
+      "default": "./dist/launcher-check.js"
+    },
     "./lifecycle-policy": {
       "types": "./dist/lifecycle-policy.d.ts",
       "default": "./dist/lifecycle-policy.js"
