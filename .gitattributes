@@ -30,3 +30,7 @@
 ".agents/pm/extensions/**" -merge
 ".agents/pm/extensions/.managed-extensions.json" merge=pm-json
 # pm-cli:merge-drivers:v2:end
+
+# Canonical launcher hashes are independent of checkout newline conversion.
+templates/prepare-merge-driver.ts text eol=lf
+test/fixtures/launchers/*.txt text eol=lf

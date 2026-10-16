@@ -259,3 +259,19 @@ test("the prepare entry itself skips with a notice when pm is not on PATH", { sk
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stderr, "pm is not on PATH; skipping merge-driver install\n");
 });
+
+for (const exposeMetadata of [false, true]) {
+  test(`a broken self-referenced pm-ops fails closed (metadata exported: ${exposeMetadata})`, () => {
+    const directory = consumer(`self-${exposeMetadata}`, "absent");
+    writeFileSync(join(directory, "package.json"), JSON.stringify({
+      name: "pm-ops", type: "module", exports: {
+        "./merge-driver/prepare": "./missing.js",
+        ...(exposeMetadata ? { "./package.json": "./package.json" } : {}),
+      },
+    }));
+    const result = run(directory, template, "");
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /missing\.js/);
+    assert.doesNotMatch(result.stderr, /skipping merge-driver install/);
+  });
+}

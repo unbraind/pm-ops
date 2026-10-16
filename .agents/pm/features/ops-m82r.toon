@@ -1,0 +1,41 @@
+id: ops-m82r
+title: Freeze the merge-driver launcher and accept every released launcher revision
+description: "Companion pm-cli-website-5p5z. Freeze a minimal runtime delegate so automatic pm-ops bumps do not require consumer edits. Export a hash-based canonical launcher assertion accepting the frozen template and every released historical revision; preserve omit-dev, broken-install, artifact and merge:install behavior. Consumers remain untouched."
+type: Feature
+status: in_progress
+priority: 1
+tags: []
+created_at: "2026-10-16T12:47:02.875Z"
+updated_at: "2026-10-16T13:11:59.260Z"
+author: codex-agent
+comments[4]{created_at,author,text}:
+  "2026-10-16T12:47:16.245Z",codex-agent,"Design: companion pm-cli-website-5p5z. Keep only the unavoidable dependency-free bootstrap in the frozen template: artifact short-circuit, runtime resolution, fail-closed presence probe and child delegation. Driver behavior stays in merge-driver-prepare.ts and merge-driver.ts. Record five distinct released template hashes from all release tags through v2026.10.16, with provenance fixtures. Export assertCanonicalLauncher from pm-ops/launcher-check; reject modified, empty and unreadable launchers. Verify real clone install/ci, omit-dev and broken layouts, frozen hash and behavioural reverts. No consumer edits."
+  "2026-10-16T12:50:12.870Z",codex-agent,"Proofs: focused linked suite passed 24/24, zero failures/skips/cancellations. Replaced only assertCanonicalLauncher with the previous byte-equality behavior, rebuilt dist, and ran node --test --test-name-pattern=\"every released launcher\" test/launcher-check.test.ts: failed 1/1 on a released copy. Restored the function and rebuilt. Reverted only templates/prepare-merge-driver.ts to origin/main and ran node --test --test-name-pattern=\"frozen v1\" test/launcher-check.test.ts: failed 1/1 on the recorded hash. Restored all candidate bytes. Real temp Git repos prove install/ci registers actual pm drivers, omit-dev emits exactly the existing notice and leaves drivers absent, and broken packages fail without registration. Existing probes cover local, hoisted, global, dangling, malformed and unreadable lookup paths."
+  "2026-10-16T12:55:19.669Z",codex-agent,"Final bootstrap preserves metadata probing as well as physical lookup paths: simplifying it further incorrectly skipped broken package self-references. New self-reference tests failed 2/2 against the simplified probe and pass 2/2 after retaining the metadata check. Final focused suite: 26/26, zero failures/skips/cancellations. All 12 release tags with a launcher match the five historical hashes and fixtures match their provenance tags byte-for-byte. Initial full npm gate passed 1325 tests with 2 optional real-data skips and 100/100/100/100 coverage; rerunning both full gates on final bytes. No pm CLI/SDK bugs encountered; linked-test result recording is disabled by existing project policy, so receipts are recorded in comments."
+  "2026-10-16T13:11:55.040Z",codex-agent,"Final receipts: npm run release:check and bun run release:check both passed under isolated HOME and Git config, each 1327 passed / 0 failed / 2 optional real-data skips (1329 total), with 100/100/100/100 coverage across 26 source files and 0% duplication at unchanged thresholds. npm run accept:packed passed for npm/Node and native Bun, including frozen/oldest/modified launcher assertions, real SDK trackers, validation, strict merge-driver health and npm 11/npm 10 pack config preservation. Final focused linked suite passed 26/26 through pm test --run --progress. Re-executed assertion and template revert proofs on final bytes: each failed its intended test 1/1 before restoration. Independent fresh-repo proof: zero drivers became all five declared pm drivers; omitted package exited 0 with exactly the existing notice and unchanged config; broken package failed loudly with unchanged config. Git core.autocrlf=true checkout preserved the template and all five archived fixtures byte-for-byte. Privacy scan passed. No consumer edits or threshold changes. Two optional configured-repository tests remain unexecuted; historical copies retain historical bootstrap behavior. No pm CLI/SDK bugs encountered. Companion pm-cli-website-5p5z; leave this Feature in progress for orchestrator verification."
+files[17]{path,scope}:
+  .gitattributes,project
+  dist/launcher-check.d.ts,project
+  dist/launcher-check.d.ts.map,project
+  dist/launcher-check.js,project
+  dist/launcher-check.js.map,project
+  launcher-check.ts,project
+  package.json,project
+  templates/prepare-merge-driver.ts,project
+  test/fixtures/launchers/v2026.09.23.txt,project
+  test/fixtures/launchers/v2026.09.26.txt,project
+  test/fixtures/launchers/v2026.09.28.txt,project
+  test/fixtures/launchers/v2026.10.04.txt,project
+  test/fixtures/launchers/v2026.10.12.txt,project
+  test/launcher-check.test.ts,project
+  test/merge-driver-launcher.test.ts,project
+  test/pack-prepare.test.ts,project
+  test/packed-consumer.acceptance.ts,project
+tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/launcher-check.test.ts test/merge-driver-launcher.test.ts test/pack-prepare.test.ts,project,codex-agent,"2026-10-16T12:48:51.547Z",local_mutation,feat/stable-merge-driver-launcher
+  "npm run release:check",project,codex-agent,"2026-10-16T13:02:51.013Z",local_mutation,feat/stable-merge-driver-launcher
+  "bun run release:check",project,codex-agent,"2026-10-16T13:02:51.013Z",local_mutation,feat/stable-merge-driver-launcher
+  "npm run accept:packed",project,codex-agent,"2026-10-16T13:02:51.013Z",local_mutation,feat/stable-merge-driver-launcher
+docs[1]{path,scope}:
+  README.md,project
+body: ""
