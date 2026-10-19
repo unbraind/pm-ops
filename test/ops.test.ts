@@ -1448,6 +1448,119 @@ test("ops policy accepts additional repo paths after --repos", async () => {
   await ext.deactivate();
 });
 
+/** A structurally valid release caller whose pin matches the bundled v2026.10.19 snapshot entry. */
+const RELEASE_CALLER_PINNED_TO_SNAPSHOT = `name: Release
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+permissions: {}
+jobs:
+  release:
+    uses: unbraind/pm-ops/.github/workflows/daily-release.yml@c3af218f2f052cc4fddb3e84ef87974c58283be7 # v2026.10.19
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+      id-token: write
+      issues: write
+`;
+
+/** Write one repository with a valid release caller and standard package metadata. */
+function writeReleaseCallerRepo(name: string, root: string): string {
+  const repo = join(root, name);
+  mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
+  writeStandardPackage(repo, name);
+  writeFileSync(join(repo, ".github", "workflows", "release.yml"), RELEASE_CALLER_PINNED_TO_SNAPSHOT);
+  return repo;
+}
+
+/** List every tool invocation logged by a counting canonical tag bin. */
+function readToolCalls(log: string): string[] {
+  return existsSync(log) ? readFileSync(log, "utf-8").split("\n").filter((line) => line.trim() !== "") : [];
+}
+
+/** Install counting gh/curl stubs serving canned canonical tag refs, logging each call. */
+async function withCanonicalTagBin<T>(
+  name: string,
+  refs: string,
+  offline: string | undefined,
+  callback: (log: string) => Promise<T>,
+): Promise<T> {
+  const root = join(tmpRoot, name);
+  const bin = join(root, "bin");
+  mkdirSync(bin, { recursive: true });
+  const log = join(root, "tag-calls.log");
+  const fixture = join(root, "refs");
+  writeFileSync(fixture, refs);
+  const stubs: Record<string, string> = {
+    gh: "#!/bin/sh\nprintf '%s\\n' gh >> \"$CANONICAL_TAG_CALL_LOG\"\ncat \"$CANONICAL_TAG_FIXTURE\"\n",
+    curl: "#!/bin/sh\nprintf '%s\\n' curl >> \"$CANONICAL_TAG_CALL_LOG\"\nexit 7\n",
+  };
+  for (const [tool, body] of Object.entries(stubs)) {
+    writeFileSync(join(bin, tool), body);
+    chmodSync(join(bin, tool), 0o755);
+  }
+  const previous = {
+    PATH: process.env.PATH,
+    PM_OPS_OFFLINE: process.env.PM_OPS_OFFLINE,
+    CANONICAL_TAG_FIXTURE: process.env.CANONICAL_TAG_FIXTURE,
+    CANONICAL_TAG_CALL_LOG: process.env.CANONICAL_TAG_CALL_LOG,
+  };
+  if (offline === undefined) delete process.env.PM_OPS_OFFLINE;
+  else process.env.PM_OPS_OFFLINE = offline;
+  process.env.PATH = `${bin}${delimiter}${previous.PATH ?? ""}`;
+  process.env.CANONICAL_TAG_FIXTURE = fixture;
+  process.env.CANONICAL_TAG_CALL_LOG = log;
+  try {
+    return await callback(log);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+/** Write a release-caller-only policy bundle and return its path. */
+function writeReleaseCallerPolicy(root: string, name: string): string {
+  const policyFile = join(root, name);
+  writeFileSync(policyFile, JSON.stringify({ checks: [{ id: "release-caller", severity: "error" }] }));
+  return policyFile;
+}
+
+test("ops policy resolves canonical release tags once per policy run", async () => {
+  const ext = await harness();
+  const repos = ["pm-caller-a", "pm-caller-b"].map((name) => writeReleaseCallerRepo(name, tmpRoot));
+  const policyFile = writeReleaseCallerPolicy(tmpRoot, "release-caller-policy.json");
+  const refs = "refs/tags/v2026.10.19\tcommit\tc3af218f2f052cc4fddb3e84ef87974c58283be7\n";
+  await withCanonicalTagBin("release-caller-policy-bin", refs, undefined, async (log) => {
+    const result = await runCmd<PolicyResult>(ext, "ops policy", { repos, policy: policyFile });
+    for (const repo of result.repos) {
+      const check = repo.checks.find((entry) => entry.id === "release-caller");
+      assert.ok(check, "release-caller check should exist");
+      assert.strictEqual(check.pass, true, check.message);
+    }
+    assert.deepStrictEqual(readToolCalls(log), ["gh"], "canonical tag refs must be fetched exactly once per policy run");
+  });
+  await ext.deactivate();
+});
+
+test("ops policy makes no canonical tag network calls while offline", async () => {
+  const ext = await harness();
+  const repo = writeReleaseCallerRepo("pm-caller-offline", tmpRoot);
+  const policyFile = writeReleaseCallerPolicy(tmpRoot, "release-caller-offline-policy.json");
+  const refs = "refs/tags/v2026.10.19\tcommit\tc3af218f2f052cc4fddb3e84ef87974c58283be7\n";
+  await withCanonicalTagBin("release-caller-offline-bin", refs, "1", async (log) => {
+    const result = await runCmd<PolicyResult>(ext, "ops policy", { repos: [repo], policy: policyFile });
+    const check = result.repos[0].checks.find((entry) => entry.id === "release-caller");
+    assert.ok(check, "release-caller check should exist");
+    assert.strictEqual(check.pass, true, check.message);
+    assert.deepStrictEqual(readToolCalls(log), [], "offline policy runs must not contact the canonical API");
+  });
+  await ext.deactivate();
+});
+
 test("ops policy --strict exits non-zero on failures", async () => {
   const ext = await harness();
   const badDir = join(tmpRoot, "pm-bad");

@@ -8,7 +8,7 @@ import { encode } from "@toon-format/toon";
 import { listMergeReceipts, auditMergeDriverConfiguration, auditMergeAttributeFence, findGitWorkspaceRoot, } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage } from "./docstrings.js";
 import { qualityMeasurementProvider } from "./assurance.js";
-import { inspectReleaseCaller } from "./release-caller.js";
+import { fetchCanonicalReleaseTags, inspectReleaseCaller } from "./release-caller.js";
 // ---------------------------------------------------------------------------
 // Error contract — mirror pm-cli SDK EXIT_CODE so the host treats thrown
 // CommandError as a clean non-zero exit instead of re-invoking the handler.
@@ -963,7 +963,7 @@ function runPolicyCheck(def, ctx) {
             break;
         case "release-caller": {
             const path = join(ctx.repoPath, ".github/workflows/release.yml");
-            const caller = existsSync(path) ? inspectReleaseCaller(readFileSync(path, "utf8")) : { status: "refused", errors: ["release.yml is missing"] };
+            const caller = existsSync(path) ? inspectReleaseCaller(readFileSync(path, "utf8"), ctx.resolveCanonicalTags) : { status: "refused", errors: ["release.yml is missing"] };
             result = { id: "release-caller", severity: "error", status: caller.status, pass: caller.status === "verified",
                 message: caller.status === "verified" ? "SHA-pinned reusable release caller" : caller.errors.join("; ") };
             break;
@@ -992,11 +992,38 @@ function matchesFilter(repoPath, name, filter) {
         return true;
     return basename(repoPath) === filter;
 }
+/** Build a canonical release tag resolver for one policy run: fetch once, never while offline.
+ *
+ * Every release-caller check in a policy run shares this resolver, so the canonical
+ * tag refs are requested at most once no matter how many repositories are scanned.
+ * It throws while PM_OPS_OFFLINE is set and when the single fetch fails, so
+ * inspectReleaseCaller falls back to the bundled release-metadata snapshot the
+ * same way it does for any other unavailable online evidence.
+ */
+function createCanonicalTagResolver() {
+    let state;
+    return () => {
+        if (isOffline())
+            throw new Error("PM_OPS_OFFLINE is set: canonical release tags are not fetched");
+        state ??= (() => {
+            try {
+                return { tags: fetchCanonicalReleaseTags() };
+            }
+            catch (error) {
+                return { error };
+            }
+        })();
+        if ("error" in state)
+            throw state.error;
+        return state.tags;
+    };
+}
 /** Run a policy bundle across every repo and tally results by severity. */
 function runPolicy(repos, bundle, progress) {
     const by_severity = { error: 0, warning: 0, info: 0 };
     let totalPassed = 0;
     let totalFailed = 0;
+    const resolveCanonicalTags = createCanonicalTagResolver();
     const repoResults = repos.map((repoPath) => {
         progress(`policy ${repoPath}`);
         const pkg = readPackageJson(repoPath);
@@ -1004,7 +1031,7 @@ function runPolicy(repos, bundle, progress) {
         const checks = bundle.checks
             .filter((def) => matchesFilter(repoPath, pkg?.name ?? null, def.repo_filter))
             .map((def) => {
-            const res = runPolicyCheck(def, { repoPath, pkg, items });
+            const res = runPolicyCheck(def, { repoPath, pkg, items, resolveCanonicalTags });
             if (!res.pass && res.status !== "unverified-offline")
                 by_severity[def.severity] += 1;
             return res;
