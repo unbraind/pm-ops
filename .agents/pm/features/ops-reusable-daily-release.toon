@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags: []
 created_at: "2026-10-19T14:08:13.526Z"
-updated_at: "2026-10-19T23:24:29.358Z"
+updated_at: "2026-10-19T23:32:03.870Z"
 author: codex-agent
 comments[37]{created_at,author,text}:
   "2026-10-19T14:08:30.300Z",codex-agent,"Plan: use pm-github PR 152 head 14b533a as the audited baseline, recheck upstream before completion, inventory fetched main workflows with hashes, expose package needs as typed inputs or npm-script hooks, and verify full npm/Bun gates without changing thresholds. Publication must run at the merged commit so provenance and tag identify the same SHA."
