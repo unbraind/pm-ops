@@ -12,4 +12,5 @@ jobs:
       pull-requests: write
       actions: write
       id-token: write
+      issues: write
     uses: unbraind/pm-ops/.github/workflows/daily-release.yml@0000000000000000000000000000000000000000 # v2026.10.19

@@ -6,6 +6,12 @@ import { join } from "node:path";
 import test from "node:test";
 import { verifyBunScript } from "../release-verification.ts";
 
+test("local npm test and coverage instructions declare the mandatory Bun prerequisite", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  assert.match(readme, /Bun must be installed and available on `PATH` before running `npm test`,\n`npm run coverage`, or `npm run release:check` locally/);
+  assert.match(readme, /missing Bun is an error and the tests are never skipped/);
+});
+
 test("Bun verification executes one named gate and propagates missing or failing scripts", () => {
   const root = mkdtempSync(join(tmpdir(), "release-bun-"));
   const before = process.cwd();

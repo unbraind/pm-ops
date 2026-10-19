@@ -7,7 +7,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { auditPublishAttestation, verify } from "../attestation.ts";
 
-const caller = readFileSync(new URL("../templates/release-caller.yml", import.meta.url), "utf8").replaceAll("0".repeat(40), "a".repeat(40));
+const releasedSha = "c3af218f2f052cc4fddb3e84ef87974c58283be7";
+const caller = readFileSync(new URL("../templates/release-caller.yml", import.meta.url), "utf8").replaceAll("0".repeat(40), releasedSha);
 const file = ".github/workflows/release.yml";
 
 test("a canonical pinned caller is explicit delegated evidence, while empty or foreign scans still fail", () => {
@@ -16,7 +17,10 @@ test("a canonical pinned caller is explicit delegated evidence, while empty or f
   assert.deepEqual(result.recognition, { kind: "recognized", count: 1 });
   assert.match(result.notes[0], /canonical release delegation to unbraind\/pm-ops/);
   assert.match(result.notes[0], /publisher enforcement belongs to that pinned pm-ops workflow/);
-  for (const text of [caller.replace("a".repeat(40), "main"), caller.replace("a".repeat(40), "0".repeat(40)), caller.replace("unbraind/pm-ops", "foreign/pm-ops"), caller.replace("daily-release.yml", "other.yml"), caller.replace(" # v2026.10.19", ""), caller.replace("  release:", "  release:\n    steps: []")]) {
+  const fork = auditPublishAttestation([{ file, text: caller.replace(releasedSha, "f".repeat(40)) }]);
+  assert.ok(fork.failures.length > 0);
+  assert.deepEqual(fork.recognition, { kind: "none" });
+  for (const text of [caller.replace(releasedSha, "main"), caller.replace(releasedSha, "0".repeat(40)), caller.replace("unbraind/pm-ops", "foreign/pm-ops"), caller.replace("daily-release.yml", "other.yml"), caller.replace(" # v2026.10.19", ""), caller.replace("  release:", "  release:\n    steps: []")]) {
     const rejected = auditPublishAttestation([{ file, text }]);
     assert.ok(rejected.failures.length > 0, text);
     assert.deepEqual(rejected.recognition, { kind: "none" });

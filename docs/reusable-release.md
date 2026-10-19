@@ -100,7 +100,9 @@ The `prepare-script` hook covers pm-todos' `release:update-version` and other pa
 
 `npm run release-caller -- path/to/release.yml` fails on a copied implementation, additional jobs/steps, unsafe triggers, inherited secrets, missing least-privilege grants, a non-SHA reference, a zero placeholder SHA, a missing version comment, or a second pm-ops version input. The exported `pm-ops/release-caller` function is also available to package gates.
 
-The canonical publish-attestation auditor also recognizes this exact caller at `.github/workflows/release.yml`. Its result explicitly identifies a SHA-pinned delegation to the audited pm-ops workflow, rather than claiming a local publish command was found. Foreign or floating references, placeholder SHAs, private workflow logic and malformed callers do not satisfy the non-vacuity gate. Every adjacent local, foreign or unresolved publisher is still checked, and parse failures remain failures. The gate does not fetch or independently re-audit remote commits; the immutable pin is an explicit trust boundary.
+The canonical publish-attestation auditor also recognizes this exact caller at `.github/workflows/release.yml`. Its result explicitly identifies a SHA-pinned delegation to the audited pm-ops workflow, rather than claiming a local publish command was found. Foreign or floating references, placeholder SHAs, private workflow logic and malformed callers do not satisfy the non-vacuity gate. Every adjacent local, foreign or unresolved publisher is still checked, and parse failures remain failures. Offline validation binds the SHA and its actual YAML version comment to `release-metadata.json`, the canonical tag-to-peeled-commit snapshot shipped in the npm package. Unknown tags and mismatched or fork-only SHAs fail closed. The gate does not independently re-audit remote workflow contents.
+
+Use `npm run release-caller -- --online path/to/release.yml` when network access is allowed. It reads `gh api repos/unbraind/pm-ops/git/refs/tags` with pagination and peels annotated tags only through canonical repository endpoints; API errors fail closed. The policy and attestation auditor remain offline. Before a package release, maintainers refresh and commit the snapshot with `npm run release-caller -- --write-metadata release-metadata.json`. A snapshot cannot contain its own future release commit without a circular hash: caller-only checks can use `--online`, while migrations retaining the offline attestation audit need a later pm-ops package whose snapshot contains the pin. Dependabot SHA updates likewise need a metadata refresh/package upgrade for offline checks. Never add an unverified guessed SHA to the snapshot.
 
 The same check is available as an opt-in pm-ops policy check:
 
@@ -166,6 +168,7 @@ jobs:
       pull-requests: write
       actions: write
       id-token: write
+      issues: write
     uses: unbraind/pm-ops/.github/workflows/daily-release.yml@0000000000000000000000000000000000000000 # v2026.10.19
     with:
       release-enabled: ${{ vars.PM_RELEASE_APPROVED == 'true' }}
@@ -177,7 +180,7 @@ jobs:
       bun-verify: false
 ```
 
-Rust keeps its justfile recipes and existing approval guard. It publishes a GitHub Release only; no npm package or new crate registry target is invented. The caller permissions are the ceiling for the shared workflow; the GitHub-only path does not perform an npm OIDC exchange.
+Rust keeps its justfile recipes and existing approval guard. It publishes a GitHub Release only; no npm package or new crate registry target is invented. The caller permissions are the ceiling for the shared workflow; the GitHub-only path does not perform an npm OIDC exchange. Every caller grants `issues: write` even with an empty alert hook, because GitHub validates nested permissions before conditional jobs run.
 
 After pm-csv and pm-rust pass their own unchanged gates and a controlled daily-release run, migrate the remaining approved packages in waves. Keep unapproved packages disabled. Verify actual npm/GitHub publication, exact tag/provenance commit, Bun acceptance, alerts and retry behavior separately from local tests. Local gates do not establish live trusted-publisher acceptance.
 

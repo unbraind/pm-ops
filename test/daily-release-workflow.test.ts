@@ -78,6 +78,22 @@ test("planning calls the measured TypeScript module and keeps PR payloads in fil
   assert.ok(merge.indexOf('release_commit="$(git rev-parse HEAD)"') < merge.indexOf('remote_branch_sha='));
 });
 
+test("caller template and migration examples cover the union of every nested job permission", () => {
+  const template = readFileSync(new URL("../templates/release-caller.yml", import.meta.url), "utf8");
+  const docs = readFileSync(new URL("../docs/reusable-release.md", import.meta.url), "utf8");
+  const callers = [template, ...Array.from(docs.matchAll(/```yaml\n([\s\S]*?)```/g), match => match[1])];
+  assert.equal(callers.length, 3);
+  const rank: Record<string, number> = { none: 0, read: 1, write: 2 };
+  for (const caller of callers) {
+    const granted = (parse(caller) as { jobs: { release: { permissions: Record<string, string> } } }).jobs.release.permissions;
+    for (const [name, job] of Object.entries(workflow.jobs)) {
+      for (const [scope, level] of Object.entries(job.permissions)) {
+        assert.ok(rank[granted[scope] ?? "none"] >= rank[level], `${name} requests ${scope}: ${level}`);
+      }
+    }
+  }
+});
+
 test("publication continues only when trigger, merged main, package version, provenance and tag agree", () => {
   assert.match(step("Continue at the published commit").run, /\$MERGED_SHA" != "\$TRIGGER_SHA/);
   assert.match(step("Continue at the published commit").run, /gh workflow run/);
@@ -134,7 +150,7 @@ test("workflow version resolution peels annotated tags, normalizes dates and rej
     const remote = join(root, "tags");
     const output = join(root, "output");
     const git = join(root, "git");
-    writeFileSync(git, "#!/bin/sh\ncat \"$TAG_FIXTURE\"\n");
+    writeFileSync(git, "#!/bin/sh\n[ \"$*\" = \"ls-remote --tags https://github.com/unbraind/pm-ops refs/tags/v*\" ] || exit 9\ncat \"$TAG_FIXTURE\"\n");
     chmodSync(git, 0o755);
     const cases = [
       { tags: `${sha}\trefs/tags/v2026.10.19\n`, expected: "2026.10.19" },
@@ -145,6 +161,8 @@ test("workflow version resolution peels annotated tags, normalizes dates and rej
       { tags: `${sha}\trefs/tags/v2026.10.19\n${other}\trefs/tags/v2026.10.19^{}\n`, expected: "" },
       { tags: `${sha}\trefs/tags/payload\nmalformed\trefs/tags/v2026.10.19\n`, expected: "" },
       { tags: "", expected: "" },
+      // A fork-like fixture has a valid release tag, but the canonical remote names another commit.
+      { tags: `${other}\trefs/tags/v2026.10.19\n`, expected: "" },
     ];
     for (const fixture of cases) {
       writeFileSync(remote, fixture.tags);

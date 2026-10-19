@@ -75,6 +75,7 @@
     "dist/",
     "templates/",
     "manifest.json",
+    "release-metadata.json",
     "README.md",
     "CHANGELOG.md"
   ],
