@@ -394,10 +394,9 @@ jobs:
             node --input-type=module <<'NODE'
           import {readFileSync, writeFileSync} from 'node:fs';
           const version = process.env.NPM_VERSION;
-          const cargo = readFileSync('Cargo.toml', 'utf8');
-          const next = cargo.replace(/(\[package\][\s\S]*?^version\s*=\s*)"[^"]*"/m, '$1"' + version + '"');
-          if (next === cargo && !cargo.includes('version = "' + version + '"')) throw new Error('Missing package version');
-          writeFileSync('Cargo.toml', next);
+          import {createRequire} from 'node:module';
+          const {stampCargoVersion} = createRequire(import.meta.url)(process.env.PM_OPS_MODULE);
+          writeFileSync('Cargo.toml', stampCargoVersion(readFileSync('Cargo.toml', 'utf8'), version));
           const day = process.env.RELEASE_TAG.slice(1).split('.').map(Number);
           const date = day.map((n, i) => String(n).padStart(i === 0 ? 4 : 2, '0')).join('-');
           writeFileSync('justfile', readFileSync('justfile', 'utf8').replace(/^CHANGELOG_DATE := ".*"$/m, 'CHANGELOG_DATE := "' + date + '"'));
@@ -449,7 +448,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$IS_RUST" == true ]]; then just release-check; else npm run "$VERIFY_SCRIPT"; bun run "$VERIFY_SCRIPT"; fi
+          if [[ "$IS_RUST" == true ]]; then
+            just release-check
+          else
+            npm run "$VERIFY_SCRIPT"
+            node --input-type=module <<'NODE'
+          import {createRequire} from 'node:module';
+          const {verifyBunScript} = createRequire(import.meta.url)(process.env.PM_OPS_MODULE);
+          verifyBunScript(process.env.VERIFY_SCRIPT);
+          NODE
+          fi
       - name: Commit release files
         if: steps.decide.outputs.should_release == 'true'
         env:
@@ -474,7 +482,7 @@ jobs:
             case "/$path/" in */../*|*/.git/*|*/.agents/pm/runtime/*) exit 1 ;; esac
             paths+=("$path")
           done <<< "$RELEASE_FILES"
-          if (( ${#paths[@]} )); then git add -- "${paths[@]}"; fi
+          if [[ ${#paths[@]} -gt 0 ]]; then git add -- "${paths[@]}"; fi
           if ! git diff --cached --quiet; then git commit -m "Release $REPO_NAME $RELEASE_TAG"; fi
       - name: Pack verified release
         id: pack
@@ -994,7 +1002,10 @@ jobs:
             exit 0
           fi
           publish_with_provenance() {
-            npm publish "$RUNNER_TEMP/release-handoff/package.tgz" --access public --provenance --ignore-scripts --registry=https://registry.npmjs.org
+            (
+              cd "$RUNNER_TEMP/release-handoff"
+              npm publish ./package.tgz --access public --provenance --ignore-scripts --registry=https://registry.npmjs.org
+            )
           }
           attempt=0
           while (( attempt < max_attempts )); do

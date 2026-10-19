@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { parse } from "yaml";
+import { auditPublishAttestation } from "../attestation.ts";
 
 /** Workflow step fields used by the structural and shell regression tests. */
 interface Step {
@@ -86,7 +87,7 @@ test("publication continues only when trigger, merged main, package version, pro
   assert.deepEqual(workflow.jobs.recover.permissions, { contents: "write" });
   assert.match(workflow.jobs.verify_bun.if, /needs.release.outputs.published == 'success'/);
   assert.match(step("Verify bun install of published package").run, /bunx --bun --no-install pm health --strict-exit/);
-  assert.match(step("Publish npm package").run, /npm publish "\$RUNNER_TEMP\/release-handoff\/package.tgz" --access public --provenance --ignore-scripts/);
+  assert.match(step("Publish npm package").run, /npm publish \.\/package\.tgz --access public --provenance --ignore-scripts/);
   assert.match(step("Publish npm package").run, /verifyPublishedProvenance/);
   assert.match(step("Pack verified release").run, /git diff --exit-code -- \./);
   assert.match(step("Pack verified release").run, /git status --porcelain=v1 --untracked-files=all/);
@@ -122,7 +123,8 @@ test("every declared package input is typed and wired into executable jobs", () 
     assert.ok(jobSource.includes(`inputs.${name}`), `unwired input ${name}`);
   }
   for (const hook of ["PREPARE_SCRIPT", "VERIFY_SCRIPT", "PUBLISH_SCRIPT", "POST_RELEASE_SCRIPT", "BUNX_SCRIPT"]) assert.ok(steps.some(s => s.run?.includes(`$${hook}`)), hook);
-  assert.match(step("Run release checks").run, /npm run "\$VERIFY_SCRIPT"; bun run "\$VERIFY_SCRIPT"/);
+  assert.match(step("Run release checks").run, /npm run "\$VERIFY_SCRIPT"/);
+  assert.match(step("Run release checks").run, /verifyBunScript\(process.env.VERIFY_SCRIPT\)/);
 });
 
 test("workflow version resolution peels annotated tags, normalizes dates and rejects ambiguity or missing releases", () => {
@@ -154,4 +156,9 @@ test("workflow version resolution peels annotated tags, normalizes dates and rej
       } else assert.notEqual(result.status, 0, fixture.tags);
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("the shared workflow satisfies the canonical attestation auditor without exclusions", () => {
+  assert.deepEqual(auditPublishAttestation([{ file: ".github/workflows/daily-release.yml", text: source }]).failures, []);
 });

@@ -57,4 +57,7 @@ export declare function decideDailyRelease(input: DailyReleaseInput): {
 export declare function stampExtensionVersion(source: string, version: string): string;
 /** Check registry-served SLSA v1 provenance binds both the tarball digest and published commit. */
 export declare function verifyPublishedProvenance(bundle: unknown, commit: string, integrity: string): boolean;
+export { verifyBunScript } from "./release-verification.ts";
+/** Stamp the package table's literal Cargo version while preserving dependency and metadata versions. */
+export declare function stampCargoVersion(source: string, version: string): string;
 //# sourceMappingURL=daily-release.d.ts.map

@@ -1,7 +1,7 @@
 /** Behavioral regressions for the decisions executed by the shared workflow. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decideDailyRelease, ownsReleasePullRequest, selectReleasePullRequests, latestReleaseTag, releaseVersion, stampExtensionVersion, verifyPublishedProvenance, type DailyReleaseInput, type ReleasePullRequest } from "../daily-release.ts";
+import { decideDailyRelease, ownsReleasePullRequest, selectReleasePullRequests, latestReleaseTag, stampCargoVersion, releaseVersion, stampExtensionVersion, verifyPublishedProvenance, type DailyReleaseInput, type ReleasePullRequest } from "../daily-release.ts";
 
 /** Make a GitHub-shaped owned PR, overriding individual security facts per case. */
 function pr(number: number, headRefName = "release/2026.10.18", extra: Partial<ReleasePullRequest> = {}): ReleasePullRequest {
@@ -95,4 +95,14 @@ test("last release selection compares padded and unpadded dates numerically", ()
   assert.equal(latestReleaseTag([...tags].reverse()), "v2026.9.30-2");
   assert.equal(latestReleaseTag([]), "");
   assert.equal(latestReleaseTag(["v2026.08.01"]), "v2026.08.01");
+});
+
+test("Cargo stamping preserves dependency and metadata versions and refuses inherited or absent versions", () => {
+  const source = '[package]\nname = "fixture"\nversion = "2026.8.1" # release\n[package.metadata]\nversion = "keep"\n[dependencies]\nother = { version = "1.0.0" }\n';
+  const stamped = stampCargoVersion(source, "2026.10.19");
+  assert.equal(stamped, source.replace('version = "2026.8.1"', 'version = "2026.10.19"'));
+  assert.equal(stampCargoVersion(stamped, "2026.10.19"), stamped);
+  assert.equal(stampCargoVersion("[package]\nversion = 'old'\n", "2026.10.19"), '[package]\nversion = "2026.10.19"\n');
+  assert.throws(() => stampCargoVersion('[workspace]\nversion = "x"\n', "x"), /no package table/);
+  assert.throws(() => stampCargoVersion('[package]\nversion.workspace = true\n[dependencies]\nversion = "wrong table"\n', "x"), /no literal version/);
 });

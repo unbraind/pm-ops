@@ -6,27 +6,38 @@ status: in_progress
 priority: 1
 tags: []
 created_at: "2026-10-19T14:08:13.526Z"
-updated_at: "2026-10-19T14:36:15.366Z"
+updated_at: "2026-10-19T15:05:41.333Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
-comments[5]{created_at,author,text}:
+comments[10]{created_at,author,text}:
   "2026-10-19T14:08:30.300Z",codex-agent,"Plan: use pm-github PR 152 head 14b533a as the audited baseline, recheck upstream before completion, inventory fetched main workflows with hashes, expose package needs as typed inputs or npm-script hooks, and verify full npm/Bun gates without changing thresholds. Publication must run at the merged commit so provenance and tag identify the same SHA."
   "2026-10-19T14:32:34.573Z",codex-agent,"Inventory: 28 readable workflows have 28 distinct MD5 values; 713 structural deltas classify as 123 cosmetic/stale, 318 package needs, 272 defects. pm-memory has no fetchable origin; pm-observer has no release workflow; core pm-cli is excluded. Shared protections include read-only artifact preparation, SHA-bound continuation publication, registry provenance commit/digest checks, GitHub Release repair, and separate read-only Bun/bunx activation. Every package hook and approval guard is documented in docs/reusable-release.md."
   "2026-10-19T14:32:42.021Z",codex-agent,"Behavioral revert proofs in a disposable source copy: node --test test/daily-release.test.ts passes 8/8 before mutation. Reverting only selectReleasePullRequests to the first 30 in API order fails 2 tests (6 pass); reverting only ownsReleasePullRequest to release-prefix ownership fails 2 tests (6 pass); reverting only the daily decision to ignore day/version caps fails 2 tests (6 pass). Each mutant exits 1; source restoration exits 0. Tests import erasable TypeScript directly, so no compiled-output rebuild can hide the reversion. Focused new-source coverage is 100/100/100/100."
   "2026-10-19T14:35:56.162Z",codex-agent,"Linked acceptance: the repo-pinned pm test runner passed 17/17 focused tests with zero failures or skips. Test-result tracking is disabled in the repository, so the runner returned the passing receipt without storing results; this comment records the outcome. New source modules independently pass all four 100 percent coverage dimensions. The first exploratory full suite passed 1340 tests with two platform skips, but changing source during that exploratory run invalidated its coverage result; it is not final gate evidence. Final isolated npm and Bun gates use frozen source."
   "2026-10-19T14:36:15.365Z",codex-agent,"Review notes: caller examples use an explicitly rejected zero-SHA marker until the first approved release exists; no existing release is claimed to contain the new workflow. actionlint v1.7.12 passes with only the documented job.workflow_sha property diagnostic ignored, because current GitHub documentation supports that property. All shell blocks are parsed by bash -n in tests. No consumer repos, live trust settings, tags or releases are changed. Remaining inventory gaps are tracked by ops-release-inventory-gaps."
-files[8]{path,scope}:
+  "2026-10-19T14:51:45.381Z",codex-agent,"PR opened: https://github.com/unbraind/pm-ops/pull/183 at implementation commit 48bce2d. Final npm and Bun gates run in separate no-local clones with isolated home directories and disabled global/system Git config. Fresh-clone strict health passes after normal repo-pinned merge setup; only the pre-existing stale-in-progress advisory remains. The initial clone health failure was a verification-order error: restoring the SDK-generated merge fence before health. No tracker history was repaired or rewritten."
+  "2026-10-19T14:52:01.626Z",codex-agent,"Correction to the exploratory-run note: the two skipped cases are existing opt-in real-data fleet tests, not platform-specific tests. They remain disabled because this task does not authorize running consumer release gates in canonical checkouts. They are reported separately from passing package tests. The packed consumer fixture initially hit its 180-second install limit during a cold npm download; a cached, bounded retry is in progress."
+  "2026-10-19T15:03:26.231Z",codex-agent,"CI correctly refused four new workflow shell forms in the unchanged canonical attestation gate. The correction uses a literal tarball path from its handoff directory, a simple array-length conditional, pure tested Cargo stamping, and a fixed-argv TypeScript adapter for the Bun script. The auditor and thresholds are unchanged. A parsed-workflow regression now runs the canonical auditor against the entire reusable workflow with no exclusions. Focused suite: 20/20 pass; all new source coverage dimensions remain 100 percent. The earlier clone runs are superseded by this correction."
+  "2026-10-19T15:03:27.407Z",codex-agent,"Upstream recheck: pm-github PR 152 is merged; fetched main is 5f169971d4a5f37d48795512c2c100ccf571c8d9. Its release.yml is byte-identical to the ported 14b533a PR head, so there are no later fixes to port. Packed candidate acceptance passed for npm/Node/npx and native Bun/bunx, including actual package activation, strict tracker health and the release-caller policy. No SDK or CLI defect was found; the earlier install failure was a cold-download timeout."
+  "2026-10-19T15:05:41.331Z",codex-agent,"Final behavioral revert controls now pass 10/10 pure-function tests. Reverting selection alone, ownership alone, or the daily cap alone each exits 1 with 8 pass and 2 fail. The new Cargo and Bun adapter tests pass, and the canonical workflow attestation regression passes without exclusions. Corrected focused suite: 20/20, zero skips; focused new-source coverage: 100/100/100/100."
+files[13]{path,scope}:
   .github/workflows/daily-release.yml,project
   daily-release.ts,project
+  docstrings.ts,project
+  index.ts,project
+  package.json,project
   release-caller.ts,project
+  release-verification.ts,project
   scripts/release-caller.ts,project
   templates/release-caller.yml,project
   test/daily-release-workflow.test.ts,project
   test/daily-release.test.ts,project
   test/release-caller.test.ts,project
-tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  test/release-verification.test.ts,project
+tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/daily-release.test.ts test/release-caller.test.ts test/daily-release-workflow.test.ts,project,180,codex-agent,"2026-10-19T14:33:56.042Z",local_mutation,feat/reusable-daily-release
+  node --test test/release-verification.test.ts,project,180,codex-agent,"2026-10-19T15:03:24.726Z",local_mutation,feat/reusable-daily-release
 docs[2]{path,scope}:
   docs/release-divergences.json,project
   docs/reusable-release.md,project

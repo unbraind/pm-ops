@@ -101,4 +101,22 @@ export function verifyPublishedProvenance(bundle, commit, integrity) {
             && Array.isArray(dependencies) && dependencies.some((dependency) => record(record(dependency).digest).gitCommit === commit);
     });
 }
+export { verifyBunScript } from "./release-verification.js";
+/** Stamp the package table's literal Cargo version while preserving dependency and metadata versions. */
+export function stampCargoVersion(source, version) {
+    const header = /^\[package\][ \t]*(?:#[^\n]*)?\r?$/m.exec(source);
+    if (!header)
+        throw new Error("Cargo manifest has no package table");
+    const start = header.index + header[0].length;
+    const rest = source.slice(start);
+    const nextSection = rest.search(/^\s*\[/m);
+    const stop = nextSection < 0 ? source.length : start + nextSection;
+    const section = source.slice(start, stop);
+    const field = /^([ \t]*version[ \t]*=[ \t]*)(["'])[^"']*\2/m;
+    if (!field.test(section))
+        throw new Error("Cargo package has no literal version");
+    return source.slice(0, start)
+        + section.replace(field, (_match, prefix) => `${prefix}"${version}"`)
+        + source.slice(stop);
+}
 //# sourceMappingURL=daily-release.js.map
