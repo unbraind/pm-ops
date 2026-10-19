@@ -1,0 +1,15 @@
+# Replace the zero SHA and version with the first released daily-release commit.
+name: Daily Release
+on:
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+permissions: {}
+jobs:
+  release:
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+      id-token: write
+    uses: unbraind/pm-ops/.github/workflows/daily-release.yml@0000000000000000000000000000000000000000 # v2026.10.19

@@ -21,6 +21,7 @@ import {
 } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage, type DocstringViolation } from "./docstrings.ts";
 import { qualityMeasurementProvider } from "./assurance.ts";
+import { checkReleaseCaller } from "./release-caller.ts";
 
 
 // ---------------------------------------------------------------------------
@@ -1138,6 +1139,13 @@ function runPolicyCheck(def: PolicyCheckDef, ctx: { repoPath: string; pkg: PkgJs
     case "required-workflows":
       result = checkRequiredWorkflows(ctx.repoPath, (def.params?.workflows as string[]) ?? DEFAULT_REQUIRED_WORKFLOWS);
       break;
+    case "release-caller": {
+      const path = join(ctx.repoPath, ".github/workflows/release.yml");
+      const errors = existsSync(path) ? checkReleaseCaller(readFileSync(path, "utf8")) : ["release.yml is missing"];
+      result = { id: "release-caller", severity: "error", pass: errors.length === 0,
+        message: errors.length === 0 ? "SHA-pinned reusable release caller" : errors.join("; ") };
+      break;
+    }
     case "private-no-runners":
       result = checkPrivateNoRunners(ctx.repoPath);
       break;

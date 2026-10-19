@@ -61,6 +61,14 @@
     "./release-repair": {
       "types": "./dist/release-repair.d.ts",
       "default": "./dist/release-repair.js"
+    },
+    "./daily-release": {
+      "types": "./dist/daily-release.d.ts",
+      "default": "./dist/daily-release.js"
+    },
+    "./release-caller": {
+      "types": "./dist/release-caller.d.ts",
+      "default": "./dist/release-caller.js"
     }
   },
   "files": [
@@ -95,7 +103,8 @@
     "verify:release-publish-attestation": "node scripts/verify-release-publish-attestation.ts",
     "verify:release-completeness": "node scripts/verify-release-completeness.ts",
     "verify:lifecycle-policy": "node scripts/verify-lifecycle-policy.ts",
-    "accept:packed": "node test/packed-consumer.acceptance.ts"
+    "accept:packed": "node test/packed-consumer.acceptance.ts",
+    "release-caller": "node scripts/release-caller.ts"
   },
   "dependencies": {
     "@toon-format/toon": "^4.1.0",

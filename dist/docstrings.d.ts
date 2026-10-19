@@ -85,6 +85,7 @@
  * surface. There is deliberately no ignore list: an exemption must be a
  * documented rule with a reason, not a configuration entry.
  */
+import { SyntaxKind } from "typescript/unstable/ast";
 /**
  * Minimum number of meaningful words a docstring must contain after filler
  * removal. Below this the comment is too thin to document anything.
@@ -132,6 +133,28 @@ export interface SourceAnalysis {
     /** Declarations evaluated against the rules. */
     readonly declarations: number;
 }
+/** A scanned token with the offsets needed for JSDoc recovery and line numbers. */
+export interface Token {
+    /** Token kind (a `SyntaxKind` numeric value). */
+    readonly kind: SyntaxKind;
+    /** Offset where the token text starts (after preceding trivia). */
+    readonly start: number;
+    /** Offset where the token's leading trivia starts. */
+    readonly fullStart: number;
+    /** The token's literal text. */
+    readonly text: string;
+}
+/**
+ * Convert a token stream into a clean array of braces. Runs the unstable
+ * scanner with trivia skipped and applies the two corrections documented at the
+ * top of this file: template-substitution `}` is rescanned into a template
+ * continuation, and `/` is rescanned as a regex only in regex context. TSX
+ * uses the scanner's JSX variant so `</tag>` is one closing-tag token rather
+ * than a slash that could consume later declarations as a regex. The
+ * returned array never contains a brace that does not correspond to a real
+ * `{` / `}` in the source.
+ */
+export declare function tokenize(text: string, file: string): Token[];
 /**
  * Analyze one already-read TypeScript source text and report the docstring
  * violations it contains plus how many declarations were evaluated.

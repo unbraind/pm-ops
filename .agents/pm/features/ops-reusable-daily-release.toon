@@ -1,0 +1,33 @@
+id: ops-reusable-daily-release
+title: One reusable daily release workflow for fleet packages
+description: "Companion item pm-cli-website-pnjc. Inventory release workflow divergence; port pm-github 149 and 152 into one SHA-pinned reusable workflow, pure tested decisions, caller check and migration examples. No consumer edits or publication."
+type: Feature
+status: in_progress
+priority: 1
+tags: []
+created_at: "2026-10-19T14:08:13.526Z"
+updated_at: "2026-10-19T14:36:15.366Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+comments[5]{created_at,author,text}:
+  "2026-10-19T14:08:30.300Z",codex-agent,"Plan: use pm-github PR 152 head 14b533a as the audited baseline, recheck upstream before completion, inventory fetched main workflows with hashes, expose package needs as typed inputs or npm-script hooks, and verify full npm/Bun gates without changing thresholds. Publication must run at the merged commit so provenance and tag identify the same SHA."
+  "2026-10-19T14:32:34.573Z",codex-agent,"Inventory: 28 readable workflows have 28 distinct MD5 values; 713 structural deltas classify as 123 cosmetic/stale, 318 package needs, 272 defects. pm-memory has no fetchable origin; pm-observer has no release workflow; core pm-cli is excluded. Shared protections include read-only artifact preparation, SHA-bound continuation publication, registry provenance commit/digest checks, GitHub Release repair, and separate read-only Bun/bunx activation. Every package hook and approval guard is documented in docs/reusable-release.md."
+  "2026-10-19T14:32:42.021Z",codex-agent,"Behavioral revert proofs in a disposable source copy: node --test test/daily-release.test.ts passes 8/8 before mutation. Reverting only selectReleasePullRequests to the first 30 in API order fails 2 tests (6 pass); reverting only ownsReleasePullRequest to release-prefix ownership fails 2 tests (6 pass); reverting only the daily decision to ignore day/version caps fails 2 tests (6 pass). Each mutant exits 1; source restoration exits 0. Tests import erasable TypeScript directly, so no compiled-output rebuild can hide the reversion. Focused new-source coverage is 100/100/100/100."
+  "2026-10-19T14:35:56.162Z",codex-agent,"Linked acceptance: the repo-pinned pm test runner passed 17/17 focused tests with zero failures or skips. Test-result tracking is disabled in the repository, so the runner returned the passing receipt without storing results; this comment records the outcome. New source modules independently pass all four 100 percent coverage dimensions. The first exploratory full suite passed 1340 tests with two platform skips, but changing source during that exploratory run invalidated its coverage result; it is not final gate evidence. Final isolated npm and Bun gates use frozen source."
+  "2026-10-19T14:36:15.365Z",codex-agent,"Review notes: caller examples use an explicitly rejected zero-SHA marker until the first approved release exists; no existing release is claimed to contain the new workflow. actionlint v1.7.12 passes with only the documented job.workflow_sha property diagnostic ignored, because current GitHub documentation supports that property. All shell blocks are parsed by bash -n in tests. No consumer repos, live trust settings, tags or releases are changed. Remaining inventory gaps are tracked by ops-release-inventory-gaps."
+files[8]{path,scope}:
+  .github/workflows/daily-release.yml,project
+  daily-release.ts,project
+  release-caller.ts,project
+  scripts/release-caller.ts,project
+  templates/release-caller.yml,project
+  test/daily-release-workflow.test.ts,project
+  test/daily-release.test.ts,project
+  test/release-caller.test.ts,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/daily-release.test.ts test/release-caller.test.ts test/daily-release-workflow.test.ts,project,180,codex-agent,"2026-10-19T14:33:56.042Z",local_mutation,feat/reusable-daily-release
+docs[2]{path,scope}:
+  docs/release-divergences.json,project
+  docs/reusable-release.md,project
+body: ""

@@ -8,6 +8,7 @@ import { encode } from "@toon-format/toon";
 import { listMergeReceipts, auditMergeDriverConfiguration, auditMergeAttributeFence, findGitWorkspaceRoot, } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage } from "./docstrings.js";
 import { qualityMeasurementProvider } from "./assurance.js";
+import { checkReleaseCaller } from "./release-caller.js";
 // ---------------------------------------------------------------------------
 // Error contract — mirror pm-cli SDK EXIT_CODE so the host treats thrown
 // CommandError as a clean non-zero exit instead of re-invoking the handler.
@@ -960,6 +961,13 @@ function runPolicyCheck(def, ctx) {
         case "required-workflows":
             result = checkRequiredWorkflows(ctx.repoPath, def.params?.workflows ?? DEFAULT_REQUIRED_WORKFLOWS);
             break;
+        case "release-caller": {
+            const path = join(ctx.repoPath, ".github/workflows/release.yml");
+            const errors = existsSync(path) ? checkReleaseCaller(readFileSync(path, "utf8")) : ["release.yml is missing"];
+            result = { id: "release-caller", severity: "error", pass: errors.length === 0,
+                message: errors.length === 0 ? "SHA-pinned reusable release caller" : errors.join("; ") };
+            break;
+        }
         case "private-no-runners":
             result = checkPrivateNoRunners(ctx.repoPath);
             break;
