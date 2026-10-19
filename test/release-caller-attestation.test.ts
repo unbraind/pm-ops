@@ -5,10 +5,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { auditPublishAttestation, verify } from "../attestation.ts";
+import { auditPublishAttestation, verify, report } from "../attestation.ts";
 
-const releasedSha = "c3af218f2f052cc4fddb3e84ef87974c58283be7";
-const caller = readFileSync(new URL("../templates/release-caller.yml", import.meta.url), "utf8").replaceAll("0".repeat(40), releasedSha);
+import { releaseCallerFixture } from "./canonical-tags-fixture.ts";
+
+const { releasedSha, canonical, caller, api } = releaseCallerFixture();
 const file = ".github/workflows/release.yml";
 
 test("a canonical pinned caller is explicit delegated evidence, while empty or foreign scans still fail", () => {
@@ -55,4 +56,31 @@ test("the real tracked-source verifier accepts a consumer migration and catches 
     writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { "release:check": "node check.cjs", unsafe: "npm publish" } }));
     assert.ok(verify(root).failures.some(failure => failure.includes("package.json")));
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("attestation verifies newest release pins online and explicitly defers offline without certifying or hiding publishers", () => {
+  const sha = "e".repeat(40), tag = "v2099.10.19";
+  const newest = caller.replace(releasedSha, sha).replace("v2026.10.19", tag);
+  api.setTags({ [tag]: sha });
+  try {
+    const online = auditPublishAttestation([{ file, text: newest }]);
+    assert.deepEqual(online.failures, []);
+    assert.deepEqual(online.recognition, { kind: "recognized", count: 1 });
+    assert.match(online.notes[0], /canonical release delegation/);
+    const fork = auditPublishAttestation([{ file, text: newest.replace(sha, "f".repeat(40)) }]);
+    assert.ok(fork.failures.length > 0);
+    assert.deepEqual(fork.recognition, { kind: "none" });
+    api.setTags(null);
+    const offline = auditPublishAttestation([{ file, text: newest }]);
+    assert.deepEqual(offline.failures, []);
+    assert.deepEqual(offline.recognition, { kind: "unverified-offline" });
+    assert.match(offline.notes[0], /SHA provenance.*not verified; attestation deferred/);
+    const lines: string[] = [];
+    report(offline, line => lines.push(line), () => assert.fail("offline deferral must not fail the gate"));
+    assert.match(lines.at(-1)!, /unverified-offline; attestation deferred/);
+    assert.ok(lines.every(line => !line.includes("every publish invocation is attested")));
+    const adjacent = auditPublishAttestation([{ file, text: newest }, { file: "scripts/publish.sh", text: "npm publish" }]);
+    assert.ok(adjacent.failures.some(failure => failure.includes("scripts/publish.sh")));
+  } finally { api.setTags(canonical); }
 });

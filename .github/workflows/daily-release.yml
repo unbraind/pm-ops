@@ -474,7 +474,7 @@ jobs:
           while IFS= read -r -d '' path; do
             relative="${path#"$project_prefix"}"
             case "$relative" in package.json|package-lock.json|npm-shrinkwrap.json|manifest.json|CHANGELOG.md|index.ts|Cargo.toml|Cargo.lock|justfile|src/*|dist/*) paths+=("$path") ;; esac
-          done < <(git diff --name-only -z -- "$NPM_PROJECT_DIR")
+          done < <(git ls-files --modified --deleted --others --exclude-standard -z -- "$NPM_PROJECT_DIR")
           if git ls-files --error-unmatch "${project_prefix}dist/" >/dev/null 2>&1; then paths+=("${project_prefix}dist/"); fi
           while IFS= read -r path; do
             [[ -z "$path" ]] && continue
@@ -495,7 +495,7 @@ jobs:
             git restore --source=HEAD --worktree -- .gitattributes
           fi
           git diff --exit-code -- .
-          [[ -z "$(git status --porcelain=v1 --untracked-files=all -- "$NPM_PROJECT_PATH/src/")" ]]
+          [[ -z "$(git status --porcelain=v1 --untracked-files=all -- "$NPM_PROJECT_PATH")" ]]
           handoff="$(mktemp -d "$RUNNER_TEMP/release-handoff.XXXXXX")"
           if [[ "$IS_RUST" != true ]]; then
             cd "$NPM_PROJECT_PATH"

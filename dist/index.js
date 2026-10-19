@@ -8,7 +8,7 @@ import { encode } from "@toon-format/toon";
 import { listMergeReceipts, auditMergeDriverConfiguration, auditMergeAttributeFence, findGitWorkspaceRoot, } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage } from "./docstrings.js";
 import { qualityMeasurementProvider } from "./assurance.js";
-import { checkReleaseCaller } from "./release-caller.js";
+import { inspectReleaseCaller } from "./release-caller.js";
 // ---------------------------------------------------------------------------
 // Error contract — mirror pm-cli SDK EXIT_CODE so the host treats thrown
 // CommandError as a clean non-zero exit instead of re-invoking the handler.
@@ -963,9 +963,9 @@ function runPolicyCheck(def, ctx) {
             break;
         case "release-caller": {
             const path = join(ctx.repoPath, ".github/workflows/release.yml");
-            const errors = existsSync(path) ? checkReleaseCaller(readFileSync(path, "utf8")) : ["release.yml is missing"];
-            result = { id: "release-caller", severity: "error", pass: errors.length === 0,
-                message: errors.length === 0 ? "SHA-pinned reusable release caller" : errors.join("; ") };
+            const caller = existsSync(path) ? inspectReleaseCaller(readFileSync(path, "utf8")) : { status: "refused", errors: ["release.yml is missing"] };
+            result = { id: "release-caller", severity: "error", status: caller.status, pass: caller.status === "verified",
+                message: caller.status === "verified" ? "SHA-pinned reusable release caller" : caller.errors.join("; ") };
             break;
         }
         case "private-no-runners":
@@ -1005,12 +1005,12 @@ function runPolicy(repos, bundle, progress) {
             .filter((def) => matchesFilter(repoPath, pkg?.name ?? null, def.repo_filter))
             .map((def) => {
             const res = runPolicyCheck(def, { repoPath, pkg, items });
-            if (!res.pass)
+            if (!res.pass && res.status !== "unverified-offline")
                 by_severity[def.severity] += 1;
             return res;
         });
         const passed = checks.filter((c) => c.pass).length;
-        const failed = checks.filter((c) => !c.pass).length;
+        const failed = checks.filter((c) => !c.pass && c.status !== "unverified-offline").length;
         totalPassed += passed;
         totalFailed += failed;
         return { path: repoPath, name: pkg?.name ?? null, checks, passed, failed };

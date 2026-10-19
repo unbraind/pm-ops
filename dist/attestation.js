@@ -23,7 +23,7 @@ import { resolve } from "node:path";
 import { isNode, parse, parseDocument } from "yaml";
 import { bashArrayDeclarations, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, declarationPrefixLength, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, isolateShellChildren, joinContinuations, scalarAssignmentEvents, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
 import { tallyFlaggedInvocations } from "./invocation-audit.js";
-import { checkReleaseCaller } from "./release-caller.js";
+import { inspectReleaseCaller } from "./release-caller.js";
 /** The flag that attaches a build attestation to the published tarball. */
 export const ATTESTATION_FLAG = "--provenance";
 /** Literal npm verbs whose unknown operands cannot turn them into a publish. */
@@ -1010,10 +1010,13 @@ export function renderCommand(command) {
 }
 /** Recognize only the canonical release caller; this never exempts adjacent executable sources. */
 function canonicalReleaseDelegation(source) {
-    if (source.file !== ".github/workflows/release.yml" || checkReleaseCaller(source.text).length > 0)
+    if (source.file !== ".github/workflows/release.yml")
+        return undefined;
+    const result = inspectReleaseCaller(source.text);
+    if (result.status === "refused")
         return undefined;
     const workflow = parse(source.text);
-    return Object.values(workflow.jobs)[0].uses;
+    return { reference: Object.values(workflow.jobs)[0].uses, status: result.status };
 }
 /**
  * Audit every publish invocation across the given files.
@@ -1041,9 +1044,9 @@ export function auditPublishAttestation(sources) {
     for (const source of sources) {
         try {
             invocations.push(...publishInvocationsIn(source));
-            const reference = canonicalReleaseDelegation(source);
-            if (reference !== undefined)
-                delegations.push({ file: source.file, reference });
+            const delegation = canonicalReleaseDelegation(source);
+            if (delegation !== undefined)
+                delegations.push({ file: source.file, ...delegation });
         }
         catch {
             parseFailures.push(`${source.file}: executable source cannot be parsed; refusing an unresolvable publish path`);
@@ -1076,11 +1079,13 @@ export function auditPublishAttestation(sources) {
         failures: [...(invocations.length === 0 && (parseFailures.length > 0 || delegations.length > 0) ? [] : failures), ...parseFailures],
         notes: parseFailures.length > 0 ? [] : [
             ...notes,
-            ...delegations.map(({ file, reference }) => `ok - ${file}: canonical release delegation to ${reference}; publisher enforcement belongs to that pinned pm-ops workflow`),
+            ...delegations.map(({ file, reference, status }) => status === "unverified-offline"
+                ? `unverified-offline - ${file}: SHA provenance for ${reference} is not verified; attestation deferred until online verification`
+                : `ok - ${file}: canonical release delegation to ${reference}; publisher enforcement belongs to that pinned pm-ops workflow`),
         ],
-        recognition: recognized === 0
-            ? { kind: "none" }
-            : { kind: "recognized", count: recognized },
+        recognition: delegations.some(delegation => delegation.status === "unverified-offline")
+            ? { kind: "unverified-offline" }
+            : recognized === 0 ? { kind: "none" } : { kind: "recognized", count: recognized },
     };
 }
 /**
@@ -1231,6 +1236,10 @@ export function report(result, write, exit) {
     if (result.failures.length > 0) {
         write(`verify-release-publish-attestation: ${result.failures.length} failure(s).`);
         exit(1);
+        return;
+    }
+    if (result.notes.some(note => note.startsWith("unverified-offline"))) {
+        write("verify-release-publish-attestation: unverified-offline; attestation deferred.");
         return;
     }
     write("verify-release-publish-attestation: every publish invocation is attested.");

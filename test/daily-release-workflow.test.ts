@@ -1,7 +1,7 @@
 /** Parse the executable workflow and assert its privilege and publication wiring. */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -179,4 +179,57 @@ test("workflow version resolution peels annotated tags, normalizes dates and rej
 
 test("the shared workflow satisfies the canonical attestation auditor without exclusions", () => {
   assert.deepEqual(auditPublishAttestation([{ file: ".github/workflows/daily-release.yml", text: source }]).failures, []);
+});
+
+
+test("release staging commits first-time outputs, declared release files and deletions in root and nested projects", () => {
+  for (const directory of [".", "packages/example package"]) {
+    const root = mkdtempSync(join(tmpdir(), "release-staging-"));
+    try {
+      const project = join(root, directory);
+      mkdirSync(join(project, "src"), { recursive: true });
+      writeFileSync(join(project, "package.json"), '{"name":"example","version":"1.0.0"}\n');
+      writeFileSync(join(project, "src/old.ts"), "export const old = true;\n");
+      writeFileSync(join(root, ".gitignore"), "cache/\n");
+      execFileSync("git", ["init", "-q"], { cwd: root });
+      execFileSync("git", ["add", "--", "."], { cwd: root });
+      execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "Initial"], { cwd: root });
+      const initial = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+      writeFileSync(join(project, "CHANGELOG.md"), "First changelog\n");
+      writeFileSync(join(project, "src/generated output.ts"), "export const generated = true;\n");
+      rmSync(join(project, "src/old.ts"));
+      writeFileSync(join(root, "release-manifest.json"), '{"release":true}\n');
+      mkdirSync(join(project, "cache"));
+      writeFileSync(join(project, "cache/ignored"), "cache\n");
+      const result = spawnSync("bash", ["-c", step("Commit release files").run], {
+        cwd: root, encoding: "utf8", env: { ...process.env, GITHUB_WORKSPACE: root, NPM_PROJECT_PATH: project, NPM_PROJECT_DIR: directory, RELEASE_FILES: "release-manifest.json", REPO_NAME: "example", RELEASE_TAG: "v2099.1.1" },
+      });
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      const prefix = directory === "." ? "" : directory + "/";
+      const changed = execFileSync("git", ["diff", "--name-only", "-z", initial, "HEAD"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean).sort();
+      assert.deepEqual(changed, [prefix + "CHANGELOG.md", prefix + "src/generated output.ts", prefix + "src/old.ts", "release-manifest.json"].sort());
+      assert.equal(execFileSync("git", ["show", `HEAD:${prefix}CHANGELOG.md`], { cwd: root, encoding: "utf8" }), "First changelog\n");
+      assert.equal(execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: root, encoding: "utf8" }), "");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
+});
+
+test("pack guard refuses leftover untracked outputs anywhere in the package before creating a tarball", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-pack-guard-"));
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    writeFileSync(join(root, "package.json"), '{"name":"example"}\n');
+    execFileSync("git", ["add", "package.json"], { cwd: root });
+    execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "Initial"], { cwd: root });
+    const guard = step("Pack verified release").run.split('handoff="$(mktemp')[0];
+    /** Run exactly the workflow pre-pack guards without any pack/publication effects. */
+    const check = () => spawnSync("bash", ["-c", guard], { cwd: root, encoding: "utf8", env: { ...process.env, NPM_PROJECT_PATH: root } });
+    assert.equal(check().status, 0);
+    for (const path of ["CHANGELOG.md", "generated-metadata.json"]) {
+      writeFileSync(join(root, path), "new output\n");
+      assert.notEqual(check().status, 0, path);
+      rmSync(join(root, path));
+    }
+    assert.equal(check().status, 0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

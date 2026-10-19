@@ -5,6 +5,8 @@ export declare const ATTESTATION_FLAG = "--provenance";
 export type PublishRecognition = {
     readonly kind: "none";
 } | {
+    readonly kind: "unverified-offline";
+} | {
     readonly kind: "recognized";
     readonly count: number;
 };

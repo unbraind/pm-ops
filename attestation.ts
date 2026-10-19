@@ -48,7 +48,7 @@ import {
   type VerifierResult,
 } from "./shell-scan.ts";
 import { tallyFlaggedInvocations } from "./invocation-audit.ts";
-import { checkReleaseCaller } from "./release-caller.ts";
+import { inspectReleaseCaller, type ReleaseCallerResult } from "./release-caller.ts";
 
 /** The flag that attaches a build attestation to the published tarball. */
 export const ATTESTATION_FLAG = "--provenance";
@@ -56,6 +56,7 @@ export const ATTESTATION_FLAG = "--provenance";
 /** Whether a local publisher or an explicit canonical workflow delegation was recognized. */
 export type PublishRecognition =
   | { readonly kind: "none" }
+  | { readonly kind: "unverified-offline" }
   | { readonly kind: "recognized"; readonly count: number };
 
 /** Publish-attestation outcome with non-vacuity preserved as structured data. */
@@ -1038,10 +1039,12 @@ export function renderCommand(command: ShellCommand): string {
 }
 
 /** Recognize only the canonical release caller; this never exempts adjacent executable sources. */
-function canonicalReleaseDelegation(source: SourceFile): string | undefined {
-  if (source.file !== ".github/workflows/release.yml" || checkReleaseCaller(source.text).length > 0) return undefined;
+function canonicalReleaseDelegation(source: SourceFile): { reference: string; status: ReleaseCallerResult["status"] } | undefined {
+  if (source.file !== ".github/workflows/release.yml") return undefined;
+  const result = inspectReleaseCaller(source.text);
+  if (result.status === "refused") return undefined;
   const workflow = parse(source.text) as { jobs: Record<string, { uses: string }> };
-  return Object.values(workflow.jobs)[0].uses;
+  return { reference: Object.values(workflow.jobs)[0].uses, status: result.status };
 }
 
 /**
@@ -1066,12 +1069,12 @@ function canonicalReleaseDelegation(source: SourceFile): string | undefined {
 export function auditPublishAttestation(sources: SourceFile[]): PublishAttestationResult {
   const invocations: PublishInvocation[] = [];
   const parseFailures: string[] = [];
-  const delegations: { file: string; reference: string }[] = [];
+  const delegations: { file: string; reference: string; status: ReleaseCallerResult["status"] }[] = [];
   for (const source of sources) {
     try {
       invocations.push(...publishInvocationsIn(source));
-      const reference = canonicalReleaseDelegation(source);
-      if (reference !== undefined) delegations.push({ file: source.file, reference });
+      const delegation = canonicalReleaseDelegation(source);
+      if (delegation !== undefined) delegations.push({ file: source.file, ...delegation });
     } catch {
       parseFailures.push(`${source.file}: executable source cannot be parsed; refusing an unresolvable publish path`);
     }
@@ -1107,11 +1110,13 @@ export function auditPublishAttestation(sources: SourceFile[]): PublishAttestati
     failures: [...(invocations.length === 0 && (parseFailures.length > 0 || delegations.length > 0) ? [] : failures), ...parseFailures],
     notes: parseFailures.length > 0 ? [] : [
       ...notes,
-      ...delegations.map(({ file, reference }) => `ok - ${file}: canonical release delegation to ${reference}; publisher enforcement belongs to that pinned pm-ops workflow`),
+      ...delegations.map(({ file, reference, status }) => status === "unverified-offline"
+        ? `unverified-offline - ${file}: SHA provenance for ${reference} is not verified; attestation deferred until online verification`
+        : `ok - ${file}: canonical release delegation to ${reference}; publisher enforcement belongs to that pinned pm-ops workflow`),
     ],
-    recognition: recognized === 0
-      ? { kind: "none" }
-      : { kind: "recognized", count: recognized },
+    recognition: delegations.some(delegation => delegation.status === "unverified-offline")
+      ? { kind: "unverified-offline" }
+      : recognized === 0 ? { kind: "none" } : { kind: "recognized", count: recognized },
   };
 }
 
@@ -1263,6 +1268,10 @@ export function report(
   if (result.failures.length > 0) {
     write(`verify-release-publish-attestation: ${result.failures.length} failure(s).`);
     exit(1);
+    return;
+  }
+  if (result.notes.some(note => note.startsWith("unverified-offline"))) {
+    write("verify-release-publish-attestation: unverified-offline; attestation deferred.");
     return;
   }
   write("verify-release-publish-attestation: every publish invocation is attested.");

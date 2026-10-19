@@ -1,10 +1,10 @@
-/** Fail-closed structural check for fleet callers of the shared release workflow. */
+/** Structural and canonical tag provenance checks for shared release workflow callers. */
 import { isScalar, parseDocument } from "yaml";
 import { execFileSync } from "node:child_process";
 import metadata from "./release-metadata.json" with { type: "json" };
 
 /** Resolve only release tags owned by the canonical repository, including annotated tags. */
-export function fetchCanonicalReleaseTags(run: (args: string[]) => string = args => execFileSync("gh", args, { encoding: "utf8" })): Record<string, string> {
+export function fetchCanonicalReleaseTags(run: (args: string[]) => string = runCanonicalTagApi): Record<string, string> {
   const tags: Record<string, string> = {};
   const refs = run(["api", "--paginate", "repos/unbraind/pm-ops/git/refs/tags", "--jq", ".[] | [.ref, .object.type, .object.sha] | @tsv"]);
   for (const line of refs.trim().split("\n")) {
@@ -22,18 +22,45 @@ export function fetchCanonicalReleaseTags(run: (args: string[]) => string = args
   return tags;
 }
 
+/** Read the public canonical API even when gh authentication or the CLI is unavailable. */
+function runCanonicalTagApi(args: string[]): string {
+  try {
+    return execFileSync("gh", ["api", "--hostname", "github.com", ...args.slice(1)], { encoding: "utf8", timeout: 20_000, stdio: ["ignore", "pipe", "pipe"] });
+  } catch {
+    const endpoint = args.find(arg => arg.startsWith("repos/"))!.replace("/git/refs/tags", "/git/matching-refs/tags/");
+    const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
+    const response = execFileSync("curl", ["--fail", "--silent", "--show-error", "--max-time", "20", "--header", "Accept: application/vnd.github+json", "--header", "@-", `https://api.github.com/${endpoint}`], {
+      encoding: "utf8", timeout: 25_000, stdio: ["pipe", "pipe", "pipe"],
+      input: token ? `Authorization: Bearer ${token}\n` : "",
+    });
+    const data = JSON.parse(response) as { ref: string; object: { type: string; sha: string } }[] | { object: { type: string; sha: string } };
+    return Array.isArray(data)
+      ? data.map(ref => [ref.ref, ref.object.type, ref.object.sha].join("\t")).join("\n")
+      : [data.object.type, data.object.sha].join("\t");
+  }
+}
+
+/** Explicit provenance outcome; unavailable fresh evidence never counts as approval. */
+export interface ReleaseCallerResult {
+  /** Whether canonical provenance was verified, refused, or deferred offline. */
+  status: "verified" | "refused" | "unverified-offline";
+  /** Structural or provenance diagnostics, including an explicit offline deferral. */
+  errors: string[];
+}
+
 /** Narrow arbitrary YAML nodes without assuming that a scalar is a mapping. */
 function mapping(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 /** Verify a SHA-pinned caller with no embedded jobs, private steps, or inherited secrets. */
-export function checkReleaseCaller(source: string, releaseTags: Readonly<Record<string, string>> = metadata.tags): string[] {
+export function inspectReleaseCaller(source: string, resolveTags: (() => Readonly<Record<string, string>>) = fetchCanonicalReleaseTags): ReleaseCallerResult {
   const document = parseDocument(source, { uniqueKeys: true });
-  if (document.errors.length > 0) return ["release.yml is invalid YAML"];
+  if (document.errors.length > 0) return { status: "refused", errors: ["release.yml is invalid YAML"] };
   const workflow = mapping(document.toJS());
   const jobs = Object.entries(mapping(workflow.jobs));
   const errors: string[] = [];
+  let pin: { tag: string; sha: string } | undefined;
   if (jobs.length !== 1) errors.push("release.yml must contain exactly one reusable release job");
   for (const [id, value] of jobs) {
     const job = mapping(value);
@@ -44,8 +71,8 @@ export function checkReleaseCaller(source: string, releaseTags: Readonly<Record<
     const tag = isScalar(uses) ? uses.comment?.trim() : undefined;
     if (!tag || !/^v\d{4}\.\d{1,2}\.\d{1,2}(?:-\d+)?$/.test(tag)) {
       errors.push("release SHA needs a Dependabot version comment (# vYYYY.M.D)");
-    } else if (releaseTags[tag] !== String(job.uses).split("@")[1]) {
-      errors.push("release SHA must match its canonical pm-ops release tag; refresh release metadata or check online");
+    } else {
+      pin = { tag, sha: String(job.uses).split("@")[1] };
     }
     if (Object.keys(job).some(key => !["name", "uses", "with", "permissions"].includes(key))) {
       errors.push("release job contains private logic or secrets");
@@ -65,5 +92,20 @@ export function checkReleaseCaller(source: string, releaseTags: Readonly<Record<
   if (!("schedule" in trigger) || !("workflow_dispatch" in trigger)) errors.push("caller must allow schedule and workflow_dispatch continuation");
   if (Object.keys(trigger).some(key => !["schedule", "workflow_dispatch"].includes(key))) errors.push("caller permits an unsafe release trigger");
   if (Object.keys(workflow).some(key => !["name", "on", "permissions", "jobs"].includes(key))) errors.push("caller contains private workflow logic");
-  return errors;
+  if (errors.length > 0 || pin === undefined) return { status: "refused", errors };
+  let tags: Readonly<Record<string, string>>;
+  try {
+    tags = resolveTags();
+  } catch {
+    tags = metadata.tags;
+    if (!(pin.tag in tags)) return { status: "unverified-offline", errors: ["unverified-offline: canonical release tag is absent from the bundled snapshot; retry online to verify SHA provenance"] };
+  }
+  return tags[pin.tag] === pin.sha
+    ? { status: "verified", errors: [] }
+    : { status: "refused", errors: ["release SHA must match its canonical pm-ops release tag"] };
+}
+
+/** Compatibility diagnostics; use inspectReleaseCaller to distinguish offline deferral from refusal. */
+export function checkReleaseCaller(source: string, releaseTags?: Readonly<Record<string, string>>): string[] {
+  return inspectReleaseCaller(source, releaseTags === undefined ? undefined : () => releaseTags).errors;
 }
