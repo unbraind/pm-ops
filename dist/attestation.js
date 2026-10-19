@@ -23,6 +23,7 @@ import { resolve } from "node:path";
 import { isNode, parse, parseDocument } from "yaml";
 import { bashArrayDeclarations, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, declarationPrefixLength, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, isolateShellChildren, joinContinuations, scalarAssignmentEvents, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
 import { tallyFlaggedInvocations } from "./invocation-audit.js";
+import { checkReleaseCaller } from "./release-caller.js";
 /** The flag that attaches a build attestation to the published tarball. */
 export const ATTESTATION_FLAG = "--provenance";
 /** Literal npm verbs whose unknown operands cannot turn them into a publish. */
@@ -1007,12 +1008,22 @@ export function publishInvocationsIn(source) {
 export function renderCommand(command) {
     return command.map((token) => token.value).join(" ").slice(0, 160);
 }
+/** Recognize only the canonical release caller; this never exempts adjacent executable sources. */
+function canonicalReleaseDelegation(source) {
+    if (source.file !== ".github/workflows/release.yml" || checkReleaseCaller(source.text).length > 0)
+        return undefined;
+    const workflow = parse(source.text);
+    return Object.values(workflow.jobs)[0].uses;
+}
 /**
  * Audit every publish invocation across the given files.
  *
  * An absent invocation is a failure rather than a pass: a scan that finds
  * nothing has either been pointed at the wrong files or outlived the workflow
  * it guards, and both look identical to a clean result unless said out loud.
+ * The one explicit delegation is a structurally validated, SHA-pinned pm-ops
+ * release caller. Its note identifies the upstream trust boundary; every local
+ * or unresolved publisher remains audited even beside that caller.
  *
  * A publisher other than npm fails outright rather than being checked for a
  * flag. This repository's attested path is npm's `--provenance`; no equivalent
@@ -1026,9 +1037,13 @@ export function renderCommand(command) {
 export function auditPublishAttestation(sources) {
     const invocations = [];
     const parseFailures = [];
+    const delegations = [];
     for (const source of sources) {
         try {
             invocations.push(...publishInvocationsIn(source));
+            const reference = canonicalReleaseDelegation(source);
+            if (reference !== undefined)
+                delegations.push({ file: source.file, reference });
         }
         catch {
             parseFailures.push(`${source.file}: executable source cannot be parsed; refusing an unresolvable publish path`);
@@ -1056,12 +1071,16 @@ export function auditPublishAttestation(sources) {
         flag: ATTESTATION_FLAG,
         emptyScan: "no npm publish invocation was found in any tracked file - the scan is looking in the wrong place",
     });
+    const recognized = invocations.length + delegations.length;
     return {
-        failures: [...(parseFailures.length > 0 && invocations.length === 0 ? [] : failures), ...parseFailures],
-        notes: parseFailures.length > 0 ? [] : notes,
-        recognition: invocations.length === 0
+        failures: [...(invocations.length === 0 && (parseFailures.length > 0 || delegations.length > 0) ? [] : failures), ...parseFailures],
+        notes: parseFailures.length > 0 ? [] : [
+            ...notes,
+            ...delegations.map(({ file, reference }) => `ok - ${file}: canonical release delegation to ${reference}; publisher enforcement belongs to that pinned pm-ops workflow`),
+        ],
+        recognition: recognized === 0
             ? { kind: "none" }
-            : { kind: "recognized", count: invocations.length },
+            : { kind: "recognized", count: recognized },
     };
 }
 /**

@@ -6,11 +6,11 @@ status: in_progress
 priority: 1
 tags: []
 created_at: "2026-10-19T14:08:13.526Z"
-updated_at: "2026-10-19T15:05:41.333Z"
+updated_at: "2026-10-19T15:34:10.025Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
-comments[10]{created_at,author,text}:
+comments[14]{created_at,author,text}:
   "2026-10-19T14:08:30.300Z",codex-agent,"Plan: use pm-github PR 152 head 14b533a as the audited baseline, recheck upstream before completion, inventory fetched main workflows with hashes, expose package needs as typed inputs or npm-script hooks, and verify full npm/Bun gates without changing thresholds. Publication must run at the merged commit so provenance and tag identify the same SHA."
   "2026-10-19T14:32:34.573Z",codex-agent,"Inventory: 28 readable workflows have 28 distinct MD5 values; 713 structural deltas classify as 123 cosmetic/stale, 318 package needs, 272 defects. pm-memory has no fetchable origin; pm-observer has no release workflow; core pm-cli is excluded. Shared protections include read-only artifact preparation, SHA-bound continuation publication, registry provenance commit/digest checks, GitHub Release repair, and separate read-only Bun/bunx activation. Every package hook and approval guard is documented in docs/reusable-release.md."
   "2026-10-19T14:32:42.021Z",codex-agent,"Behavioral revert proofs in a disposable source copy: node --test test/daily-release.test.ts passes 8/8 before mutation. Reverting only selectReleasePullRequests to the first 30 in API order fails 2 tests (6 pass); reverting only ownsReleasePullRequest to release-prefix ownership fails 2 tests (6 pass); reverting only the daily decision to ignore day/version caps fails 2 tests (6 pass). Each mutant exits 1; source restoration exits 0. Tests import erasable TypeScript directly, so no compiled-output rebuild can hide the reversion. Focused new-source coverage is 100/100/100/100."
@@ -21,8 +21,13 @@ comments[10]{created_at,author,text}:
   "2026-10-19T15:03:26.231Z",codex-agent,"CI correctly refused four new workflow shell forms in the unchanged canonical attestation gate. The correction uses a literal tarball path from its handoff directory, a simple array-length conditional, pure tested Cargo stamping, and a fixed-argv TypeScript adapter for the Bun script. The auditor and thresholds are unchanged. A parsed-workflow regression now runs the canonical auditor against the entire reusable workflow with no exclusions. Focused suite: 20/20 pass; all new source coverage dimensions remain 100 percent. The earlier clone runs are superseded by this correction."
   "2026-10-19T15:03:27.407Z",codex-agent,"Upstream recheck: pm-github PR 152 is merged; fetched main is 5f169971d4a5f37d48795512c2c100ccf571c8d9. Its release.yml is byte-identical to the ported 14b533a PR head, so there are no later fixes to port. Packed candidate acceptance passed for npm/Node/npx and native Bun/bunx, including actual package activation, strict tracker health and the release-caller policy. No SDK or CLI defect was found; the earlier install failure was a cold-download timeout."
   "2026-10-19T15:05:41.331Z",codex-agent,"Final behavioral revert controls now pass 10/10 pure-function tests. Reverting selection alone, ownership alone, or the daily cap alone each exits 1 with 8 pass and 2 fail. The new Cargo and Bun adapter tests pass, and the canonical workflow attestation regression passes without exclusions. Corrected focused suite: 20/20, zero skips; focused new-source coverage: 100/100/100/100."
-files[13]{path,scope}:
+  "2026-10-19T15:20:37.601Z",codex-agent,"Verified implementation commit 7a83d9532253b760782f3b6ac13132d6a566dfbf from separate no-local clones with isolated HOME and disabled global/system Git config. npm run release:check and bun run release:check both pass: 1349 tests, 1347 pass, 2 existing opt-in real-data fleet skips, 0 fail/cancel/TODO. Coverage is 100/100/100/100 across all 30 measured source files at unchanged per-file thresholds. Duplication is 0 percent across 27319 measured lines; 251 declarations pass the docstring gate; production audit has zero vulnerabilities. Package dry-run, changelog/date, canonical publish-attestation and lifecycle gates all pass. GitHub Node 22/26, Windows consumers 22/26 and CodeQL also pass on this commit. Fresh-clone strict health passes after normal pinned SDK setup, with only the existing stale-item advisory. PM-linked commands pass 19/19 plus 1/1; result storage is disabled, so this comment preserves the receipt. Packed npm/Node/npx and native Bun/bunx candidate consumers pass actual package activation, strict tracker health and the release-caller policy. actionlint v1.7.12 passes with only its documented job.workflow_sha property gap ignored; every shell block passes bash -n. No threshold or auditor exclusion was added. No PM CLI/SDK defect was found."
+  "2026-10-19T15:20:39.640Z",codex-agent,"Handoff: PR https://github.com/unbraind/pm-ops/pull/183. Inventory is 28 readable byte-distinct workflows and 713 classified structural deltas (123 cosmetic/stale, 318 package needs, 272 defects). Both migration callers pass structure/input-name validation after replacing the deliberate zero-SHA marker. All 22 typed inputs are documented. pm-github 152 is merged and its fetched main workflow is byte-identical to the ported head. Remaining work is the approved release/pilot/migration and the two inventory gaps in ops-release-inventory-gaps. Live publishing is not certified by local gates; neutral/skipped review services are not approvals. No consumer source, hosted setting, software tag or release was changed. Leaving this item in progress for orchestrator verification and closeout; releasing the claim now."
+  "2026-10-19T15:23:46.630Z",codex-agent,"Final migration review found a required upstream coupling: the canonical attestation auditor rejects a thin caller because it contains no local publish command. Reclaimed this item to add explicit recognition of the exact SHA-pinned pm-ops caller, with regressions proving that foreign refs, private jobs and adjacent unattested publish paths still fail. The already-passing 7a83d95 receipts remain historical implementation evidence; the final implementation will be re-gated."
+  "2026-10-19T15:34:10.025Z",codex-agent,"Caller migration coupling is now handled upstream: the canonical auditor recognizes only the structurally valid, SHA-pinned pm-ops release.yml caller and reports an explicit upstream delegation. It still audits every adjacent local, foreign or unresolved publisher and preserves malformed-source failures. New regressions pass 3/3; reverting only canonicalReleaseDelegation to the old unrecognized behavior fails all 3 (0 pass). A real tracked Git fixture proves a caller-only consumer passes and an added unguarded package script fails. All focused tests pass 23/23. Migration docs require the one-time automated Dependabot pm-ops upgrade and conversion of old local-workflow shape guards before the caller wave; no consumers were edited."
+files[15]{path,scope}:
   .github/workflows/daily-release.yml,project
+  attestation.ts,project
   daily-release.ts,project
   docstrings.ts,project
   index.ts,project
@@ -33,11 +38,13 @@ files[13]{path,scope}:
   templates/release-caller.yml,project
   test/daily-release-workflow.test.ts,project
   test/daily-release.test.ts,project
+  test/release-caller-attestation.test.ts,project
   test/release-caller.test.ts,project
   test/release-verification.test.ts,project
-tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+tests[3]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/daily-release.test.ts test/release-caller.test.ts test/daily-release-workflow.test.ts,project,180,codex-agent,"2026-10-19T14:33:56.042Z",local_mutation,feat/reusable-daily-release
   node --test test/release-verification.test.ts,project,180,codex-agent,"2026-10-19T15:03:24.726Z",local_mutation,feat/reusable-daily-release
+  node --test test/release-caller-attestation.test.ts,project,180,codex-agent,"2026-10-19T15:34:07.548Z",local_mutation,feat/reusable-daily-release
 docs[2]{path,scope}:
   docs/release-divergences.json,project
   docs/reusable-release.md,project

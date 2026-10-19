@@ -100,6 +100,8 @@ The `prepare-script` hook covers pm-todos' `release:update-version` and other pa
 
 `npm run release-caller -- path/to/release.yml` fails on a copied implementation, additional jobs/steps, unsafe triggers, inherited secrets, missing least-privilege grants, a non-SHA reference, a zero placeholder SHA, a missing version comment, or a second pm-ops version input. The exported `pm-ops/release-caller` function is also available to package gates.
 
+The canonical publish-attestation auditor also recognizes this exact caller at `.github/workflows/release.yml`. Its result explicitly identifies a SHA-pinned delegation to the audited pm-ops workflow, rather than claiming a local publish command was found. Foreign or floating references, placeholder SHAs, private workflow logic and malformed callers do not satisfy the non-vacuity gate. Every adjacent local, foreign or unresolved publisher is still checked, and parse failures remain failures. The gate does not fetch or independently re-audit remote commits; the immutable pin is an explicit trust boundary.
+
 The same check is available as an opt-in pm-ops policy check:
 
 ```json
@@ -111,6 +113,8 @@ Run `npx pm ops policy --policy release-policy.json --repos . --strict`. It is o
 ## Migration
 
 **No consumer is changed by this PR.** The zero SHA in the template and examples is an explicit substitution marker and is rejected by the check. A real released SHA containing `daily-release.yml` does not exist until this PR is reviewed, merged and released by the orchestrator. Do not pin today's old release, the feature branch, or a nonexistent guessed future release.
+
+First merge the automated Dependabot upgrade of the package's pm-ops dependency to the release introducing caller-delegation recognition (or newer). This is a one-time migration prerequisite for existing attestation shims; older versions correctly reject a caller with no local publisher. Do not hand-bump consumer dependencies in this PR. Future workflow fixes require only the GitHub Actions SHA update, not a second pm-ops version input.
 
 The wave script must resolve the first approved release tag containing this workflow, substitute that peeled SHA and actual `# vYYYY.M.D` comment, and verify that the workflow exists at that commit. Enable Dependabot's `github-actions` ecosystem for the repository. Configure npm trusted publishing for the caller repository and `release.yml`, with the npm publish action enabled; [npm documents that reusable workflow validation uses the caller workflow identity](https://github.com/npm/documentation/blob/main/content/packages-and-modules/securing-your-code/trusted-publishers.mdx); the live OIDC preflight must still pass before enabling the pilot. No NPM_TOKEN is passed. Test the resulting caller with the check before committing it.
 
@@ -135,6 +139,14 @@ jobs:
     with:
       alert-script: release:alert
 ```
+
+The pm-csv migration must also convert its `verify:release-workflow` script and local workflow-shape tests to the caller contract. Keep the script name used by `release:check`, but have its implementation call the published `checkReleaseCaller` API; replace assertions about local publisher steps with caller shape/input assertions. For example, the npm script can use this command:
+
+```sh
+node --input-type=module -e "import {readFileSync} from 'node:fs'; import {checkReleaseCaller} from 'pm-ops/release-caller'; const errors = checkReleaseCaller(readFileSync('.github/workflows/release.yml', 'utf8')); if (errors.length) { console.error(errors.join('; ')); process.exitCode = 1; }"
+```
+
+Apply the same one-time conversion wherever consumer tests assert a private workflow's step names, including Rust workflow guards. Do not delete those checks without replacing them with caller assertions. The publisher implementation's regressions live in pm-ops and do not get copied back into consumers.
 
 Preserve its current alert by adding the npm script `"release:alert": "bash scripts/alert-on-release-failure.sh"` in the same migration PR. The package's current `changelog:full`, `changelog:check` and `release:notes` scripts remain the pm-changelog contract. The other npm packages use `templates/release-caller.yml`, adding only their documented inputs and any existing approval expression.
 

@@ -1,7 +1,7 @@
 import { type ShellCommand, type SourceFile, type VerifierResult } from "./shell-scan.ts";
 /** The flag that attaches a build attestation to the published tarball. */
 export declare const ATTESTATION_FLAG = "--provenance";
-/** Whether the auditor recognized any publish command at all. */
+/** Whether a local publisher or an explicit canonical workflow delegation was recognized. */
 export type PublishRecognition = {
     readonly kind: "none";
 } | {
@@ -108,6 +108,9 @@ export declare function renderCommand(command: ShellCommand): string;
  * An absent invocation is a failure rather than a pass: a scan that finds
  * nothing has either been pointed at the wrong files or outlived the workflow
  * it guards, and both look identical to a clean result unless said out loud.
+ * The one explicit delegation is a structurally validated, SHA-pinned pm-ops
+ * release caller. Its note identifies the upstream trust boundary; every local
+ * or unresolved publisher remains audited even beside that caller.
  *
  * A publisher other than npm fails outright rather than being checked for a
  * flag. This repository's attested path is npm's `--provenance`; no equivalent
