@@ -53,8 +53,23 @@ function mapping(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+/** Whether PM_OPS_OFFLINE disables every networked canonical tag lookup.
+ *
+ * Every path that resolves canonical release tags offline shares this check, so the
+ * documented offline mode behaves identically in policy runs, attestation audits and the CLI.
+ */
+export function isPmOpsOffline(): boolean {
+  return process.env.PM_OPS_OFFLINE === "1" || process.env.PM_OPS_OFFLINE === "true";
+}
+
+/** Default resolver: never contacts the canonical API while PM_OPS_OFFLINE is set. */
+export function defaultCanonicalTagResolver(): Readonly<Record<string, string>> {
+  if (isPmOpsOffline()) throw new Error("PM_OPS_OFFLINE is set: canonical release tags are not fetched");
+  return fetchCanonicalReleaseTags();
+}
+
 /** Verify a SHA-pinned caller with no embedded jobs, private steps, or inherited secrets. */
-export function inspectReleaseCaller(source: string, resolveTags: (() => Readonly<Record<string, string>>) = fetchCanonicalReleaseTags): ReleaseCallerResult {
+export function inspectReleaseCaller(source: string, resolveTags: (() => Readonly<Record<string, string>>) = defaultCanonicalTagResolver): ReleaseCallerResult {
   const document = parseDocument(source, { uniqueKeys: true });
   if (document.errors.length > 0) return { status: "refused", errors: ["release.yml is invalid YAML"] };
   const workflow = mapping(document.toJS());

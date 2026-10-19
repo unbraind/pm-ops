@@ -184,7 +184,7 @@ jobs:
       bun-verify: false
 ```
 
-Rust keeps its justfile recipes and existing approval guard. It publishes a GitHub Release only; no npm package or new crate registry target is invented. The caller permissions are the ceiling for the shared workflow; the GitHub-only path does not perform an npm OIDC exchange. Every caller grants `issues: write` even with an empty alert hook, because GitHub validates nested permissions before conditional jobs run.
+Rust keeps its justfile recipes and existing approval guard. It publishes a GitHub Release only; no npm package or new crate registry target is invented. The caller permissions are the ceiling for the shared workflow; the GitHub-only path does not perform an npm OIDC exchange. Because a called workflow can keep or reduce the caller's permissions, the caller template grants `issues: write` up front to meet that ceiling for the nested `alert` job, even for callers whose alert hook stays empty.
 
 After pm-csv and pm-rust pass their own unchanged gates and a controlled daily-release run, migrate the remaining approved packages in waves. Keep unapproved packages disabled. Verify actual npm/GitHub publication, exact tag/provenance commit, Bun acceptance, alerts and retry behavior separately from local tests. Local gates do not establish live trusted-publisher acceptance.
 

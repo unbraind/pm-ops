@@ -6,9 +6,11 @@ status: in_progress
 priority: 1
 tags: []
 created_at: "2026-10-19T14:08:13.526Z"
-updated_at: "2026-10-19T20:40:16.056Z"
+updated_at: "2026-10-19T22:14:32.675Z"
+assignee: pi-agent
+claim_principal: pi-agent
 author: codex-agent
-comments[29]{created_at,author,text}:
+comments[33]{created_at,author,text}:
   "2026-10-19T14:08:30.300Z",codex-agent,"Plan: use pm-github PR 152 head 14b533a as the audited baseline, recheck upstream before completion, inventory fetched main workflows with hashes, expose package needs as typed inputs or npm-script hooks, and verify full npm/Bun gates without changing thresholds. Publication must run at the merged commit so provenance and tag identify the same SHA."
   "2026-10-19T14:32:34.573Z",codex-agent,"Inventory: 28 readable workflows have 28 distinct MD5 values; 713 structural deltas classify as 123 cosmetic/stale, 318 package needs, 272 defects. pm-memory has no fetchable origin; pm-observer has no release workflow; core pm-cli is excluded. Shared protections include read-only artifact preparation, SHA-bound continuation publication, registry provenance commit/digest checks, GitHub Release repair, and separate read-only Bun/bunx activation. Every package hook and approval guard is documented in docs/reusable-release.md."
   "2026-10-19T14:32:42.021Z",codex-agent,"Behavioral revert proofs in a disposable source copy: node --test test/daily-release.test.ts passes 8/8 before mutation. Reverting only selectReleasePullRequests to the first 30 in API order fails 2 tests (6 pass); reverting only ownsReleasePullRequest to release-prefix ownership fails 2 tests (6 pass); reverting only the daily decision to ignore day/version caps fails 2 tests (6 pass). Each mutant exits 1; source restoration exits 0. Tests import erasable TypeScript directly, so no compiled-output rebuild can hide the reversion. Focused new-source coverage is 100/100/100/100."
@@ -38,11 +40,16 @@ comments[29]{created_at,author,text}:
   "2026-10-19T20:14:19.717Z",pi-agent,"Fixed the unresolved review thread: runPolicy now builds one canonical release tag resolver per policy run (createCanonicalTagResolver) and passes it to every release-caller check, so the canonical tag refs are fetched at most once per run instead of once per repository. The resolver throws while PM_OPS_OFFLINE is set, so the release-caller policy check falls back to the bundled release-metadata snapshot exactly like any other unavailable online evidence, and makes zero network calls offline. Revert proof (behavioural): with only the index.ts wiring reverted (caller check back to inspectReleaseCaller without a resolver, no shared resolver), both new regression tests fail - 'ops policy resolves canonical release tags once per policy run' sees two gh tag-refs calls for two repos instead of one, and 'ops policy makes no canonical tag network calls while offline' records a gh call under PM_OPS_OFFLINE=1. With the fix restored both pass."
   "2026-10-19T20:35:29.493Z",pi-agent,"Review round complete. Gates at unchanged thresholds: npm run release:check exit 0 (typecheck, lint, duplication, docstring, coverage gate with full test matrix: 1363 tests pass, 0 fail, audit:prod, pack:dry-run 77 files, changelog:check, release verifies) and bun run release:check exit 0 (same chain, 1363 pass, 0 fail). No merge of origin/main was needed (branch already contains main), no pending merge receipts, no history edits. Changes: index.ts builds one canonical release tag resolver per policy run and honors PM_OPS_OFFLINE; test/ops.test.ts adds two regression tests with behavioural revert proof recorded above. Pre-existing health warnings (global extension version skew, .gitattributes merge-fence drift identical to main) are environmental and unrelated; CI is green on the current head with the same state."
   "2026-10-19T20:40:11.769Z",pi-agent,"Pushed head 371280d (branch feat/reusable-daily-release): CI green on all checks (test matrices for Node 22/26, windows-consumers 22/26, CodeQL). The unresolved review thread fix and both regression tests are in the pushed head; no threads replied to or resolved, no bots mentioned, no merge or release performed."
-files[20]{path,scope}:
+  "2026-10-19T22:13:45.023Z",pi-agent,"Review round: verified the three unresolved PR review threads against the current head; no Outside-diff-range findings in the latest bot review. All three are valid and fixed: (1) default canonical-tag resolver ignores PM_OPS_OFFLINE in the attestation and CLI paths (release-caller.ts); (2) the CLI online parameter/flag does not change behavior (scripts/release-caller.ts); (3) an unsupported validation-timing claim in the Rust guidance (docs/reusable-release.md)."
+  "2026-10-19T22:13:53.408Z",pi-agent,"Fix 1 (default resolver + offline): new exported isPmOpsOffline() and defaultCanonicalTagResolver() in release-caller.ts; inspectReleaseCaller now defaults to that resolver, so PM_OPS_OFFLINE defers online provenance identically in the policy run, the attestation audit and the CLI. index.ts reuses isPmOpsOffline() for its shared offline check instead of a private env comparison."
+  "2026-10-19T22:13:57.517Z",pi-agent,"Fix 2 (dead online flag): scripts/release-caller.ts runReleaseCaller drops the unused online parameter and always uses the shared default resolver; the CLI entry no longer parses or filters --online. Offline CLI mode now comes from PM_OPS_OFFLINE. Fix 3 (docs): the Rust guidance no longer claims GitHub validates nested permissions before conditional jobs run; it states the caller template grants issues: write up front to meet the caller-permission ceiling for the nested alert job, since a called workflow can keep or reduce the caller's permissions."
+  "2026-10-19T22:14:07.018Z",pi-agent,"Revert proofs (behavioral, fix reverted and only the new regressions re-run): reverting the default-resolver fix alone (inspectReleaseCaller back to fetchCanonicalReleaseTags as the default) fails the two new PM_OPS_OFFLINE tests ('PM_OPS_OFFLINE defers the shared default resolver in the checker and CLI without fetching' and 'PM_OPS_OFFLINE defers the attestation audit's default resolver instead of verifying against the network'): both return verified/recognized against the live fixture instead of unverified-offline. Reverting only the online-flag removal fails the CLI assertion 'the removed --online flag must no longer be filtered out of the path argument' (the flag is filtered again, so no ENOENT is raised). The docs fix is prose-only; the existing test 'caller requires the alert job issues-write permission even without an alert input' pins the issues: write grant the corrected sentence describes."
+files[21]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
   daily-release.ts,project
   dist/release-metadata.json,project
+  docs/reusable-release.md,project
   docstrings.ts,project
   index.ts,project
   package.json,project
@@ -59,7 +66,7 @@ files[20]{path,scope}:
   test/release-caller-attestation.test.ts,project
   test/release-caller.test.ts,project
   test/release-verification.test.ts,project
-tests[6]:
+tests[7]:
   - command: node --test test/daily-release.test.ts test/release-caller.test.ts test/daily-release-workflow.test.ts
     scope: project
     timeout_seconds: 180
@@ -103,6 +110,13 @@ tests[6]:
     provenance:
       author: pi-agent
       created_at: "2026-10-19T20:14:24.723Z"
+      source_kind: local_mutation
+      source_ref: feat/reusable-daily-release
+  - command: node --test test/release-caller.test.ts test/release-caller-attestation.test.ts
+    scope: project
+    provenance:
+      author: pi-agent
+      created_at: "2026-10-19T22:14:10.457Z"
       source_kind: local_mutation
       source_ref: feat/reusable-daily-release
 docs[2]{path,scope}:

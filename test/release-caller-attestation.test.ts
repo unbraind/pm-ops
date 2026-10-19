@@ -84,3 +84,20 @@ test("attestation verifies newest release pins online and explicitly defers offl
     assert.ok(adjacent.failures.some(failure => failure.includes("scripts/publish.sh")));
   } finally { api.setTags(canonical); }
 });
+
+test("PM_OPS_OFFLINE defers the attestation audit's default resolver instead of verifying against the network", () => {
+  const sha = "d".repeat(40), tag = "v2099.12.25";
+  const newest = caller.replace(releasedSha, sha).replace("v2026.10.19", tag);
+  const previous = process.env.PM_OPS_OFFLINE;
+  api.setTags({ [tag]: sha });
+  try {
+    process.env.PM_OPS_OFFLINE = "1";
+    const deferred = auditPublishAttestation([{ file, text: newest }]);
+    assert.deepEqual(deferred.failures, []);
+    assert.equal(deferred.recognition.kind, "unverified-offline", "offline mode must defer a newest pin the network would verify");
+  } finally {
+    if (previous === undefined) delete process.env.PM_OPS_OFFLINE;
+    else process.env.PM_OPS_OFFLINE = previous;
+    api.setTags(canonical);
+  }
+});

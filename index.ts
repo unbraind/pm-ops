@@ -21,7 +21,7 @@ import {
 } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage, type DocstringViolation } from "./docstrings.ts";
 import { qualityMeasurementProvider } from "./assurance.ts";
-import { fetchCanonicalReleaseTags, inspectReleaseCaller } from "./release-caller.ts";
+import { fetchCanonicalReleaseTags, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.ts";
 
 
 // ---------------------------------------------------------------------------
@@ -679,8 +679,9 @@ interface NpmOutdated {
   [name: string]: unknown;
 }
 
+/** Reuse the shared PM_OPS_OFFLINE check so policy and tag resolution agree on offline mode. */
 function isOffline(): boolean {
-  return process.env.PM_OPS_OFFLINE === "1" || process.env.PM_OPS_OFFLINE === "true";
+  return isPmOpsOffline();
 }
 
 /** Count outdated dependencies via npm outdated --json, null when offline or failing. */

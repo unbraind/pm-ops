@@ -7,6 +7,14 @@ export interface ReleaseCallerResult {
     /** Structural or provenance diagnostics, including an explicit offline deferral. */
     errors: string[];
 }
+/** Whether PM_OPS_OFFLINE disables every networked canonical tag lookup.
+ *
+ * Every path that resolves canonical release tags offline shares this check, so the
+ * documented offline mode behaves identically in policy runs, attestation audits and the CLI.
+ */
+export declare function isPmOpsOffline(): boolean;
+/** Default resolver: never contacts the canonical API while PM_OPS_OFFLINE is set. */
+export declare function defaultCanonicalTagResolver(): Readonly<Record<string, string>>;
 /** Verify a SHA-pinned caller with no embedded jobs, private steps, or inherited secrets. */
 export declare function inspectReleaseCaller(source: string, resolveTags?: (() => Readonly<Record<string, string>>)): ReleaseCallerResult;
 /** Compatibility diagnostics; use inspectReleaseCaller to distinguish offline deferral from refusal. */

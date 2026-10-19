@@ -58,15 +58,43 @@ test("online CLI checks and metadata refresh use canonical API results and fall 
     chmodSync(gh, 0o755);
     process.env.PATH = `${root}:${beforePath}`;
     writeFileSync(path, caller);
-    assert.equal(runReleaseCaller(path, () => assert.fail("unexpected error"), true), true);
+    assert.equal(runReleaseCaller(path, () => assert.fail("unexpected error")), true);
     const moduleUrl = new URL("../scripts/release-caller.ts", import.meta.url).href;
-    releaseCallerMain([process.execPath, new URL(moduleUrl).pathname, "--online", path], moduleUrl);
+    releaseCallerMain([process.execPath, new URL(moduleUrl).pathname, path], moduleUrl);
     releaseCallerMain([process.execPath, new URL(moduleUrl).pathname, "--write-metadata", output], moduleUrl);
     assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), { repository: "unbraind/pm-ops", tags: { "v2026.10.19": releasedSha } });
     writeFileSync(gh, "#!/bin/sh\nexit 7\n");
-    assert.equal(runReleaseCaller(path, () => {}, true), true);
+    assert.equal(runReleaseCaller(path, () => {}), true);
   } finally {
     process.env.PATH = beforePath;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("PM_OPS_OFFLINE defers the shared default resolver in the checker and CLI without fetching", () => {
+  const sha = "a".repeat(40), tag = "v2099.12.25";
+  const newest = caller.replace(releasedSha, sha).replace("v2026.10.19", tag);
+  const root = mkdtempSync(join(tmpdir(), "offline-deferral-"));
+  const previous = process.env.PM_OPS_OFFLINE;
+  api.setTags({ [tag]: sha });
+  try {
+    process.env.PM_OPS_OFFLINE = "1";
+    const pending = inspectReleaseCaller(newest);
+    assert.equal(pending.status, "unverified-offline", "offline mode must defer rather than verify a newest pin");
+    assert.match(pending.errors[0], /unverified-offline/);
+    assert.ok(checkReleaseCaller(newest).some(error => error.includes("unverified-offline")));
+    const path = join(root, "release.yml");
+    writeFileSync(path, newest);
+    const lines: string[] = [];
+    assert.equal(runReleaseCaller(path, line => lines.push(line)), undefined);
+    assert.match(lines[0], /unverified-offline/);
+    const moduleUrl = new URL("../scripts/release-caller.ts", import.meta.url).href;
+    assert.throws(() => releaseCallerMain([process.execPath, new URL(moduleUrl).pathname, "--online", path], moduleUrl),
+      { code: "ENOENT" }, "the removed --online flag must no longer be filtered out of the path argument");
+  } finally {
+    if (previous === undefined) delete process.env.PM_OPS_OFFLINE;
+    else process.env.PM_OPS_OFFLINE = previous;
+    api.setTags(canonical);
     rmSync(root, { recursive: true, force: true });
   }
 });

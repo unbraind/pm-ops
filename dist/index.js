@@ -8,7 +8,7 @@ import { encode } from "@toon-format/toon";
 import { listMergeReceipts, auditMergeDriverConfiguration, auditMergeAttributeFence, findGitWorkspaceRoot, } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage } from "./docstrings.js";
 import { qualityMeasurementProvider } from "./assurance.js";
-import { fetchCanonicalReleaseTags, inspectReleaseCaller } from "./release-caller.js";
+import { fetchCanonicalReleaseTags, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.js";
 // ---------------------------------------------------------------------------
 // Error contract — mirror pm-cli SDK EXIT_CODE so the host treats thrown
 // CommandError as a clean non-zero exit instead of re-invoking the handler.
@@ -590,8 +590,9 @@ function readBlockedCount(repoPath) {
     const items = readPmItemList(repoPath, ["list", "--status", "blocked"], pmBlockedCache);
     return items === null ? null : items.length;
 }
+/** Reuse the shared PM_OPS_OFFLINE check so policy and tag resolution agree on offline mode. */
 function isOffline() {
-    return process.env.PM_OPS_OFFLINE === "1" || process.env.PM_OPS_OFFLINE === "true";
+    return isPmOpsOffline();
 }
 /** Count outdated dependencies via npm outdated --json, null when offline or failing. */
 function countOutdated(repoPath) {
