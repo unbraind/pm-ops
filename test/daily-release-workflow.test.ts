@@ -1,7 +1,7 @@
 /** Parse the executable workflow and assert its privilege and publication wiring. */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -232,4 +232,52 @@ test("pack guard refuses leftover untracked outputs anywhere in the package befo
     }
     assert.equal(check().status, 0);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("pack validates caller and fallback CLI pins before accepting the release handoff", () => {
+  const cases = [
+    { caller: "2026.10.15", fallback: "^2026.8.20", expected: "2026.10.15" },
+    { caller: "2026.10.15-2", fallback: "2026.10.14", expected: "2026.10.15-2" },
+    { caller: undefined, fallback: "2026.10.15", expected: "2026.10.15" },
+    { caller: undefined, fallback: "2026.10.15-2", expected: "2026.10.15-2" },
+    ...["^2026.8.20", "~2026.10.15", ">=2026.8.20", "*", "latest", "workspace:*", "2026.10.15-beta", "2026.10.15\nforged=value"].map(caller => ({ caller, fallback: "2026.10.15", expected: undefined })),
+    { caller: undefined, fallback: "^2026.8.20", expected: undefined },
+    { caller: undefined, fallback: undefined, expected: undefined },
+  ];
+  for (const [index, fixture] of cases.entries()) {
+    const root = mkdtempSync(join(tmpdir(), "release-cli-pin-"));
+    try {
+      const repo = join(root, "repo"), runner = join(root, "runner"), tools = join(root, "tools' directory");
+      const directory = index % 2 === 0 ? "." : "packages/example";
+      const project = join(repo, directory);
+      mkdirSync(project, { recursive: true });
+      mkdirSync(runner);
+      mkdirSync(join(tools, "node_modules/pm-ops"), { recursive: true });
+      writeFileSync(join(project, "package.json"), JSON.stringify({ name: "release-cli-fixture", version: "1.0.0", devDependencies: { "@unbrained/pm-cli": fixture.caller } }));
+      writeFileSync(join(tools, "node_modules/pm-ops/package.json"), JSON.stringify({ devDependencies: { "@unbrained/pm-cli": fixture.fallback } }));
+      writeFileSync(join(runner, "RELEASE_NOTES.md"), "Synthetic release notes\n");
+      execFileSync("git", ["init", "-q"], { cwd: repo });
+      execFileSync("git", ["add", join(directory, "package.json")], { cwd: repo });
+      execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "Initial"], { cwd: repo });
+      const output = join(root, "output");
+      writeFileSync(output, "");
+      const result = spawnSync("bash", ["-c", step("Pack verified release").run], {
+        cwd: repo, encoding: "utf8", env: { ...process.env, GITHUB_WORKSPACE: repo, NPM_PROJECT_PATH: project, PM_OPS_TOOLS: tools, RUNNER_TEMP: runner, GITHUB_OUTPUT: output, IS_RUST: "false" },
+      });
+      const outputs = readFileSync(output, "utf8");
+      if (fixture.expected) {
+        assert.equal(result.status, 0, result.stdout + result.stderr);
+        assert.ok(outputs.split("\n").includes(`cli_version=${fixture.expected}`));
+        assert.match(outputs, /^package_sha256=[a-f0-9]{64}$/m);
+        const handoff = outputs.split("\n").find(line => line.startsWith("handoff="))!.slice("handoff=".length);
+        assert.ok(readFileSync(join(handoff, "metadata.bundle")).length > 0);
+        assert.ok(readFileSync(join(handoff, "package.tgz")).length > 0);
+      } else {
+        assert.notEqual(result.status, 0, JSON.stringify(fixture));
+        assert.match(result.stdout + result.stderr, /::error::@unbrained\/pm-cli must be pinned to an exact version/);
+        assert.doesNotMatch(outputs, /^(cli_version|commit|handoff)=/m);
+        assert.equal(existsSync(join(runner, "pack.json")), false);
+      }
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
 });

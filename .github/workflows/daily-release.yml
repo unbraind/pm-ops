@@ -502,9 +502,11 @@ jobs:
             if git ls-files --error-unmatch 'dist/' >/dev/null 2>&1; then
               [[ -z "$(git status --porcelain=v1 --untracked-files=all --ignored=matching -- dist/)" ]]
             fi
+            cli_version="$(node -p "require('./package.json').devDependencies?.['@unbrained/pm-cli'] || require(process.env.PM_OPS_TOOLS + '/node_modules/pm-ops/package.json').devDependencies['@unbrained/pm-cli']")"
+            [[ "$cli_version" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+(-[0-9]+)?$ ]] || { echo '::error::@unbrained/pm-cli must be pinned to an exact version for Bun verification.'; exit 1; }
             npm pack --ignore-scripts --json --pack-destination "$handoff" > "$RUNNER_TEMP/pack.json"
             printf 'package_name=%s\n' "$(node -p "require('./package.json').name")" >> "$GITHUB_OUTPUT"
-            printf 'cli_version=%s\n' "$(node -p "require('./package.json').devDependencies?.['@unbrained/pm-cli'] || require('$PM_OPS_TOOLS/node_modules/pm-ops/package.json').devDependencies['@unbrained/pm-cli']")" >> "$GITHUB_OUTPUT"
+            printf 'cli_version=%s\n' "$cli_version" >> "$GITHUB_OUTPUT"
             filename="$(node -p "JSON.parse(require('node:fs').readFileSync(process.argv[1],'utf8'))[0].filename" "$RUNNER_TEMP/pack.json")"
             mv -- "$handoff/$filename" "$handoff/package.tgz"
             printf 'package_sha256=%s\n' "$(sha256sum "$handoff/package.tgz" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
