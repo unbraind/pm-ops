@@ -3,13 +3,15 @@ import { isScalar, parseDocument } from "yaml";
 import { execFileSync } from "node:child_process";
 import metadata from "./release-metadata.json" with { type: "json" };
 
-/** Resolve only release tags owned by the canonical repository, including annotated tags. */
-export function fetchCanonicalReleaseTags(run: (args: string[]) => string = runCanonicalTagApi): Record<string, string> {
+/** Resolve canonical release tags, or only one exact tag, including annotated tag peeling. */
+export function fetchCanonicalReleaseTags(run: (args: string[]) => string = runCanonicalTagApi, tag?: string): Record<string, string> {
   const tags: Record<string, string> = {};
-  const refs = run(["api", "--paginate", "repos/unbraind/pm-ops/git/refs/tags", "--jq", ".[] | [.ref, .object.type, .object.sha] | @tsv"]);
+  const endpoint = tag === undefined ? "repos/unbraind/pm-ops/git/refs/tags" : `repos/unbraind/pm-ops/git/matching-refs/tags/${tag}`;
+  const refs = run(["api", "--paginate", endpoint, "--jq", ".[] | [.ref, .object.type, .object.sha] | @tsv"]);
   for (const line of refs.trim().split("\n")) {
     const [ref, initialType, initialSha] = line.split("\t");
     if (!/^refs\/tags\/v\d{4}\.\d{1,2}\.\d{1,2}(?:-\d+)?$/.test(ref)) continue;
+    if (tag !== undefined && ref !== `refs/tags/${tag}`) continue;
     let type = initialType, sha = initialSha;
     const seen = new Set<string>();
     while (type === "tag" && /^[a-f0-9]{40}$/.test(sha) && !seen.has(sha)) {
@@ -63,13 +65,13 @@ export function isPmOpsOffline(): boolean {
 }
 
 /** Default resolver: never contacts the canonical API while PM_OPS_OFFLINE is set. */
-export function defaultCanonicalTagResolver(): Readonly<Record<string, string>> {
+export function defaultCanonicalTagResolver(tag?: string): Readonly<Record<string, string>> {
   if (isPmOpsOffline()) throw new Error("PM_OPS_OFFLINE is set: canonical release tags are not fetched");
-  return fetchCanonicalReleaseTags();
+  return fetchCanonicalReleaseTags(runCanonicalTagApi, tag);
 }
 
 /** Verify a SHA-pinned caller with no embedded jobs, private steps, or inherited secrets. */
-export function inspectReleaseCaller(source: string, resolveTags: (() => Readonly<Record<string, string>>) = defaultCanonicalTagResolver): ReleaseCallerResult {
+export function inspectReleaseCaller(source: string, resolveTags: ((tag: string) => Readonly<Record<string, string>>) = defaultCanonicalTagResolver): ReleaseCallerResult {
   const document = parseDocument(source, { uniqueKeys: true });
   if (document.errors.length > 0) return { status: "refused", errors: ["release.yml is invalid YAML"] };
   const workflow = mapping(document.toJS());
@@ -85,7 +87,7 @@ export function inspectReleaseCaller(source: string, resolveTags: (() => Readonl
     const uses = document.getIn(["jobs", id, "uses"], true);
     const tag = isScalar(uses) ? uses.comment?.trim() : undefined;
     if (!tag || !/^v\d{4}\.\d{1,2}\.\d{1,2}(?:-\d+)?$/.test(tag)) {
-      errors.push("release SHA needs a Dependabot version comment (# vYYYY.M.D)");
+      errors.push("release SHA needs a Dependabot version comment naming the exact canonical tag (for example # v2026.07.06 or # v2026.07.06-2)");
     } else {
       pin = { tag, sha: String(job.uses).split("@")[1] };
     }
@@ -110,14 +112,14 @@ export function inspectReleaseCaller(source: string, resolveTags: (() => Readonl
   if (errors.length > 0 || pin === undefined) return { status: "refused", errors };
   let tags: Readonly<Record<string, string>>;
   try {
-    tags = resolveTags();
+    tags = resolveTags(pin.tag);
   } catch {
     tags = metadata.tags;
     if (!(pin.tag in tags)) return { status: "unverified-offline", errors: ["unverified-offline: canonical release tag is absent from the bundled snapshot; retry online to verify SHA provenance"] };
   }
   return tags[pin.tag] === pin.sha
     ? { status: "verified", errors: [] }
-    : { status: "refused", errors: ["release SHA must match its canonical pm-ops release tag"] };
+    : { status: "refused", errors: ["release SHA must match the exact canonical pm-ops release tag named in its comment (including v prefix, zero padding and any -N suffix)"] };
 }
 
 /** Compatibility diagnostics; use inspectReleaseCaller to distinguish offline deferral from refusal. */

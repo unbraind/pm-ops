@@ -8,7 +8,7 @@ import { encode } from "@toon-format/toon";
 import { listMergeReceipts, auditMergeDriverConfiguration, auditMergeAttributeFence, findGitWorkspaceRoot, } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage } from "./docstrings.js";
 import { qualityMeasurementProvider } from "./assurance.js";
-import { fetchCanonicalReleaseTags, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.js";
+import { defaultCanonicalTagResolver, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.js";
 // ---------------------------------------------------------------------------
 // Error contract — mirror pm-cli SDK EXIT_CODE so the host treats thrown
 // CommandError as a clean non-zero exit instead of re-invoking the handler.
@@ -993,27 +993,20 @@ function matchesFilter(repoPath, name, filter) {
         return true;
     return basename(repoPath) === filter;
 }
-/** Build a canonical release tag resolver for one policy run: fetch once, never while offline.
- *
- * Every release-caller check in a policy run shares this resolver, so the canonical
- * tag refs are requested at most once no matter how many repositories are scanned.
- * It throws while PM_OPS_OFFLINE is set and when the single fetch fails, so
- * inspectReleaseCaller falls back to the bundled release-metadata snapshot the
- * same way it does for any other unavailable online evidence.
- */
+/** Cache each requested canonical tag once per policy run, including unavailable results. */
 function createCanonicalTagResolver() {
-    let state;
-    return () => {
-        if (isOffline())
-            throw new Error("PM_OPS_OFFLINE is set: canonical release tags are not fetched");
-        state ??= (() => {
+    const states = new Map();
+    return (tag) => {
+        let state = states.get(tag);
+        if (state === undefined) {
             try {
-                return { tags: fetchCanonicalReleaseTags() };
+                state = { tags: defaultCanonicalTagResolver(tag) };
             }
             catch (error) {
-                return { error };
+                state = { error };
             }
-        })();
+            states.set(tag, state);
+        }
         if ("error" in state)
             throw state.error;
         return state.tags;

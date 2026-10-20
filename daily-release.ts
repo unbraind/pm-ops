@@ -33,7 +33,7 @@ export interface DailyReleaseInput {
   publishedToday?: boolean;
 }
 
-/** Convert a date-shaped tag or branch suffix to its canonical npm version. */
+/** Normalize a release calendar day for daily comparisons, intentionally discarding any -N suffix. */
 export function releaseVersion(date: string): string {
   return date.replace(/^v/, "").split("-")[0].split(".").map(Number).join(".");
 }

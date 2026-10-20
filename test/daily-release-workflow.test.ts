@@ -296,3 +296,43 @@ test("pack validates CLI pins only when npm publication and Bun verification are
     } finally { rmSync(root, { recursive: true, force: true }); }
   }
 });
+
+
+test("recovery queries the exact npm coordinate while preserving the original GitHub tag", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-recovery-coordinate-"));
+  try {
+    const bin = join(root, "bin");
+    mkdirSync(bin);
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "recovery-fixture", version: "2026.10.18-1" }));
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    execFileSync("git", ["add", "package.json"], { cwd: root });
+    execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "Initial"], { cwd: root });
+    const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+    const statement = { subject: [{ digest: { sha512: "abcd" } }], predicate: { buildDefinition: { resolvedDependencies: [{ digest: { gitCommit: commit } }] } } };
+    const payload = Buffer.from(JSON.stringify(statement)).toString("base64");
+    writeFileSync(join(root, "attestation.json"), JSON.stringify({ attestations: [{ predicateType: "https://slsa.dev/provenance/v1", bundle: { dsseEnvelope: { payload } } }] }));
+    const tools = {
+      gh: `#!/bin/sh\nprintf '%s\\n' "$*" >> "$RUNNER_TEMP/gh-calls"\n[ "$2" != view ]\n`,
+      npm: `#!/bin/sh\nprintf '%s\\n' "$*" >> "$RUNNER_TEMP/npm-calls"\nprintf '%s\\n' '{"integrity":"sha512-q80=","attestations":{"url":"https://registry.npmjs.org/synthetic"}}'\n`,
+      curl: '#!/bin/sh\ncat "$RUNNER_TEMP/attestation.json"\n',
+    };
+    for (const [tool, body] of Object.entries(tools)) {
+      writeFileSync(join(bin, tool), body);
+      chmodSync(join(bin, tool), 0o755);
+    }
+    for (const [tag, version] of [["v2026.10.18-1", "2026.10.18-1"], ["v2026.08.09-2", "2026.8.9-2"], ["v2026.08.09", "2026.8.9"]]) {
+      writeFileSync(join(root, "npm-calls"), "");
+      writeFileSync(join(root, "gh-calls"), "");
+      const result = spawnSync("bash", ["-c", step("Repair missing GitHub Release").run], {
+        cwd: root, encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: root,
+          EXPECTED_COMMIT: commit, RECOVERY_TAG: tag, NPM_PUBLISH: "true", GITHUB_REPOSITORY: "example/package",
+          PM_OPS_MODULE: new URL("../dist/daily-release.js", import.meta.url).pathname },
+      });
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      assert.equal(readFileSync(join(root, "npm-calls"), "utf8"), `view recovery-fixture@${version} dist --prefer-online --json\n`);
+      const calls = readFileSync(join(root, "gh-calls"), "utf8").trim().split("\n");
+      assert.equal(calls.length, 2);
+      assert.match(calls[1], new RegExp(`^release create ${tag} --repo `));
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

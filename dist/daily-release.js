@@ -1,6 +1,6 @@
 /** Pure release planning shared by the reusable workflow and its regression suite. */
 import { tokenize } from "./docstrings.js";
-/** Convert a date-shaped tag or branch suffix to its canonical npm version. */
+/** Normalize a release calendar day for daily comparisons, intentionally discarding any -N suffix. */
 export function releaseVersion(date) {
     return date.replace(/^v/, "").split("-")[0].split(".").map(Number).join(".");
 }

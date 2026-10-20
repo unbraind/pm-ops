@@ -2,13 +2,16 @@
 import { isScalar, parseDocument } from "yaml";
 import { execFileSync } from "node:child_process";
 import metadata from "./release-metadata.json" with { type: "json" };
-/** Resolve only release tags owned by the canonical repository, including annotated tags. */
-export function fetchCanonicalReleaseTags(run = runCanonicalTagApi) {
+/** Resolve canonical release tags, or only one exact tag, including annotated tag peeling. */
+export function fetchCanonicalReleaseTags(run = runCanonicalTagApi, tag) {
     const tags = {};
-    const refs = run(["api", "--paginate", "repos/unbraind/pm-ops/git/refs/tags", "--jq", ".[] | [.ref, .object.type, .object.sha] | @tsv"]);
+    const endpoint = tag === undefined ? "repos/unbraind/pm-ops/git/refs/tags" : `repos/unbraind/pm-ops/git/matching-refs/tags/${tag}`;
+    const refs = run(["api", "--paginate", endpoint, "--jq", ".[] | [.ref, .object.type, .object.sha] | @tsv"]);
     for (const line of refs.trim().split("\n")) {
         const [ref, initialType, initialSha] = line.split("\t");
         if (!/^refs\/tags\/v\d{4}\.\d{1,2}\.\d{1,2}(?:-\d+)?$/.test(ref))
+            continue;
+        if (tag !== undefined && ref !== `refs/tags/${tag}`)
             continue;
         let type = initialType, sha = initialSha;
         const seen = new Set();
@@ -53,10 +56,10 @@ export function isPmOpsOffline() {
     return process.env.PM_OPS_OFFLINE === "1" || process.env.PM_OPS_OFFLINE === "true";
 }
 /** Default resolver: never contacts the canonical API while PM_OPS_OFFLINE is set. */
-export function defaultCanonicalTagResolver() {
+export function defaultCanonicalTagResolver(tag) {
     if (isPmOpsOffline())
         throw new Error("PM_OPS_OFFLINE is set: canonical release tags are not fetched");
-    return fetchCanonicalReleaseTags();
+    return fetchCanonicalReleaseTags(runCanonicalTagApi, tag);
 }
 /** Verify a SHA-pinned caller with no embedded jobs, private steps, or inherited secrets. */
 export function inspectReleaseCaller(source, resolveTags = defaultCanonicalTagResolver) {
@@ -77,7 +80,7 @@ export function inspectReleaseCaller(source, resolveTags = defaultCanonicalTagRe
         const uses = document.getIn(["jobs", id, "uses"], true);
         const tag = isScalar(uses) ? uses.comment?.trim() : undefined;
         if (!tag || !/^v\d{4}\.\d{1,2}\.\d{1,2}(?:-\d+)?$/.test(tag)) {
-            errors.push("release SHA needs a Dependabot version comment (# vYYYY.M.D)");
+            errors.push("release SHA needs a Dependabot version comment naming the exact canonical tag (for example # v2026.07.06 or # v2026.07.06-2)");
         }
         else {
             pin = { tag, sha: String(job.uses).split("@")[1] };
@@ -108,7 +111,7 @@ export function inspectReleaseCaller(source, resolveTags = defaultCanonicalTagRe
         return { status: "refused", errors };
     let tags;
     try {
-        tags = resolveTags();
+        tags = resolveTags(pin.tag);
     }
     catch {
         tags = metadata.tags;
@@ -117,7 +120,7 @@ export function inspectReleaseCaller(source, resolveTags = defaultCanonicalTagRe
     }
     return tags[pin.tag] === pin.sha
         ? { status: "verified", errors: [] }
-        : { status: "refused", errors: ["release SHA must match its canonical pm-ops release tag"] };
+        : { status: "refused", errors: ["release SHA must match the exact canonical pm-ops release tag named in its comment (including v prefix, zero padding and any -N suffix)"] };
 }
 /** Compatibility diagnostics; use inspectReleaseCaller to distinguish offline deferral from refusal. */
 export function checkReleaseCaller(source, releaseTags) {

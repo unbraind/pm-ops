@@ -49,6 +49,55 @@ test("online provenance paginates canonical refs, peels nested annotated tags an
   }
 });
 
+test("caller checks query only the pinned tag and peel only its exact annotated match", () => {
+  const root = mkdtempSync(join(tmpdir(), "single-release-tag-"));
+  const previousPath = process.env.PATH;
+  const tag = "v2026.07.06-2", tagSha = "b".repeat(40), nested = "d".repeat(40);
+  try {
+    const gh = join(root, "gh"), log = join(root, "calls");
+    writeFileSync(gh, `#!/bin/sh
+printf '%s\\n' "$*" >> "${log}"
+case "$*" in
+  *git/matching-refs/tags/${tag}*) printf '%s\\n' 'refs/tags/${tag}\ttag\t${tagSha}' 'refs/tags/${tag}0\ttag\t${"e".repeat(40)}' ;;
+  *git/tags/${tagSha}*) printf '%s\\n' 'tag\t${nested}' ;;
+  *git/tags/${nested}*) printf '%s\\n' 'commit\t${releasedSha}' ;;
+  *) exit 8 ;;
+esac
+`);
+    chmodSync(gh, 0o755);
+    process.env.PATH = `${root}:${previousPath}`;
+    const source = caller.replace("v2026.10.19", tag);
+    assert.deepEqual(inspectReleaseCaller(source), { status: "verified", errors: [] });
+    assert.deepEqual(readFileSync(log, "utf8").trim().split("\n").map(line => line.split(" ").find(arg => arg.startsWith("repos/"))), [
+      `repos/unbraind/pm-ops/git/matching-refs/tags/${tag}`,
+      `repos/unbraind/pm-ops/git/tags/${tagSha}`,
+      `repos/unbraind/pm-ops/git/tags/${nested}`,
+    ]);
+    assert.deepEqual(fetchCanonicalReleaseTags(() => `refs/tags/${tag}0\ttag\t${tagSha}`, tag), {});
+  } finally {
+    process.env.PATH = previousPath;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("caller diagnostics and documentation require the exact canonical tag spelling", () => {
+  for (const tag of ["v2026.07.06", "v2026.07.06-2"]) {
+    const source = caller.replace("v2026.10.19", tag);
+    const tags = { [tag]: releasedSha };
+    assert.deepEqual(checkReleaseCaller(source, tags), []);
+    for (const changed of [tag.slice(1), tag.replace(".07.06", ".7.6"), tag + "-1"]) {
+      const errors = checkReleaseCaller(source.replace(tag, changed), tags);
+      assert.equal(errors.length, 1);
+      assert.match(errors[0], /exact canonical.*tag/);
+    }
+  }
+  const missing = checkReleaseCaller(caller.replace(" # v2026.10.19", ""));
+  assert.match(missing[0], /exact canonical tag.*# v2026\.07\.06.*# v2026\.07\.06-2/);
+  const guide = readFileSync(new URL("../docs/reusable-release.md", import.meta.url), "utf8");
+  assert.match(guide, /exact canonical release tag/);
+  assert.doesNotMatch(guide, /# vYYYY\.M\.D/);
+});
+
 test("online CLI checks and metadata refresh use canonical API results and fall back only when unavailable", () => {
   const root = mkdtempSync(join(tmpdir(), "release-tags-api-"));
   const beforePath = process.env.PATH;
@@ -207,6 +256,7 @@ esac
     delete process.env.GH_TOKEN;
     process.env.GITHUB_TOKEN = "synthetic-token";
     assert.deepEqual(fetchCanonicalReleaseTags(), canonical);
+    assert.deepEqual(checkReleaseCaller(caller), []);
     assert.equal(readFileSync(api.refs + ".headers", "utf8"), "Authorization: Bearer synthetic-token\n");
     delete process.env.GITHUB_TOKEN;
     assert.deepEqual(fetchCanonicalReleaseTags(), canonical);

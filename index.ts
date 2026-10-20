@@ -21,7 +21,7 @@ import {
 } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage, type DocstringViolation } from "./docstrings.ts";
 import { qualityMeasurementProvider } from "./assurance.ts";
-import { fetchCanonicalReleaseTags, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.ts";
+import { defaultCanonicalTagResolver, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.ts";
 
 
 // ---------------------------------------------------------------------------
@@ -1130,7 +1130,7 @@ function checkPmChangelogWired(pkg: PkgJson | undefined): PolicyCheckResult {
 }
 
 /** Dispatch one policy check definition to its implementation and attach severity. */
-function runPolicyCheck(def: PolicyCheckDef, ctx: { repoPath: string; pkg: PkgJson | undefined; items: PmItem[] | null; resolveCanonicalTags: () => Readonly<Record<string, string>> }): PolicyCheckResult {
+function runPolicyCheck(def: PolicyCheckDef, ctx: { repoPath: string; pkg: PkgJson | undefined; items: PmItem[] | null; resolveCanonicalTags: (tag: string) => Readonly<Record<string, string>> }): PolicyCheckResult {
   let result: PolicyCheckResult;
   switch (def.id) {
     case "naming":
@@ -1172,25 +1172,19 @@ function matchesFilter(repoPath: string, name: string | null, filter: string | u
   return basename(repoPath) === filter;
 }
 
-/** Build a canonical release tag resolver for one policy run: fetch once, never while offline.
- *
- * Every release-caller check in a policy run shares this resolver, so the canonical
- * tag refs are requested at most once no matter how many repositories are scanned.
- * It throws while PM_OPS_OFFLINE is set and when the single fetch fails, so
- * inspectReleaseCaller falls back to the bundled release-metadata snapshot the
- * same way it does for any other unavailable online evidence.
- */
-function createCanonicalTagResolver(): () => Readonly<Record<string, string>> {
-  let state: { tags: Readonly<Record<string, string>> } | { error: unknown } | undefined;
-  return () => {
-    if (isOffline()) throw new Error("PM_OPS_OFFLINE is set: canonical release tags are not fetched");
-    state ??= (() => {
+/** Cache each requested canonical tag once per policy run, including unavailable results. */
+function createCanonicalTagResolver(): (tag: string) => Readonly<Record<string, string>> {
+  const states = new Map<string, { tags: Readonly<Record<string, string>> } | { error: unknown }>();
+  return (tag) => {
+    let state = states.get(tag);
+    if (state === undefined) {
       try {
-        return { tags: fetchCanonicalReleaseTags() };
+        state = { tags: defaultCanonicalTagResolver(tag) };
       } catch (error) {
-        return { error };
+        state = { error };
       }
-    })();
+      states.set(tag, state);
+    }
     if ("error" in state) throw state.error;
     return state.tags;
   };

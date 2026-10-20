@@ -33,7 +33,7 @@ export interface DailyReleaseInput {
     /** Registry-independent GitHub Release publication dates enforce the calendar cap in reviewed mode. */
     publishedToday?: boolean;
 }
-/** Convert a date-shaped tag or branch suffix to its canonical npm version. */
+/** Normalize a release calendar day for daily comparisons, intentionally discarding any -N suffix. */
 export declare function releaseVersion(date: string): string;
 /** Select the newest numeric release date regardless of zero padding or tag creation order. */
 export declare function latestReleaseTag(tags: readonly string[]): string;

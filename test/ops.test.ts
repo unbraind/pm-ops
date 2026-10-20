@@ -1494,7 +1494,7 @@ async function withCanonicalTagBin<T>(
   const fixture = join(root, "refs");
   writeFileSync(fixture, refs);
   const stubs: Record<string, string> = {
-    gh: "#!/bin/sh\nprintf '%s\\n' gh >> \"$CANONICAL_TAG_CALL_LOG\"\ncat \"$CANONICAL_TAG_FIXTURE\"\n",
+    gh: "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CANONICAL_TAG_CALL_LOG\"\ncat \"$CANONICAL_TAG_FIXTURE\"\n",
     curl: "#!/bin/sh\nprintf '%s\\n' curl >> \"$CANONICAL_TAG_CALL_LOG\"\nexit 7\n",
   };
   for (const [tool, body] of Object.entries(stubs)) {
@@ -1531,17 +1531,23 @@ function writeReleaseCallerPolicy(root: string, name: string): string {
 
 test("ops policy resolves canonical release tags once per policy run", async () => {
   const ext = await harness();
-  const repos = ["pm-caller-a", "pm-caller-b"].map((name) => writeReleaseCallerRepo(name, tmpRoot));
+  const repos = ["pm-caller-a", "pm-caller-b", "pm-caller-c"].map((name) => writeReleaseCallerRepo(name, tmpRoot));
+  const different = join(repos[2], ".github/workflows/release.yml");
+  writeFileSync(different, readFileSync(different, "utf8").replace("v2026.10.19", "v2026.07.06-2"));
   const policyFile = writeReleaseCallerPolicy(tmpRoot, "release-caller-policy.json");
   const refs = "refs/tags/v2026.10.19\tcommit\tc3af218f2f052cc4fddb3e84ef87974c58283be7\n";
-  await withCanonicalTagBin("release-caller-policy-bin", refs, undefined, async (log) => {
+  const allRefs = refs + "refs/tags/v2026.07.06-2\tcommit\tc3af218f2f052cc4fddb3e84ef87974c58283be7\nrefs/tags/v2026.07.06-20\ttag\tinvalid\n";
+  await withCanonicalTagBin("release-caller-policy-bin", allRefs, undefined, async (log) => {
     const result = await runCmd<PolicyResult>(ext, "ops policy", { repos, policy: policyFile });
     for (const repo of result.repos) {
       const check = repo.checks.find((entry) => entry.id === "release-caller");
       assert.ok(check, "release-caller check should exist");
       assert.strictEqual(check.pass, true, check.message);
     }
-    assert.deepStrictEqual(readToolCalls(log), ["gh"], "canonical tag refs must be fetched exactly once per policy run");
+    assert.deepStrictEqual(readToolCalls(log).map(line => line.split(" ").find(arg => arg.startsWith("repos/"))), [
+      "repos/unbraind/pm-ops/git/matching-refs/tags/v2026.10.19",
+      "repos/unbraind/pm-ops/git/matching-refs/tags/v2026.07.06-2",
+    ], "only distinct pinned tags are fetched, without peeling unrelated tags");
   });
   await ext.deactivate();
 });

@@ -1237,7 +1237,7 @@ jobs:
           if gh release view "$RECOVERY_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exit 0; fi
           if [[ "$NPM_PUBLISH" == true ]]; then
             pkg_name="$(node -p "require('./package.json').name")"
-            recovery_version="$(node --input-type=module -e 'import {createRequire} from "node:module"; const {releaseVersion}=createRequire(import.meta.url)(process.env.PM_OPS_MODULE); process.stdout.write(releaseVersion(process.env.RECOVERY_TAG));')"
+            recovery_version="$(VERSION="${RECOVERY_TAG#v}" node -e 'const [core, suffix] = process.env.VERSION.split("-"); process.stdout.write(core.split(".").map(Number).join(".") + (suffix === undefined ? "" : "-" + Number(suffix)))')"
             metadata="$(npm view "$pkg_name@$recovery_version" dist --prefer-online --json)"
             attest_url="$(jq -r '.attestations.url // empty' <<< "$metadata")"
             [[ "$attest_url" == https://registry.npmjs.org/* ]]
