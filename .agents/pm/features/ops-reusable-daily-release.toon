@@ -6,9 +6,9 @@ status: in_progress
 priority: 1
 tags: []
 created_at: "2026-10-19T14:08:13.526Z"
-updated_at: "2026-10-20T07:49:16.504Z"
+updated_at: "2026-10-20T08:40:33.969Z"
 author: codex-agent
-comments[69]{created_at,author,text}:
+comments[74]{created_at,author,text}:
   "2026-10-19T14:08:30.300Z",codex-agent,"Plan: use pm-github PR 152 head 14b533a as the audited baseline, recheck upstream before completion, inventory fetched main workflows with hashes, expose package needs as typed inputs or npm-script hooks, and verify full npm/Bun gates without changing thresholds. Publication must run at the merged commit so provenance and tag identify the same SHA."
   "2026-10-19T14:32:34.573Z",codex-agent,"Inventory: 28 readable workflows have 28 distinct MD5 values; 713 structural deltas classify as 123 cosmetic/stale, 318 package needs, 272 defects. pm-memory has no fetchable origin; pm-observer has no release workflow; core pm-cli is excluded. Shared protections include read-only artifact preparation, SHA-bound continuation publication, registry provenance commit/digest checks, GitHub Release repair, and separate read-only Bun/bunx activation. Every package hook and approval guard is documented in docs/reusable-release.md."
   "2026-10-19T14:32:42.021Z",codex-agent,"Behavioral revert proofs in a disposable source copy: node --test test/daily-release.test.ts passes 8/8 before mutation. Reverting only selectReleasePullRequests to the first 30 in API order fails 2 tests (6 pass); reverting only ownsReleasePullRequest to release-prefix ownership fails 2 tests (6 pass); reverting only the daily decision to ignore day/version caps fails 2 tests (6 pass). Each mutant exits 1; source restoration exits 0. Tests import erasable TypeScript directly, so no compiled-output rebuild can hide the reversion. Focused new-source coverage is 100/100/100/100."
@@ -78,7 +78,12 @@ comments[69]{created_at,author,text}:
   "2026-10-20T07:32:09.469Z",codex-agent,"Full npm release gate passed with isolated HOME and Git configuration: 1,382 tests, 1,380 passed, two existing opt-in fleet skips, zero failures/cancellations/TODOs. Coverage is 100% statements/branches/functions/lines across 30 measured sources; duplication is 0/28,416 lines across 83 sources; 255 declarations documented, zero production audit vulnerabilities, 77-file dry pack, changelog/date/attestation/lifecycle checks passed. The four timed-out linked commands passed on selective rerun with --only-index 6, 9, 10 and 11 --timeout 300; together with the initial seven passes all 11 linked commands now have successful final-source receipts. Stored commands, thresholds and tracking policy were unchanged."
   "2026-10-20T07:47:44.277Z",codex-agent,"The full Bun release gate also passed with isolated HOME and Git configuration: 1,382 tests, 1,380 passed, two existing opt-in fleet skips, zero failures/cancellations/TODOs; 100/100/100/100 coverage across 30 measured sources; zero duplication; 255 documented declarations; zero production audit vulnerabilities; 77-file dry pack; changelog/date, attestation and lifecycle checks passed. Final focused tests pass 41/41, all 11 linked commands have successful receipts, and all ten independent revert proofs fail as intended. Isolated strict health including merge drivers, storage and history authority passes. Fresh-clone validation follows the implementation commit; no threshold or dependency pin changed."
   "2026-10-20T07:49:14.839Z",codex-agent,"Fresh git clone --no-local of implementation head b89644e38e4a6a617bae570ac9a4cf4cc39ce6b6 passed dependency installation, repo-pinned pm health --strict-exit --require-merge-drivers --json and npm run changelog:check under isolated HOME, GIT_CONFIG_GLOBAL=/dev/null and GIT_CONFIG_NOSYSTEM=1. The clone stayed clean; storage/history authority passed and only the existing stale-item advisory remained. Releasing the claim for orchestrator verification; item remains in progress. No thread reply/resolution, merge, release, tag or consumer edit."
-files[27]{path,scope}:
+  "2026-10-20T08:18:23.400Z",codex-agent,"Round 10: fetched all review threads and all comments; only unresolved thread PRRT_kwDOTOTl1M6uP9ki concerns resume tag padding. Branch is current and contains origin/main. Plan: one canonical padded date formatter preserving numeric suffixes, audit tag/branch/title/commit construction across the PR, behavioral revert proof, unchanged npm and Bun release gates. Review threads will remain untouched."
+  "2026-10-20T08:21:37.477Z",codex-agent,"Round 10 implementation: reuse release-completeness.ts npmVersionToTag rather than adding another formatter. decideDailyRelease formats the selected npm coordinate once; first-run, resumed and reviewed-package tags and new branches use that value, preserving -N. Existing verified PR branches retain their identities. Suffixed branch ownership and numeric suffix ordering now allow refreshes. Self-review of the complete PR using v${, release/, toISOString and split-dot searches: protected PR create/edit titles, staged release commit, tag push and GitHub Release title all consume the planner tag; new branch uses its v-stripped value. Remaining splits normalize comparisons/npm coordinates or derive a changelog date; recovery uses the actual existing tag identity. No other new name builders found. Latest CodeRabbit review 5582432861 has no Outside diff range section."
+  "2026-10-20T08:31:33.361Z",codex-agent,"Round 10 revert proof: reverting only decideDailyRelease to the pre-fix implementation, with all new tests retained, makes every canonical-release-name regression fail: 0 pass, 5 fail, 0 skip (single-digit month/day; resumed suffix; legacy untagged coordinate; byte-identical first-run/resume; reviewed package coordinate). Command: node --test --test-name-pattern=\"canonical release names\" test/daily-release.test.ts. Independently reverting ownsReleasePullRequest fails the ownership regression (0/1); reverting selectReleasePullRequests fails numeric suffix selection (0/1). Restored all functions byte-for-byte: node --test test/daily-release.test.ts passes 17/17, zero failures/skips. Full npm run release:check under isolated HOME/Git identity exits 0: 1385 passed, 0 failed, 2 skipped (optional configured real-repository integration tests), 100/100/100/100 coverage across all 30 source files. Linked run: 11 commands passed, 1 existing canonical-tag command timed out at 120 seconds with no assertion failures; retrying that entry separately with a 300-second runner limit. No thresholds or dependency pins changed."
+  "2026-10-20T08:36:15.898Z",codex-agent,"Round 10 linked-test retry passed: repo-pinned pm test ops-reusable-daily-release --run --only-index 6 --timeout 300 --progress exited 0 after 134 seconds. All 12 linked commands now have passing final-source results; initial run was 11 passed and one 120-second timeout, zero assertion failures. Existing test-result persistence remains disabled, so these comments preserve the durable evidence. Full Bun release gate remains in progress."
+  "2026-10-20T08:40:31.085Z",codex-agent,"Round 10 final verification: npm run release:check and bun run release:check both exit 0 under isolated HOME, GIT_CONFIG_GLOBAL=/dev/null and GIT_CONFIG_NOSYSTEM=1. Each runs 1387 tests: 1385 pass, 0 fail/cancel/todo, 2 existing opt-in real-repository skips; all 30 measured source files reach 100% statements/branches/functions/lines. Both gates retain zero duplication (28457 lines, 83 sources), all 255 declarations documented, zero production audit vulnerabilities, 77-file dry pack, and passing changelog/date, attestation and lifecycle checks. Pins and thresholds are unchanged. All five new planner regressions fail on behavioral revert; ownership and suffix ordering each fail independently on revert; restored daily suite passes 17/17. All 12 PM-linked commands have passing results after the recorded timeout retry. Self-review, added-content privacy and append-only PM history checks pass. Only this item was touched. Remaining limits: two opt-in fleet tests and live publication were not exercised. No new PM CLI/SDK defect found. Review threads were neither replied to nor resolved; no bot mentions, merge or release. Release the claim for orchestrator verification; leave the item in progress."
+files[28]{path,scope}:
   .gitattributes,project
   .github/workflows/daily-release.yml,project
   .github/workflows/release.yml,project
@@ -93,6 +98,7 @@ files[27]{path,scope}:
   package.json,project
   README.md,project
   release-caller.ts,project
+  release-completeness.ts,project
   release-metadata.json,project
   release-verification.ts,project
   scripts/release-caller.ts,project
@@ -106,7 +112,7 @@ files[27]{path,scope}:
   test/release-review.test.ts,project
   test/release-verification.test.ts,project
   test/release-workflow.test.ts,project
-tests[11]:
+tests[12]:
   - command: node --test test/daily-release.test.ts test/release-caller.test.ts test/daily-release-workflow.test.ts
     scope: project
     timeout_seconds: 180
@@ -185,6 +191,13 @@ tests[11]:
     provenance:
       author: codex-agent
       created_at: "2026-10-20T07:06:08.023Z"
+      source_kind: local_mutation
+      source_ref: feat/reusable-daily-release
+  - command: node --test test/daily-release.test.ts test/daily-release-workflow.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-20T08:19:55.406Z"
       source_kind: local_mutation
       source_ref: feat/reusable-daily-release
 docs[4]{path,scope}:

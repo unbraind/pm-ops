@@ -1,5 +1,6 @@
 /** Pure release planning shared by the reusable workflow and its regression suite. */
 import { tokenize } from "./docstrings.ts";
+import { npmVersionToTag } from "./release-completeness.ts";
 
 /** GitHub CLI facts used to decide whether this workflow owns an open PR. */
 export interface ReleasePullRequest {
@@ -50,16 +51,14 @@ export function latestReleaseTag(tags: readonly string[]): string {
 export function ownsReleasePullRequest(pr: ReleasePullRequest): boolean {
   return pr.isCrossRepository === false
     && pr.author?.login === "app/github-actions"
-    && /^release\/\d{4}\.\d{1,2}\.\d{1,2}$/.test(pr.headRefName);
+    && /^release\/\d{4}\.\d{1,2}\.\d{1,2}(-\d+)?$/.test(pr.headRefName);
 }
 
-/** Select the newest numeric date, then the highest PR number, independent of API ordering. */
+/** Select the newest numeric coordinate, then the highest PR number, independent of API ordering. */
 export function selectReleasePullRequests(prs: readonly ReleasePullRequest[]): ReleasePullRequest[] {
-  return prs.filter(ownsReleasePullRequest).sort((a, b) => {
-    const left = a.headRefName.slice(8).split(".").map(Number);
-    const right = b.headRefName.slice(8).split(".").map(Number);
-    return right[0] - left[0] || right[1] - left[1] || right[2] - left[2] || b.number - a.number;
-  });
+  return prs.filter(ownsReleasePullRequest).sort((a, b) =>
+    releaseCoordinate(b.headRefName.slice(8)).localeCompare(releaseCoordinate(a.headRefName.slice(8)), "en", { numeric: true })
+    || b.number - a.number);
 }
 
 /** Block a second release today and skip unchanged trees; otherwise rebuild a protected PR from main. */
@@ -70,6 +69,7 @@ export function decideDailyRelease(input: DailyReleaseInput) {
   const pending = current && /^\d{4}\.\d{1,2}\.\d{1,2}(-\d+)?$/.test(current)
     && !input.releaseTags.some(tag => releaseCoordinate(tag) === releaseCoordinate(current)) ? current : undefined;
   const version = input.packageVersion ?? pending ?? releaseVersion(input.today);
+  const tag = npmVersionToTag(version);
   const releasedToday = input.publishedToday === true || input.releaseTags.some(tag => releaseVersion(tag) === releaseVersion(input.today));
   const versionExists = input.releaseTags.some(tag => releaseCoordinate(tag) === releaseCoordinate(version));
   const shouldRelease = !releasedToday && !versionExists && input.hasChanges && input.lastRelease?.sha !== input.mainSha;
@@ -77,10 +77,10 @@ export function decideDailyRelease(input: DailyReleaseInput) {
     should_release: shouldRelease,
     recovery_tag: !shouldRelease && input.lastRelease?.sha === input.mainSha ? input.lastRelease.tag : "",
     action: !shouldRelease ? "skip" : existingPr ? "refresh" : "create",
-    tag: `v${input.packageVersion ?? pending ?? input.today}`,
+    tag,
     npm_version: version,
     base_sha: input.mainSha,
-    release_branch: existingPr?.headRefName ?? `release/${input.today}`,
+    release_branch: existingPr?.headRefName ?? `release/${tag.slice(1)}`,
     pr_number: existingPr?.number ?? "",
     superseded_pr_numbers: candidates.slice(1).map(pr => pr.number).join(" "),
   };

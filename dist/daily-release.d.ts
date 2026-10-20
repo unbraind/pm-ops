@@ -41,7 +41,7 @@ export declare function releaseVersion(date: string): string;
 export declare function latestReleaseTag(tags: readonly string[]): string;
 /** Only same-repository, GITHUB_TOKEN-authored date branches may be rewritten or closed. */
 export declare function ownsReleasePullRequest(pr: ReleasePullRequest): boolean;
-/** Select the newest numeric date, then the highest PR number, independent of API ordering. */
+/** Select the newest numeric coordinate, then the highest PR number, independent of API ordering. */
 export declare function selectReleasePullRequests(prs: readonly ReleasePullRequest[]): ReleasePullRequest[];
 /** Block a second release today and skip unchanged trees; otherwise rebuild a protected PR from main. */
 export declare function decideDailyRelease(input: DailyReleaseInput): {

@@ -15,7 +15,8 @@ function facts(extra: Partial<DailyReleaseInput> = {}): DailyReleaseInput {
 
 test("ownership refuses forks, missing authors, humans, lookalike bots, and non-date release branches", () => {
   assert.equal(ownsReleasePullRequest(pr(1)), true);
-  for (const candidate of [pr(2, undefined, { isCrossRepository: true }), pr(3, undefined, { author: null }), pr(4, undefined, { author: { login: "github-actions[bot]" } }), pr(5, undefined, { author: { login: "human" } }), pr(6, "release/2026.10.19/payload"), pr(7, "release/latest"), pr(8, "release/2026.10.19\n"), pr(9, "release/2026.10.19-2")]) {
+  assert.equal(ownsReleasePullRequest(pr(9, "release/2026.10.19-2")), true);
+  for (const candidate of [pr(2, undefined, { isCrossRepository: true }), pr(3, undefined, { author: null }), pr(4, undefined, { author: { login: "github-actions[bot]" } }), pr(5, undefined, { author: { login: "human" } }), pr(6, "release/2026.10.19/payload"), pr(7, "release/latest"), pr(8, "release/2026.10.19\n"), pr(10, "release/2026.10.19-2/payload")]) {
     assert.equal(ownsReleasePullRequest(candidate), false, JSON.stringify(candidate));
   }
 });
@@ -48,11 +49,11 @@ test("daily decisions skip same-day spelling variants and suffixes, unchanged tr
 });
 
 test("untagged main metadata resumes its exact version across midnight while tagged spellings and daily caps still win", () => {
-  for (const version of ["2026.10.18", "2026.8.9-2"]) {
+  for (const [version, tag] of [["2026.10.18", "v2026.10.18"], ["2026.8.9-2", "v2026.08.09-2"]]) {
     const plan = decideDailyRelease(facts({ currentPackageVersion: version, releaseTags: ["v2026.08.08"] }));
     assert.equal(plan.should_release, true);
     assert.equal(plan.npm_version, version);
-    assert.equal(plan.tag, `v${version}`);
+    assert.equal(plan.tag, tag);
   }
   for (const [version, tag] of [["2026.8.9", "v2026.08.09"], ["2026.8.9-2", "v2026.08.09-2"]]) {
     assert.equal(decideDailyRelease(facts({ currentPackageVersion: version, releaseTags: [tag] })).npm_version, "2026.10.19");
@@ -61,6 +62,46 @@ test("untagged main metadata resumes its exact version across midnight while tag
   assert.equal(decideDailyRelease(facts({ currentPackageVersion: "2026.10.17", packageVersion: "2026.10.12" })).npm_version, "2026.10.12");
   assert.equal(decideDailyRelease(facts({ currentPackageVersion: "2026.10.17", releaseTags: ["v2026.10.19"] })).should_release, false);
   assert.equal(decideDailyRelease(facts({ currentPackageVersion: "2026.10.17", publishedToday: true })).should_release, false);
+});
+
+test("canonical release names pad single-digit months and days on the first run", () => {
+  const plan = decideDailyRelease(facts({ today: "2026.8.9", releaseTags: ["v2026.08.08"] }));
+  assert.equal(plan.tag, "v2026.08.09");
+  assert.equal(plan.release_branch, "release/2026.08.09");
+  assert.equal(plan.npm_version, "2026.8.9");
+});
+
+test("canonical release names preserve a resumed numeric suffix", () => {
+  const plan = decideDailyRelease(facts({ currentPackageVersion: "2026.8.9-2", releaseTags: ["v2026.08.08"] }));
+  assert.equal(plan.tag, "v2026.08.09-2");
+  assert.equal(plan.release_branch, "release/2026.08.09-2");
+  assert.equal(plan.npm_version, "2026.8.9-2");
+  const refreshed = decideDailyRelease(facts({ currentPackageVersion: plan.npm_version, existingPrs: [pr(30, "release/2026.08.09-1"), pr(20, plan.release_branch), pr(10, "release/2026.08.09-10")] }));
+  assert.equal(refreshed.pr_number, 10);
+  assert.equal(refreshed.release_branch, "release/2026.08.09-10");
+});
+
+test("canonical release names resume a legacy untagged version across the calendar rollover", () => {
+  const plan = decideDailyRelease(facts({ currentPackageVersion: "2026.8.9", releaseTags: ["v2026.08.08"] }));
+  assert.equal(plan.should_release, true);
+  assert.equal(plan.tag, "v2026.08.09");
+  assert.equal(plan.release_branch, "release/2026.08.09");
+  assert.equal(plan.npm_version, "2026.8.9");
+});
+
+test("canonical release names are byte-identical for the first run and resume", () => {
+  const first = decideDailyRelease(facts({ today: "2026.10.05", releaseTags: ["v2026.10.04"], currentPackageVersion: "2026.10.4" }));
+  const resume = decideDailyRelease(facts({ today: "2026.10.06", releaseTags: ["v2026.10.04"], currentPackageVersion: first.npm_version }));
+  assert.deepEqual(Buffer.from(resume.tag), Buffer.from(first.tag));
+  assert.equal(first.tag, "v2026.10.05");
+  assert.equal(resume.release_branch, first.release_branch);
+});
+
+test("canonical release names format the reviewed package coordinate instead of today's date", () => {
+  const plan = decideDailyRelease(facts({ packageVersion: "2026.8.9-2" }));
+  assert.equal(plan.tag, "v2026.08.09-2");
+  assert.equal(plan.release_branch, "release/2026.08.09-2");
+  assert.equal(plan.npm_version, "2026.8.9-2");
 });
 
 test("extension stamping changes the descriptor and preserves unrelated version data", () => {
