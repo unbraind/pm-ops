@@ -48,13 +48,15 @@ import {
   type VerifierResult,
 } from "./shell-scan.ts";
 import { tallyFlaggedInvocations } from "./invocation-audit.ts";
+import { inspectReleaseCaller, type ReleaseCallerResult } from "./release-caller.ts";
 
 /** The flag that attaches a build attestation to the published tarball. */
 export const ATTESTATION_FLAG = "--provenance";
 
-/** Whether the auditor recognized any publish command at all. */
+/** Whether a local publisher or an explicit canonical workflow delegation was recognized. */
 export type PublishRecognition =
   | { readonly kind: "none" }
+  | { readonly kind: "unverified-offline" }
   | { readonly kind: "recognized"; readonly count: number };
 
 /** Publish-attestation outcome with non-vacuity preserved as structured data. */
@@ -1036,12 +1038,24 @@ export function renderCommand(command: ShellCommand): string {
   return command.map((token) => token.value).join(" ").slice(0, 160);
 }
 
+/** Recognize only the canonical release caller; this never exempts adjacent executable sources. */
+function canonicalReleaseDelegation(source: SourceFile): { reference: string; status: ReleaseCallerResult["status"] } | undefined {
+  if (source.file !== ".github/workflows/release.yml") return undefined;
+  const result = inspectReleaseCaller(source.text);
+  if (result.status === "refused") return undefined;
+  const workflow = parse(source.text) as { jobs: Record<string, { uses: string }> };
+  return { reference: Object.values(workflow.jobs)[0].uses, status: result.status };
+}
+
 /**
  * Audit every publish invocation across the given files.
  *
  * An absent invocation is a failure rather than a pass: a scan that finds
  * nothing has either been pointed at the wrong files or outlived the workflow
  * it guards, and both look identical to a clean result unless said out loud.
+ * The one explicit delegation is a structurally validated, SHA-pinned pm-ops
+ * release caller. Its note identifies the upstream trust boundary; every local
+ * or unresolved publisher remains audited even beside that caller.
  *
  * A publisher other than npm fails outright rather than being checked for a
  * flag. This repository's attested path is npm's `--provenance`; no equivalent
@@ -1055,9 +1069,12 @@ export function renderCommand(command: ShellCommand): string {
 export function auditPublishAttestation(sources: SourceFile[]): PublishAttestationResult {
   const invocations: PublishInvocation[] = [];
   const parseFailures: string[] = [];
+  const delegations: { file: string; reference: string; status: ReleaseCallerResult["status"] }[] = [];
   for (const source of sources) {
     try {
       invocations.push(...publishInvocationsIn(source));
+      const delegation = canonicalReleaseDelegation(source);
+      if (delegation !== undefined) delegations.push({ file: source.file, ...delegation });
     } catch {
       parseFailures.push(`${source.file}: executable source cannot be parsed; refusing an unresolvable publish path`);
     }
@@ -1088,12 +1105,18 @@ export function auditPublishAttestation(sources: SourceFile[]): PublishAttestati
       emptyScan: "no npm publish invocation was found in any tracked file - the scan is looking in the wrong place",
     },
   );
+  const recognized = invocations.length + delegations.length;
   return {
-    failures: [...(parseFailures.length > 0 && invocations.length === 0 ? [] : failures), ...parseFailures],
-    notes: parseFailures.length > 0 ? [] : notes,
-    recognition: invocations.length === 0
-      ? { kind: "none" }
-      : { kind: "recognized", count: invocations.length },
+    failures: [...(invocations.length === 0 && (parseFailures.length > 0 || delegations.length > 0) ? [] : failures), ...parseFailures],
+    notes: parseFailures.length > 0 ? [] : [
+      ...notes,
+      ...delegations.map(({ file, reference, status }) => status === "unverified-offline"
+        ? `unverified-offline - ${file}: SHA provenance for ${reference} is not verified; attestation deferred until online verification`
+        : `ok - ${file}: canonical release delegation to ${reference}; publisher enforcement belongs to that pinned pm-ops workflow`),
+    ],
+    recognition: delegations.some(delegation => delegation.status === "unverified-offline")
+      ? { kind: "unverified-offline" }
+      : recognized === 0 ? { kind: "none" } : { kind: "recognized", count: recognized },
   };
 }
 
@@ -1245,6 +1268,10 @@ export function report(
   if (result.failures.length > 0) {
     write(`verify-release-publish-attestation: ${result.failures.length} failure(s).`);
     exit(1);
+    return;
+  }
+  if (result.notes.some(note => note.startsWith("unverified-offline"))) {
+    write("verify-release-publish-attestation: unverified-offline; attestation deferred.");
     return;
   }
   write("verify-release-publish-attestation: every publish invocation is attested.");

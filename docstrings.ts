@@ -286,7 +286,7 @@ const TYPE_CONTINUES = new Set<SyntaxKind>([
 ]);
 
 /** A scanned token with the offsets needed for JSDoc recovery and line numbers. */
-interface Token {
+export interface Token {
   /** Token kind (a `SyntaxKind` numeric value). */
   readonly kind: SyntaxKind;
   /** Offset where the token text starts (after preceding trivia). */
@@ -315,7 +315,7 @@ function isKeyword(kind: SyntaxKind): boolean {
  * returned array never contains a brace that does not correspond to a real
  * `{` / `}` in the source.
  */
-function tokenize(text: string, file: string): Token[] {
+export function tokenize(text: string, file: string): Token[] {
   const scanner = createScanner(true, file.endsWith(".tsx") ? LanguageVariant.JSX : LanguageVariant.Standard, text);
   const tokens: Token[] = [];
   const group: Array<"brace" | "paren" | "bracket" | "sub"> = [];

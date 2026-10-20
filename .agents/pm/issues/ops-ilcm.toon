@@ -1,0 +1,11 @@
+id: ops-ilcm
+title: Windows consumers gate flakes when a packed npm install exceeds its 180 s spawn timeout
+description: "test/duplication-packed.acceptance.ts runs npm install --ignore-scripts for a synthetic packed consumer with a 180 s spawn timeout. On a Windows runner the install exceeded the timeout, so spawnSync returned status null and the exact-status assertion failed, turning the windows-consumers job red for machine load rather than for code. A failed-job rerun on the identical head passed in 2m55. Same class as the busy-machine timing flake already tracked, but a distinct timeout site; consider retrying installs or raising the timeout on windows runners."
+type: Issue
+status: open
+priority: 2
+tags[4]: ci,flake,test,windows
+created_at: "2026-10-19T23:24:20.440Z"
+updated_at: "2026-10-19T23:24:20.440Z"
+author: pi-agent
+body: ""

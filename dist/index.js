@@ -8,6 +8,7 @@ import { encode } from "@toon-format/toon";
 import { listMergeReceipts, auditMergeDriverConfiguration, auditMergeAttributeFence, findGitWorkspaceRoot, } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage } from "./docstrings.js";
 import { qualityMeasurementProvider } from "./assurance.js";
+import { defaultCanonicalTagResolver, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.js";
 // ---------------------------------------------------------------------------
 // Error contract — mirror pm-cli SDK EXIT_CODE so the host treats thrown
 // CommandError as a clean non-zero exit instead of re-invoking the handler.
@@ -589,8 +590,9 @@ function readBlockedCount(repoPath) {
     const items = readPmItemList(repoPath, ["list", "--status", "blocked"], pmBlockedCache);
     return items === null ? null : items.length;
 }
+/** Reuse the shared PM_OPS_OFFLINE check so policy and tag resolution agree on offline mode. */
 function isOffline() {
-    return process.env.PM_OPS_OFFLINE === "1" || process.env.PM_OPS_OFFLINE === "true";
+    return isPmOpsOffline();
 }
 /** Count outdated dependencies via npm outdated --json, null when offline or failing. */
 function countOutdated(repoPath) {
@@ -960,6 +962,13 @@ function runPolicyCheck(def, ctx) {
         case "required-workflows":
             result = checkRequiredWorkflows(ctx.repoPath, def.params?.workflows ?? DEFAULT_REQUIRED_WORKFLOWS);
             break;
+        case "release-caller": {
+            const path = join(ctx.repoPath, ".github/workflows/release.yml");
+            const caller = existsSync(path) ? inspectReleaseCaller(readFileSync(path, "utf8"), ctx.resolveCanonicalTags) : { status: "refused", errors: ["release.yml is missing"] };
+            result = { id: "release-caller", severity: "error", status: caller.status, pass: caller.status === "verified",
+                message: caller.status === "verified" ? "SHA-pinned reusable release caller" : caller.errors.join("; ") };
+            break;
+        }
         case "private-no-runners":
             result = checkPrivateNoRunners(ctx.repoPath);
             break;
@@ -984,11 +993,31 @@ function matchesFilter(repoPath, name, filter) {
         return true;
     return basename(repoPath) === filter;
 }
+/** Cache each requested canonical tag once per policy run, including unavailable results. */
+function createCanonicalTagResolver() {
+    const states = new Map();
+    return (tag) => {
+        let state = states.get(tag);
+        if (state === undefined) {
+            try {
+                state = { tags: defaultCanonicalTagResolver(tag) };
+            }
+            catch (error) {
+                state = { error };
+            }
+            states.set(tag, state);
+        }
+        if ("error" in state)
+            throw state.error;
+        return state.tags;
+    };
+}
 /** Run a policy bundle across every repo and tally results by severity. */
 function runPolicy(repos, bundle, progress) {
     const by_severity = { error: 0, warning: 0, info: 0 };
     let totalPassed = 0;
     let totalFailed = 0;
+    const resolveCanonicalTags = createCanonicalTagResolver();
     const repoResults = repos.map((repoPath) => {
         progress(`policy ${repoPath}`);
         const pkg = readPackageJson(repoPath);
@@ -996,13 +1025,13 @@ function runPolicy(repos, bundle, progress) {
         const checks = bundle.checks
             .filter((def) => matchesFilter(repoPath, pkg?.name ?? null, def.repo_filter))
             .map((def) => {
-            const res = runPolicyCheck(def, { repoPath, pkg, items });
-            if (!res.pass)
+            const res = runPolicyCheck(def, { repoPath, pkg, items, resolveCanonicalTags });
+            if (!res.pass && res.status !== "unverified-offline")
                 by_severity[def.severity] += 1;
             return res;
         });
         const passed = checks.filter((c) => c.pass).length;
-        const failed = checks.filter((c) => !c.pass).length;
+        const failed = checks.filter((c) => !c.pass && c.status !== "unverified-offline").length;
         totalPassed += passed;
         totalFailed += failed;
         return { path: repoPath, name: pkg?.name ?? null, checks, passed, failed };

@@ -21,6 +21,7 @@ import {
 } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage, type DocstringViolation } from "./docstrings.ts";
 import { qualityMeasurementProvider } from "./assurance.ts";
+import { defaultCanonicalTagResolver, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.ts";
 
 
 // ---------------------------------------------------------------------------
@@ -678,8 +679,9 @@ interface NpmOutdated {
   [name: string]: unknown;
 }
 
+/** Reuse the shared PM_OPS_OFFLINE check so policy and tag resolution agree on offline mode. */
 function isOffline(): boolean {
-  return process.env.PM_OPS_OFFLINE === "1" || process.env.PM_OPS_OFFLINE === "true";
+  return isPmOpsOffline();
 }
 
 /** Count outdated dependencies via npm outdated --json, null when offline or failing. */
@@ -919,6 +921,8 @@ interface PolicyCheckResult {
   pass: boolean;
   message: string;
   details?: string[];
+  /** An offline caller is pending rather than an approved or failed policy check. */
+  status?: "verified" | "refused" | "unverified-offline";
 }
 
 interface RepoPolicy {
@@ -1126,7 +1130,7 @@ function checkPmChangelogWired(pkg: PkgJson | undefined): PolicyCheckResult {
 }
 
 /** Dispatch one policy check definition to its implementation and attach severity. */
-function runPolicyCheck(def: PolicyCheckDef, ctx: { repoPath: string; pkg: PkgJson | undefined; items: PmItem[] | null }): PolicyCheckResult {
+function runPolicyCheck(def: PolicyCheckDef, ctx: { repoPath: string; pkg: PkgJson | undefined; items: PmItem[] | null; resolveCanonicalTags: (tag: string) => Readonly<Record<string, string>> }): PolicyCheckResult {
   let result: PolicyCheckResult;
   switch (def.id) {
     case "naming":
@@ -1138,6 +1142,13 @@ function runPolicyCheck(def: PolicyCheckDef, ctx: { repoPath: string; pkg: PkgJs
     case "required-workflows":
       result = checkRequiredWorkflows(ctx.repoPath, (def.params?.workflows as string[]) ?? DEFAULT_REQUIRED_WORKFLOWS);
       break;
+    case "release-caller": {
+      const path = join(ctx.repoPath, ".github/workflows/release.yml");
+      const caller = existsSync(path) ? inspectReleaseCaller(readFileSync(path, "utf8"), ctx.resolveCanonicalTags) : { status: "refused" as const, errors: ["release.yml is missing"] };
+      result = { id: "release-caller", severity: "error", status: caller.status, pass: caller.status === "verified",
+        message: caller.status === "verified" ? "SHA-pinned reusable release caller" : caller.errors.join("; ") };
+      break;
+    }
     case "private-no-runners":
       result = checkPrivateNoRunners(ctx.repoPath);
       break;
@@ -1161,11 +1172,30 @@ function matchesFilter(repoPath: string, name: string | null, filter: string | u
   return basename(repoPath) === filter;
 }
 
+/** Cache each requested canonical tag once per policy run, including unavailable results. */
+function createCanonicalTagResolver(): (tag: string) => Readonly<Record<string, string>> {
+  const states = new Map<string, { tags: Readonly<Record<string, string>> } | { error: unknown }>();
+  return (tag) => {
+    let state = states.get(tag);
+    if (state === undefined) {
+      try {
+        state = { tags: defaultCanonicalTagResolver(tag) };
+      } catch (error) {
+        state = { error };
+      }
+      states.set(tag, state);
+    }
+    if ("error" in state) throw state.error;
+    return state.tags;
+  };
+}
+
 /** Run a policy bundle across every repo and tally results by severity. */
 function runPolicy(repos: string[], bundle: PolicyBundle, progress: (msg: string) => void): PolicyResult {
   const by_severity: Record<Severity, number> = { error: 0, warning: 0, info: 0 };
   let totalPassed = 0;
   let totalFailed = 0;
+  const resolveCanonicalTags = createCanonicalTagResolver();
   const repoResults = repos.map((repoPath) => {
     progress(`policy ${repoPath}`);
     const pkg = readPackageJson(repoPath);
@@ -1173,12 +1203,12 @@ function runPolicy(repos: string[], bundle: PolicyBundle, progress: (msg: string
     const checks = bundle.checks
       .filter((def) => matchesFilter(repoPath, pkg?.name ?? null, def.repo_filter))
       .map((def) => {
-        const res = runPolicyCheck(def, { repoPath, pkg, items });
-        if (!res.pass) by_severity[def.severity] += 1;
+        const res = runPolicyCheck(def, { repoPath, pkg, items, resolveCanonicalTags });
+        if (!res.pass && res.status !== "unverified-offline") by_severity[def.severity] += 1;
         return res;
       });
     const passed = checks.filter((c) => c.pass).length;
-    const failed = checks.filter((c) => !c.pass).length;
+    const failed = checks.filter((c) => !c.pass && c.status !== "unverified-offline").length;
     totalPassed += passed;
     totalFailed += failed;
     return { path: repoPath, name: pkg?.name ?? null, checks, passed, failed };

@@ -256,7 +256,7 @@ function isKeyword(kind) {
  * returned array never contains a brace that does not correspond to a real
  * `{` / `}` in the source.
  */
-function tokenize(text, file) {
+export function tokenize(text, file) {
     const scanner = createScanner(true, file.endsWith(".tsx") ? LanguageVariant.JSX : LanguageVariant.Standard, text);
     const tokens = [];
     const group = [];

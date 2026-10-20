@@ -456,6 +456,12 @@ and dependency output by default; pass `ignores` to add project-specific paths.
 
 ## Package coverage gate
 
+Bun must be installed and available on `PATH` before running `npm test`,
+`npm run coverage`, or `npm run release:check` locally. These scripts execute
+real Bun verification; missing Bun is an error and the tests are never skipped.
+Install Bun using its [official installation instructions](https://bun.sh/docs/installation).
+Repository CI installs Bun before running these gates.
+
 `npm run coverage` discovers this repository's executable `.ts` files from
 `coverageGate.sources`, including operational scripts and the launcher template.
 Overlapping roots form a sorted, unique file set, which supplies both the c8
