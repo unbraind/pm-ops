@@ -102,6 +102,8 @@ test("publication continues only when trigger, merged main, package version, pro
   assert.deepEqual(workflow.jobs.verify_bun.permissions, { contents: "read" });
   assert.deepEqual(workflow.jobs.recover.permissions, { contents: "write" });
   assert.match(workflow.jobs.verify_bun.if, /needs.release.outputs.published == 'success'/);
+  assert.match(workflow.jobs.verify_bun.if, /inputs.npm-publish && inputs.bun-verify/);
+  assert.equal(step("Pack verified release").env?.BUN_VERIFY, "${{ inputs.npm-publish && inputs.bun-verify }}");
   assert.match(step("Verify bun install of published package").run, /bunx --bun --no-install pm health --strict-exit/);
   assert.match(step("Publish npm package").run, /npm publish \.\/package\.tgz --access public --provenance --ignore-scripts/);
   assert.match(step("Publish npm package").run, /verifyPublishedProvenance/);
@@ -234,15 +236,26 @@ test("pack guard refuses leftover untracked outputs anywhere in the package befo
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("pack validates caller and fallback CLI pins before accepting the release handoff", () => {
+test("pack validates CLI pins only when npm publication and Bun verification are both enabled", () => {
   const cases = [
-    { caller: "2026.10.15", fallback: "^2026.8.20", expected: "2026.10.15" },
-    { caller: "2026.10.15-2", fallback: "2026.10.14", expected: "2026.10.15-2" },
-    { caller: undefined, fallback: "2026.10.15", expected: "2026.10.15" },
-    { caller: undefined, fallback: "2026.10.15-2", expected: "2026.10.15-2" },
-    ...["^2026.8.20", "~2026.10.15", ">=2026.8.20", "*", "latest", "workspace:*", "2026.10.15-beta", "2026.10.15\nforged=value"].map(caller => ({ caller, fallback: "2026.10.15", expected: undefined })),
-    { caller: undefined, fallback: "^2026.8.20", expected: undefined },
-    { caller: undefined, fallback: undefined, expected: undefined },
+    ...[
+      { caller: "2026.10.15", fallback: "^2026.8.20", expected: "2026.10.15" },
+      { caller: "2026.10.15-2", fallback: "2026.10.14", expected: "2026.10.15-2" },
+      { caller: undefined, fallback: "2026.10.15", expected: "2026.10.15" },
+      { caller: undefined, fallback: "2026.10.15-2", expected: "2026.10.15-2" },
+      ...["^2026.8.20", "~2026.10.15", ">=2026.8.20", "*", "latest", "workspace:*", "2026.10.15-beta", "2026.10.15\nforged=value"].map(caller => ({ caller, fallback: "2026.10.15", expected: undefined })),
+      { caller: undefined, fallback: "^2026.8.20", expected: undefined },
+      { caller: undefined, fallback: undefined, expected: undefined },
+    ].map(fixture => ({ ...fixture, npmPublish: true, bunVerify: true })),
+    ...[
+      { npmPublish: true, bunVerify: false },
+      { npmPublish: false, bunVerify: true },
+      { npmPublish: false, bunVerify: false },
+    ].flatMap(flags => [
+      { ...flags, caller: "^2026.8.20", fallback: "2026.10.15", expected: "" },
+      { ...flags, caller: undefined, fallback: "^2026.8.20", expected: "" },
+      { ...flags, caller: undefined, fallback: undefined, expected: "" },
+    ]),
   ];
   for (const [index, fixture] of cases.entries()) {
     const root = mkdtempSync(join(tmpdir(), "release-cli-pin-"));
@@ -254,7 +267,9 @@ test("pack validates caller and fallback CLI pins before accepting the release h
       mkdirSync(runner);
       mkdirSync(join(tools, "node_modules/pm-ops"), { recursive: true });
       writeFileSync(join(project, "package.json"), JSON.stringify({ name: "release-cli-fixture", version: "1.0.0", devDependencies: { "@unbrained/pm-cli": fixture.caller } }));
-      writeFileSync(join(tools, "node_modules/pm-ops/package.json"), JSON.stringify({ devDependencies: { "@unbrained/pm-cli": fixture.fallback } }));
+      if (fixture.fallback !== undefined || fixture.bunVerify && fixture.npmPublish) {
+        writeFileSync(join(tools, "node_modules/pm-ops/package.json"), JSON.stringify({ devDependencies: { "@unbrained/pm-cli": fixture.fallback } }));
+      }
       writeFileSync(join(runner, "RELEASE_NOTES.md"), "Synthetic release notes\n");
       execFileSync("git", ["init", "-q"], { cwd: repo });
       execFileSync("git", ["add", join(directory, "package.json")], { cwd: repo });
@@ -262,10 +277,10 @@ test("pack validates caller and fallback CLI pins before accepting the release h
       const output = join(root, "output");
       writeFileSync(output, "");
       const result = spawnSync("bash", ["-c", step("Pack verified release").run], {
-        cwd: repo, encoding: "utf8", env: { ...process.env, GITHUB_WORKSPACE: repo, NPM_PROJECT_PATH: project, PM_OPS_TOOLS: tools, RUNNER_TEMP: runner, GITHUB_OUTPUT: output, IS_RUST: "false" },
+        cwd: repo, encoding: "utf8", env: { ...process.env, GITHUB_WORKSPACE: repo, NPM_PROJECT_PATH: project, PM_OPS_TOOLS: tools, RUNNER_TEMP: runner, GITHUB_OUTPUT: output, IS_RUST: "false", BUN_VERIFY: String(fixture.npmPublish && fixture.bunVerify) },
       });
       const outputs = readFileSync(output, "utf8");
-      if (fixture.expected) {
+      if (fixture.expected !== undefined) {
         assert.equal(result.status, 0, result.stdout + result.stderr);
         assert.ok(outputs.split("\n").includes(`cli_version=${fixture.expected}`));
         assert.match(outputs, /^package_sha256=[a-f0-9]{64}$/m);

@@ -488,6 +488,8 @@ jobs:
         id: pack
         if: steps.decide.outputs.should_release == 'true'
         shell: bash
+        env:
+          BUN_VERIFY: ${{ inputs.npm-publish && inputs.bun-verify }}
         run: |
           set -euo pipefail
           # npm ci may refresh the local SDK merge-driver fence. It is not release metadata.
@@ -502,8 +504,11 @@ jobs:
             if git ls-files --error-unmatch 'dist/' >/dev/null 2>&1; then
               [[ -z "$(git status --porcelain=v1 --untracked-files=all --ignored=matching -- dist/)" ]]
             fi
-            cli_version="$(node -p "require('./package.json').devDependencies?.['@unbrained/pm-cli'] || require(process.env.PM_OPS_TOOLS + '/node_modules/pm-ops/package.json').devDependencies['@unbrained/pm-cli']")"
-            [[ "$cli_version" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+(-[0-9]+)?$ ]] || { echo '::error::@unbrained/pm-cli must be pinned to an exact version for Bun verification.'; exit 1; }
+            cli_version=""
+            if [[ "$BUN_VERIFY" == true ]]; then
+              cli_version="$(node -p "require('./package.json').devDependencies?.['@unbrained/pm-cli'] || require(process.env.PM_OPS_TOOLS + '/node_modules/pm-ops/package.json').devDependencies['@unbrained/pm-cli']")"
+              [[ "$cli_version" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+(-[0-9]+)?$ ]] || { echo '::error::@unbrained/pm-cli must be pinned to an exact version for Bun verification.'; exit 1; }
+            fi
             npm pack --ignore-scripts --json --pack-destination "$handoff" > "$RUNNER_TEMP/pack.json"
             printf 'package_name=%s\n' "$(node -p "require('./package.json').name")" >> "$GITHUB_OUTPUT"
             printf 'cli_version=%s\n' "$cli_version" >> "$GITHUB_OUTPUT"
