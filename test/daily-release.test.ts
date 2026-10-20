@@ -57,6 +57,15 @@ test("extension stamping changes the descriptor and preserves unrelated version 
   assert.equal(stampExtensionVersion("export default {};", "x"), "export default {};");
 });
 
+test("extension stamping ignores a version token outside a property-key position", () => {
+  const ternary = `defineExtension({ name: "x", channel: isDev ? version : "stable", version: "old" });`;
+  const stamped = stampExtensionVersion(ternary, "2026.10.19");
+  assert.match(stamped, /channel: isDev \? version : "stable"/);
+  assert.match(stamped, /version: "2026.10.19" \}\);$/);
+  const parenthesized = `defineExtension({ channel: (isDev ? version : "stable"), list: [version, "x"] });`;
+  assert.equal(stampExtensionVersion(parenthesized, "2026.10.19"), parenthesized);
+});
+
 /** Wrap a synthetic SLSA payload in the registry attestation response format. */
 function provenance(statement: unknown): unknown {
   return { attestations: [{ predicateType: "https://slsa.dev/provenance/v1", bundle: { dsseEnvelope: { payload: Buffer.from(JSON.stringify(statement)).toString("base64") } } }] };

@@ -51,14 +51,22 @@ export function stampExtensionVersion(source, version) {
         if (tokens[i].text !== "defineExtension" || tokens[i + 1]?.text !== "(" || tokens[i + 2]?.text !== "{")
             continue;
         let depth = 1;
+        let nesting = 0;
         for (let j = i + 3; j < tokens.length && depth > 0; j++) {
             const token = tokens[j];
             if (token.text === "{")
                 depth++;
             if (token.text === "}")
                 depth--;
+            if (token.text === "(" || token.text === "[")
+                nesting++;
+            if (token.text === ")" || token.text === "]")
+                nesting--;
             const value = tokens[j + 2];
-            if (depth === 1 && ["version", '\'version\'', '"version"'].includes(token.text)
+            // A property key directly follows the descriptor's `{` or a `,` outside any parentheses or brackets;
+            // this excludes a top-level ternary such as `channel: isDev ? version : "stable"`.
+            const keyPosition = nesting === 0 && (tokens[j - 1]?.text === "{" || tokens[j - 1]?.text === ",");
+            if (depth === 1 && keyPosition && ["version", '\'version\'', '"version"'].includes(token.text)
                 && tokens[j + 1]?.text === ":" && value && /^["']/.test(value.text)) {
                 edits.push({ start: value.start, end: value.start + value.text.length });
             }
