@@ -47,6 +47,22 @@ test("daily decisions skip same-day spelling variants and suffixes, unchanged tr
   assert.equal(decideDailyRelease(facts()).pr_number, "");
 });
 
+test("untagged main metadata resumes its exact version across midnight while tagged spellings and daily caps still win", () => {
+  for (const version of ["2026.10.18", "2026.8.9-2"]) {
+    const plan = decideDailyRelease(facts({ currentPackageVersion: version, releaseTags: ["v2026.08.08"] }));
+    assert.equal(plan.should_release, true);
+    assert.equal(plan.npm_version, version);
+    assert.equal(plan.tag, `v${version}`);
+  }
+  for (const [version, tag] of [["2026.8.9", "v2026.08.09"], ["2026.8.9-2", "v2026.08.09-2"]]) {
+    assert.equal(decideDailyRelease(facts({ currentPackageVersion: version, releaseTags: [tag] })).npm_version, "2026.10.19");
+  }
+  assert.equal(decideDailyRelease(facts({ currentPackageVersion: "invalid" })).npm_version, "2026.10.19");
+  assert.equal(decideDailyRelease(facts({ currentPackageVersion: "2026.10.17", packageVersion: "2026.10.12" })).npm_version, "2026.10.12");
+  assert.equal(decideDailyRelease(facts({ currentPackageVersion: "2026.10.17", releaseTags: ["v2026.10.19"] })).should_release, false);
+  assert.equal(decideDailyRelease(facts({ currentPackageVersion: "2026.10.17", publishedToday: true })).should_release, false);
+});
+
 test("extension stamping changes the descriptor and preserves unrelated version data", () => {
   const source = `const unrelated = { version: "leave" };\nexport default defineExtension({ name: "x", version: 'old', other: { version: "nested" } });\ndefineExtension(); defineExtension(variable); defineExtension({ version: variable, ...rest, other: "x" });\ndefineExtension({ "version": "another" });`;
   const result = stampExtensionVersion(source, "2026.10.19");

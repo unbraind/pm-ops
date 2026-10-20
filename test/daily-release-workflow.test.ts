@@ -1,6 +1,7 @@
 /** Parse the executable workflow and assert its privilege and publication wiring. */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,7 +30,7 @@ const workflow = parse(source) as {
   on: { workflow_call: { inputs: Record<string, { type: string; default: unknown }> } };
   permissions: Record<string, string>;
   concurrency: { group: string; "cancel-in-progress": boolean };
-  jobs: Record<string, { if: string; permissions: Record<string, string>; steps: Step[] }>;
+  jobs: Record<string, { if: string; needs: string[]; permissions: Record<string, string>; steps: Step[] }>;
 };
 const steps = Object.values(workflow.jobs).flatMap(job => job.steps);
 
@@ -38,6 +39,12 @@ function step(name: string): Step & { run: string } {
   const result = steps.find(s => s.name === name);
   assert.ok(result?.run, `missing executable step: ${name}`);
   return result as Step & { run: string };
+}
+
+/** Store a synthetic registry envelope without duplicating its transport encoding in shell fixtures. */
+function writeProvenance(root: string, filename: string, statement: unknown): void {
+  const payload = Buffer.from(JSON.stringify(statement)).toString("base64");
+  writeFileSync(join(root, filename), JSON.stringify({ attestations: [{ predicateType: "https://slsa.dev/provenance/v1", bundle: { dsseEnvelope: { payload } } }] }));
 }
 
 test("shared workflow grants permissions per job, pins actions, and gates every privileged run", () => {
@@ -71,6 +78,8 @@ test("planning calls the measured TypeScript module and keeps PR payloads in fil
   assert.match(plan.run, /readFileSync\(process.argv\[2\]/);
   assert.match(plan.run, /decideDailyRelease\(/);
   assert.match(plan.run, /prs.length >= 1000/);
+  assert.match(plan.run, /RELEASE_CURRENT_PACKAGE_VERSION=.*npm pkg get version/);
+  assert.match(plan.run, /currentPackageVersion: e.RELEASE_CURRENT_PACKAGE_VERSION/);
   assert.doesNotMatch(plan.run, /export .*PRS|RELEASE_PRS=/);
   assert.equal(step("Merge release metadata through protected PR").env?.RELEASE_BASE_SHA, "${{ needs.prepare.outputs.base_sha }}");
   const merge = step("Merge release metadata through protected PR").run;
@@ -130,6 +139,117 @@ test("superseded cleanup failure cannot block the release, and branch cleanup ke
     assert.match(result.stdout, /warning::Could not close superseded release PR #13/);
     assert.match(step("Clean up merged release branch").run, /--force-with-lease=.*expected_sha/);
     assert.match(step("Clean up merged release branch").run, /expected_sha="\$\(git rev-parse HEAD/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("release approval retries select only waiting CI runs on the prepared head", () => {
+  const merge = step("Merge release metadata through protected PR").run;
+  assert.match(merge, /actions\/runs\?head_sha=\$\{release_commit\}/);
+  const filter = /--jq '(\.workflow_runs\[\]\?[\s\S]*?)'/.exec(merge)?.[1];
+  assert.ok(filter);
+  const result = spawnSync("jq", ["-r", filter], { encoding: "utf8", input: JSON.stringify({ workflow_runs: [
+    { id: 1, name: "CI", conclusion: "action_required" },
+    { id: 2, name: "CI", status: "waiting" },
+    { id: 3, name: "Release", conclusion: "action_required" },
+    { id: 4, name: "CI", conclusion: "success" },
+  ] }) });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "1\n2\n");
+});
+
+test("actual publication dates cap daily resumption as well as reviewed package versions", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-date-cap-"));
+  try {
+    for (const [name, output] of [["npm", '"2026.10.17"'], ["gh", "2026-10-20T01:00:00Z"]]) {
+      writeFileSync(join(root, name), `#!/bin/sh\nprintf '%s\\n' '${output}'\n`);
+      chmodSync(join(root, name), 0o755);
+    }
+    const plan = step("Decide release").run;
+    const dates = plan.slice(plan.indexOf('export RELEASE_PACKAGE_VERSION=""'), plan.indexOf('if [[ -n "$latest_tag" ]]'));
+    for (const policy of ["daily", "package"]) {
+      const result = spawnSync("bash", ["-e", "-o", "pipefail", "-c", dates + '\nprintf "%s" "$RELEASE_PUBLISHED_TODAY"'], {
+        encoding: "utf8", env: { ...process.env, PATH: `${root}:${process.env.PATH}`, RUNNER_TEMP: root, NPM_PROJECT_PATH: root,
+          GITHUB_REPOSITORY: "example/package", IS_RUST: "false", VERSION_POLICY: policy, RELEASE_TODAY: "2026.10.20", RELEASE_TIMEZONE: "Europe/Vienna" },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, "true", policy);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("completeness audit follows release and recovery even on no-change days and exposes failures to alerting", () => {
+  const audit = workflow.jobs.audit;
+  assert.deepEqual(audit.needs, ["prepare", "release", "recover", "verify_bun"]);
+  assert.match(audit.if, /^!cancelled\(\)/);
+  assert.doesNotMatch(audit.if, /should_release|success\(\)|outcome/);
+  assert.ok(workflow.jobs.alert.needs.includes("audit"));
+  assert.deepEqual(audit.permissions, { contents: "write" });
+  const run = step("Audit release completeness");
+  assert.equal(run.env?.GH_TOKEN, "${{ github.token }}");
+  assert.equal(run.env?.AUDIT_SCRIPT, "${{ inputs.audit-script }}");
+  assert.match(run.run, /npm run "\$AUDIT_SCRIPT"/);
+  assert.doesNotMatch(step("Run release checks").run, /AUDIT_SCRIPT/);
+});
+
+test("publish retries bind the local artifact and poll delayed attestations through the final read without republishing success", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-publish-poll-"));
+  try {
+    mkdirSync(join(root, "release-handoff"));
+    const artifact = Buffer.from("synthetic verified artifact");
+    writeFileSync(join(root, "release-handoff/package.tgz"), artifact);
+    writeFileSync(join(root, "package.json"), '{"name":"synthetic-package"}\n');
+    const digest = createHash("sha512").update(artifact).digest();
+    const integrity = `sha512-${digest.toString("base64")}`;
+    const commit = "a".repeat(40);
+    const bin = join(root, "bin");
+    mkdirSync(bin);
+    const binaries = {
+      git: `#!/bin/sh\nprintf '%s' '${commit}'\n`,
+      curl: '#!/bin/sh\ncat "$RUNNER_TEMP/provenance.json"\n',
+      sleep: '#!/bin/sh\nprintf "%s\\n" "$*" >> "$RUNNER_TEMP/sleeps"\n',
+      npm: `#!/bin/sh
+case "$1" in
+  config) exit 0 ;;
+  --version) echo 11.19.0 ;;
+  publish) echo publish >> "$RUNNER_TEMP/publishes"; exit "$PUBLISH_STATUS" ;;
+  view)
+    case "$3" in
+      version) exit 0 ;;
+      dist)
+        count=$(cat "$RUNNER_TEMP/reads"); count=$((count + 1)); echo "$count" > "$RUNNER_TEMP/reads"
+        [ "$METADATA_MODE" != unavailable ] || exit 1
+        [ "$count" -ge "$VISIBLE_READ" ] || exit 1
+        echo "$REGISTRY_METADATA" ;;
+    esac ;;
+esac
+`,
+    };
+    for (const [name, body] of Object.entries(binaries)) { writeFileSync(join(bin, name), body); chmodSync(join(bin, name), 0o755); }
+    const fixtures = [
+      { mode: "visible", integrity, visible: 22, publish: 0, status: 0, reads: 22, publishes: 1, sleeps: 20 },
+      { mode: "visible", integrity, visible: 25, publish: 1, status: 0, reads: 25, publishes: 3, sleeps: 22 },
+      { mode: "visible", integrity: `sha512-${createHash("sha512").update("different artifact").digest("base64")}`, visible: 1, publish: 1, status: 1, reads: 26, publishes: 3, sleeps: 22 },
+      { mode: "unavailable", integrity, visible: 1, publish: 1, status: 1, reads: 26, publishes: 3, sleeps: 22 },
+    ];
+    for (const fixture of fixtures) {
+      const registryDigest = Buffer.from(fixture.integrity.slice(7), "base64").toString("hex");
+      const statement = { subject: [{ digest: { sha512: registryDigest } }], predicate: { buildDefinition: { resolvedDependencies: [{ digest: { gitCommit: commit } }] } } };
+      writeProvenance(root, "provenance.json", statement);
+      for (const file of ["publishes", "sleeps"]) writeFileSync(join(root, file), "");
+      writeFileSync(join(root, "reads"), "0");
+      const result = spawnSync("bash", ["-c", step("Publish npm package").run], { cwd: root, encoding: "utf8", env: {
+        ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: root, HOME: root, NPM_CONFIG_USERCONFIG: join(root, "absent-config"),
+        NPM_VERSION: "2026.10.20", REGISTRY_METADATA: JSON.stringify({ integrity: fixture.integrity, attestations: { url: "https://registry.npmjs.org/synthetic" } }), METADATA_MODE: fixture.mode,
+        VISIBLE_READ: String(fixture.visible), PUBLISH_STATUS: String(fixture.publish), PM_OPS_MODULE: new URL("../dist/daily-release.js", import.meta.url).pathname,
+      } });
+      assert.equal(result.status, fixture.status, result.stdout + result.stderr);
+      assert.equal(Number(readFileSync(join(root, "reads"), "utf8")), fixture.reads);
+      for (const [file, count] of [["publishes", fixture.publishes], ["sleeps", fixture.sleeps]] as const) {
+        assert.equal(readFileSync(join(root, file), "utf8").trim().split("\n").filter(Boolean).length, count);
+      }
+      if (fixture.mode === "unavailable") assert.match(result.stdout, /registry read failure, NOT proof/);
+      if (fixture.integrity !== integrity) assert.match(result.stdout, /without matching commit and artifact provenance/);
+    }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -309,8 +429,7 @@ test("recovery queries the exact npm coordinate while preserving the original Gi
     execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "Initial"], { cwd: root });
     const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
     const statement = { subject: [{ digest: { sha512: "abcd" } }], predicate: { buildDefinition: { resolvedDependencies: [{ digest: { gitCommit: commit } }] } } };
-    const payload = Buffer.from(JSON.stringify(statement)).toString("base64");
-    writeFileSync(join(root, "attestation.json"), JSON.stringify({ attestations: [{ predicateType: "https://slsa.dev/provenance/v1", bundle: { dsseEnvelope: { payload } } }] }));
+    writeProvenance(root, "attestation.json", statement);
     const tools = {
       gh: `#!/bin/sh\nprintf '%s\\n' "$*" >> "$RUNNER_TEMP/gh-calls"\n[ "$2" != view ]\n`,
       npm: `#!/bin/sh\nprintf '%s\\n' "$*" >> "$RUNNER_TEMP/npm-calls"\nprintf '%s\\n' '{"integrity":"sha512-q80=","attestations":{"url":"https://registry.npmjs.org/synthetic"}}'\n`,

@@ -1,0 +1,2933 @@
+{
+  "date": "2026-10-20",
+  "workflow": ".github/workflows/release.yml",
+  "scope": "All 28 original package copies plus the now-available pm-memory copy. The upstream CLI is outside this port.",
+  "snapshots": [
+    {
+      "repository": "unbraind/pm-ado",
+      "commit": "03329b840686ff7816b74e296d94158825467685",
+      "workflowSha256": "ffbb8eb2be7f1aeb3595928d13af8fc62b54f13b3f4e075d45b58f43e3a29b86",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 53,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 75,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 78,
+          "sha256": "379dcfad4b6acbf501adbb679c0c7dd9d179978f01e5fe88722c7dc396c42a2b"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 141,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 176,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 268,
+          "sha256": "5fc3e5ff459367246f8b3a8cce123a2f228038d2418496c91d002b399b3eeaea"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 286,
+          "sha256": "95c05f210e4e3f300c9d8136f4ffde148b8e4cc13dbf2ed5033b5ec019d1b7f2"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 295,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 299,
+          "sha256": "8ce6b826db618978d1eb772bc7dd565e0d0fad72e1260ee1d8601a78e16921fb"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 320,
+          "sha256": "09ad2c94b06d2844ab65dcd1b0d897d0193f10c6261e240a1cf9596380053f72"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 517,
+          "sha256": "0499e4ae7e70a8bd487ed113bfb2bb4a5565986209e2e192595fb45aa4974ab6"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 567,
+          "sha256": "0e2f174ae178930ac3fde6eb826edae18eebc7c2739e1c866758d325556917e1"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 743,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 782,
+          "sha256": "f81050a6dd3e4641a0eaa38771222c0df34f41baeef49510bf5b2aa305daba78"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 825,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-beads",
+      "commit": "396801a798e9d96a9c6b660bc98f4b42d3cdc8ad",
+      "workflowSha256": "a686181210305c5273cd5d959ae436ffc7fe3209cab3b4d71ae153f8f76129c8",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 50,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 72,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 75,
+          "sha256": "379dcfad4b6acbf501adbb679c0c7dd9d179978f01e5fe88722c7dc396c42a2b"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 138,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 204,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 296,
+          "sha256": "9a7821910062bb9fc43aa35a5cad8ac0eedce6d157bbba48ca500fc096365f9f"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 307,
+          "sha256": "95451a13561df30a0db8e45fcf69fd8074af0d36f6a118ee8c9789bb08495fd7"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 316,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 320,
+          "sha256": "db52bc7d47b199c56e740cf9e13a2225f9f05541b361591cc4ca9f6329dfe924"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 340,
+          "sha256": "b67b88d6e987aa7410832215a884e4e4942139f15ec677d896d9adca171c5cd2"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 560,
+          "sha256": "6824f3a5fe32e40776781e73a90f353e66bd5f07aae65fa38d05fb7e0736ded0"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 610,
+          "sha256": "64c15c29b8c02319b2c08e215f69f8cd1c2625f6debf5eae5052835c0714702b"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 794,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 833,
+          "sha256": "f81050a6dd3e4641a0eaa38771222c0df34f41baeef49510bf5b2aa305daba78"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 876,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        },
+        {
+          "job": "alert-on-release-failure",
+          "name": "Open or update the release-failure tracking issue",
+          "line": 931,
+          "sha256": "dfc21dbc21dec5024415186149de62afe12efe5da647245e2152376530af927b"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-brand",
+      "commit": "05f59d2ebcc73b23c11a008f43d59e422fc33336",
+      "workflowSha256": "0af20959cd4ee2c789a9b83f1c1da1ee095599c9f254b62a62f13c56da65ad8c",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Verify and publish the attested artifact",
+          "line": 67,
+          "sha256": "89c1c45e36f7b42e7b26892e5e74cffbf95a3b31d71b25051fee207fc4dd7544"
+        },
+        {
+          "job": "release",
+          "name": "Tag tested commit and create release",
+          "line": 102,
+          "sha256": "72a8f092c6ae455390e73aed016f3f679c62d1baff6e52bef0efdc8fe702b310"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-brief",
+      "commit": "b89eb224b15bfcba1d8357cbe522025c83bb17d4",
+      "workflowSha256": "2e078e9bafe3a8fa0dc5592b2fedfc306976ba16322dce215557e126a06f3c50",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 50,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 72,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 75,
+          "sha256": "2516924cf997a8e48b5fbb3d50f34789716f8706376823689f59edfad68b8c2c"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 132,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 151,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 243,
+          "sha256": "fe1cfe08eb3a7a37cd44ac58b0cd7cc08f67de243bb4042b1e42dbc7c0bf6238"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 254,
+          "sha256": "2522963258b8ebee87538d50e482984924eed6b38ca61d84ea2fb4f328907993"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 267,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 271,
+          "sha256": "db52bc7d47b199c56e740cf9e13a2225f9f05541b361591cc4ca9f6329dfe924"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 291,
+          "sha256": "ed988cf87d8bb0f9b5daa95ab9fa7aa7cd6d20eefe8b2610cb9ddc3ee0d48bf9"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 511,
+          "sha256": "6824f3a5fe32e40776781e73a90f353e66bd5f07aae65fa38d05fb7e0736ded0"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 561,
+          "sha256": "0e2f174ae178930ac3fde6eb826edae18eebc7c2739e1c866758d325556917e1"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 737,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 776,
+          "sha256": "8339491b225fc7a9c6c2bb9568893053b835b57ca5bc01e74e59c83261c8b2ee"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 818,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        },
+        {
+          "job": "alert-on-release-failure",
+          "name": "Open or update the release-failure tracking issue",
+          "line": 877,
+          "sha256": "dfc21dbc21dec5024415186149de62afe12efe5da647245e2152376530af927b"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-changelog",
+      "commit": "6273a9b42b199ce919317b6250e8970ab4c1179f",
+      "workflowSha256": "b6b5c4e5a9be688ce86568e01595b26fdea0ca52ac2a1944be603350ad84a156",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 49,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 71,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 74,
+          "sha256": "662cd6f83a6db1fc40ffeaf201a1561062cdc5177379adf50f697562dc0955f1"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 202,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 225,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 317,
+          "sha256": "a4728aa4814de893c4243a40a9d23401cc9aa9438d4df6c0f16ec8038bfcb433"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 335,
+          "sha256": "cd35f5e571240f30f5be79f41a9f18a7072ef5fe81ce94649c859932ea9e4b00"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 366,
+          "sha256": "f840aee602d17fffcec678e9732f555eefc71583325b164d8884005bc4f32ad9"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 383,
+          "sha256": "aef0ad40112afbda54a660c425c0a44ca1a0b15a655dff01ad210c3565cc4a72"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 647,
+          "sha256": "abab792269eeab3523c8b194e8eda1c057df3646866a1c54cc4ff5406c271f3c"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 695,
+          "sha256": "1de7d8c006f2cbca76ac288b2c1fac68c45f0a51fc869ab544710c55e92fcc2e"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 793,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 832,
+          "sha256": "f81050a6dd3e4641a0eaa38771222c0df34f41baeef49510bf5b2aa305daba78"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 875,
+          "sha256": "9201b023926429da103d292862197199334d0faa33fd1b031db73042032c9c40"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-context",
+      "commit": "838e3d6c21e5fe05656ce2635552ae2890497cc3",
+      "workflowSha256": "e5fc5715f0e2fc26bf946a620394315dc727d41483f0e3f67fb5b2d6ed0f1c94",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 50,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 72,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 75,
+          "sha256": "57d4ea5f71f9722a220b9b1b9472cf71d2b8d35b84ae35ecf84a1f25fbd0ac72"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 180,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 207,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 299,
+          "sha256": "b64897a19fdc283c14db72789dcf3b711a54a58cfa9c27bbfd1e71b902b1364f"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 317,
+          "sha256": "43f30957f72db6f99a26ad9f51cb6ce6d2bcd5a76f3ce4f6236900cc3d191f59"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 368,
+          "sha256": "bdf3816994018126aa9a09d2dd3370c968bed24fa1f35733d1cb12be86321d4c"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 383,
+          "sha256": "b965829d2356a941436dc8c9c5a5e5c009dc1deb3e51cf0f925aed669557b647"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 405,
+          "sha256": "5aac5332ea91c67f8925fcf51bd1c620c79c038ef170280dd34e4f0315df083b"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 669,
+          "sha256": "a2af64e27096f7af64c6042afebdf79680ee0f62d77c4d878c5c592d46f24599"
+        },
+        {
+          "job": "release",
+          "name": "Restore prepared release notes",
+          "line": 715,
+          "sha256": "e5d913e37a65d0aff4c2a70cda17384d5aaf7d9a09f94b867a9a489db8c4aaad"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 738,
+          "sha256": "7c5d2aceffe62210ed07a09de160a89c88f10659f77a9676165a45c73a2ae6f0"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 907,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 946,
+          "sha256": "f81050a6dd3e4641a0eaa38771222c0df34f41baeef49510bf5b2aa305daba78"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 990,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        },
+        {
+          "job": "alert-on-release-failure",
+          "name": "Open or update the release-failure tracking issue",
+          "line": 1046,
+          "sha256": "dfc21dbc21dec5024415186149de62afe12efe5da647245e2152376530af927b"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-csv",
+      "commit": "96c2c825800fd2a094fb6155fafcf449e8b69451",
+      "workflowSha256": "a0ad234bd4432189abc6f6166133577c68b1b5cf9cfb1ba1d777471ddc7e3964",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 50,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 72,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 75,
+          "sha256": "379dcfad4b6acbf501adbb679c0c7dd9d179978f01e5fe88722c7dc396c42a2b"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 138,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 161,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 253,
+          "sha256": "9a7821910062bb9fc43aa35a5cad8ac0eedce6d157bbba48ca500fc096365f9f"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 264,
+          "sha256": "c6be922c8205f5f1fde4ca12420b6f839c0441d674e77e31a482272c4f48ff8b"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 273,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 277,
+          "sha256": "db52bc7d47b199c56e740cf9e13a2225f9f05541b361591cc4ca9f6329dfe924"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 297,
+          "sha256": "56b7105646d9ab30bc4222f59f901c1204e28ca00d9954be5c8fdec30271016e"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 561,
+          "sha256": "cf41d207948abeeaba51652635f2129ee7c75b59758f2c059d070f3c9fad165e"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 609,
+          "sha256": "7c5d2aceffe62210ed07a09de160a89c88f10659f77a9676165a45c73a2ae6f0"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 778,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 817,
+          "sha256": "f81050a6dd3e4641a0eaa38771222c0df34f41baeef49510bf5b2aa305daba78"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 860,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        },
+        {
+          "job": "alert-on-release-failure",
+          "name": "Open or update the release-failure tracking issue",
+          "line": 911,
+          "sha256": "dfc21dbc21dec5024415186149de62afe12efe5da647245e2152376530af927b"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-gantt-chart",
+      "commit": "37452470fbc44c5977d2906cdd395cb9a85b530d",
+      "workflowSha256": "eabb73b018c64026478cb9600b5aee7f11b16295730e2b668ff56cac7e1ddba8",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 50,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 72,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 75,
+          "sha256": "379dcfad4b6acbf501adbb679c0c7dd9d179978f01e5fe88722c7dc396c42a2b"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 138,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 157,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 249,
+          "sha256": "5fc3e5ff459367246f8b3a8cce123a2f228038d2418496c91d002b399b3eeaea"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 267,
+          "sha256": "41c17130a2ab1a153d3a77e9c5fad68a4dc7b00fda1097aa336cbbbe970b6366"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 276,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 280,
+          "sha256": "b4e5307ae4af42903813b390c4c061c7c4dcbbec3efaa9c6d0ca0236b0f7de49"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 316,
+          "sha256": "074fdf0699724c0dcb2b800750175e75b993d835c7bee9f161025c489ec5291f"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 536,
+          "sha256": "8081d0e7dd5d974f22b89a8c931135caab42baae1f681c89d1880331bacc32e6"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 587,
+          "sha256": "0e2f174ae178930ac3fde6eb826edae18eebc7c2739e1c866758d325556917e1"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 763,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 802,
+          "sha256": "f81050a6dd3e4641a0eaa38771222c0df34f41baeef49510bf5b2aa305daba78"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 845,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        },
+        {
+          "job": "alert-on-release-failure",
+          "name": "Open or update the release-failure tracking issue",
+          "line": 900,
+          "sha256": "dfc21dbc21dec5024415186149de62afe12efe5da647245e2152376530af927b"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-github",
+      "commit": "4ce9d7081e9c7730703d504d649662a7b667dc0e",
+      "workflowSha256": "09f40f0e17ffb803ba08fabfaecbfe661a4a642b73775683b241de6e48bb0e9d",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Refresh release base",
+          "line": 40,
+          "sha256": "2e60a06b816374d011b1f26cc38d914d5774cca50bc89cbb56504603db45e9a2"
+        },
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 57,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 79,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 82,
+          "sha256": "50a06a6846bfa5a9c48a7f4f1ecc62eece44269ea220df46fe8d4ca0af5131f5"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 125,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 144,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 236,
+          "sha256": "9a7821910062bb9fc43aa35a5cad8ac0eedce6d157bbba48ca500fc096365f9f"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 247,
+          "sha256": "11b78dd1b5ffba18561663e1355a5a60c7f3618ec1b40b6e8f86bc7cd7b3df72"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 256,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 260,
+          "sha256": "db52bc7d47b199c56e740cf9e13a2225f9f05541b361591cc4ca9f6329dfe924"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 280,
+          "sha256": "d1d7f06a70e554d08aa37688a88c6cd43175064483bad13becad040abe396bb9"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 508,
+          "sha256": "6824f3a5fe32e40776781e73a90f353e66bd5f07aae65fa38d05fb7e0736ded0"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 558,
+          "sha256": "0e2f174ae178930ac3fde6eb826edae18eebc7c2739e1c866758d325556917e1"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 734,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 773,
+          "sha256": "f81050a6dd3e4641a0eaa38771222c0df34f41baeef49510bf5b2aa305daba78"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 816,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-graph",
+      "commit": "a9175ac6b92c9b106d9b8b3a74c11c4a7bd40372",
+      "workflowSha256": "3d382a0674a559d23b25ce0319dfa734003ffb27ba318d999e554fd8929ad114",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 50,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 72,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 75,
+          "sha256": "379dcfad4b6acbf501adbb679c0c7dd9d179978f01e5fe88722c7dc396c42a2b"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 146,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 165,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 257,
+          "sha256": "3fb761c5edb6a220bfaa0fdd1c32ab192f98fbf37bbdcd08815f1c2a56159595"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 275,
+          "sha256": "d4ac7547484fc4d4766b47dc526b02a9bfe901d9c07eb657510b846fa03db96a"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 301,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 305,
+          "sha256": "a0d0ab5a6ff481b0104e4cc7caa78beb32768fa5a24af44ab1ce8ddb631a26f5"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 330,
+          "sha256": "fcc98433a2896c8bf4c001c1643dfa50e59178a062ed8bb786449e2709903fb6"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 550,
+          "sha256": "07817d0f52304ab7ba306d5bd0f4444c4b4c81282cd9ad70cf4c0d6bd80e1121"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 602,
+          "sha256": "0e2f174ae178930ac3fde6eb826edae18eebc7c2739e1c866758d325556917e1"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 778,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 817,
+          "sha256": "f81050a6dd3e4641a0eaa38771222c0df34f41baeef49510bf5b2aa305daba78"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 860,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-jev",
+      "commit": "907ae3169e85041a703faf7101fa8c05e3ad04e0",
+      "workflowSha256": "237bb40a8a32e09355a36cefba7f1eeff2c396ea67041a1a621c53f8ed0a8995",
+      "modified": false,
+      "steps": [
+        {
+          "job": "prepare",
+          "name": "Install dependencies",
+          "line": 49,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "prepare",
+          "name": "Decide release",
+          "line": 52,
+          "sha256": "0e8d3af7060af6274bd4e16c0a7812778661c5ceae2c1aee4db112455cadc4f6"
+        },
+        {
+          "job": "prepare",
+          "name": "Generate resume release notes",
+          "line": 124,
+          "sha256": "0b1e4becb9e9725afbeff16f8c7a7965f907224c6b54426376a660804cfe43c0"
+        },
+        {
+          "job": "prepare",
+          "name": "Update release version",
+          "line": 145,
+          "sha256": "5fc3e5ff459367246f8b3a8cce123a2f228038d2418496c91d002b399b3eeaea"
+        },
+        {
+          "job": "prepare",
+          "name": "Generate changelog and release notes",
+          "line": 163,
+          "sha256": "2522963258b8ebee87538d50e482984924eed6b38ca61d84ea2fb4f328907993"
+        },
+        {
+          "job": "prepare",
+          "name": "Run release checks",
+          "line": 176,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "prepare",
+          "name": "Commit release files",
+          "line": 180,
+          "sha256": "8ce6b826db618978d1eb772bc7dd565e0d0fad72e1260ee1d8601a78e16921fb"
+        },
+        {
+          "job": "prepare",
+          "name": "Pack verified release artifact",
+          "line": 201,
+          "sha256": "d5a150df7e19eeda2c5c125b44df444768a76dd74967f5c78f8d935a32458898"
+        },
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 258,
+          "sha256": "a4a4094c72712b84fd8169f08dcdb6dd645b60e44870170549c6c8404db7f82e"
+        },
+        {
+          "job": "release",
+          "name": "Verify artifact handoff",
+          "line": 283,
+          "sha256": "694b97b20657b115252002d7bc2b0a21353bc6e89a52333d1dd9e0e492d84561"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 301,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 312,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Load verified release metadata",
+          "line": 403,
+          "sha256": "463fd6e997e56fca402d2c3082123e9442c5556696fcc710c8d4dbf62c2b9838"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 411,
+          "sha256": "dd64fb848a451c6053eddbc48494a08d5a3cda8adc2d55de8527f05ddebe634c"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 613,
+          "sha256": "c9674475014ef2ad5439157d1aac230a46ce4de81d6d9e1a9091c045d472a970"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 641,
+          "sha256": "a58579f69de45033023f9301759e71d39dd5dcb208f4a0427a08c7d4bec9c217"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 822,
+          "sha256": "8cc64c10cecaac09831d4c0623cfe4c0f16051a59baccc9a5a8566da5b3c5b36"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 862,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        },
+        {
+          "job": "resume_release",
+          "name": "Create missing GitHub release",
+          "line": 897,
+          "sha256": "f724e9dc70fe9fcb2d08f0456482963ac81e3015c254057866dbc61ef8ed27e0"
+        },
+        {
+          "job": "verify_bun",
+          "name": "Verify bun install of published package",
+          "line": 925,
+          "sha256": "c25e774b07a0521fa41c06d4a0d59ff3da616e2d0a67a6dafe1553b8899b12fb"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-jira",
+      "commit": "48d2fa6cc14aa289e6bcc09b6ca3e2a8fcc338c3",
+      "workflowSha256": "1d1557d336992c966d2cd000c3d63f9ab8bafdb745b87b50d1181c56477093bd",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 50,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 72,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 75,
+          "sha256": "379dcfad4b6acbf501adbb679c0c7dd9d179978f01e5fe88722c7dc396c42a2b"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 138,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 157,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 249,
+          "sha256": "0b29d074c5357699a50bb2886da2711b333785d8ce62fce04944bff736e96780"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 267,
+          "sha256": "d253b89dadf51dbfc7927594c8c74f9386d8fc68a7c7dba16547bccf1ab66a6c"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 276,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 280,
+          "sha256": "8ce6b826db618978d1eb772bc7dd565e0d0fad72e1260ee1d8601a78e16921fb"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 301,
+          "sha256": "7ca065e94345fc2e734dd9030f18b16a86c281d0380ff5ad991d8462b3b852dd"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 521,
+          "sha256": "74b4efa2686756549a30594916446ace0f38091e5ceaf87b1c6b7d68fb4241bd"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 572,
+          "sha256": "0e2f174ae178930ac3fde6eb826edae18eebc7c2739e1c866758d325556917e1"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 748,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 787,
+          "sha256": "f81050a6dd3e4641a0eaa38771222c0df34f41baeef49510bf5b2aa305daba78"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 830,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-linear",
+      "commit": "61abe04bcd26556090ca75e2fc1f870740b445fb",
+      "workflowSha256": "4cb9a2068a4dd45e737e2e5c21017dbcde998c7a1511ce144484eabd38e663f5",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 50,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 72,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 75,
+          "sha256": "f3b4673b691584c87c8a62d9a6d3b7fa1204425f524355dcb09eeae044e6e42e"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 187,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 210,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 302,
+          "sha256": "9a7821910062bb9fc43aa35a5cad8ac0eedce6d157bbba48ca500fc096365f9f"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 313,
+          "sha256": "2ec27a0d996b74e131b21e4e3630b50c2ae77f0c46af5cd6fec9d5fb67030b48"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 322,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 326,
+          "sha256": "db52bc7d47b199c56e740cf9e13a2225f9f05541b361591cc4ca9f6329dfe924"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 346,
+          "sha256": "1bca610128262fc709e81b4a9eaf544bbe8152f3de20c2c03a8071081295e451"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 610,
+          "sha256": "cf41d207948abeeaba51652635f2129ee7c75b59758f2c059d070f3c9fad165e"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 658,
+          "sha256": "7c5d2aceffe62210ed07a09de160a89c88f10659f77a9676165a45c73a2ae6f0"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 827,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 866,
+          "sha256": "f81050a6dd3e4641a0eaa38771222c0df34f41baeef49510bf5b2aa305daba78"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 909,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-lint",
+      "commit": "f2c20efa78139f4071f3dd08d317bea05337fe28",
+      "workflowSha256": "e744478da8af6a50c7ed14592b7cfcf58b76e485988640ec8a43ee465e5afe6b",
+      "modified": false,
+      "steps": [
+        {
+          "job": "prepare",
+          "name": "Install dependencies",
+          "line": 49,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "prepare",
+          "name": "Decide release",
+          "line": 52,
+          "sha256": "0e8d3af7060af6274bd4e16c0a7812778661c5ceae2c1aee4db112455cadc4f6"
+        },
+        {
+          "job": "prepare",
+          "name": "Generate resume release notes",
+          "line": 124,
+          "sha256": "0b1e4becb9e9725afbeff16f8c7a7965f907224c6b54426376a660804cfe43c0"
+        },
+        {
+          "job": "prepare",
+          "name": "Update release version",
+          "line": 145,
+          "sha256": "5fc3e5ff459367246f8b3a8cce123a2f228038d2418496c91d002b399b3eeaea"
+        },
+        {
+          "job": "prepare",
+          "name": "Generate changelog and release notes",
+          "line": 163,
+          "sha256": "2522963258b8ebee87538d50e482984924eed6b38ca61d84ea2fb4f328907993"
+        },
+        {
+          "job": "prepare",
+          "name": "Run release checks",
+          "line": 176,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "prepare",
+          "name": "Commit release files",
+          "line": 180,
+          "sha256": "8ce6b826db618978d1eb772bc7dd565e0d0fad72e1260ee1d8601a78e16921fb"
+        },
+        {
+          "job": "prepare",
+          "name": "Pack verified release artifact",
+          "line": 201,
+          "sha256": "d5a150df7e19eeda2c5c125b44df444768a76dd74967f5c78f8d935a32458898"
+        },
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 258,
+          "sha256": "a4a4094c72712b84fd8169f08dcdb6dd645b60e44870170549c6c8404db7f82e"
+        },
+        {
+          "job": "release",
+          "name": "Verify artifact handoff",
+          "line": 283,
+          "sha256": "694b97b20657b115252002d7bc2b0a21353bc6e89a52333d1dd9e0e492d84561"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 301,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 312,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Load verified release metadata",
+          "line": 403,
+          "sha256": "463fd6e997e56fca402d2c3082123e9442c5556696fcc710c8d4dbf62c2b9838"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 411,
+          "sha256": "9fbb65b27ea518f1204b3430c2595fc9201aa167eedecca45a4cac44084cffd5"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 613,
+          "sha256": "c9674475014ef2ad5439157d1aac230a46ce4de81d6d9e1a9091c045d472a970"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 641,
+          "sha256": "a58579f69de45033023f9301759e71d39dd5dcb208f4a0427a08c7d4bec9c217"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 822,
+          "sha256": "8cc64c10cecaac09831d4c0623cfe4c0f16051a59baccc9a5a8566da5b3c5b36"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 862,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        },
+        {
+          "job": "resume_release",
+          "name": "Create missing GitHub release",
+          "line": 897,
+          "sha256": "f724e9dc70fe9fcb2d08f0456482963ac81e3015c254057866dbc61ef8ed27e0"
+        },
+        {
+          "job": "verify_bun",
+          "name": "Verify bun install of published package",
+          "line": 925,
+          "sha256": "5869462c1d11d31c8670b2f1f7aa4bfd87a01ded74d239640913e41184a6fbbe"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-memory",
+      "commit": "3df1e75d1c41426771dcfced4a787c8849e3c4b5",
+      "workflowSha256": "3f28e23cfbd2892ec1d8e6dd0949afa565c299f74740afb65a8a6d0ed74a27e8",
+      "modified": false,
+      "steps": [
+        {
+          "job": "prepare",
+          "name": "Install dependencies",
+          "line": 49,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "prepare",
+          "name": "Decide release",
+          "line": 52,
+          "sha256": "0e8d3af7060af6274bd4e16c0a7812778661c5ceae2c1aee4db112455cadc4f6"
+        },
+        {
+          "job": "prepare",
+          "name": "Generate resume release notes",
+          "line": 124,
+          "sha256": "0b1e4becb9e9725afbeff16f8c7a7965f907224c6b54426376a660804cfe43c0"
+        },
+        {
+          "job": "prepare",
+          "name": "Update release version",
+          "line": 145,
+          "sha256": "5fc3e5ff459367246f8b3a8cce123a2f228038d2418496c91d002b399b3eeaea"
+        },
+        {
+          "job": "prepare",
+          "name": "Generate changelog and release notes",
+          "line": 163,
+          "sha256": "2522963258b8ebee87538d50e482984924eed6b38ca61d84ea2fb4f328907993"
+        },
+        {
+          "job": "prepare",
+          "name": "Run release checks",
+          "line": 176,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "prepare",
+          "name": "Commit release files",
+          "line": 180,
+          "sha256": "8ce6b826db618978d1eb772bc7dd565e0d0fad72e1260ee1d8601a78e16921fb"
+        },
+        {
+          "job": "prepare",
+          "name": "Pack verified release artifact",
+          "line": 201,
+          "sha256": "d5a150df7e19eeda2c5c125b44df444768a76dd74967f5c78f8d935a32458898"
+        },
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 258,
+          "sha256": "a4a4094c72712b84fd8169f08dcdb6dd645b60e44870170549c6c8404db7f82e"
+        },
+        {
+          "job": "release",
+          "name": "Verify artifact handoff",
+          "line": 283,
+          "sha256": "694b97b20657b115252002d7bc2b0a21353bc6e89a52333d1dd9e0e492d84561"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 301,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 312,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Load verified release metadata",
+          "line": 403,
+          "sha256": "463fd6e997e56fca402d2c3082123e9442c5556696fcc710c8d4dbf62c2b9838"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 411,
+          "sha256": "eead191fbcec2e8a5b5eaa794f643f81ed000488f6e8fa7fd5ffbb0994095654"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 613,
+          "sha256": "c9674475014ef2ad5439157d1aac230a46ce4de81d6d9e1a9091c045d472a970"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 641,
+          "sha256": "a58579f69de45033023f9301759e71d39dd5dcb208f4a0427a08c7d4bec9c217"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 822,
+          "sha256": "8cc64c10cecaac09831d4c0623cfe4c0f16051a59baccc9a5a8566da5b3c5b36"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 862,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        },
+        {
+          "job": "resume_release",
+          "name": "Create missing GitHub release",
+          "line": 897,
+          "sha256": "f724e9dc70fe9fcb2d08f0456482963ac81e3015c254057866dbc61ef8ed27e0"
+        },
+        {
+          "job": "verify_bun",
+          "name": "Verify bun install of published package",
+          "line": 925,
+          "sha256": "1b18c4a21e64b9674ea1d5e8f51dbf1f3d0b29678375f9cef2fea131094ec205"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-ops",
+      "commit": "298461d77c5cb7f9642ed3432e4f32ba8ec8fa39",
+      "workflowSha256": "f725289bd0f2b39193a47e67c1e60db89e55a74a6d6fa3f9ecc72ffd3fb9ec1d",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 50,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 72,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 75,
+          "sha256": "379dcfad4b6acbf501adbb679c0c7dd9d179978f01e5fe88722c7dc396c42a2b"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 138,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 204,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 296,
+          "sha256": "5fc3e5ff459367246f8b3a8cce123a2f228038d2418496c91d002b399b3eeaea"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 314,
+          "sha256": "29bb3534a1c178b9fe96d077855713735e788f0d7f4c6fcf17cded3d93664fb0"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 323,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 327,
+          "sha256": "e20b1de10c2c502ebca6c9e0bcc1fa2b874e534cc8c0bda0ea5406e741fe3dfa"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 347,
+          "sha256": "1283f5be7918394f614a09c0eac6f80d0205693b30a8622a36ac842edecdad80"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 567,
+          "sha256": "60f4dd38c998626688869586fcd34192628c03df0b3bf09ea85a6319881c0379"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 617,
+          "sha256": "7c5d2aceffe62210ed07a09de160a89c88f10659f77a9676165a45c73a2ae6f0"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 788,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 827,
+          "sha256": "2c416aece244a88268d7e1964d554e8608bf0f38619c0f495e77302df9a0f75c"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 882,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        },
+        {
+          "job": "release",
+          "name": "Audit release completeness",
+          "line": 937,
+          "sha256": "e82c24fb032317987f3e91c420a561bcfabfb99b55c63b6f426e120a7833ba41"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-presets",
+      "commit": "35b08d4e26d01ab82a3510039e89e8c77d9e31be",
+      "workflowSha256": "4bc01c7149a8366db3c720b05bc7423b4edd466574e45e5f1891807b27475649",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 50,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 72,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 75,
+          "sha256": "379dcfad4b6acbf501adbb679c0c7dd9d179978f01e5fe88722c7dc396c42a2b"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 139,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 174,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 266,
+          "sha256": "da097862d238577d6e55852f6039e51de8a5354e64088e4fe260488b23bb3f9c"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 284,
+          "sha256": "8cb799f663b348f753a2c603e785387d88651870a5ab47d0ad9af51031cbdbee"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 293,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 297,
+          "sha256": "93ea6a5bd833fb8a8ce6c4aa3ff7b76a46d5188b660e36dca18c7de2d57c3aa9"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 317,
+          "sha256": "6d16115f4e1f8a0045a4859b32dc77bfa2a05c737020a4af64e3739859afe602"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 514,
+          "sha256": "0499e4ae7e70a8bd487ed113bfb2bb4a5565986209e2e192595fb45aa4974ab6"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 564,
+          "sha256": "0e2f174ae178930ac3fde6eb826edae18eebc7c2739e1c866758d325556917e1"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 740,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 779,
+          "sha256": "f81050a6dd3e4641a0eaa38771222c0df34f41baeef49510bf5b2aa305daba78"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 823,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-review",
+      "commit": "b15b1052ce00c9fb8b9ae3f2e31661e9d4a629af",
+      "workflowSha256": "d4085643931313ce10f835510b14e359eeac25680adca6a2ddddcf6e1d89917c",
+      "modified": false,
+      "steps": [
+        {
+          "job": "prepare",
+          "name": "Install dependencies",
+          "line": 49,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "prepare",
+          "name": "Decide release",
+          "line": 52,
+          "sha256": "0e8d3af7060af6274bd4e16c0a7812778661c5ceae2c1aee4db112455cadc4f6"
+        },
+        {
+          "job": "prepare",
+          "name": "Generate resume release notes",
+          "line": 124,
+          "sha256": "0b1e4becb9e9725afbeff16f8c7a7965f907224c6b54426376a660804cfe43c0"
+        },
+        {
+          "job": "prepare",
+          "name": "Update release version",
+          "line": 145,
+          "sha256": "5fc3e5ff459367246f8b3a8cce123a2f228038d2418496c91d002b399b3eeaea"
+        },
+        {
+          "job": "prepare",
+          "name": "Generate changelog and release notes",
+          "line": 163,
+          "sha256": "2522963258b8ebee87538d50e482984924eed6b38ca61d84ea2fb4f328907993"
+        },
+        {
+          "job": "prepare",
+          "name": "Run release checks",
+          "line": 176,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "prepare",
+          "name": "Commit release files",
+          "line": 180,
+          "sha256": "8ce6b826db618978d1eb772bc7dd565e0d0fad72e1260ee1d8601a78e16921fb"
+        },
+        {
+          "job": "prepare",
+          "name": "Pack verified release artifact",
+          "line": 201,
+          "sha256": "a73f7bb501157cd91e318739dd6a7b94d9d3a8449d2a5a1a4b95628db0c95007"
+        },
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 258,
+          "sha256": "a4a4094c72712b84fd8169f08dcdb6dd645b60e44870170549c6c8404db7f82e"
+        },
+        {
+          "job": "release",
+          "name": "Verify artifact handoff",
+          "line": 283,
+          "sha256": "694b97b20657b115252002d7bc2b0a21353bc6e89a52333d1dd9e0e492d84561"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 301,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 312,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Load verified release metadata",
+          "line": 403,
+          "sha256": "463fd6e997e56fca402d2c3082123e9442c5556696fcc710c8d4dbf62c2b9838"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 411,
+          "sha256": "08411a257e837daf00b8522359ec4d9f4e1c0e7cff6b00eac9fa45925ac7b19e"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 596,
+          "sha256": "c9674475014ef2ad5439157d1aac230a46ce4de81d6d9e1a9091c045d472a970"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 624,
+          "sha256": "a58579f69de45033023f9301759e71d39dd5dcb208f4a0427a08c7d4bec9c217"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 805,
+          "sha256": "8cc64c10cecaac09831d4c0623cfe4c0f16051a59baccc9a5a8566da5b3c5b36"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 845,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        },
+        {
+          "job": "resume_release",
+          "name": "Create missing GitHub release",
+          "line": 880,
+          "sha256": "f724e9dc70fe9fcb2d08f0456482963ac81e3015c254057866dbc61ef8ed27e0"
+        },
+        {
+          "job": "verify_bun",
+          "name": "Verify bun install of published package",
+          "line": 908,
+          "sha256": "900ffc0c939ceab29dd182352f9873cfef8e848077a6657b1f373b6ce8d6b823"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-rl",
+      "commit": "4c7b027ed779b62e1fd9b996a557bbff15459eed",
+      "workflowSha256": "05bbc124eeae3b264a68b658bc489e0faba7409e228786c02ff13d8f37126fda",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 47,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 50,
+          "sha256": "87375003e5a3c59a641a1c6bcfdf6e64a1e04c62bb906c635b06e8bb5be7868e"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 105,
+          "sha256": "ff612ccb03b82a6637b36a87516decdf2e2a7477150feb7c0f2ca01251f68a6f"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 114,
+          "sha256": "6aacfaaadd4395724603c82259168ca2b1652a2382a7a24ed854b472acea7487"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 136,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 140,
+          "sha256": "576a7e9b0e0fd050c81632208518ce70eb9251e514d1b11e23625949d694df46"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 164,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 223,
+          "sha256": "117f1798576ffa9a048b38a55b45f237feb200c9d134e40f7d6cccc453508021"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 443,
+          "sha256": "6824f3a5fe32e40776781e73a90f353e66bd5f07aae65fa38d05fb7e0736ded0"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 486,
+          "sha256": "c97b0316d1c3e75d2face1325bc34d1b9061310358c678cdbc985793bb1c6d2e"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 548,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 586,
+          "sha256": "eb394b539986574b353dbfc89370c5998effe86c2ea103d9932c4ccaca30e363"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 620,
+          "sha256": "d75bd44d3d8b5760be4559b770ec4726c993b9e971a3865f66343dae396c7194"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-rlm",
+      "commit": "a82a557544250c5768de1e50cea0cc98d0e0f840",
+      "workflowSha256": "ba11a6568d6c648afc5264bce284f671e49a762f156ad20d20da9230723b560f",
+      "modified": false,
+      "steps": [
+        {
+          "job": "prepare",
+          "name": "Install dependencies",
+          "line": 49,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "prepare",
+          "name": "Decide release",
+          "line": 52,
+          "sha256": "0e8d3af7060af6274bd4e16c0a7812778661c5ceae2c1aee4db112455cadc4f6"
+        },
+        {
+          "job": "prepare",
+          "name": "Generate resume release notes",
+          "line": 124,
+          "sha256": "0b1e4becb9e9725afbeff16f8c7a7965f907224c6b54426376a660804cfe43c0"
+        },
+        {
+          "job": "prepare",
+          "name": "Update release version",
+          "line": 145,
+          "sha256": "5fc3e5ff459367246f8b3a8cce123a2f228038d2418496c91d002b399b3eeaea"
+        },
+        {
+          "job": "prepare",
+          "name": "Generate changelog and release notes",
+          "line": 163,
+          "sha256": "2522963258b8ebee87538d50e482984924eed6b38ca61d84ea2fb4f328907993"
+        },
+        {
+          "job": "prepare",
+          "name": "Run release checks",
+          "line": 176,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "prepare",
+          "name": "Commit release files",
+          "line": 180,
+          "sha256": "8ce6b826db618978d1eb772bc7dd565e0d0fad72e1260ee1d8601a78e16921fb"
+        },
+        {
+          "job": "prepare",
+          "name": "Pack verified release artifact",
+          "line": 201,
+          "sha256": "d5a150df7e19eeda2c5c125b44df444768a76dd74967f5c78f8d935a32458898"
+        },
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 258,
+          "sha256": "a4a4094c72712b84fd8169f08dcdb6dd645b60e44870170549c6c8404db7f82e"
+        },
+        {
+          "job": "release",
+          "name": "Verify artifact handoff",
+          "line": 283,
+          "sha256": "694b97b20657b115252002d7bc2b0a21353bc6e89a52333d1dd9e0e492d84561"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 301,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 312,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Load verified release metadata",
+          "line": 403,
+          "sha256": "463fd6e997e56fca402d2c3082123e9442c5556696fcc710c8d4dbf62c2b9838"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 411,
+          "sha256": "b80633dc90ea4f0e33e31ea12d0dca88c9e2fbc03f66e5b09522a37239688301"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 613,
+          "sha256": "c9674475014ef2ad5439157d1aac230a46ce4de81d6d9e1a9091c045d472a970"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 641,
+          "sha256": "a58579f69de45033023f9301759e71d39dd5dcb208f4a0427a08c7d4bec9c217"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 822,
+          "sha256": "8cc64c10cecaac09831d4c0623cfe4c0f16051a59baccc9a5a8566da5b3c5b36"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 862,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        },
+        {
+          "job": "resume_release",
+          "name": "Create missing GitHub release",
+          "line": 897,
+          "sha256": "f724e9dc70fe9fcb2d08f0456482963ac81e3015c254057866dbc61ef8ed27e0"
+        },
+        {
+          "job": "verify_bun",
+          "name": "Verify bun install of published package",
+          "line": 925,
+          "sha256": "58f766ae7c273f8548bbe8492eab3e8f555aa12f5cbeac4045097abe7038d981"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-rust",
+      "commit": "74a9eedce39b4f688626ec5a2a7c23eacfc0c6b4",
+      "workflowSha256": "25a99fdd797874fee066a6103def8e1605f6a4ee634c408c687d6fc11140684a",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 71,
+          "sha256": "2ee4fb06ad6d3a146fe6eeb718056cf8abf4ef50b95ff9ae6cb7b7dd5d01fdd3"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 160,
+          "sha256": "fedd2a08cc3da7135caa6b48ca82ab7f678743ee36621070646b641be82ac894"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 226,
+          "sha256": "3a095c2c42f5b4e2c9f599ffb34ba4a7f9b7cbcbfeda4e00f8c6e7122e8a1693"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 235,
+          "sha256": "20517930c64ce977243fea885c168efd0d3125b4983e129aa1930236d3985590"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 255,
+          "sha256": "72fc280a4a522a5c94c72dbc4185fda47858406b6161f492e73ac80fb17e6505"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 293,
+          "sha256": "8b21f98e720137c0c4aaa56d722a7ceff72b1e5deee3c4247d2feb0b1a6394b4"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 498,
+          "sha256": "0eb2e6457c81ab65723dae8ece49612b1eb827b5e7a2896b8aeac379bb066c66"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 544,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 582,
+          "sha256": "dd633f95173aa7eb38a81a103b7738c39e938a6b4c6b75a2a6fffc72726ca140"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-slack-standup",
+      "commit": "c884fc95301c20253e4ff7c5095305e0023c871f",
+      "workflowSha256": "3b2191e2af4d6bde4ab981ef51360b69c884c27bdbcd70988aa9e0e73543d0a1",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 50,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 72,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 75,
+          "sha256": "379dcfad4b6acbf501adbb679c0c7dd9d179978f01e5fe88722c7dc396c42a2b"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 138,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 173,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 265,
+          "sha256": "5fc3e5ff459367246f8b3a8cce123a2f228038d2418496c91d002b399b3eeaea"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 283,
+          "sha256": "08d8df58c38ad8bd39c2c2c131a1d8f51a60377d8389b7dc92b24b7cebe8c0f0"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 292,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 296,
+          "sha256": "8ce6b826db618978d1eb772bc7dd565e0d0fad72e1260ee1d8601a78e16921fb"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 317,
+          "sha256": "3f6f660d2f57b3c3ec50258a5c104ac62edf5a9ada035ff4e0fda565ae758a4d"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 514,
+          "sha256": "0499e4ae7e70a8bd487ed113bfb2bb4a5565986209e2e192595fb45aa4974ab6"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 564,
+          "sha256": "0e2f174ae178930ac3fde6eb826edae18eebc7c2739e1c866758d325556917e1"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 740,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 779,
+          "sha256": "f81050a6dd3e4641a0eaa38771222c0df34f41baeef49510bf5b2aa305daba78"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 822,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-slack",
+      "commit": "34e9e2023c12ec7c8ed7917b284896bafa09f4ae",
+      "workflowSha256": "193a65508bbefaa2523806c68b3f6ff988aa5e32a7208e2848058c74e2982828",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 50,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 72,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 75,
+          "sha256": "379dcfad4b6acbf501adbb679c0c7dd9d179978f01e5fe88722c7dc396c42a2b"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 138,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 173,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 265,
+          "sha256": "5fc3e5ff459367246f8b3a8cce123a2f228038d2418496c91d002b399b3eeaea"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 283,
+          "sha256": "e255403a0f2a83dacb41006f2c8334556e676bbb3587ba3363b386d2d4af67cb"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 292,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 296,
+          "sha256": "8ce6b826db618978d1eb772bc7dd565e0d0fad72e1260ee1d8601a78e16921fb"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 317,
+          "sha256": "0071e9cd2f26b49539b230f1cfbe499beedd813339e097d5cc141c64fb3d5fc6"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 514,
+          "sha256": "0499e4ae7e70a8bd487ed113bfb2bb4a5565986209e2e192595fb45aa4974ab6"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 564,
+          "sha256": "f04dc16390d9cb456bb62e4173f76482982ed55b5f80eaef27a8fa2bb96e41dd"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 741,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 780,
+          "sha256": "f81050a6dd3e4641a0eaa38771222c0df34f41baeef49510bf5b2aa305daba78"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 823,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-starter",
+      "commit": "b4ef667983a9a810a84f3a0fcbf318a8c70d9232",
+      "workflowSha256": "fbc459da24cba1902891877ac2349f13c628dc5781888d7ebdb22f7dd117e290",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 50,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 72,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 75,
+          "sha256": "379dcfad4b6acbf501adbb679c0c7dd9d179978f01e5fe88722c7dc396c42a2b"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 138,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 173,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 265,
+          "sha256": "5fc3e5ff459367246f8b3a8cce123a2f228038d2418496c91d002b399b3eeaea"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 283,
+          "sha256": "d2be516d77f4d4b552ae327f500a95645f5797f7d149f2e67daa25f0e82ed546"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 292,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 296,
+          "sha256": "8ce6b826db618978d1eb772bc7dd565e0d0fad72e1260ee1d8601a78e16921fb"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 317,
+          "sha256": "dedcaddaddc418b246ceabf3cceb8244ca0ae68290d0d57439eb95205ac1e6ef"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 514,
+          "sha256": "0499e4ae7e70a8bd487ed113bfb2bb4a5565986209e2e192595fb45aa4974ab6"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 564,
+          "sha256": "0e2f174ae178930ac3fde6eb826edae18eebc7c2739e1c866758d325556917e1"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 740,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 779,
+          "sha256": "f81050a6dd3e4641a0eaa38771222c0df34f41baeef49510bf5b2aa305daba78"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 822,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-swarm",
+      "commit": "35a9e249887459e2ca95341be5f8dfa61aaac4b1",
+      "workflowSha256": "7f578bda74122ef72f13eb5164ea56d39bc3e271ad2ac28192418b54de04f4ab",
+      "modified": false,
+      "steps": [
+        {
+          "job": "prepare",
+          "name": "Install dependencies",
+          "line": 49,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "prepare",
+          "name": "Decide release",
+          "line": 52,
+          "sha256": "0e8d3af7060af6274bd4e16c0a7812778661c5ceae2c1aee4db112455cadc4f6"
+        },
+        {
+          "job": "prepare",
+          "name": "Generate resume release notes",
+          "line": 124,
+          "sha256": "0b1e4becb9e9725afbeff16f8c7a7965f907224c6b54426376a660804cfe43c0"
+        },
+        {
+          "job": "prepare",
+          "name": "Update release version",
+          "line": 145,
+          "sha256": "5fc3e5ff459367246f8b3a8cce123a2f228038d2418496c91d002b399b3eeaea"
+        },
+        {
+          "job": "prepare",
+          "name": "Generate changelog and release notes",
+          "line": 163,
+          "sha256": "2522963258b8ebee87538d50e482984924eed6b38ca61d84ea2fb4f328907993"
+        },
+        {
+          "job": "prepare",
+          "name": "Run release checks",
+          "line": 176,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "prepare",
+          "name": "Commit release files",
+          "line": 180,
+          "sha256": "8ce6b826db618978d1eb772bc7dd565e0d0fad72e1260ee1d8601a78e16921fb"
+        },
+        {
+          "job": "prepare",
+          "name": "Pack verified release artifact",
+          "line": 201,
+          "sha256": "d5a150df7e19eeda2c5c125b44df444768a76dd74967f5c78f8d935a32458898"
+        },
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 258,
+          "sha256": "a4a4094c72712b84fd8169f08dcdb6dd645b60e44870170549c6c8404db7f82e"
+        },
+        {
+          "job": "release",
+          "name": "Verify artifact handoff",
+          "line": 283,
+          "sha256": "694b97b20657b115252002d7bc2b0a21353bc6e89a52333d1dd9e0e492d84561"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 301,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 312,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Load verified release metadata",
+          "line": 403,
+          "sha256": "463fd6e997e56fca402d2c3082123e9442c5556696fcc710c8d4dbf62c2b9838"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 411,
+          "sha256": "ff6e804b1b347b326502efe9ed52f3e2f0c94ab1ca55fe93a45fbdca8bf4b53f"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 613,
+          "sha256": "c9674475014ef2ad5439157d1aac230a46ce4de81d6d9e1a9091c045d472a970"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 641,
+          "sha256": "a58579f69de45033023f9301759e71d39dd5dcb208f4a0427a08c7d4bec9c217"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 822,
+          "sha256": "8cc64c10cecaac09831d4c0623cfe4c0f16051a59baccc9a5a8566da5b3c5b36"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 862,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        },
+        {
+          "job": "resume_release",
+          "name": "Create missing GitHub release",
+          "line": 897,
+          "sha256": "f724e9dc70fe9fcb2d08f0456482963ac81e3015c254057866dbc61ef8ed27e0"
+        },
+        {
+          "job": "verify_bun",
+          "name": "Verify bun install of published package",
+          "line": 925,
+          "sha256": "ce98132093db4d873164d36920bdd5ae42f3a1f5e956df8afa04e540378c4fb9"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-todos",
+      "commit": "e1037645999af998d1b6ae0239dca75ce8b281bc",
+      "workflowSha256": "97ebdfc92626151338e15af68a09e4620433ed935acdc14e38ccfe905d5a1d69",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 50,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 72,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 75,
+          "sha256": "379dcfad4b6acbf501adbb679c0c7dd9d179978f01e5fe88722c7dc396c42a2b"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 138,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 173,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 265,
+          "sha256": "4d33016f46d5c525acf77c7c51b1e220bd50aa59542aa33e80b2ce19a61af720"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 276,
+          "sha256": "83d1ad399fddb4cb35c591eeecaf137458b114c90fe96b0e3f9c4a490dcbef10"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 285,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 289,
+          "sha256": "db52bc7d47b199c56e740cf9e13a2225f9f05541b361591cc4ca9f6329dfe924"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 309,
+          "sha256": "7d012a7361822f3188e88fa221cf0358042ef633caf61c9236f9a925899480c8"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 507,
+          "sha256": "6824f3a5fe32e40776781e73a90f353e66bd5f07aae65fa38d05fb7e0736ded0"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 557,
+          "sha256": "0e2f174ae178930ac3fde6eb826edae18eebc7c2739e1c866758d325556917e1"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 733,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 772,
+          "sha256": "f81050a6dd3e4641a0eaa38771222c0df34f41baeef49510bf5b2aa305daba78"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 815,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-ts-starter",
+      "commit": "7e8ea6f835e556b48b78262c7baac4a8c28ff2e0",
+      "workflowSha256": "09519d78959aa2d10f82ec45eb3d0b809f7707a9f7a6b0ba9abdcd3505222a2b",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 50,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 72,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 75,
+          "sha256": "379dcfad4b6acbf501adbb679c0c7dd9d179978f01e5fe88722c7dc396c42a2b"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 138,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 173,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 265,
+          "sha256": "5fc3e5ff459367246f8b3a8cce123a2f228038d2418496c91d002b399b3eeaea"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 283,
+          "sha256": "3e5c076c183f8d3e8c57a02c52a16322bc864e46cadc71f28cbb4207d68c77c3"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 292,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 296,
+          "sha256": "8ce6b826db618978d1eb772bc7dd565e0d0fad72e1260ee1d8601a78e16921fb"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 317,
+          "sha256": "e38450839f80a208200ed2128ed377b1b4599b64a56e37d524c908238beb721a"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 514,
+          "sha256": "0499e4ae7e70a8bd487ed113bfb2bb4a5565986209e2e192595fb45aa4974ab6"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 564,
+          "sha256": "0e2f174ae178930ac3fde6eb826edae18eebc7c2739e1c866758d325556917e1"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 740,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 779,
+          "sha256": "f81050a6dd3e4641a0eaa38771222c0df34f41baeef49510bf5b2aa305daba78"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 822,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-vcs",
+      "commit": "7609e6c6198010bd7c7971a01d015ddec8d0ca62",
+      "workflowSha256": "a78aa6f9f9aadb0776b4ecf2f633109ee835a1f738a55ac92733ecd4c220d9d0",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 43,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 46,
+          "sha256": "87375003e5a3c59a641a1c6bcfdf6e64a1e04c62bb906c635b06e8bb5be7868e"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 101,
+          "sha256": "ff612ccb03b82a6637b36a87516decdf2e2a7477150feb7c0f2ca01251f68a6f"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 110,
+          "sha256": "9b5090743729cff32d63de6a9439b3038f4f84db24c2827607d933b1f9edc75f"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 126,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 130,
+          "sha256": "576a7e9b0e0fd050c81632208518ce70eb9251e514d1b11e23625949d694df46"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 154,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 213,
+          "sha256": "ac2e8035f006447449f12351fbe45ad685a240160093102e1e6fd7f63a1ad583"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 433,
+          "sha256": "6824f3a5fe32e40776781e73a90f353e66bd5f07aae65fa38d05fb7e0736ded0"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 476,
+          "sha256": "c97b0316d1c3e75d2face1325bc34d1b9061310358c678cdbc985793bb1c6d2e"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 538,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 576,
+          "sha256": "eb394b539986574b353dbfc89370c5998effe86c2ea103d9932c4ccaca30e363"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 610,
+          "sha256": "dd633f95173aa7eb38a81a103b7738c39e938a6b4c6b75a2a6fffc72726ca140"
+        }
+      ]
+    },
+    {
+      "repository": "unbraind/pm-web",
+      "commit": "8e9cc9713778f9ff945eb28c57d827d20cf75995",
+      "workflowSha256": "e431b51d065f2dcef7ea700aebdb418fa84682b74ad55e9d3d39d1a68cb9e6a1",
+      "modified": false,
+      "steps": [
+        {
+          "job": "release",
+          "name": "Use an npm that supports trusted publishing",
+          "line": 77,
+          "sha256": "b064664e287e55879907e528112ad332c771aa493ed6de0fd085ab2543dfbf54"
+        },
+        {
+          "job": "release",
+          "name": "Install dependencies",
+          "line": 99,
+          "sha256": "9db3f780def6105eee3cc930de4d0982607760820fddaa3facdd3813ccb40628"
+        },
+        {
+          "job": "release",
+          "name": "Decide release",
+          "line": 102,
+          "sha256": "2516924cf997a8e48b5fbb3d50f34789716f8706376823689f59edfad68b8c2c"
+        },
+        {
+          "job": "release",
+          "name": "Check release ref",
+          "line": 159,
+          "sha256": "6c132a494b30a9b30a0d40fc19203a03d3257de5e7d3cfceaa6a3e9754097d35"
+        },
+        {
+          "job": "release",
+          "name": "Verify npm will accept this workflow's OIDC identity",
+          "line": 225,
+          "sha256": "1f5415e29a1f5c11aa59c6b67870b14fb25dd92e8a4d52b49c61372bd472a2e8"
+        },
+        {
+          "job": "release",
+          "name": "Update release version",
+          "line": 317,
+          "sha256": "48e61064900404d932d287b379b6ed583dcad99831ca64db248c8f5c0599df82"
+        },
+        {
+          "job": "release",
+          "name": "Generate changelog and release notes",
+          "line": 335,
+          "sha256": "36a97937379a1aba3828c0832deaed2d18cb0cf117e279ffc3a8f169ebde85c5"
+        },
+        {
+          "job": "release",
+          "name": "Run release checks",
+          "line": 344,
+          "sha256": "2dcf0cae26e5fbb692c48fcf6d85a57e02342aeb1e23fdb76311b35245c7c01e"
+        },
+        {
+          "job": "release",
+          "name": "Commit release files",
+          "line": 348,
+          "sha256": "fdea62d896db74f9afab04d4126657fdacd408943a3663381e36fc7bd93f9c0b"
+        },
+        {
+          "job": "release",
+          "name": "Merge release metadata through protected PR",
+          "line": 370,
+          "sha256": "e98b1d055a9c14abe670037acfb87307ddcae07b2bae493e11ee4f76f36c8a6d"
+        },
+        {
+          "job": "release",
+          "name": "Verify merged release",
+          "line": 590,
+          "sha256": "8b01305ceb914fe43a031358006273e401e8988d3e76cf17424f93864a22805e"
+        },
+        {
+          "job": "release",
+          "name": "Publish npm package",
+          "line": 642,
+          "sha256": "fc3841778a58a72dd7876b057db0ea0c28b1b0bdd7b6cffcf0a36cc34b32eb24"
+        },
+        {
+          "job": "release",
+          "name": "Push release tag",
+          "line": 818,
+          "sha256": "c8b8492f2dc3fa9260bcdb80cfb0084eded7429fb8365241d58f2539941b96e9"
+        },
+        {
+          "job": "release",
+          "name": "Verify bun install of published package",
+          "line": 857,
+          "sha256": "8339491b225fc7a9c6c2bb9568893053b835b57ca5bc01e74e59c83261c8b2ee"
+        },
+        {
+          "job": "release",
+          "name": "Create GitHub release",
+          "line": 899,
+          "sha256": "5173fbb4606cd3bf85a6c3df0c701a0b5b52bbc537d8f2a8a68e920b7c555529"
+        }
+      ]
+    }
+  ]
+}

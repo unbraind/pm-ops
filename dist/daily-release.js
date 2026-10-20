@@ -27,21 +27,28 @@ export function selectReleasePullRequests(prs) {
 export function decideDailyRelease(input) {
     const candidates = selectReleasePullRequests(input.existingPrs);
     const existingPr = candidates[0];
-    const version = input.packageVersion ?? releaseVersion(input.today);
+    const current = input.currentPackageVersion;
+    const pending = current && /^\d{4}\.\d{1,2}\.\d{1,2}(-\d+)?$/.test(current)
+        && !input.releaseTags.some(tag => releaseCoordinate(tag) === releaseCoordinate(current)) ? current : undefined;
+    const version = input.packageVersion ?? pending ?? releaseVersion(input.today);
     const releasedToday = input.publishedToday === true || input.releaseTags.some(tag => releaseVersion(tag) === releaseVersion(input.today));
-    const versionExists = input.releaseTags.some(tag => releaseVersion(tag) === version);
+    const versionExists = input.releaseTags.some(tag => releaseCoordinate(tag) === releaseCoordinate(version));
     const shouldRelease = !releasedToday && !versionExists && input.hasChanges && input.lastRelease?.sha !== input.mainSha;
     return {
         should_release: shouldRelease,
         recovery_tag: !shouldRelease && input.lastRelease?.sha === input.mainSha ? input.lastRelease.tag : "",
         action: !shouldRelease ? "skip" : existingPr ? "refresh" : "create",
-        tag: `v${input.packageVersion ?? input.today}`,
+        tag: `v${input.packageVersion ?? pending ?? input.today}`,
         npm_version: version,
         base_sha: input.mainSha,
         release_branch: existingPr?.headRefName ?? `release/${input.today}`,
         pr_number: existingPr?.number ?? "",
         superseded_pr_numbers: candidates.slice(1).map(pr => pr.number).join(" "),
     };
+}
+/** Normalize a complete npm coordinate, retaining the numeric suffix when comparing tag spellings. */
+function releaseCoordinate(tag) {
+    return tag.replace(/^v/, "").split("-").map((part, index) => index === 0 ? part.split(".").map(Number).join(".") : String(Number(part))).join("-");
 }
 /** Stamp literal descriptor properties using the existing syntax-aware token stream. */
 export function stampExtensionVersion(source, version) {

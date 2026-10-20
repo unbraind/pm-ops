@@ -706,6 +706,24 @@ test("a retry loop around a package-manager install must invalidate the cache or
   );
 });
 
+test("the reusable daily-release bun verification binds a fresh install cache on every retry", () => {
+  const reusable = readFileSync(resolve(import.meta.dirname, "../.github/workflows/daily-release.yml"), "utf-8");
+  const run = stepRunBody(reusable, "Verify bun install of published package");
+  const header = /for attempt[^\n]*; do/.exec(run);
+  assert.ok(header, "missing Bun retry loop");
+  const body = shellLoopBody(run, header.index + header[0].length);
+  assert.ok(body, "missing Bun loop body");
+  const setup = body.split('if bun add')[0].replace(/^\s*#.*$/gm, "");
+  assert.match(setup, /^\s*export BUN_INSTALL_CACHE_DIR="\$\(mktemp -d "\$RUNNER_TEMP\/bun-cache\.XXXXXX"\)"$/m);
+  assert.match(setup, /^\s*bun pm cache rm > \/dev\/null 2>&1 \|\| true$/m);
+  assert.ok(setup.indexOf("export BUN_INSTALL_CACHE_DIR=") < setup.indexOf("bun pm cache rm"));
+  assert.deepEqual(
+    vacuousRetryLoops(run),
+    [],
+    "the reusable workflow's retry loop must clear bun's cache and bind a fresh BUN_INSTALL_CACHE_DIR per attempt",
+  );
+});
+
 test("vacuousRetryLoops flags a loop that only sleeps between install attempts and passes one that clears the cache", () => {
   // A minimal vacuous loop: install + sleep, no cache work. The rule must flag
   // it so the workflow-level guard is not the only thing standing between a

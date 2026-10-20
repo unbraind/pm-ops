@@ -30,7 +30,9 @@ export interface DailyReleaseInput {
     releaseTags: readonly string[];
     /** Optional reviewed package version; existing tags block re-publication until it changes. */
     packageVersion?: string;
-    /** Registry-independent GitHub Release publication dates enforce the calendar cap in reviewed mode. */
+    /** Current npm metadata on main; an untagged coordinate resumes across a day rollover. */
+    currentPackageVersion?: string;
+    /** GitHub Release publication dates enforce the calendar cap even when resuming an older version. */
     publishedToday?: boolean;
 }
 /** Normalize a release calendar day for daily comparisons, intentionally discarding any -N suffix. */
