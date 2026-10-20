@@ -622,6 +622,8 @@ jobs:
       - name: Verify npm will accept this workflow's OIDC identity
         if: needs.prepare.outputs.should_release == 'true' && inputs.npm-publish
         shell: bash
+        env:
+          CALLER_WORKFLOW: ${{ github.workflow_ref }}
         run: |
           set -euo pipefail
           pkg_name="$(node -p "require('./package.json').name")"
@@ -665,7 +667,9 @@ jobs:
           echo "::error::npm refused this workflow's OIDC identity for ${pkg_name} (HTTP ${status}${reason:+: ${reason}})."
           echo "::error::Nothing has been bumped, committed or tagged - this run stopped before mutating anything."
           echo "::error::Configure a trusted publisher on npmjs.com for ${pkg_name}: Settings -> Trusted Publisher -> GitHub Actions,"
-          echo "::error::organization 'unbraind', repository '${GITHUB_REPOSITORY#*/}', workflow 'release.yml', no environment."
+          caller_workflow="${CALLER_WORKFLOW#*/.github/workflows/}"
+          caller_workflow="${caller_workflow%@*}"
+          echo "::error::organization '${GITHUB_REPOSITORY%/*}', repository '${GITHUB_REPOSITORY#*/}', workflow '${caller_workflow}', no environment."
           exit 1
         working-directory: ${{ env.NPM_PROJECT_PATH }}
       - name: Merge release metadata through protected PR
@@ -781,8 +785,10 @@ jobs:
                     | select(.isResolved==false)
                     | select(.comments.totalCount ==
                              ([.comments.nodes[]?] | length))
-                    | select([.comments.nodes[]?.author.__typename]
-                             | length > 0 and all(. == "Bot"))
+                    | select(.comments.nodes | length > 0)
+                    | select(all(.comments.nodes[];
+                        .author.__typename == "Bot" and
+                        (.author.login | IN("sourcery-ai", "cubic-dev-ai", "coderabbitai"))))
                     | .id' 2>/dev/null || true)"
             if [[ -n "$unresolved" ]]; then
               while IFS= read -r thread_id; do

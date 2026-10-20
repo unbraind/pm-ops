@@ -169,7 +169,7 @@ jobs:
       # that never updated. A human had to merge it by hand.
       #
       # This step replaces that state poll with "attempt the merge, let GitHub
-      # be the authority": before each attempt it resolves any unresolved
+      # be the authority": before each attempt it resolves only trusted-bot
       # review threads (required_conversation_resolution is on, so an advisory
       # bot comment from Sourcery/cubic/CodeRabbit would otherwise block the
       # release forever), then it simply calls the merge endpoint. A
@@ -458,11 +458,10 @@ jobs:
             # required_conversation_resolution is enabled, so any unresolved
             # review thread blocks the merge forever. Advisory bot reviewers
             # (Sourcery, cubic, CodeRabbit) routinely open threads as a
-            # confidence signal; resolve every unresolved thread on this
-            # release PR before each attempt so a bot comment cannot dead-end
-            # the daily release. Only BOT-authored threads on this PR are
-            # resolved, and only when EVERY comment on the thread is bot-
-            # authored: a human reply on a bot-opened thread must keep
+            # confidence signal; resolve only their unresolved threads on this
+            # release PR before each attempt. EVERY fetched comment must be
+            # from a Bot with an explicitly trusted login, with no omitted
+            # comments: an unknown bot or human reply must keep
             # blocking. Clearing a human reviewer's thread would remove the
             # very protection required_conversation_resolution provides.
             unresolved="$(gh api graphql \
@@ -472,8 +471,10 @@ jobs:
                     | select(.isResolved==false)
                     | select(.comments.totalCount ==
                              ([.comments.nodes[]?] | length))
-                    | select([.comments.nodes[]?.author.__typename]
-                             | length > 0 and all(. == "Bot"))
+                    | select(.comments.nodes | length > 0)
+                    | select(all(.comments.nodes[];
+                        .author.__typename == "Bot" and
+                        (.author.login | IN("sourcery-ai", "cubic-dev-ai", "coderabbitai"))))
                     | .id' 2>/dev/null || true)"
             if [[ -n "$unresolved" ]]; then
               while IFS= read -r thread_id; do

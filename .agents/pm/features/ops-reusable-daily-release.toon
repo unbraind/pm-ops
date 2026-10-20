@@ -6,9 +6,11 @@ status: in_progress
 priority: 1
 tags: []
 created_at: "2026-10-19T14:08:13.526Z"
-updated_at: "2026-10-19T23:32:03.870Z"
+updated_at: "2026-10-20T00:36:44.728Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
-comments[37]{created_at,author,text}:
+comments[42]{created_at,author,text}:
   "2026-10-19T14:08:30.300Z",codex-agent,"Plan: use pm-github PR 152 head 14b533a as the audited baseline, recheck upstream before completion, inventory fetched main workflows with hashes, expose package needs as typed inputs or npm-script hooks, and verify full npm/Bun gates without changing thresholds. Publication must run at the merged commit so provenance and tag identify the same SHA."
   "2026-10-19T14:32:34.573Z",codex-agent,"Inventory: 28 readable workflows have 28 distinct MD5 values; 713 structural deltas classify as 123 cosmetic/stale, 318 package needs, 272 defects. pm-memory has no fetchable origin; pm-observer has no release workflow; core pm-cli is excluded. Shared protections include read-only artifact preparation, SHA-bound continuation publication, registry provenance commit/digest checks, GitHub Release repair, and separate read-only Bun/bunx activation. Every package hook and approval guard is documented in docs/reusable-release.md."
   "2026-10-19T14:32:42.021Z",codex-agent,"Behavioral revert proofs in a disposable source copy: node --test test/daily-release.test.ts passes 8/8 before mutation. Reverting only selectReleasePullRequests to the first 30 in API order fails 2 tests (6 pass); reverting only ownsReleasePullRequest to release-prefix ownership fails 2 tests (6 pass); reverting only the daily decision to ignore day/version caps fails 2 tests (6 pass). Each mutant exits 1; source restoration exits 0. Tests import erasable TypeScript directly, so no compiled-output rebuild can hide the reversion. Focused new-source coverage is 100/100/100/100."
@@ -46,8 +48,14 @@ comments[37]{created_at,author,text}:
   "2026-10-19T23:08:11.831Z",pi-agent,"Gates at unchanged thresholds after the fixes: npm run release:check pass (node --test test/*.test.ts: 1367 tests, 1365 passed, 0 failed, 2 skipped; coverage-gate 30 source files, thresholds met, 100% statements/branches/functions/lines; duplication-gate 0% duplicated lines 0/27968, 0 clone pairs, threshold 0%; docstring-gate 30 files, 255 declarations; pack:dry-run 233.4 kB, 77 files; changelog:check, verify:release-changelog-date, verify:release-publish-attestation and verify:lifecycle-policy all pass). bun run release:check pass with the same counts (1367 tests, 1365 passed, 0 failed, 2 skipped; all sub-gates green). No merge was needed: the PR head already contained main, so no merge receipts were involved."
   "2026-10-19T23:08:19.457Z",pi-agent,"CI on the pushed head is green: codeql, test (22) and test (26), windows-consumers (22) and (26) all pass. No threads were replied to or resolved, no bots mentioned, no merge or release performed. The orchestrator can now re-request review on the three fixed threads."
   "2026-10-19T23:24:29.357Z",pi-agent,"Pushed head CI is green on every check (codeql, test 22/26, windows-consumers 22/26). One windows-consumers (22) run failed on a machine-load flake outside this change (npm install in the packed duplication acceptance exceeded its 180 s spawn timeout, spawn status null); a failed-job rerun of the identical head passed in 2m55. Filed follow-up ops-ilcm for that timeout site."
-files[21]{path,scope}:
+  "2026-10-20T00:15:22.417Z",codex-agent,"PR 183 review round: fetched all review threads and every comment without pagination gaps; four unresolved findings, latest CodeRabbit review has no outside-diff findings. Remote head is current and includes main. Plan: derive caller OIDC guidance, restrict both thread selectors to explicit trusted bots, execute documented strict release gate examples, and remove the stale online-flag guide claim rather than restore the deliberately removed dead flag. Add behavioral regressions and revert proofs; run unchanged npm/Bun release gates and isolated fresh-clone health. No thread replies/resolution, merging or releasing."
+  "2026-10-20T00:17:36.746Z",codex-agent,"Revert proofs: node --test --test-name-pattern '<case>' test/release-review.test.ts passes 4/4 with fixes. Reverting only the OIDC guidance step fails its executed shell test (0 pass/1 fail); reverting only either workflow's selector independently fails the jq fixture test (0/1 each); reverting only the guide's verified-status condition fails the executed migration command on unverified-offline (0/1); restoring the stale online-flag claim fails the guide-contract test (0/1). All five controls exit 1; restoring all changes returns 4/4, exit 0. YAML and guide text are read directly; the compiled public API is rebuilt before the normal run. The selector tests cover trusted bots, unknown/mixed bots, human replies, missing authors/logins, empty/truncated comments and resolved threads. Keeping the removed flag follows the earlier accepted removal; only stale guide prose changes."
+  "2026-10-20T00:18:04.283Z",codex-agent,"Decision clarification: the dead online flag remains removed. PRRT_kwDOTOTl1M6uJqji contradicts the previously accepted removal in 46466ae; the corrected guide no longer promises compatibility. Other findings are fixed, and self-review found and tightened the same permissive bot selector in the existing release workflow. Baseline health with host extensions sees an unrelated global pm-github version skew; --no-extensions health passes, and fresh isolated-clone health will verify the tracked project without host extension state."
+  "2026-10-20T00:18:37.136Z",codex-agent,"Verified the accepted flag-removal implementation is commit 3bdbeedc31aefbf8ae885e7cd2d08b80ce0f7089 (46466ae is a later tracker-only receipt, not the implementation). The linked command npm run build && node --test test/release-review.test.ts passes 4/4 via pm test --run --only-last --progress; result tracking is disabled by existing policy, so this comment preserves its receipt. TypeScript test checking and lint pass. Five independently reverted controls fail as recorded; final source is restored."
+  "2026-10-20T00:36:44.726Z",codex-agent,"Full release verification on the restored implementation: npm run release:check and bun run release:check both pass with isolated HOME and GIT_CONFIG_GLOBAL=/dev/null plus GIT_CONFIG_NOSYSTEM=1. Each reports 1371 tests, 1369 passed, zero failed/cancelled/TODO, and two existing opt-in real-data fleet skips. All 30 measured sources reach 100 percent statements/branches/functions/lines at unchanged thresholds. Duplication is 0/28083 lines across 83 sources, with no clone pairs; docstrings cover 255 declarations across 30 sources. Production audit has zero vulnerabilities; package dry-run contains 77 files. Changelog/date, publish-attestation and lifecycle gates pass. No thresholds, exclusions, dependency pins or runtime policy were changed.\n\nExact revert commands: node --test --test-name-pattern 'OIDC refusal' test/release-review.test.ts; node --test --test-name-pattern 'both release selectors' test/release-review.test.ts (run separately for each workflow selector); node --test --test-name-pattern 'documented consumer' test/release-review.test.ts; node --test --test-name-pattern 'caller guides' test/release-review.test.ts. The first four controls execute behavior (OIDC, two jq selectors, and the actual documented gate); the last is a documentation-contract control for restoring the stale flag claim. Every control exits 1 with zero passing and one failing test. Restored linked acceptance passes 4/4. No PM CLI or SDK defect was found; linked-result persistence remains disabled by existing policy."
+files[23]{path,scope}:
   .github/workflows/daily-release.yml,project
+  .github/workflows/release.yml,project
   attestation.ts,project
   daily-release.ts,project
   dist/release-metadata.json,project
@@ -67,8 +75,9 @@ files[21]{path,scope}:
   test/ops.test.ts,project
   test/release-caller-attestation.test.ts,project
   test/release-caller.test.ts,project
+  test/release-review.test.ts,project
   test/release-verification.test.ts,project
-tests[7]:
+tests[8]:
   - command: node --test test/daily-release.test.ts test/release-caller.test.ts test/daily-release-workflow.test.ts
     scope: project
     timeout_seconds: 180
@@ -119,6 +128,13 @@ tests[7]:
     provenance:
       author: pi-agent
       created_at: "2026-10-19T22:14:10.457Z"
+      source_kind: local_mutation
+      source_ref: feat/reusable-daily-release
+  - command: npm run build && node --test test/release-review.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-20T00:17:17.450Z"
       source_kind: local_mutation
       source_ref: feat/reusable-daily-release
 docs[2]{path,scope}:
