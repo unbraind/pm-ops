@@ -20,6 +20,7 @@ import {
   type MergeFenceAuditResult,
 } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage, type DocstringViolation } from "./docstrings.ts";
+import { auditBackendConfigFile, auditConfiguredBackends } from "./backend-capabilities.ts";
 import { qualityMeasurementProvider } from "./assurance.ts";
 import { defaultCanonicalTagResolver, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.ts";
 
@@ -106,6 +107,7 @@ function asArray(value: unknown): string[] {
 }
 
 const OPS_COMMAND_PATHS = [
+  "ops capabilities",
   "ops scan",
   "ops policy",
   "ops verify-release",
@@ -2626,6 +2628,21 @@ export default defineExtension({
     // same `authorization_decision` as any other bound regression. See
     // `./assurance.ts` for the key contract and the staleness refusal.
     api.registerAssuranceMeasurementProvider(qualityMeasurementProvider);
+
+    api.registerCommand({
+      name: "ops capabilities",
+      description: "Verify configured backend list/get/schema read contracts without Git or tracker writes. Reports typed refusals and remedies; remote adapters require a read-only bridge.",
+      examples: ["pm ops capabilities", "pm ops capabilities --config backends.json --json"],
+      flags: [
+        { long: "--config", value_name: "file", description: "JSON adapter array; default: current directory tracker" },
+      ],
+      async run(ctx: CommandHandlerContext) {
+        const config = readString(ctx.options, "config");
+        return config ? auditBackendConfigFile(config) : auditConfiguredBackends([
+          { id: "tracker", kind: "directory", root: ctx.global.path ?? ".agents/pm", operations: ["list", "get", "schema"] },
+        ], process.cwd());
+      },
+    });
 
     api.registerCommand({
       name: "ops scan",

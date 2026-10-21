@@ -1,0 +1,28 @@
+id: ops-backend-capability
+title: Report verified backend SDK capabilities without tracker writes
+description: "Build a read-only assurance matrix for every explicitly configured directory, database and MCP adapter. Verify backend operation contracts separately from core command/schema discovery and package ecosystem readiness."
+type: Feature
+status: in_progress
+priority: 1
+tags: []
+created_at: "2026-10-21T20:04:57.459Z"
+updated_at: "2026-10-21T20:15:18.870Z"
+author: codex-agent
+acceptance_criteria: "Synthetic directory/database/MCP adapters produce distinct supported, unsupported, unavailable and invariant_failed statuses; diagnostics never mutate the tracker or require Git; typed SDK and CLI with compact TOON/JSON and typed remedies; README and example; read-only public fleet copy validated outside Git; targeted tests, typecheck and lint locally plus npm and Bun release gates in CI."
+risk: low
+confidence: high
+comments[4]{created_at,author,text}:
+  "2026-10-21T20:05:34.420Z",codex-agent,"Overlap check: current core SDK exports command/schema capability discovery and complete-list certification, but no configured backend contract assurance matrix. Sibling pm-web doctor checks database reachability/schema and its capability route discovers commands; pm-context/pm-observer do not verify backend read operations. Cargo readiness remains separate in ops-d8k3. No duplicate backend item found. PR 188 reconciliation items are excluded. Design: fixed read-only list/get/schema contracts, typed per-operation statuses and remedies, directory snapshot isolation to contain SDK-derived caches, and explicit read-port bridges for database/MCP providers. No write operations are probed."
+  "2026-10-21T20:12:56.552Z",codex-agent,"Behavioral revert proof: replaced only auditBackendCapabilities with an empty success report, keeping all other functions unchanged. node --test --test-name-pattern \"matrix distinguishes\" test/backend-capabilities.test.ts failed 1/1 (exit 1) on missing operation statuses. Restored source immediately. Targeted backend plus renderer tests passed 16/16 before final hardening. Local build, test typecheck, lint and docstring gate passed; full npm/Bun gates remain delegated to CI on the final PR head."
+  "2026-10-21T20:14:18.409Z",codex-agent,"Real-data validation: exported the public pm-ops origin/main tracker (eba7d5262fd75e67afce0caad29dae7dc7dfbaeb) to a non-Git temporary directory, made its directories/files read-only, removed Git from PATH, and audited it through the configured adapter SDK. All 300 source files retained identical aggregate SHA-256 evidence. Measured: 146 list items, one deterministic get, 11 schema types; 3 supported, 0 unsupported/unavailable/invariant_failed/unverified. Validation exposed preserved read-only snapshot directory modes; fixed owned-snapshot cleanup and added a regression. No tracker content was modified."
+  "2026-10-21T20:15:13.794Z",codex-agent,"Pinned CLI linked acceptance completed: node --test test/backend-capabilities.test.ts test/renderer-ownership.test.ts passed 17/17, no skips or failures. pm test --run --progress passed its 1/1 linked command. Tracker test-result tracking is disabled by existing policy, so the verified counts are retained in this comment without changing policy. npm run build, npm run build:test, npm run lint, npm run docstring and npm run duplication passed (259 documented declarations; 0 clone pairs)."
+files[3]{path,scope,note}:
+  backend-capabilities.ts,project,Typed backend contracts and snapshot/bridge bindings
+  index.ts,project,Read-only capabilities command
+  test/backend-capabilities.test.ts,project,Real tracker and bridge regressions
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/backend-capabilities.test.ts test/renderer-ownership.test.ts,project,codex-agent,"2026-10-21T20:13:51.592Z",local_mutation,feat/backend-capability-matrix
+docs[2]{path,scope,note}:
+  docs/examples/backend-capabilities.json,project,Runnable directory configuration
+  README.md,project,Capability statuses read bridge protocol and no-git behavior
+body: ""
