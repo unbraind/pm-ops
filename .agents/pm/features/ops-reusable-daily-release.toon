@@ -2,12 +2,17 @@ id: ops-reusable-daily-release
 title: One reusable daily release workflow for fleet packages
 description: "Companion item pm-cli-website-pnjc. Inventory release workflow divergence; port pm-github 149 and 152 into one SHA-pinned reusable workflow, pure tested decisions, caller check and migration examples. No consumer edits or publication."
 type: Feature
-status: in_progress
+status: closed
 priority: 1
 tags: []
 created_at: "2026-10-19T14:08:13.526Z"
-updated_at: "2026-10-20T08:40:33.969Z"
+updated_at: "2026-10-21T18:40:27.042Z"
+closed_at: "2026-10-21T18:40:19.173Z"
+completed_at: "2026-10-21T18:40:19.173Z"
 author: codex-agent
+acceptance_criteria: "[PR #183](https://github.com/unbraind/pm-ops/pull/183) delivers .github/workflows/daily-release.yml and docs/reusable-release.md with tested package/cargo caller decisions. It is available on main; fleet-wide caller migration is separate."
+resolution: "Reverified main eba7d5262fd7 (unchanged since audit): [PR #183](https://github.com/unbraind/pm-ops/pull/183) delivers .github/workflows/daily-release.yml and docs/reusable-release.md with tested package/cargo caller decisions. It is available on main; fleet-wide caller migration is separate. Retained evidence: attestation.ts, daily-release.ts, docstrings.ts."
+expected_result: "[PR #183](https://github.com/unbraind/pm-ops/pull/183) delivers .github/workflows/daily-release.yml and docs/reusable-release.md with tested package/cargo caller decisions. It is available on main; fleet-wide caller migration is separate."
 comments[74]{created_at,author,text}:
   "2026-10-19T14:08:30.300Z",codex-agent,"Plan: use pm-github PR 152 head 14b533a as the audited baseline, recheck upstream before completion, inventory fetched main workflows with hashes, expose package needs as typed inputs or npm-script hooks, and verify full npm/Bun gates without changing thresholds. Publication must run at the merged commit so provenance and tag identify the same SHA."
   "2026-10-19T14:32:34.573Z",codex-agent,"Inventory: 28 readable workflows have 28 distinct MD5 values; 713 structural deltas classify as 123 cosmetic/stale, 318 package needs, 272 defects. pm-memory has no fetchable origin; pm-observer has no release workflow; core pm-cli is excluded. Shared protections include read-only artifact preparation, SHA-bound continuation publication, registry provenance commit/digest checks, GitHub Release repair, and separate read-only Bun/bunx activation. Every package hook and approval guard is documented in docs/reusable-release.md."
@@ -205,4 +210,5 @@ docs[4]{path,scope}:
   docs/release-legacy-audit.json,project
   docs/release-legacy-audit.md,project
   docs/reusable-release.md,project
+close_reason: "Reverified main eba7d5262fd7 (unchanged since audit): [PR #183](https://github.com/unbraind/pm-ops/pull/183) delivers .github/workflows/daily-release.yml and docs/reusable-release.md with tested package/cargo caller decisions. It is available on main; fleet-wide caller migration is separate. Retained evidence: attestation.ts, daily-release.ts, docstrings.ts."
 body: ""

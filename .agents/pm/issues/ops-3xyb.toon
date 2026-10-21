@@ -2,15 +2,17 @@ id: ops-3xyb
 title: ops verify-release times out on real full package gate after five minutes
 description: "A real opted-in fleet acceptance run on pm-ops and pm-graph passed ops scan but ops verify-release terminated pm-graph npm run release:check at 300110 ms with spawnSync npm ETIMEDOUT. The direct pm-graph release gate passed on the same pushed head. The fixed per-step five-minute limit is too short for this legitimate package gate and makes the fleet verifier report a false release failure."
 type: Issue
-status: in_progress
+status: closed
 priority: 1
 tags[3]: agent-ux,"area:release","type:defect"
 created_at: "2026-09-27T08:00:08.494Z"
-updated_at: "2026-09-27T08:12:09.015Z"
-assignee: codex
+updated_at: "2026-10-21T18:44:41.996Z"
+closed_at: "2026-10-21T18:44:37.608Z"
+completed_at: "2026-10-21T18:44:37.608Z"
 author: "harness:codex"
 acceptance_criteria: "The real opted-in fleet test passes against two canonical packages, including pm-graph release:check; the timeout remains bounded and actionable; the complete pm-ops release gate, strict PM health, and exact-head CI/review pass."
 repro_steps: "Set PM_OPS_TEST_REPOS to the canonical pm-ops and pm-graph paths, then run node --test --test-name-pattern=real-data: test/ops.test.ts. The scan passes 2/2; the second real-data test fails after 300110 ms with ETIMEDOUT."
+resolution: "Reverified main eba7d5262fd7 (unchanged since audit): [PR #124](https://github.com/unbraind/pm-ops/pull/124) delivers bounded long-gate execution and excludes generated managed extension copies while retaining authored source in duplication scope. Retained evidence: index.ts."
 expected_result: The verifier allows a bounded full package gate to finish and reports its real result; an actual stalled gate still ends with a clear timeout.
 actual_result: The real pm-graph gate is terminated at 300110 ms and verify-release reports 0/1 repos passed.
 notes[2]{created_at,author,text}:
@@ -21,4 +23,5 @@ files[2]{path,scope,note}:
   index.ts,project,Bounded release-step timeout
 tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
   "PM_OPS_TEST_REPOS=.,../pm-graph node --test --test-name-pattern=real-data: test/ops.test.ts",project,900,"harness:codex","2026-09-27T08:08:52.214Z",local_mutation,fix/pm-ops-hoisted-merge-driver-guard-2026-09-26
+close_reason: "Reverified main eba7d5262fd7 (unchanged since audit): [PR #124](https://github.com/unbraind/pm-ops/pull/124) delivers bounded long-gate execution and excludes generated managed extension copies while retaining authored source in duplication scope. Retained evidence: index.ts."
 body: ""

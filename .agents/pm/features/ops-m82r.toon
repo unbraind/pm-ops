@@ -2,12 +2,17 @@ id: ops-m82r
 title: Freeze the merge-driver launcher and accept every released launcher revision
 description: "Companion pm-cli-website-5p5z. Freeze a minimal runtime delegate so automatic pm-ops bumps do not require consumer edits. Export a hash-based canonical launcher assertion accepting the frozen template and every released historical revision; preserve omit-dev, broken-install, artifact and merge:install behavior. Consumers remain untouched."
 type: Feature
-status: in_progress
+status: closed
 priority: 1
 tags: []
 created_at: "2026-10-16T12:47:02.875Z"
-updated_at: "2026-10-16T13:11:59.260Z"
+updated_at: "2026-10-21T18:41:41.636Z"
+closed_at: "2026-10-21T18:41:37.996Z"
+completed_at: "2026-10-21T18:41:37.996Z"
 author: codex-agent
+acceptance_criteria: "[PR #177](https://github.com/unbraind/pm-ops/pull/177) delivers the frozen thin launcher and canonical revision assertion. The implementation exists; no further Git merge-driver work should be scheduled under the no-git contract."
+resolution: "Reverified main eba7d5262fd7 (unchanged since audit): [PR #177](https://github.com/unbraind/pm-ops/pull/177) delivers the frozen thin launcher and canonical revision assertion. The implementation exists; no further Git merge-driver work should be scheduled under the no-git contract. Retained evidence: launcher-check.ts, templates/prepare-merge-driver.ts, test/launcher-check.test.ts."
+expected_result: "[PR #177](https://github.com/unbraind/pm-ops/pull/177) delivers the frozen thin launcher and canonical revision assertion. The implementation exists; no further Git merge-driver work should be scheduled under the no-git contract."
 comments[4]{created_at,author,text}:
   "2026-10-16T12:47:16.245Z",codex-agent,"Design: companion pm-cli-website-5p5z. Keep only the unavoidable dependency-free bootstrap in the frozen template: artifact short-circuit, runtime resolution, fail-closed presence probe and child delegation. Driver behavior stays in merge-driver-prepare.ts and merge-driver.ts. Record five distinct released template hashes from all release tags through v2026.10.16, with provenance fixtures. Export assertCanonicalLauncher from pm-ops/launcher-check; reject modified, empty and unreadable launchers. Verify real clone install/ci, omit-dev and broken layouts, frozen hash and behavioural reverts. No consumer edits."
   "2026-10-16T12:50:12.870Z",codex-agent,"Proofs: focused linked suite passed 24/24, zero failures/skips/cancellations. Replaced only assertCanonicalLauncher with the previous byte-equality behavior, rebuilt dist, and ran node --test --test-name-pattern=\"every released launcher\" test/launcher-check.test.ts: failed 1/1 on a released copy. Restored the function and rebuilt. Reverted only templates/prepare-merge-driver.ts to origin/main and ran node --test --test-name-pattern=\"frozen v1\" test/launcher-check.test.ts: failed 1/1 on the recorded hash. Restored all candidate bytes. Real temp Git repos prove install/ci registers actual pm drivers, omit-dev emits exactly the existing notice and leaves drivers absent, and broken packages fail without registration. Existing probes cover local, hoisted, global, dangling, malformed and unreadable lookup paths."
@@ -38,4 +43,5 @@ tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "npm run accept:packed",project,codex-agent,"2026-10-16T13:02:51.013Z",local_mutation,feat/stable-merge-driver-launcher
 docs[1]{path,scope}:
   README.md,project
+close_reason: "Reverified main eba7d5262fd7 (unchanged since audit): [PR #177](https://github.com/unbraind/pm-ops/pull/177) delivers the frozen thin launcher and canonical revision assertion. The implementation exists; no further Git merge-driver work should be scheduled under the no-git contract. Retained evidence: launcher-check.ts, templates/prepare-merge-driver.ts, test/launcher-check.test.ts."
 body: ""

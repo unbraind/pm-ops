@@ -2,12 +2,17 @@ id: ops-attestation-multiline-quotes
 title: Keep multi-line quoted strings open in the publish-attestation scanner
 description: "Fix https://github.com/unbraind/pm-ops/issues/170: quoted newlines inside command substitutions must retain Bash quote state without weakening executable expansion detection or bounded scanning."
 type: Issue
-status: in_progress
+status: closed
 priority: 1
 tags: []
 created_at: "2026-10-15T18:04:04.672Z"
-updated_at: "2026-10-15T19:01:00.250Z"
+updated_at: "2026-10-21T18:43:06.627Z"
+closed_at: "2026-10-21T18:43:01.328Z"
+completed_at: "2026-10-21T18:43:01.328Z"
 author: codex-agent
+repro_steps: "Scan shell text containing a publish-like command inside a quote spanning multiple lines. Current source evidence: attestation.ts, shell-scan.ts, test/attestation-union.test.ts."
+resolution: "Reverified main eba7d5262fd7 (unchanged since audit): [PR #171](https://github.com/unbraind/pm-ops/pull/171) preserves multiline shell quote state and adds scanner regressions without weakening executable-expansion detection. Retained evidence: attestation.ts, shell-scan.ts, test/attestation-union.test.ts."
+expected_result: Quoted text remains non-executable data across lines while executable expansions retain provenance checks.
 comments[11]{created_at,author,text}:
   "2026-10-15T18:04:07.548Z",codex-agent,"Design: remove the newline reset from readSubstitution and preserve quote-specific escape rules. Top-level quote readers already retain newlines; add explicit fail-closed evidence for unterminated quotes if necessary. Extend the existing inert Bash corpus pattern with exact issue input, jq arguments, closed-quote command boundaries, executable substitutions, and malformed input. Keep all resource limits and coverage thresholds unchanged; perform function-only revert controls before release gates."
   "2026-10-15T18:07:13.313Z",codex-agent,"Bash semantic evidence: test/multiline-quote.test.ts checks every valid scenario with bash --noprofile --norc -n, then executes real Bash -e with inert npm/gh functions. printf %q proves jq receives one argument containing the newline; observed npm call counts prove quoted prose remains literal and dollar/backtick substitutions and commands after later quote closes execute. Bash -n rejects all five incomplete quotes with unexpected EOF. Plain single, double, and dollar-single quoted newlines are covered at top level and in substitutions; no new ANSI-C escape decoder is introduced."
@@ -44,4 +49,5 @@ tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
 docs[2]{path,scope,note}:
   test/compose-attestation.proof.ts,project,Function-only Compose extraction revert proof
   test/multiline-quote.proof.ts,project,Reproducible function-only revert evidence
+close_reason: "Reverified main eba7d5262fd7 (unchanged since audit): [PR #171](https://github.com/unbraind/pm-ops/pull/171) preserves multiline shell quote state and adds scanner regressions without weakening executable-expansion detection. Retained evidence: attestation.ts, shell-scan.ts, test/attestation-union.test.ts."
 body: ""

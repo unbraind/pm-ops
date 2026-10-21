@@ -2,15 +2,17 @@ id: ops-85at
 title: Preserve launcher resolution errors when presence probes fail
 description: "Canonical fix for https://github.com/unbraind/pm-ops/issues/135. The presence probe uses lstatSync with throwIfNoEntry:false, which suppresses ENOENT but still throws for unreadable or malformed lookup paths. Those secondary errors replace the original installer resolution diagnostic. Keep the existing local, hoisted, dangling-install and global Node lookup behavior; fail closed when presence is uncertain."
 type: Issue
-status: in_progress
+status: closed
 priority: 1
 tags: []
 created_at: "2026-10-03T12:48:04.184Z"
-updated_at: "2026-10-03T13:02:53.944Z"
+updated_at: "2026-10-21T18:43:57.581Z"
+closed_at: "2026-10-21T18:43:53.933Z"
+completed_at: "2026-10-21T18:43:53.933Z"
 author: dot
 acceptance_criteria: "Preserve the original installer resolution error for real ENOTDIR/ELOOP paths and controlled EACCES/EPERM failures; an absent package still skips once; broken local, hoisted, dangling and global installs still fail; working local, hoisted and global installs still run; full applicable gates pass without broadening global fallback behavior"
 repro_steps: "Create a file or self-referential link at a consumer node_modules path, then execute templates/prepare-merge-driver.ts from the consumer root. The presence probe currently replaces the original MODULE_NOT_FOUND diagnostic with ENOTDIR or ELOOP."
-resolution: The canonical launcher catches inconclusive filesystem presence-probe failures and rethrows the original installer resolution error. Existing Node global lookup paths remain intentionally unchanged and their absent/broken/working behavior is documented and tested.
+resolution: "Reverified main eba7d5262fd7 (unchanged since audit): [PR #136](https://github.com/unbraind/pm-ops/pull/136) preserves original installer resolution errors when presence probes fail; real malformed/permission fixture tests are committed. Retained evidence: templates/prepare-merge-driver.ts, test/merge-driver-launcher.test.ts."
 expected_result: The hook fails closed with the original pm-ops/merge-driver/prepare resolution diagnostic and never emits the omit-dev skip notice on an inconclusive probe.
 actual_result: "All 19 launcher cases pass on Node 22.18.0, 24.19.0 and 26.10.0; eight new cases fail on the original template. Full coverage passes on Node 22.18.0 and 26.10.0: 455 passed, zero failed, two existing real-data skips, all 23 sources at 100/100/100/100 on both versions. All independent quality, package, changelog, release-policy and strict PM health checks pass. Explicit production audit and publication remain pending."
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
@@ -30,4 +32,5 @@ files[3]{path,scope}:
 tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/merge-driver-launcher.test.ts,project,dot,"2026-10-03T12:48:04.184Z",local_mutation,main
   "npm run release:check",project,dot,"2026-10-03T12:57:00.496Z",local_mutation,main
+close_reason: "Reverified main eba7d5262fd7 (unchanged since audit): [PR #136](https://github.com/unbraind/pm-ops/pull/136) preserves original installer resolution errors when presence probes fail; real malformed/permission fixture tests are committed. Retained evidence: templates/prepare-merge-driver.ts, test/merge-driver-launcher.test.ts."
 body: ""
