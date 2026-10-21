@@ -113,12 +113,6 @@ test("real directory snapshot and CLI work outside Git with no git executable an
     const harness = await createExtensionTestHarness(extension, { capabilities: ["commands", "renderers", "schema", "parser", "services"] });
     try {
       assert.deepEqual(await runCmd(harness, "ops capabilities", { config: configPath }), report);
-      const old = process.cwd();
-      process.chdir(root);
-      try { assert.deepEqual(await runCmd(harness, "ops capabilities"), { ...report, rows: report.rows.map((row) => ({ ...row, adapter: "tracker" })) }); }
-      finally { process.chdir(old); }
-      const explicit = await runCmd(harness, "ops capabilities", {}, [], { path: tracker });
-      assert.equal((explicit as { ok: boolean }).ok, true);
     } finally { await harness.deactivate(); }
     const bin = join(root, "bin");
     mkdirSync(bin);
@@ -131,6 +125,29 @@ test("real directory snapshot and CLI work outside Git with no git executable an
     assert.equal(snapshot(tracker), before);
     assert.equal(existsSync(join(root, ".git")), false);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("default command audits the host-resolved tracker independently of cwd and global path", async () => {
+  const root = fixture();
+  const tracker = join(root, "selected-tracker");
+  renameSync(join(root, ".agents", "pm"), tracker);
+  const before = snapshot(tracker);
+  const harness = await createExtensionTestHarness(extension, { capabilities: ["commands", "renderers", "schema", "parser", "services"] });
+  try {
+    const expected = await auditConfiguredBackends([{ id: "tracker", kind: "directory", root: tracker, operations: ["list", "get", "schema"] }], root);
+    assert.equal(expected.ok, true);
+    assert.deepEqual(expected.rows.map((row) => row.checked), [1, 1, 11]);
+    for (const global of [{}, { path: join(root, "missing-tracker") }]) {
+      const actual = await harness.runCommand({ command: "ops capabilities", pmRoot: tracker, global });
+      assert.equal(actual.handled, true);
+      assert.deepEqual(actual.result, expected);
+    }
+    assert.equal(snapshot(tracker), before);
+    assert.equal(existsSync(join(root, ".git")), false);
+  } finally {
+    await harness.deactivate();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("missing directories and unsafe snapshot links yield safe refusals", async () => {

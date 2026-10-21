@@ -2148,7 +2148,7 @@ export default defineExtension({
             async run(ctx) {
                 const config = readString(ctx.options, "config");
                 return config ? auditBackendConfigFile(config) : auditConfiguredBackends([
-                    { id: "tracker", kind: "directory", root: ctx.global.path ?? ".agents/pm", operations: ["list", "get", "schema"] },
+                    { id: "tracker", kind: "directory", root: ctx.pm_root, operations: ["list", "get", "schema"] },
                 ], process.cwd());
             },
         });

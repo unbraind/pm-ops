@@ -551,6 +551,8 @@ refusal does not bypass broken-package guards during installation.
 `pm ops capabilities` audits the current tracker without changing it. Use
 `pm ops capabilities --config docs/examples/backend-capabilities.json --json`
 for the [example configuration](docs/examples/backend-capabilities.json).
+The default audit uses the host-resolved tracker, including `--pm-path` and
+`PM_PATH` selections, independently of the working directory.
 The default output is compact TOON; `--json` returns the same typed matrix.
 There are three rows per configured adapter, capped at 32 adapters in a config.
 Reports contain public adapter labels, counts and remedies, with no item data,
