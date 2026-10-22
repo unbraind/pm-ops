@@ -1,0 +1,5 @@
+{
+  "package:consumer": "1.0.0",
+  "backend:directory": "v2",
+  "backend:recovery": "v1"
+}

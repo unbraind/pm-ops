@@ -28,6 +28,7 @@ const CAPABILITIES = ["commands", "renderers", "schema", "parser", "services"] a
  */
 const OWNED_COMMANDS = [
   "ops capabilities",
+  "ops evidence-expiry",
   "ops scan",
   "ops policy",
   "ops verify-release",

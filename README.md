@@ -641,8 +641,84 @@ and Cargo package readiness are separate checks.
 
 ## Without git
 
-Backend capability diagnostics, scan, policy, status, outdated, audit, metrics,
-reports and docstring analysis work in plain directories. The capability path
-never invokes Git. Release verification runs package-defined scripts, which may
+Evidence expiry, backend capability diagnostics, scan, policy, status, outdated, audit, metrics,
+reports and docstring analysis work in plain directories. The capability and
+evidence expiry paths never invoke Git. Release verification runs package-defined
+scripts, which may
 need Git; GitHub queries need their own credentials and network access. Configure
 and validate those requirements separately.
+
+## Operational evidence expiry
+
+`pm ops evidence-expiry` checks whether retained health, coverage and recovery
+claims still have reusable evidence. Core assurance owns the contracts and their
+immutable verdicts; this policy attaches a maximum age, required core population
+scope and captured package/backend identities to an exact assertion receipt.
+It does not run health checks, measure coverage, perform restores or replace
+pm-review's exact-head review gate.
+
+```bash
+pm ops evidence-expiry --policy docs/examples/evidence-policy.json --versions docs/examples/evidence-versions.json
+pm ops evidence-expiry --policy docs/examples/evidence-policy.json --versions docs/examples/evidence-versions.json --now 2026-10-22T10:01:00.000Z --limit 20 --json
+```
+
+The [example policy](docs/examples/evidence-policy.json) binds three independent
+claims. With matching accepted receipts, the [current versions](docs/examples/evidence-versions.json)
+change `backend:directory` from `v1` to `v2`: tracker health needs revalidation;
+coverage and recovery stay fresh. Changing `package:consumer` affects health and
+coverage, while changing `backend:recovery` affects only the restore drill.
+The examples contain illustrative receipt selectors: without those actual
+recorded receipts, all three claims report `evidence_missing`.
+
+Capture the `receipt` selector (`gate_id`, `tree_id`, `evaluated_at`,
+`assertion_id`) from a core `pm assurance verdicts` result. Capture `versions`
+**when accepting the evidence**, separately from the current version inventory.
+Include every relevant package, backend, configuration revision or deployment
+identity; omitted dependencies cannot trigger invalidation. Versions compare as
+exact strings, including upgrades, downgrades and backend replacements. Use
+public identity labels rather than endpoints or credentials. `scope` uses core
+`all`, `active`, or `filter` with `measurement_id`. A scope label does not prove
+that a measurement actually exercises a health check or restore: the consumer's
+core contracts and evidence collection must establish that meaning.
+
+A receipt must be durable, complete, unambiguous and non-dry-run, with a passing
+named assertion, proven negative controls and a positive population. Other
+assertions in its gate are judged independently. The required scope must match.
+Evidence expires **at** `evaluated_at + max_age_seconds`; future evidence needs
+revalidation. A missing current version, missing receipt or unreadable/unsealed
+history remains `unavailable`, never fresh. The audit checks core record hashes
+and refuses history changes during its read; this detects corruption, not a
+malicious writer authorized to replace and reseal the entire tracker. It never
+rewrites evidence or refreshes timestamps. Only the newest 1000 durable verdicts
+are searched; collect new evidence if a receipt has fallen out of that window.
+
+Default output is compact TOON; the host's `--json` selects JSON. `ok` is the
+**authoritative diagnostic predicate**; like `ops capabilities`, a completed
+diagnostic returns normally even when claims need attention. Malformed inputs
+throw `EvidenceExpiryRefusal` with `code`, `remedy` and nonzero `exitCode`.
+Counts cover every claim, actionable rows precede fresh rows, and `omitted`
+reports rows beyond `--limit` (default 20, maximum 1000). Each row carries a typed
+`code`, affected identity keys, expiration time and remedy; raw tracker content
+and version values are excluded. Requirements use this precedence: availability,
+acceptance, scope, missing versions, future time, changed versions, expiry.
+Resolve the first refusal and rerun to reveal any remaining requirement.
+
+```ts
+import { auditEvidenceExpiry, evaluateEvidenceExpiry,
+  parseEvidenceExpiryPolicy, parseEvidenceVersions } from "pm-ops/evidence-expiry";
+
+const policy = parseEvidenceExpiryPolicy(policyJson);
+const current = parseEvidenceVersions(currentVersionJson);
+const report = await auditEvidenceExpiry(trackerRoot, policy, current);
+// Database/MCP hosts can supply their own authenticated durable core receipts.
+const remoteReport = evaluateEvidenceExpiry(policy, current, durableReceipts);
+// Pass null if evidence cannot be read; an empty array means no matching receipts.
+```
+
+The SDK exposes typed policies, claims, reports, rows, statuses and refusal codes.
+JSON readers validate 1-1000 unique claims, canonical UTC timestamps, positive
+integer ages up to ten years, and at most 100 identities per version map. The
+read-only directory audit uses core SDK history, assurance and integrity APIs;
+backend-neutral evaluation performs no I/O and trusts the caller to authenticate
+its supplied receipts. Neither entrypoint changes assurance declarations or
+stores a second copy of the verdict history.
