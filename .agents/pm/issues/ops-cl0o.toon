@@ -2,19 +2,20 @@ id: ops-cl0o
 title: "Adding a source file breaks the coverage gate in three places, and none of them says so"
 description: "The coverage gate enumerates every source file so that a file added without tests cannot pass by being absent from the report. That enumeration is duplicated by hand in three fixture lists inside test/coverage-gate.test.ts (a POSIX stub, a Windows stub, and an explicit array) plus the include list in the package coverage script. Adding one source file therefore requires four coordinated edits, and omitting any of them fails the gate with a coverage threshold error that names a percentage rather than the missing file. Two source files added in this session each hit it."
 type: Issue
-status: blocked
+status: closed
 priority: 2
 tags[3]: "area:release","area:testing","type:defect"
 created_at: "2026-08-28T14:25:04.891Z"
-updated_at: "2026-10-03T00:16:57.120Z"
+updated_at: "2026-10-21T18:53:57.457Z"
+closed_at: "2026-10-21T18:53:51.072Z"
+completed_at: "2026-10-21T18:53:51.072Z"
 author: claude
 estimated_minutes: 90
 acceptance_criteria: "New TypeScript modules require no edits to hard-coded coverage fixture lists; overlapping source roots produce a sorted unique required-file denominator; real c8 accepts a newly tested module and rejects an unimported module by filename at unchanged per-file 100/100/100/100 thresholds; CLI/SDK 2026.9.29 and the lockfile pass package release checks; required exact-head reviews complete before merge; Each c8 invocation owns unique reports and raw counters, preserves an enclosing default coverage/tmp, rejects stale reports, and passes two real concurrent processes in the same repository; Starting or failing a coverage gate invalidates the shared LCOV so the real assurance provider refuses earlier passing measurements after a test-only failure"
 definition_of_ready: Canonical pm-ops checkout and tracker verified; no other claim or active checkout process; stacked on the existing TSX gate candidate
 risk: low
-blocked_by: ops-0c8k
-blocked_reason: "Full documentation under ops-0c8k remains incomplete at 590/1887 declarations and 22/23 modules. Parent PR132 and complete exact-head reviews remain required. Bun strict health fails in the released core under upstream1349. Default CI skips two opt-in fleet checks, and local Trivy/ShellCheck are unavailable. No publication or deployment."
 repro_steps: Configure overlapping coverageGate.sources entries and run node --test test/coverage-gate.test.ts. A nested c8 invocation previously inherited and cleaned the enclosing raw-counter directory.
+resolution: "Reverified main eba7d5262fd7 (unchanged since audit): PRs #134/#140 discover/deduplicate the source denominator and remove hard-coded coverage fixture lists; omitted source remains a per-file failure. Retained evidence: scripts/coverage-gate.ts, test/compatibility-floor.test.ts, test/coverage-gate.test.ts."
 expected_result: "New source modules are discovered once in deterministic order without fixture list edits, while nested coverage invocations preserve parent data and all required measured gates remain enforced."
 actual_result: Sorted unique source scope is independently verified; isolated c8 reports and counters preserve parent/peer data; shared LCOV invalidates on pending or failing runs so actual assurance consumers refuse earlier passing reports
 dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
@@ -101,4 +102,5 @@ docs[4]:
   - path: README.md
     scope: project
     note: Coverage denominator and controlled boundary contract
+close_reason: "Reverified main eba7d5262fd7 (unchanged since audit): PRs #134/#140 discover/deduplicate the source denominator and remove hard-coded coverage fixture lists; omitted source remains a per-file failure. Retained evidence: scripts/coverage-gate.ts, test/compatibility-floor.test.ts, test/coverage-gate.test.ts."
 body: ""

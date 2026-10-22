@@ -2,14 +2,20 @@ id: ops-i2iz
 title: A hardcoded fixture date aged out of the seven day window and broke the daily release
 description: "The metrics fixture pinned a closed item at 2026-08-03. On 2026-08-10 it became 7.27 days old, so no fixture satisfied the seven day throughput comparison, its true branch became unreachable and the coverage gate failed at 99.89 percent with no code change."
 type: Issue
-status: open
+status: closed
 priority: 1
 tags[3]: coverage,release,time-dependence
 created_at: "2026-08-10T06:35:56.436Z"
-updated_at: "2026-08-10T06:36:26.784Z"
+updated_at: "2026-10-21T18:49:27.871Z"
+closed_at: "2026-10-21T18:49:24.927Z"
+completed_at: "2026-10-21T18:49:24.927Z"
 author: claude
+repro_steps: "Evaluate the historical throughput fixture more than seven days after its hardcoded timestamp. Current source evidence: test/ops.test.ts."
+resolution: "Reverified main eba7d5262fd7 (unchanged since audit): [PR #41](https://github.com/unbraind/pm-ops/pull/41) makes the throughput fixture dates relative, eliminating the historical seven-day clock expiry. Retained evidence: test/ops.test.ts."
+expected_result: Fixture dates are relative to the evaluation clock and remain within the intended window.
 notes[3]{created_at,author,text}:
   "2026-08-10T06:36:25.901Z",claude,"The blast radius was fleet wide rather than local. pm-ops 2026.8.8 is the pin fifteen repositories use for the canonical docstring analyzer, and the fix that stops it scanning gitignored .agents/pm/extensions artifacts merged as 25b700f after that release. With the daily release failing, no published pm-ops carried that fix, so every adopting repository kept the local versus CI divergence CodeRabbit flagged on pm-csv pull request 65."
   "2026-08-10T06:36:26.370Z",claude,The tell was that the release succeeded on 2026-08-09 and failed on 2026-08-10 with no commit in between. A gate that changes verdict without an input change is measuring the clock. Here the fixture closed_at was 6.27 days old at the last success and 7.27 days old at the failure.
   "2026-08-10T06:36:26.784Z",claude,"Verified the branch total rather than only the percentage. index.ts reports 911 branches found both before and after, hit 910 then 911, so the missing branch was covered rather than made unreachable. A percentage alone cannot distinguish those two outcomes because V8 omits branches in code it never executes."
+close_reason: "Reverified main eba7d5262fd7 (unchanged since audit): [PR #41](https://github.com/unbraind/pm-ops/pull/41) makes the throughput fixture dates relative, eliminating the historical seven-day clock expiry. Retained evidence: test/ops.test.ts."
 body: ""

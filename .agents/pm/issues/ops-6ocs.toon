@@ -2,15 +2,26 @@ id: ops-6ocs
 title: "The release published to npm and then failed to tag, because it pushes the version bump straight to a protected main"
 description: "The release job publishes first and then runs git push origin HEAD:main. Branch protection rejects that with GH006, and set -e stops the job before the tag push, so npm carries a version that git has no tag or manifest for."
 type: Issue
-status: open
+status: canceled
 priority: 0
 tags[3]: branch-protection,fleet,release
 created_at: "2026-08-10T07:00:44.435Z"
-updated_at: "2026-08-10T07:01:14.922Z"
+updated_at: "2026-10-22T12:22:56.131Z"
+closed_at: "2026-10-21T18:37:03.819Z"
+completed_at: "2026-10-21T18:37:03.819Z"
 author: claude
+repro_steps: "Run the historical release against protected main; npm publication succeeds before the direct metadata push is refused. Current source evidence: index.ts."
+resolution: Duplicate of canonical ops-gitr; canceled to prevent a second release note for the same protected-main release ordering fix.
+expected_result: Release metadata merges through a protected pull request before npm publication.
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  ops-gitr,related,"2026-10-21T18:36:11.088Z",codex-agent,"cli:update:dep",detected
+comments[2]{created_at,author,text}:
+  "2026-10-21T18:35:43.380Z",codex-agent,"Duplicate of ops-gitr. Reverified main eba7d5262fd7 (unchanged since audit): Canonical id: ops-gitr. Both describe npm publication before the protected-main metadata push; #43 delivers the fix. #42 separately reconciled the historical manifest. Retained evidence: index.ts."
+  "2026-10-22T12:22:56.128Z",codex-agent,"PRRT_kwDOTOTl1M6vCj0G is valid. Both records describe publish-before-protected-main metadata ordering, delivered by PR #43 (94e0bf6), retained in main 5804578. Keep ops-gitr as the sole generated release entry; this duplicate is canceled. Regenerate the changelog from tracker state. Original close/history events remain byte-identical and are superseded by this append-only correction."
 notes[4]{created_at,author,text}:
   "2026-08-10T07:01:13.628Z",claude,"Sequence observed on run 31363761113. The gate passed, npm publish succeeded and pm-ops 2026.8.10 became the latest tag on the registry, then the step named Push release tag and main failed with remote: error: GH006: Protected branch update failed for refs/heads/main and remote rejected HEAD to main protected branch hook declined. Because the step runs under set -euo pipefail the subsequent git push of the tag never executed, so no v2026.08.10 tag exists."
   "2026-08-10T07:01:14.097Z",claude,"The failure mode is worse than a clean failure because it is partial. A red run that published nothing is recoverable by rerunning. This one left npm ahead of git, so a rerun would try to publish a version that already exists while main still declares 2026.8.8, and anything deriving a changelog or a release window from tags cannot see the release at all."
   "2026-08-10T07:01:14.534Z",claude,"Measured across the fleet rather than assumed: sixteen of twenty one repositories run git push to main directly in release.yml while main has required status checks configured, so each will fail the same way on its next release that actually publishes. The five that already create a release pull request instead are pm-changelog, pm-context, pm-csv and pm-linear. This did not surface earlier because pm-ops last published 2026.8.8; the 2026-08-09 run correctly skipped for having no changes, so today was the first publish since protection was enabled."
   "2026-08-10T07:01:14.922Z",claude,"pm-changelog already carries the correct pattern and its ordering is the important part: it creates a release branch and pull request, waits on mergeStateStatus for GitHub own merge decision, and publishes to npm only after that pull request merges. Publishing after the protected merge rather than before it makes a rejected push a no-op instead of a partial release."
+close_reason: "Duplicate of canonical ops-gitr; cancellation is duplicate classification, not a separate implementation delivery."
 body: ""

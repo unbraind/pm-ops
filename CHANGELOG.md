@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Freeze the merge-driver launcher and accept every released launcher revision ([ops-m82r](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-m82r.toon))
+- One reusable daily release workflow for fleet packages ([ops-reusable-daily-release](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-reusable-daily-release.toon))
+
+### Changed
+
+- Enable the gated pm-github issue sync and remove the braces chain ([ops-gated-issue-sync](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-gated-issue-sync.toon))
+- Adopt pm-github 2026.10.16: default-branch-safe gated sync and daily gated closeout PRs ([ops-l7gb](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-l7gb.toon))
+
+### Fixed
+
+- A release run bumped and committed a new version every night while publishing was impossible, because the only externally-failable step runs last ([ops-e9g6](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-e9g6.toon))
+- Fix release publish-before-protected-main-push ordering ([ops-gitr](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-gitr.toon))
+- A parenthesised command inside a case arm is read as an arm label, refusing a publish the shell attests ([ops-vkvy](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-vkvy.toon))
+- Self-hosted pm-changelog is reported not ready because it does not depend on itself ([ops-pksh](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-pksh.toon))
+- Adding a source file breaks the coverage gate in three places, and none of them says so ([ops-cl0o](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-cl0o.toon))
+- Recognize third-party publish wrappers (semantic-release, np, release-it, lerna publish, changeset publish) in the canonical attestation auditor ([ops-third-party-publish-wrappers](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-third-party-publish-wrappers.toon))
+- A hardcoded fixture date aged out of the seven day window and broke the daily release ([ops-i2iz](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-i2iz.toon))
+- The release completeness audit reported a published version and its GitHub Release as missing, turning a successful release into a failed one ([ops-fcow](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-fcow.toon))
+- Guarded merge-driver launcher: omit-dev clone installs complete instead of failing on the devDependency import ([ops-mqdi](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-mqdi.toon))
+- Duplication gate scans generated PM extension copies ([ops-to4t](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-to4t.toon))
+- ops verify-release times out on real full package gate after five minutes ([ops-3xyb](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3xyb.toon))
+- Preserve launcher resolution errors when presence probes fail ([ops-85at](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-85at.toon))
+- Keep multi-line quoted strings open in the publish-attestation scanner ([ops-attestation-multiline-quotes](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-attestation-multiline-quotes.toon))
+- The release job authenticated with a stored npm token that expired, so publishing stopped while every other gate stayed green ([ops-cenj](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-cenj.toon))
+
+### Other
+
+- Enable GitHub CodeQL code scanning ([ops-jasw](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-jasw.toon))
+- Characterize pre-existing fleet workflow scanner refusals ([ops-0u7l](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-0u7l.toon))
+
 ## 2026.10.15 - 2026-10-15
 
 ### Security
