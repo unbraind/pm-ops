@@ -216,6 +216,18 @@ async function directoryRead(root: string, operation: BackendOperation, id?: str
   return result.document.metadata;
 }
 
+/** Relax owned snapshot directories before reading their children, even after a partial copy. */
+async function relaxSnapshotPermissions(root: string): Promise<void> {
+  try {
+    await chmod(root, 0o700);
+    for (const entry of await readdir(root, { withFileTypes: true })) {
+      if (entry.isDirectory()) await relaxSnapshotPermissions(join(root, entry.name));
+    }
+  } catch {
+    // Permission repair is best effort; removal must still be attempted.
+  }
+}
+
 /** Audit configured adapters, removing disposable SDK cache snapshots even when reads fail. */
 export async function auditConfiguredBackends(config: readonly BackendAdapterConfig[], base: string): Promise<BackendCapabilityMatrix> {
   parseBackendConfig(config);
@@ -241,12 +253,13 @@ export async function auditConfiguredBackends(config: readonly BackendAdapterCon
     }
     return await auditBackendCapabilities(adapters);
   } finally {
-    // cp preserves source directory modes. Only relax permissions inside the
-    // owned disposable snapshot so a read-only source can still be cleaned up.
-    for (const entry of await readdir(scratch, { recursive: true, withFileTypes: true })) {
-      if (entry.isDirectory()) await chmod(join(entry.parentPath, entry.name), 0o700);
+    try {
+      await relaxSnapshotPermissions(scratch);
+    } finally {
+      try { await rm(scratch, { recursive: true, force: true }); } catch {
+        // Cleanup failure must not replace the audit evidence or original error.
+      }
     }
-    await rm(scratch, { recursive: true, force: true });
   }
 }
 

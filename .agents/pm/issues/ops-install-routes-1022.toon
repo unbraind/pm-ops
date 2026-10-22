@@ -1,0 +1,27 @@
+id: ops-install-routes-1022
+title: Honor metrics JSON format and document verified registry activation
+description: Registry audit reproduced TOON stdout for metrics --format json and missing runtime dependencies during fresh GitHub-source activation. Align explicit format handling with sibling commands and lead installation docs with a verified pinned npm source.
+type: Issue
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-21T23:23:22.551Z"
+updated_at: "2026-10-21T23:39:02.814Z"
+author: codex-agent
+comments[8]{created_at,author,text}:
+  "2026-10-21T23:23:29.974Z",codex-agent,"Plan: preserve host-owned --json structured results; route explicit --format json through the existing renderer contract, add a real CLI stdout JSON regression, and verify pinned README activation in fresh non-git npm and Bun projects. Separate tracker-reconciliation and feature items remain untouched."
+  "2026-10-21T23:26:29.415Z",codex-agent,"Revert proof: with the new real-process regression and unchanged metrics handler, the installed CLI test exits 1 because JSON.parse rejects stdout beginning generated_at. The child uses a plain tracker, a git discovery ceiling, and PATH without git. Fix uses emitResult for explicit formats while preserving bare host-owned JSON results."
+  "2026-10-21T23:29:16.320Z",codex-agent,"Fresh plain-directory README verification with CLI 2026.10.21: npx init exit 0; npx install npm:pm-ops@2026.10.21 --project exit 0; bunx init exit 0; bunx install npm:pm-ops@2026.10.21 --project exit 0. Separate empty project/home/config directories had no Git repository. An initial prefer-offline metadata lookup returned ETARGET; online metadata refresh passed the identical route."
+  "2026-10-21T23:30:23.840Z",codex-agent,"Packed candidate acceptance with CLI 2026.10.21 passed in both npx and bunx lanes: package activation exit 0; metrics --repos . --format json exit 0 with stdout parsed as JSON; metrics --repos . --json exit 0 with stdout parsed as JSON. Both retain top-level repos and report one readable plain tracker. PM-linked test initially timed out at 120 seconds; retry uses --timeout 600. Updating linked timeout metadata was refused because the declared peer floor cannot safely refuse guarded item format 2; no pins or history were changed."
+  "2026-10-21T23:31:27.482Z",codex-agent,"Focused regression command node --test --test-name-pattern=\"installed pm CLI routes|ops metrics\" test/ops.test.ts passed 8/8, zero failures or skips. PM-linked retry with --timeout 600 passed 1/1, exit 0. Typecheck, lint and test type compilation passed. Full npm and Bun release checks are running at unchanged thresholds."
+  "2026-10-21T23:35:25.433Z",codex-agent,"Full npm run release:check completed with exit 0 at unchanged thresholds: 1385 passed, 2 skipped, 0 failed out of 1387 tests. Measured source coverage passed all enforced thresholds. Full Bun gate is running. Skipped platform scenarios are retained as missing platform execution evidence, not counted as passes."
+  "2026-10-21T23:35:34.030Z",codex-agent,"Correction to the prior gate note: the two skips are optional real-data checks against configured external repositories (scan readiness and verify-release), not platform scenarios. Synthetic fixture tests and the new installed CLI regression passed; external-repository certification is not claimed."
+  "2026-10-21T23:39:01.387Z",codex-agent,"Final local validation: npm run release:check exit 0 and bun run release:check exit 0. Each reports 1385 passed, 2 optional real-data checks skipped, 0 failed (1387 total). Coverage is 100% statements/branches/functions/lines over 30 measured source files at unchanged thresholds. Focused CLI/metrics regression passed 8/8; linked focused regression passed 1/1; current-host npx and bunx candidate JSON checks all exit 0. Ready for exact-head PR CI verification; item remains in_progress for orchestrator review."
+files[2]{path,scope}:
+  index.ts,project
+  test/ops.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-name-pattern=ops.metrics.--json test/ops.test.ts,project,codex-agent,"2026-10-21T23:26:35.005Z",local_mutation,fix/install-routes-1022
+docs[1]{path,scope}:
+  README.md,project
+body: ""

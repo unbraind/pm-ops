@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import fsPromises from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { createServer } from "node:http";
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, renameSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -242,4 +244,53 @@ test("read-only source directories are unchanged and disposable copies are clean
     for (const directory of directories) chmodSync(directory, 0o755);
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+
+test("snapshot cleanup always attempts removal and preserves evidence after filesystem failures", async (t) => {
+  const root = fixture();
+  const config = [{ id: "dir", kind: "directory" as const, root: ".agents/pm", operations: ["list", "get", "schema"] as const }];
+  const originalMkdtemp = fsPromises.mkdtemp;
+  const originalChmod = fsPromises.chmod;
+  const originalReaddir = fsPromises.readdir;
+  const originalRm = fsPromises.rm;
+  try {
+    for (const failing of ["readdir", "chmod", "rm"] as const) {
+      let injected = 0;
+      let allocated: string | undefined;
+      let removed: string | undefined;
+      t.mock.method(fsPromises, "mkdtemp", async (prefix: string) => {
+        const directory = await originalMkdtemp(prefix);
+        if (prefix === join(tmpdir(), "pm-backend-")) allocated = directory;
+        return directory;
+      });
+      t.mock.method(fsPromises, "chmod", async (...args: Parameters<typeof originalChmod>) => {
+        if (failing === "chmod" && String(args[0]) === allocated) { injected += 1; throw new Error("permission repair failed"); }
+        return originalChmod(...args);
+      });
+      t.mock.method(fsPromises, "readdir", (...args: Parameters<typeof originalReaddir>) => {
+        if (failing === "readdir" && String(args[0]) === allocated) { injected += 1; return Promise.reject(new Error("directory enumeration failed")); }
+        return originalReaddir(...args);
+      });
+      t.mock.method(fsPromises, "rm", async (...args: Parameters<typeof originalRm>) => {
+        if (String(args[0]) !== allocated) return originalRm(...args);
+        removed = String(args[0]);
+        await originalRm(...args);
+        if (failing === "rm") { injected += 1; throw new Error("removal reported failure"); }
+      });
+      syncBuiltinESMExports();
+      try {
+        const report = await auditConfiguredBackends(config, root);
+        assert.equal(injected, 1, `${failing}: failure was not injected`);
+        assert.equal(report.ok, true, failing);
+        assert.equal(report.counts.supported, 3, failing);
+        assert.ok(removed, `${failing}: removal was never attempted`);
+        assert.equal(existsSync(removed), false);
+      } finally {
+        t.mock.restoreAll();
+        syncBuiltinESMExports();
+        if (allocated) rmSync(allocated, { recursive: true, force: true });
+      }
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
