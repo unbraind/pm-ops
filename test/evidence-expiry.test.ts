@@ -183,7 +183,10 @@ test("read-only SDK and CLI dispatch work in a real non-git tracker without git 
   const noGitBin = join(root, "no-git-bin"); mkdirSync(noGitBin);
   if (process.platform === "win32") writeFileSync(join(noGitBin, "placeholder"), "no git");
   else symlinkSync(process.execPath, join(noGitBin, "node"));
-  const probe = spawnSync(process.execPath, ["--input-type=module", "-e", `import { auditEvidenceExpiryFiles } from ${JSON.stringify(resolve("evidence-expiry.ts"))}; console.log(JSON.stringify(await auditEvidenceExpiryFiles(...process.argv.slice(1,4), {now:process.argv[4]})));`, tracker, policyFile, versionsFile, now], {
+  // A hash in a real filename exercises URL escaping on POSIX as well as Windows.
+  const probeEntry = join(root, "evidence #probe.mjs");
+  writeFileSync(probeEntry, `export { auditEvidenceExpiryFiles } from ${JSON.stringify(pathToFileURL(resolve("evidence-expiry.ts")).href)};`);
+  const probe = spawnSync(process.execPath, ["--input-type=module", "-e", `import { auditEvidenceExpiryFiles } from ${JSON.stringify(pathToFileURL(probeEntry).href)}; console.log(JSON.stringify(await auditEvidenceExpiryFiles(...process.argv.slice(1,4), {now:process.argv[4]})));`, tracker, policyFile, versionsFile, now], {
     cwd: root, env: { ...process.env, PATH: noGitBin, PM_PATH: tracker, GIT_CEILING_DIRECTORIES: dirname(root) }, encoding: "utf8",
   });
   assert.equal(probe.status, 0, probe.stderr);

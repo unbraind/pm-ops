@@ -65,3 +65,17 @@ The skips are the existing opt-in configured-repository scan and second-reposito
 release checks; they are unavailable evidence, not passes. This feature's
 18 targeted tests have zero skips, and its public tracker validation above was
 run explicitly. The PR records the gate URL for the final evidence-only commit.
+
+## Portable no-Git probe review regression
+
+Review thread `PRRT_kwDOTOTl1M6vVDtP` identified a raw absolute ESM specifier in
+`test/evidence-expiry.test.ts`. The probe now imports through a file URL. Its real
+temporary entry filename includes a space and `#`, exercising URI escaping on
+POSIX as well as avoiding drive-letter URL schemes on Windows. The audit call,
+tracker arguments, Git-free PATH and byte-preservation assertions are retained.
+
+Reverting only `pathToFileURL(probeEntry).href` to the raw `probeEntry`, while
+keeping the new fixture and assertions, fails the focused no-Git test with
+`ERR_MODULE_NOT_FOUND`: 0 passed, 1 failed, exit 1. Restoring the conversion passes:
+1 passed, 0 failed, zero skips. The other generated ESM shim in the PR already
+uses a file URL; Node entrypoint and filesystem path arguments remain paths.
