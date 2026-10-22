@@ -55,3 +55,13 @@ branches, functions and lines. Full package release evidence comes from the
 unchanged npm and Bun CI gates, including their normal coverage, duplication,
 docstring, audit, pack and changelog checks; see the PR for the exact run and
 counts.
+
+Implementation CI: [run 39813347953](https://github.com/unbraind/pm-ops/actions/runs/39813347953),
+commit `f0b17f3f0dc9e9c80938478692bfa419b86414db`. All four CI jobs passed,
+including both Windows consumer jobs. Each of the four npm/Bun release gates
+(Node 22 and 26) reported **1410 tests, 1408 passed, 0 failed, 2 skipped**,
+with **100% statements, branches, functions and lines over 32 sources**.
+The skips are the existing opt-in configured-repository scan and second-repository
+release checks; they are unavailable evidence, not passes. This feature's
+18 targeted tests have zero skips, and its public tracker validation above was
+run explicitly. The PR records the gate URL for the final evidence-only commit.
