@@ -27,6 +27,7 @@ const CAPABILITIES = ["commands", "renderers", "schema", "parser", "services"] a
  * than silently losing its rendering.
  */
 const OWNED_COMMANDS = [
+  "ops capabilities",
   "ops scan",
   "ops policy",
   "ops verify-release",

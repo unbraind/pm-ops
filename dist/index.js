@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { encode } from "@toon-format/toon";
 import { listMergeReceipts, auditMergeDriverConfiguration, auditMergeAttributeFence, findGitWorkspaceRoot, } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage } from "./docstrings.js";
+import { auditBackendConfigFile, auditConfiguredBackends } from "./backend-capabilities.js";
 import { qualityMeasurementProvider } from "./assurance.js";
 import { defaultCanonicalTagResolver, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.js";
 // ---------------------------------------------------------------------------
@@ -68,6 +69,7 @@ function asArray(value) {
     return value.split(",").map((entry) => entry.trim()).filter(Boolean);
 }
 const OPS_COMMAND_PATHS = [
+    "ops capabilities",
     "ops scan",
     "ops policy",
     "ops verify-release",
@@ -2136,6 +2138,20 @@ export default defineExtension({
         // same `authorization_decision` as any other bound regression. See
         // `./assurance.ts` for the key contract and the staleness refusal.
         api.registerAssuranceMeasurementProvider(qualityMeasurementProvider);
+        api.registerCommand({
+            name: "ops capabilities",
+            description: "Verify configured backend list/get/schema read contracts without Git or tracker writes. Reports typed refusals and remedies; remote adapters require a read-only bridge.",
+            examples: ["pm ops capabilities", "pm ops capabilities --config backends.json --json"],
+            flags: [
+                { long: "--config", value_name: "file", description: "JSON adapter array; default: current directory tracker" },
+            ],
+            async run(ctx) {
+                const config = readString(ctx.options, "config");
+                return config ? auditBackendConfigFile(config) : auditConfiguredBackends([
+                    { id: "tracker", kind: "directory", root: ctx.pm_root, operations: ["list", "get", "schema"] },
+                ], process.cwd());
+            },
+        });
         api.registerCommand({
             name: "ops scan",
             description: "Scan a set of pm repositories and produce a per-repo release-readiness snapshot " +

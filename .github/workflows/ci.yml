@@ -59,39 +59,11 @@ jobs:
           # still exiting successfully.
           ./node_modules/.bin/pm health --strict-exit --require-merge-drivers
 
-      - name: Type check
-        run: npm run check
+      - name: npm release gate
+        run: npm run release:check
 
-      - name: Docstring coverage gate
-        run: npm run docstring
-
-      - name: Canonical ESLint gate
-        run: npm run lint
-
-      - name: Duplication gate
-        run: npm run duplication
-
-      - name: Test with coverage gate
-        run: npm run coverage
-
-      - name: Production dependency audit
-        run: npm run audit:prod
-
-      - name: Verify npm package contents
-        run: npm run pack:dry-run
-
-      - name: Verify generated changelog
-        run: npm run changelog:check
-
-      - name: Verify the changelog date is derived from the version
-        run: npm run verify:release-changelog-date
-
-      - name: Verify every publish invocation is attested
-        run: npm run verify:release-publish-attestation
-
-      - name: Verify lifecycle policies match canonical and governed work carries its evidence
-        run: npm run verify:lifecycle-policy
-
+      - name: Bun release gate
+        run: bun run release:check
 
       - name: Verify Bun can install the package graph
         run: bun install --no-save

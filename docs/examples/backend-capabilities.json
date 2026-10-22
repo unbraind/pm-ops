@@ -1,0 +1,8 @@
+[
+  {
+    "id": "directory",
+    "kind": "directory",
+    "root": "../../.agents/pm",
+    "operations": ["list", "get", "schema"]
+  }
+]
