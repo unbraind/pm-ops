@@ -6,6 +6,9 @@ status: open
 priority: 2
 tags[4]: ci,flake,test,windows
 created_at: "2026-10-19T23:24:20.440Z"
-updated_at: "2026-10-19T23:24:20.440Z"
+updated_at: "2026-10-22T19:22:21.841Z"
 author: pi-agent
+comments[2]{created_at,author,text}:
+  "2026-10-22T19:15:57.077Z",codex-agent,"Additional occurrence while validating PR 192 at unchanged head 87c8dac: https://github.com/unbraind/pm-ops/actions/runs/39837214110 . Windows consumers Node 22 failed in test/duplication-packed.acceptance.ts at npm install --ignore-scripts with status null versus expected 0; the launcher retains its 180-second timeout. Node 26 Windows consumers and all four npm/Bun release gates passed. Failed-job-only rerun requested without code changes. Reusing this existing issue rather than creating a duplicate; no timeout or assertion relaxation is included in the evidence-expiry review fix."
+  "2026-10-22T19:22:21.830Z",codex-agent,"The failed-job-only retry of Windows 22 passed at the identical 87c8dac head: https://github.com/unbraind/pm-ops/actions/runs/39837214110 . The full four-job matrix is green, including both npm/Bun release gates on Node 22 and 26. No code, timeout or assertion changes were needed. This confirms an intermittent packed-install failure signature; the broader timeout robustness issue remains open."
 body: ""

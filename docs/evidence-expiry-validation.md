@@ -79,3 +79,14 @@ keeping the new fixture and assertions, fails the focused no-Git test with
 `ERR_MODULE_NOT_FOUND`: 0 passed, 1 failed, exit 1. Restoring the conversion passes:
 1 passed, 0 failed, zero skips. The other generated ESM shim in the PR already
 uses a file URL; Node entrypoint and filesystem path arguments remain paths.
+
+Review-fix CI at `87c8dacb7c409f6d7134bccbc8739bbeddd8f51d`:
+[run 39837214110](https://github.com/unbraind/pm-ops/actions/runs/39837214110)
+passed all four jobs after a failed-job-only retry of Windows 22. Each npm and
+Bun release gate on Node 22 and 26 measured 1410 tests: 1408 passed, 0 failed,
+2 existing opt-in skips, with four 100% coverage dimensions across 32 sources.
+The initial Windows 22 failure was the existing `ops-ilcm` packed-install null
+status at its 180-second timeout site; the identical-head retry passed without
+changing code, timeouts or assertions. Local linked suites passed 18/18 with no
+skips or timeouts. Rebuilt tracked `dist/` remained byte-identical. The PR records
+the exact CI run for the final evidence-only commit.
