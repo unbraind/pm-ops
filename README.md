@@ -562,3 +562,87 @@ boundary is documented in [the auditor docs](docs/canonical-publication-regressi
 to preserve actual shell semantics; `test/pack-prepare.test.ts` compares real Git
 config bytes around npm pack and checks install/ci registration. Artifact-time
 refusal does not bypass broken-package guards during installation.
+
+## Backend capability assurance
+
+`pm ops capabilities` audits the current tracker without changing it. Use
+`pm ops capabilities --config docs/examples/backend-capabilities.json --json`
+for the [example configuration](docs/examples/backend-capabilities.json).
+The default audit uses the host-resolved tracker, including `--pm-path` and
+`PM_PATH` selections, independently of the working directory.
+The default output is compact TOON; `--json` returns the same typed matrix.
+There are three rows per configured adapter, capped at 32 adapters in a config.
+Reports contain public adapter labels, counts and remedies, with no item data,
+connection strings, exception messages or local paths.
+
+The audited SDK read contracts are `list` (complete, count-consistent, unique
+nonempty item IDs), `get` (one deterministic list ID returned unchanged), and
+`schema` (nonempty, unique type names). `checked` records the number of list
+items, get probes or schema types actually checked. An empty or unavailable
+list leaves get `unverified`; the diagnostic never creates a probe item.
+This is read-contract assurance, not write, concurrency, recovery or native
+SQL/MCP protocol certification. Directory reads use a disposable snapshot of
+settings and registered item folders, containing SDK cache writes away from
+the original tracker. Audit a stable read-only copy for reproducible results.
+Symlinked inputs are refused. Snapshot cleanup restores directory permissions
+before enumeration and attempts removal even after a permission error. Cleanup
+errors do not replace the audit evidence.
+
+| Status | Meaning |
+| --- | --- |
+| `supported` | Declared operation passed its invariant |
+| `unsupported` | Adapter does not declare the operation; no call was made |
+| `unavailable` | Connection, read permission or transport failed |
+| `invariant_failed` | Read completed with invalid evidence, or unsafe snapshot input |
+| `unverified` | No list ID is available to test get safely |
+
+Each refusal has a stable `backend_<status>` code and a remedy. `ok` means
+all **declared** operations verified; inspect `counts.unsupported` when requiring
+full read coverage. The CLI returns the report even on failed probes, so agents
+must inspect `ok` and the per-operation statuses.
+
+For database and MCP backends, configure `kind`, `id`, `operations` and an
+`endpoint` pointing to an operator-controlled **read-only HTTP bridge**. The
+bridge translates the backend's SDK reads to the normalized contract below;
+it is not a database DSN or a native MCP endpoint. The diagnostic sends GET
+requests only, with a five-second timeout and redirects disabled. Keep bridge
+credentials in its deployment; URL userinfo is rejected. Never configure a
+GET endpoint with side effects.
+
+```json
+[{"id":"database","kind":"database","endpoint":"https://bridge.example/reads","operations":["list","get","schema"]}]
+```
+
+The bridge receives `?operation=list`, `?operation=get&id=<selected-id>` or
+`?operation=schema` (existing query parameters are preserved), returning JSON:
+
+```json
+{"items":[{"id":"sample-1"}],"count":1,"complete":true}
+{"id":"sample-1"}
+{"types":["Task"]}
+```
+
+SDK consumers can supply their own database/MCP read ports without HTTP:
+
+```ts
+import { auditBackendCapabilities, type BackendReadAdapter } from "pm-ops/backend-capabilities";
+
+// Bind side-effect-free reads only. Return the normalized contract above;
+// throw BackendReadRefusal for known transport/integrity failures.
+declare const adapters: readonly BackendReadAdapter[];
+const matrix = await auditBackendCapabilities(adapters);
+console.log(matrix.counts);
+```
+
+`auditConfiguredBackends` and `auditBackendConfigFile` expose the same directory
+snapshot and HTTP bridge bindings used by the CLI. Config roots resolve relative
+to the config file. Command/schema discovery in core, pm-web's database doctor,
+and Cargo package readiness are separate checks.
+
+## Without git
+
+Backend capability diagnostics, scan, policy, status, outdated, audit, metrics,
+reports and docstring analysis work in plain directories. The capability path
+never invokes Git. Release verification runs package-defined scripts, which may
+need Git; GitHub queries need their own credentials and network access. Configure
+and validate those requirements separately.

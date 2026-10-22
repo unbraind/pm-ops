@@ -69,6 +69,10 @@
     "./release-caller": {
       "types": "./dist/release-caller.d.ts",
       "default": "./dist/release-caller.js"
+    },
+    "./backend-capabilities": {
+      "types": "./dist/backend-capabilities.d.ts",
+      "default": "./dist/backend-capabilities.js"
     }
   },
   "files": [
