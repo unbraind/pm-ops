@@ -73,6 +73,10 @@
     "./backend-capabilities": {
       "types": "./dist/backend-capabilities.d.ts",
       "default": "./dist/backend-capabilities.js"
+    },
+    "./evidence-expiry": {
+      "types": "./dist/evidence-expiry.d.ts",
+      "default": "./dist/evidence-expiry.js"
     }
   },
   "files": [
