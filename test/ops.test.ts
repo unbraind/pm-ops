@@ -753,6 +753,20 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
   assert.strictEqual(hostedMetrics.repos_scanned, 1);
   assert.strictEqual(hostedMetrics.repos[0].available, true);
 
+  // Explicit format must produce JSON under the default TOON host renderer,
+  // including in a plain tracker with no git executable available.
+  const explicitJson = spawnSync(process.execPath, [cliEntry, "ops", "metrics", "--repos", project, "--format", "json"], {
+    cwd: project,
+    encoding: "utf-8",
+    env: { ...env, PATH: noPmBin, GIT_CEILING_DIRECTORIES: root },
+    timeout: 30_000,
+  });
+  assertClean(explicitJson, "metrics explicit JSON format without git");
+  const explicitMetrics = parseJson<MetricsResult>(explicitJson.stdout);
+  assert.strictEqual(explicitMetrics.repos_scanned, 1);
+  assert.strictEqual(explicitMetrics.repos[0].available, true);
+  assert.strictEqual(explicitMetrics.repos[0].path, project);
+
   writeFileSync(join(project, "undocumented.ts"), "export function undocumented() {}\n");
   const toonFailure = runPm(["ops", "docstrings", "--repos", project]);
   assert.strictEqual(toonFailure.error, undefined, "pm ops docstrings should launch");
@@ -2126,6 +2140,10 @@ test("ops metrics --json exposes the structured routing contract", async () => {
   assert.strictEqual(payload.repos[0].status_counts.open, 2);
   assert.strictEqual(payload.repos_scanned, 1);
   assert.strictEqual(typeof payload.generated_at, "string");
+  const explicit = await runCmd<RenderedResult>(ext, "ops metrics", { repos: [fixtureRepo], format: "json" });
+  const explicitPayload = parseJson<MetricsResult>(explicit.output);
+  assert.deepStrictEqual(explicitPayload.repos.map((r) => r.path), [fixtureRepo]);
+  assert.strictEqual(explicitPayload.repos_scanned, 1);
   await ext.deactivate();
 });
 

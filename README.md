@@ -10,15 +10,32 @@ Multi-repo fleet operations for [pm-cli](https://github.com/unbraind/pm-cli).
 
 ## Installation
 
-```bash
-pm install github.com/unbraind/pm-ops --project
-```
-
-Or install globally:
+Use the published package so npm installs its runtime dependencies before activation.
+In a plain project directory (no git repository required), initialize a tracker and
+activate the pinned registry release:
 
 ```bash
-pm install github.com/unbraind/pm-ops --global
+npx -y @unbrained/pm-cli@2026.10.21 init --defaults --agent-guidance skip
+npx -y @unbrained/pm-cli@2026.10.21 install npm:pm-ops@2026.10.21 --project
 ```
+
+With Bun, use `bunx` instead of `npx -y` for both commands.
+The explicit `npm:` source selects the registry package.
+
+GitHub-source activation alone does not install this package's runtime dependencies.
+It requires built `dist/` output and all `package.json` runtime dependencies
+(including `@toon-format/toon`, `typescript` and `yaml`) resolvable from the
+activated module graph, plus the pm CLI peer. A fresh source-only project lacks
+those dependencies and activation fails. Use the registry route above for fresh
+projects; a source checkout needs dependency installation and a build before local
+activation.
+
+### Without git
+
+Tracker metrics, policy checks and file-based reports work in plain directories.
+GitHub probes, release inventory/repair and changelog generation from tags need a
+git repository and their provider tools. Git-only checks do not certify a plain
+tracker as a release checkout.
 
 ---
 
