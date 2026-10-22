@@ -21,6 +21,7 @@ import {
 } from "@unbrained/pm-cli/sdk/merge";
 import { analyzeDocstringCoverage, type DocstringViolation } from "./docstrings.ts";
 import { auditBackendConfigFile, auditConfiguredBackends } from "./backend-capabilities.ts";
+import { auditEvidenceExpiryFiles, EvidenceExpiryRefusal } from "./evidence-expiry.ts";
 import { qualityMeasurementProvider } from "./assurance.ts";
 import { defaultCanonicalTagResolver, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.ts";
 
@@ -108,6 +109,7 @@ function asArray(value: unknown): string[] {
 
 const OPS_COMMAND_PATHS = [
   "ops capabilities",
+  "ops evidence-expiry",
   "ops scan",
   "ops policy",
   "ops verify-release",
@@ -2641,6 +2643,25 @@ export default defineExtension({
         return config ? auditBackendConfigFile(config) : auditConfiguredBackends([
           { id: "tracker", kind: "directory", root: ctx.pm_root, operations: ["list", "get", "schema"] },
         ], process.cwd());
+      },
+    });
+
+    api.registerCommand({
+      name: "ops evidence-expiry",
+      description: "Check retained health, coverage and recovery receipts for scope, freshness and relevant version changes. Read-only, without Git; counts include omitted rows. Diagnostic ok is authoritative.",
+      examples: ["pm ops evidence-expiry --policy evidence-policy.json --versions evidence-versions.json --json"],
+      flags: [
+        { long: "--policy", value_name: "file", description: "Version 1 claim attachment policy (required)" },
+        { long: "--versions", value_name: "file", description: "Current package/backend identity map (required)" },
+        { long: "--now", value_name: "iso", description: "Canonical UTC evaluation instant (default: current time)" },
+        { long: "--limit", value_name: "n", description: "Diagnostic rows, 1-1000 (default: 20)" },
+      ],
+      async run(ctx: CommandHandlerContext) {
+        const policy = readString(ctx.options, "policy");
+        const versions = readString(ctx.options, "versions");
+        if (!policy || !versions) throw new EvidenceExpiryRefusal("invalid_policy", "Supply --policy and --versions JSON input files.");
+        const limit = readString(ctx.options, "limit");
+        return auditEvidenceExpiryFiles(ctx.pm_root, policy, versions, { now: readString(ctx.options, "now"), limit: limit === undefined ? undefined : Number(limit) });
       },
     });
 
