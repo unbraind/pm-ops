@@ -15,7 +15,6 @@
 ### Fixed
 
 - A release run bumped and committed a new version every night while publishing was impossible, because the only externally-failable step runs last ([ops-e9g6](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-e9g6.toon))
-- A thirty-five second CLI test fails on timing whenever the machine is busy, so the gate reports red for load rather than for code ([ops-gp0d](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-gp0d.toon))
 - Fix release publish-before-protected-main-push ordering ([ops-gitr](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-gitr.toon))
 - A parenthesised command inside a case arm is read as an arm label, refusing a publish the shell attests ([ops-vkvy](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-vkvy.toon))
 - Self-hosted pm-changelog is reported not ready because it does not depend on itself ([ops-pksh](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-pksh.toon))
@@ -28,7 +27,6 @@
 - ops verify-release times out on real full package gate after five minutes ([ops-3xyb](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3xyb.toon))
 - Preserve launcher resolution errors when presence probes fail ([ops-85at](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-85at.toon))
 - Keep multi-line quoted strings open in the publish-attestation scanner ([ops-attestation-multiline-quotes](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-attestation-multiline-quotes.toon))
-- The release published to npm and then failed to tag, because it pushes the version bump straight to a protected main ([ops-6ocs](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-6ocs.toon))
 - The release job authenticated with a stored npm token that expired, so publishing stopped while every other gate stayed green ([ops-cenj](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-cenj.toon))
 
 ### Other

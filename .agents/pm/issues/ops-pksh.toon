@@ -6,16 +6,17 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-09-07T23:28:48.518Z"
-updated_at: "2026-10-21T18:55:09.879Z"
+updated_at: "2026-10-22T12:22:49.668Z"
 closed_at: "2026-10-21T18:55:03.345Z"
 completed_at: "2026-10-21T18:55:03.345Z"
 author: codex-pm-release
 acceptance_criteria: The real self-hosted package passes changelog wiring in scan status and default policy; dependency metadata remains truthful; name-only and incomplete CLI generation/check configurations remain rejected; regression tests and exact all-source coverage pass.
-repro_steps: "Scan self-hosted pm-changelog readiness without adding a dependency on itself. Current source evidence: index.ts, scripts/verify-release-completeness.ts, test/compatibility-floor.test.ts."
-resolution: "Reverified main eba7d5262fd7 (unchanged since audit): [PR #101](https://github.com/unbraind/pm-ops/pull/101) (release inventory and self-hosting corrections) delivers the corresponding scanner/fixture fixes and regression tests; a passing artifact lookup is distinct from an unavailable lookup. Retained evidence: index.ts, scripts/verify-release-completeness.ts, test/compatibility-floor.test.ts."
+repro_steps: "Scan self-hosted pm-changelog with its declared dist/cli.js binary, changelog:full generator and matching changelog:check script, without adding a dependency on itself. Evidence: index.ts, README.md, test/ops.test.ts."
+resolution: "Reverified main 5804578: PR #101 (78428f5) recognizes the self-hosted pm-changelog declared local CLI and generation/check scripts without requiring a self-dependency. Scan, status and default policy accept complete wiring while preserving has_pm_changelog=false and rejecting name-only, missing or malformed configurations. Evidence: index.ts selfHostsPmChangelog and its consumers, README.md and test/ops.test.ts self-hosted wiring regression."
 expected_result: Self-hosted changelog readiness recognizes its own generator without a self-dependency.
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-09-07T23:38:40.186Z",codex-pm-release,"Regression proof: the original packed package returned only 20 of 21 real TypeScript workspaces ready because pm-changelog has no self-dependency. The corrected packed package now returns 21 of 21 ready online; pm-changelog keeps has_pm_changelog=false and reports self_hosts_pm_changelog=true. Its real status is ready and all six default policy checks pass. Nine incomplete configurations and an explicit custom required-script policy are covered by the host harness; three malformed configurations were also rejected through the installed packed CLI. Full release:check passed 466 tests with zero failures and two optional real-data tests skipped, exact all-source 100/100/100/100 on 13 files, and docstrings on all 185 declarations. Types, production audit, package contents, changelog, release-date and publish-attestation gates passed. The manual fleet scan and metrics commands supplied the separate real-data evidence."
+  "2026-10-22T12:22:49.668Z",codex-agent,"PRRT_kwDOTOTl1M6vCj0E is valid. Main 5804578 retains delivery 78428f5 and selfHostsPmChangelog plus positive/negative scan, status and policy assertions. Both resolution and close_reason now describe self-hosting, not unrelated artifact lookups. Existing closed state and original completion receipt are retained; no new closure or runtime certification is performed."
 files[3]{path,scope}:
   index.ts,project
   README.md,project
@@ -24,5 +25,5 @@ tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "node --test --test-name-pattern=\"self-hosted pm-changelog\" test/ops.test.ts",project,codex-pm-release,"2026-09-07T23:33:31.165Z",local_mutation,chore/approve-pm-cli-2026-9-7-as-the-development-host
 docs[1]{path,scope}:
   README.md,project
-close_reason: "Reverified main eba7d5262fd7 (unchanged since audit): [PR #101](https://github.com/unbraind/pm-ops/pull/101) (release inventory and self-hosting corrections) delivers the corresponding scanner/fixture fixes and regression tests; a passing artifact lookup is distinct from an unavailable lookup. Retained evidence: index.ts, scripts/verify-release-completeness.ts, test/compatibility-floor.test.ts."
+close_reason: "Reverified main 5804578: PR #101 (78428f5) recognizes the self-hosted pm-changelog declared local CLI and generation/check scripts without requiring a self-dependency. Scan, status and default policy accept complete wiring while preserving has_pm_changelog=false and rejecting name-only, missing or malformed configurations. Evidence: index.ts selfHostsPmChangelog and its consumers, README.md and test/ops.test.ts self-hosted wiring regression."
 body: ""

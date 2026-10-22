@@ -6,7 +6,7 @@ status: closed
 priority: 1
 tags[2]: "area:release","type:false-negative"
 created_at: "2026-09-02T21:06:27.413Z"
-updated_at: "2026-10-21T18:48:12.957Z"
+updated_at: "2026-10-22T12:24:14.480Z"
 closed_at: "2026-10-21T18:48:08.405Z"
 completed_at: "2026-10-21T18:48:08.405Z"
 author: "harness:claude-code"
@@ -14,12 +14,13 @@ acceptance_criteria: "The audit reports no failure for a tag whose npm version a
 risk: medium
 severity: medium
 repro_steps: "Run the release workflow on pm-ops. The publish succeeds and the completeness audit then reports v2026.08.28 as having neither a published npm version nor a GitHub Release, both of which exist."
-resolution: "Reverified main eba7d5262fd7 (unchanged since audit): [PR #101](https://github.com/unbraind/pm-ops/pull/101) (release inventory and self-hosting corrections) delivers the corresponding scanner/fixture fixes and regression tests; a passing artifact lookup is distinct from an unavailable lookup. Retained evidence: index.ts, scripts/verify-release-completeness.ts, test/compatibility-floor.test.ts."
+resolution: "Reverified main 5804578: PR #101 (78428f5) rejects malformed npm inventories and distinguishes failed or mismatched GitHub per-tag reads from missing releases. Available published artifacts pass; unavailable lookups remain distinct from absent artifacts. Evidence: release-completeness.ts, scripts/verify-release-completeness.ts and test/verify-release-completeness.test.ts. This receipt does not attribute the historical September 2 false report to a newly proven root cause."
 expected_result: Inventory verifies individual artifacts before calling a release missing and distinguishes unavailable lookups.
 component: scripts/verify-release-completeness.ts
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-09-07T22:58:11.750Z",codex-pm-release,"Current live audit passes 34 complete release triples. Reproduced a remaining false-report path: malformed npm JSON and arrays with unreadable rows are treated as empty or partial inventories, leading to missing-artifact diagnostics. Implementing strict inventory parsing and explicit lookup-failure diagnostics with complete and genuinely missing controls; the historical September 2 false report is not yet attributed to this path."
   "2026-09-07T23:03:52.845Z",codex-pm-release,"Validation: the regression suite failed before the fix and now passes 34/34 both directly and through pm test. Full coverage passes 100/100/100/100 across all 13 discovered production source files: 467 tests, 465 passed, 2 optional fleet-data tests skipped. All 184 declarations in the 13 files have docstrings. Typecheck, test compilation, production audit (0 vulnerabilities), package contents, deterministic pm-changelog generation, release date and publish-attestation gates pass. The live npm and GitHub release inventory passes all 34 real release triples. The original historical incident remains unproven, so this item stays in progress after fixing the reproduced unreadable-inventory path."
+  "2026-10-22T12:23:03.849Z",codex-agent,"Same-class self-review replaced combined PR #101 wording with inventory-specific behavior and the actual regression path. Main 5804578 retains 78428f5, strict inventory parsing and malformed/unreadable inventory controls. This corrects evidence only; original history and closed state are preserved."
 files[2]{path,scope,note}:
   scripts/verify-release-completeness.ts,project,Reject unreadable inventories and name failed lookup stages
   test/verify-release-completeness.test.ts,project,Regression coverage for unreadable and complete inventory plus real absence
@@ -28,5 +29,5 @@ tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
 docs[2]{path,scope,note}:
   "https://github.com/unbraind/pm-ops/actions/runs/33682325840",project,the run that published successfully and then reported failure
   "https://github.com/unbraind/pm-ops/pull/101",project,Reject unreadable release inventories and preserve CLI 2026.9.7 acceptance
-close_reason: "Reverified main eba7d5262fd7 (unchanged since audit): [PR #101](https://github.com/unbraind/pm-ops/pull/101) (release inventory and self-hosting corrections) delivers the corresponding scanner/fixture fixes and regression tests; a passing artifact lookup is distinct from an unavailable lookup. Retained evidence: index.ts, scripts/verify-release-completeness.ts, test/compatibility-floor.test.ts."
+close_reason: "Reverified main 5804578: PR #101 (78428f5) rejects malformed npm inventories and distinguishes failed or mismatched GitHub per-tag reads from missing releases. Available published artifacts pass; unavailable lookups remain distinct from absent artifacts. Evidence: release-completeness.ts, scripts/verify-release-completeness.ts and test/verify-release-completeness.test.ts. This receipt does not attribute the historical September 2 false report to a newly proven root cause."
 body: ""
