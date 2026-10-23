@@ -74,6 +74,10 @@
       "types": "./dist/backend-capabilities.d.ts",
       "default": "./dist/backend-capabilities.js"
     },
+    "./diagnostic-plans": {
+      "types": "./dist/diagnostic-plans.d.ts",
+      "default": "./dist/diagnostic-plans.js"
+    },
     "./evidence-expiry": {
       "types": "./dist/evidence-expiry.d.ts",
       "default": "./dist/evidence-expiry.js"
