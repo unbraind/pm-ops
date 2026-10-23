@@ -1,19 +1,11 @@
 /** Validate a public tracker copy with real SDK probes, reporting only sanitized measurements. */
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { assertDiagnosticIdentity, fingerprint } from "./tracker-read-helpers.ts";
 import { chmodSync, cpSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createDiagnosticPlan, executeDiagnosticPlan } from "../diagnostic-plans.ts";
 
-/** Fingerprint copied tracker contents without Git or derived caches. */
-function fingerprint(root: string): string {
-  const hash = createHash("sha256");
-  for (const entry of readdirSync(root, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath, entry.name)).sort()) {
-    hash.update(entry.slice(root.length)); hash.update(readFileSync(entry));
-  }
-  return hash.digest("hex");
-}
 /** Set permissions only on this script's owned disposable tracker. */
 function permissions(root: string, readonly: boolean): void {
   chmodSync(root, readonly ? 0o555 : 0o755);
@@ -34,8 +26,7 @@ try {
   const plan = await createDiagnosticPlan(tracker, failures, budget);
   const first = await executeDiagnosticPlan(tracker, plan, plan.id);
   const second = await executeDiagnosticPlan(tracker, plan, plan.id);
-  assert.deepEqual(first.rows.map((row) => row.command), second.rows.map((row) => row.command));
-  assert.equal(first.plan, second.plan); assert.equal(first.scope, second.scope);
+  assertDiagnosticIdentity(first, second);
   const limited = await createDiagnosticPlan(tracker, failures, { ...budget, processes: 1 });
   const stopped = await executeDiagnosticPlan(tracker, limited, limited.id);
   assert.equal(stopped.used.processes, 1); assert.equal(stopped.rows[1]!.code, "process_budget");

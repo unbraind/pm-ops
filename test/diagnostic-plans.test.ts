@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test, { before, after, type TestContext } from "node:test";
 import childProcess, { spawnSync } from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
-import { createHash } from "node:crypto";
+import { assertDiagnosticIdentity, fingerprint } from "./tracker-read-helpers.ts";
 import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -25,14 +25,6 @@ async function runDiagnosticProbe(command: DiagnosticCommand, tracker: string): 
   const scratch = mkdtempSync(join(tmpdir(), "diagnostic-config-test-"));
   try { return await rawProbe(command, tracker, scratch); }
   finally { rmSync(scratch, { recursive: true, force: true }); }
-}
-/** Read a whole scratch directory fingerprint, including caches, without invoking Git. */
-function fingerprint(path: string): string {
-  const hash = createHash("sha256");
-  for (const entry of readdirSync(path, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath, entry.name)).sort()) {
-    hash.update(entry.slice(path.length)); hash.update(readFileSync(entry));
-  }
-  return hash.digest("hex");
 }
 /** Run the pinned host with a non-Git ceiling and an explicit tracker. */
 function pm(args: string[]) {
@@ -73,8 +65,7 @@ test("real SDK reads succeed outside Git, without Git in PATH, and preserve ever
   const first = await executeDiagnosticPlan(tracker, plan, plan.id);
   assert.ok(first.rows.every((row) => row.code === "verified" || row.code === "time_budget"), JSON.stringify(first));
   const second = await executeDiagnosticPlan(tracker, plan, plan.id);
-  assert.deepEqual(first.rows.map((row) => row.command), second.rows.map((row) => row.command));
-  assert.equal(first.scope, second.scope); assert.equal(first.plan, second.plan);
+  assertDiagnosticIdentity(first, second);
   assert.ok(first.used.processes <= 3); assert.equal(first.used.network, 0);
   assert.ok(first.used.time_ms > 0);
   assert.equal(first.rows[1]!.checked, first.rows[1]!.code === "verified" ? 1 : 0);

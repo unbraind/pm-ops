@@ -754,7 +754,8 @@ Allowed ranges are processes 0–4, network 0–1 and time 1–60000 ms. Reserva
 are charged before dispatch, including failed launches. Network units are logical
 HTTP requests, not DNS packets or transport retransmissions. The shared monotonic
 deadline includes process startup; each worker is killed at its remaining deadline.
-Each worker has a 128 MiB V8 heap limit and a 4 KiB output ceiling. No arbitrary
+Termination and cleanup can add a small amount to measured elapsed time after the
+deadline; no further probe is dispatched. Each worker has a 128 MiB V8 heap limit and a 4 KiB output ceiling. No arbitrary
 command, shell, endpoint, executable, environment options or extension hooks run.
 After any exhausted ceiling, **all later probes remain skipped**, with their original
 command identities and a typed remedy. Probe failures may continue within budget.

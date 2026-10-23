@@ -3,7 +3,7 @@ import test, { before, after } from "node:test";
 import fsPromises from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { fingerprint } from "./tracker-read-helpers.ts";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -35,15 +35,6 @@ function claim(id = "health", overrides: Partial<OperationalEvidenceClaim> = {})
 /** Valid policy used by both filesystem and backend-neutral entrypoints. */
 function policy(claims: readonly OperationalEvidenceClaim[] = [claim()]): EvidenceExpiryPolicy {
   return { version: 1, claims };
-}
-/** Fingerprint every byte, including hidden caches, without relying on Git. */
-function fingerprint(path: string): string {
-  const hash = createHash("sha256");
-  for (const entry of readdirSync(path, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile())
-    .map((entry) => join(entry.parentPath, entry.name)).sort()) {
-    hash.update(entry.slice(path.length)); hash.update(readFileSync(entry));
-  }
-  return hash.digest("hex");
 }
 
 before(async () => {
