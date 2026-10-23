@@ -722,3 +722,67 @@ read-only directory audit uses core SDK history, assurance and integrity APIs;
 backend-neutral evaluation performs no I/O and trusts the caller to authenticate
 its supplied receipts. Neither entrypoint changes assurance declarations or
 stores a second copy of the verdict history.
+
+### Bounded diagnostic plans
+
+`pm ops diagnose` turns **observed failure codes** into an ordered, reviewable
+read-only plan. Pass the classifications found during your scan/report investigation;
+it does not rerun scan or invent failures. Core `pm plan` remains the owner of stored
+steps and approvals; this command adds bounded diagnostic execution, with no scheduler.
+
+```bash
+pm ops diagnose --failures items_unreadable,history_invalid --processes 2 --network 0 --time-ms 10000 --json > diagnostic-plan.json
+# Review the commands, scope, budget and id in diagnostic-plan.json.
+pm ops diagnose --plan diagnostic-plan.json --select <reviewed-id> --json
+# Omit --json for compact native TOON.
+```
+
+Generation does not execute probes. Execution requires the exact reviewed id and
+original canonical tracker directory. A changed budget, step, order or scope requires
+a new plan and selection. Plans deduplicate observations into the following catalog
+order, with versioned command identities retained in every receipt and repeat run:
+
+| Observed failure | Command identity | Read performed | Network reservation |
+| --- | --- | --- | --- |
+| `schema_unreadable` | `sdk:schema:v1` | Core settings and registered schema type count | 0 |
+| `items_unreadable` | `sdk:items:v1` | Registered source item files through the canonical SDK document reader | 0 |
+| `history_invalid` | `sdk:history:v1` | Core per-item history snapshot and verification against each current document | 0 |
+| `registry_unavailable` | `http:registry-head:v1` | One HEAD to `https://registry.npmjs.org/`, redirects refused | 1 |
+
+Default ceilings are **3 child launches, 0 HTTP requests and 10000 ms total**.
+Allowed ranges are processes 0–4, network 0–1 and time 1–60000 ms. Reservations
+are charged before dispatch, including failed launches. Network units are logical
+HTTP requests, not DNS packets or transport retransmissions. The shared monotonic
+deadline includes process startup; each worker is killed at its remaining deadline.
+Each worker has a 128 MiB V8 heap limit and a 4 KiB output ceiling. No arbitrary
+command, shell, endpoint, executable, environment options or extension hooks run.
+After any exhausted ceiling, **all later probes remain skipped**, with their original
+command identities and a typed remedy. Probe failures may continue within budget.
+
+Receipts return only fixed command identities, counts, codes and remedies. Tracker
+text, identifiers, paths, URLs from failures, credentials, child stderr and raw errors
+are never included. A SHA-256 directory binding identifies scope without printing its
+path; it is an identity binding, not an encryption or authentication mechanism. Settings and optional schemas hydrate only in a parent-owned disposable copy,
+which is removed even when a worker times out. Source item files are read directly
+without SDK cache writes. Malformed settings and schema warnings fail closed. Links and ambiguous item identities
+are refused. Each probe observes the tracker when it runs; these diagnostics do not
+assert a transactionally consistent snapshot across concurrent writers. History checks
+cover item streams, not workspace assurance or recovery. Empty item populations return
+zero checked and do not establish nonempty acceptance evidence.
+
+The diagnostic predicate is `result.ok`: a completed report returns normally even
+when a budget stops probes or a probe fails. Invalid inputs throw `DiagnosticRefusal`
+with `code`, `remedy` and exit code 2 (`invalid_options`, `invalid_plan`,
+`selection_required`, `scope_unavailable`, `scope_mismatch`). Files must be version 1
+JSON review artifacts no larger than 16 KiB. Execution flags cannot override a reviewed
+artifact. Defaults produce at most four rows in native TOON or JSON.
+
+The typed SDK exports `createDiagnosticPlan`, `parseDiagnosticPlan`,
+`readDiagnosticPlan`, `executeDiagnosticPlan`, and `DiagnosticRefusal` from
+`pm-ops/diagnostic-plans`. See [the SDK example](docs/diagnostic-plans.md).
+
+Diagnostic generation and execution work **without git**, including when Git is
+absent from PATH, for an ordinary directory tracker. They never invoke Git or mutate
+the tracker. Public HTTP diagnostics require explicit network budget. Database and
+MCP diagnostics remain the separate backend read-bridge capability command; directory
+plans do not claim to execute against those backends.

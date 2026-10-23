@@ -22,6 +22,7 @@ import {
 import { analyzeDocstringCoverage, type DocstringViolation } from "./docstrings.ts";
 import { auditBackendConfigFile, auditConfiguredBackends } from "./backend-capabilities.ts";
 import { auditEvidenceExpiryFiles, EvidenceExpiryRefusal } from "./evidence-expiry.ts";
+import { createDiagnosticPlan, executeDiagnosticPlan, readDiagnosticPlan, DiagnosticRefusal, type DiagnosticFailure } from "./diagnostic-plans.ts";
 import { qualityMeasurementProvider } from "./assurance.ts";
 import { defaultCanonicalTagResolver, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.ts";
 
@@ -108,6 +109,7 @@ function asArray(value: unknown): string[] {
 }
 
 const OPS_COMMAND_PATHS = [
+  "ops diagnose",
   "ops capabilities",
   "ops evidence-expiry",
   "ops scan",
@@ -2630,6 +2632,37 @@ export default defineExtension({
     // same `authorization_decision` as any other bound regression. See
     // `./assurance.ts` for the key contract and the staleness refusal.
     api.registerAssuranceMeasurementProvider(qualityMeasurementProvider);
+
+    api.registerCommand({
+      name: "ops diagnose",
+      description: "Generate a reviewable read-only diagnostic plan from observed failure codes. Execute only with --plan and its exact --select id. Budgets stop further probes; receipts contain counts only. No Git required. Inspect result.ok for diagnostic success.",
+      examples: ["pm ops diagnose --failures items_unreadable,history_invalid --json", "pm ops diagnose --plan diagnostic-plan.json --select <reviewed-id> --json"],
+      flags: [
+        { long: "--failures", value_name: "codes", description: "Observed schema_unreadable,items_unreadable,history_invalid,registry_unavailable codes" },
+        { long: "--plan", value_name: "file", description: "Reviewed JSON plan to execute" },
+        { long: "--select", value_name: "id", description: "Exact reviewed plan id; required with --plan" },
+        { long: "--processes", value_name: "n", description: "Child launch ceiling, 0-4 (default 3)" },
+        { long: "--network", value_name: "n", description: "HTTP request ceiling, 0-1 (default 0)" },
+        { long: "--time-ms", value_name: "n", description: "Shared deadline, 1-60000 ms (default 10000)" },
+      ],
+      async run(ctx: CommandHandlerContext) {
+        const plan = readString(ctx.options, "plan");
+        const selected = readString(ctx.options, "select");
+        const failures = readString(ctx.options, "failures");
+        const processes = readString(ctx.options, "processes");
+        const network = readString(ctx.options, "network");
+        const time = readString(ctx.options, "timeMs", "time-ms");
+        if (plan) {
+          if (!selected || failures || processes || network || time) throw new DiagnosticRefusal("selection_required", "Use --plan with its reviewed --select id only; regenerate to change observations or budgets.");
+          return executeDiagnosticPlan(ctx.pm_root, await readDiagnosticPlan(plan), selected);
+        }
+        if (!failures || selected) throw new DiagnosticRefusal("invalid_options", "Supply --failures to generate a plan, or --plan and --select to execute a reviewed one.");
+        return createDiagnosticPlan(ctx.pm_root, failures.split(",") as DiagnosticFailure[], {
+          processes: processes === undefined ? 3 : Number(processes), network: network === undefined ? 0 : Number(network),
+          time_ms: time === undefined ? 10000 : Number(time),
+        });
+      },
+    });
 
     api.registerCommand({
       name: "ops capabilities",
