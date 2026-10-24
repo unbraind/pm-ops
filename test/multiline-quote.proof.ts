@@ -1,6 +1,6 @@
 /** Function-only revert controls retain current Bash fixtures and restore candidate bytes. */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import { readFileSync, writeFileSync } from "node:fs";
 
 /** Immutable main revision from which the candidate was created. */

@@ -1,6 +1,6 @@
 /** Missing historical Git evidence must stop native consumer proofs with a useful diagnostic. */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +17,8 @@ test("Windows source-only proof refuses an actually absent historical commit", (
     assert.notEqual(missing.status, 0, "historical commit must really be absent from the selected object store");
     const previousFile = join(objects, "previous-proof.ts");
     writeFileSync(previousFile, historicalProof);
-    copyFileSync("test/npm-launcher.ts", join(objects, "npm-launcher.ts"));
+    writeFileSync(join(objects, "npm-launcher.ts"), readFileSync("test/npm-launcher.ts", "utf8").replace('"../subprocess.ts"', '"./subprocess.ts"'));
+    copyFileSync("subprocess.ts", join(objects, "subprocess.ts"));
     const previous = spawnSync(process.execPath, [previousFile], { env, encoding: "utf8", timeout: 30_000 });
     assert.equal(previous.error, undefined);
     assert.notEqual(previous.status, 0);

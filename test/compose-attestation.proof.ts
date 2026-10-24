@@ -1,6 +1,6 @@
 /** Function-only Compose extraction revert retains all candidate classifiers and regression tests. */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import { readFileSync, writeFileSync } from "node:fs";
 
 /** This is the sole implementation file mutated temporarily by the proof. */

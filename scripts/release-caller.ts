@@ -1,5 +1,6 @@
 /** Command-line entry for checking a consumer release.yml without running it. */
-import { readFileSync, writeFileSync } from "node:fs";
+import { readRegularText } from "../regular-input.ts";
+import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { inspectReleaseCaller, fetchCanonicalReleaseTags } from "../release-caller.ts";
 import { isMainInvocation } from "./main-invocation.ts";
@@ -9,7 +10,7 @@ import { isMainInvocation } from "./main-invocation.ts";
  * The default resolver applies PM_OPS_OFFLINE, so the CLI shares the checker's offline rule.
  */
 export function runReleaseCaller(path: string, write: (message: string) => void): boolean | undefined {
-  const result = inspectReleaseCaller(readFileSync(path, "utf8"));
+  const result = inspectReleaseCaller(readRegularText(path));
   for (const error of result.errors) write(`release-caller: ${error}`);
   return result.status === "unverified-offline" ? undefined : result.status === "verified";
 }

@@ -1,6 +1,7 @@
 /** Bash-backed paired controls for issue #172's non-command word contexts. */
+import { runBashFixture } from "./bash-fixture.ts";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import test from "node:test";
 import { auditPublishAttestation } from "../attestation.ts";
 import { isolateShellChildren, tokenizeCommands } from "../shell-scan.ts";
@@ -26,7 +27,7 @@ function bash(body: string): string {
   const script = `npm() { printf 'npm:%s\\n' "$*" >&2; }\nx=1\ncurrent_version=1.2.3\nPM_GITHUB_VERSION=1.2.3-4\nPM_SYNC_TRACKER=.agents/pm\nnpm publish --provenance\n${body}`;
   const syntax = spawnSync("bash", ["--noprofile", "--norc", "-n"], { input: script, encoding: "utf8" });
   assert.equal(syntax.status, 0, syntax.stderr);
-  const result = spawnSync("bash", ["--noprofile", "--norc", "-e", "-c", `${script}\nwait`], { encoding: "utf8" });
+  const result = runBashFixture(`${script}\nwait`, { encoding: "utf8" }, ["-e"]);
   assert.equal(result.status, 0, result.stderr);
   return result.stderr;
 }

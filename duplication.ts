@@ -4,13 +4,13 @@
  * jscpd 5 runs as a self-contained Rust binary with a validated JSON report.
  * Source discovery uses Node's built-in glob and preserves the authored scope.
  */
-
+import { readRegularText } from "./regular-input.ts";
 import { glob, lstat, readdir } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, matchesGlob, relative, resolve, sep } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./subprocess.ts";
 
 /**
  * Default globs scanned by the duplication gate: every authored TypeScript
@@ -477,7 +477,7 @@ export function jscpdScanArguments(
 /** Resolve a consumer's jscpd 5 package before falling back to this package. */
 function resolveJscpdEntry(repoRoot: string): JscpdInstallation {
   const manifestPath = require.resolve("jscpd/package.json", { paths: [repoRoot, import.meta.dirname] });
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { version?: unknown };
+  const manifest = JSON.parse(readRegularText(manifestPath)) as { version?: unknown };
   const major = Number.parseInt(String(manifest.version), 10);
   if (major !== 5) throw new Error("duplication: jscpd >=5.0.0 <6.0.0 is required");
   return { packageDir: dirname(manifestPath) };
@@ -524,7 +524,7 @@ function analyzeWithBinary(
       if (result.status !== 0) {
         throw new Error(`duplication: jscpd exited with status ${String(result.status)}: ${String(result.stderr)}`);
       }
-      const rawReport = JSON.parse(readFileSync(join(outputDir, "jscpd-report.json"), "utf8")) as unknown;
+      const rawReport = JSON.parse(readRegularText(join(outputDir, "jscpd-report.json"))) as unknown;
       return parseJscpdReport(rawReport);
     };
     const reported = run(minTokens);
@@ -593,7 +593,7 @@ export async function runDuplicationGate(
   const exit = options.exit ?? process.exit;
   let manifest: unknown;
   try {
-    manifest = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8")) as unknown;
+    manifest = JSON.parse(readRegularText(resolve(repoRoot, "package.json"))) as unknown;
   } catch (cause) {
     error(`duplication-gate: could not read package.json: ${String(cause)}`);
     return exit(1);

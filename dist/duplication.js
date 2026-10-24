@@ -4,12 +4,13 @@
  * jscpd 5 runs as a self-contained Rust binary with a validated JSON report.
  * Source discovery uses Node's built-in glob and preserves the authored scope.
  */
+import { readRegularText } from "./regular-input.js";
 import { glob, lstat, readdir } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, matchesGlob, relative, resolve, sep } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./subprocess.js";
 /**
  * Default globs scanned by the duplication gate: every authored TypeScript
  * source (`.ts`, `.tsx`, `.mts`, `.cts`) in the repository.
@@ -367,7 +368,7 @@ export function jscpdScanArguments(repoRoot, pattern, matchedSources, outputDir)
 /** Resolve a consumer's jscpd 5 package before falling back to this package. */
 function resolveJscpdEntry(repoRoot) {
     const manifestPath = require.resolve("jscpd/package.json", { paths: [repoRoot, import.meta.dirname] });
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const manifest = JSON.parse(readRegularText(manifestPath));
     const major = Number.parseInt(String(manifest.version), 10);
     if (major !== 5)
         throw new Error("duplication: jscpd >=5.0.0 <6.0.0 is required");
@@ -408,7 +409,7 @@ function analyzeWithBinary(installation, repoRoot, pattern, minTokens, matchedSo
             if (result.status !== 0) {
                 throw new Error(`duplication: jscpd exited with status ${String(result.status)}: ${String(result.stderr)}`);
             }
-            const rawReport = JSON.parse(readFileSync(join(outputDir, "jscpd-report.json"), "utf8"));
+            const rawReport = JSON.parse(readRegularText(join(outputDir, "jscpd-report.json")));
             return parseJscpdReport(rawReport);
         };
         const reported = run(minTokens);
@@ -470,7 +471,7 @@ export async function runDuplicationGate(options = {}) {
     const exit = options.exit ?? process.exit;
     let manifest;
     try {
-        manifest = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8"));
+        manifest = JSON.parse(readRegularText(resolve(repoRoot, "package.json")));
     }
     catch (cause) {
         error(`duplication-gate: could not read package.json: ${String(cause)}`);

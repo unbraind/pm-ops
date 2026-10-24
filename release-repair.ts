@@ -3,7 +3,10 @@
  * read-only: only successfully verified provenance authorizes a repair.
  * @packageDocumentation
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { canonicalTarManifest } from "./canonical-tar.ts";
+import { readRegularText } from "./regular-input.ts";
+import { closeSync, openSync, readSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -21,7 +24,7 @@ export interface NpmEvidence {
   name: string;
   /** Registry version coordinate. */
   version: string;
-  /** Registry gitHead, required to match the signed commit. */
+  /** Registry release commit; the signed workflow source must be its ancestor. */
   gitHead: string;
   /** Signed source repository slug. */
   repository: string;
@@ -37,7 +40,9 @@ export interface RepairClient {
   remoteTag(root: string, tag: string): string | null;
   /** Read an immutable local commit's object or committed file. */
   git(root: string, args: string[]): string;
-  /** Create only an absent remote tag at the attested commit. */
+  /** Compare every packed file and the complete file set with the immutable release tree. */
+  verifyTarball(root: string, commit: string, evidence: NpmEvidence): void;
+  /** Create only an absent remote tag at the verified release commit. */
   createTag(slug: string, tag: string, commit: string): void;
   /** Create only a missing release with committed changelog notes. */
   createRelease(slug: string, tag: string, notes: string): void;
@@ -121,14 +126,54 @@ export function evidenceFromAudit(name: string, version: string, gitHead: string
       sources.push({ repository, commit });
     }
   }
-  if (sources.length !== 1 || !/^[a-f0-9]{40}$/.test(gitHead) || sources[0]!.commit !== gitHead) {
-    throw new Error("npm gitHead does not match unique verified provenance");
+  if (sources.length !== 1 || !/^[a-f0-9]{40}$/.test(gitHead)) {
+    throw new Error("npm gitHead or unique verified provenance is invalid");
   }
   return { name, version, gitHead, ...sources[0]! };
 }
 
+/** Hash a file in fixed chunks so tarball and member sizes never determine capture or allocation size. */
+function hashFile(path: string, encoding: "hex" | "base64"): string {
+  const fd = openSync(path, "r");
+  try {
+    const hash = createHash("sha512");
+    const chunk = Buffer.alloc(64 * 1024);
+    let count: number;
+    while ((count = readSync(fd, chunk, 0, chunk.length, null)) > 0) hash.update(chunk.subarray(0, count));
+    return hash.digest(encoding);
+  } finally { closeSync(fd); }
+}
+
+/** Bind registry integrity and a complete archive manifest, independently of npm's lossy file listing. */
+function packContents(exec: RepairExecutor, spec: string, cwd: string): { integrity: string; manifest: string } {
+  const [packed] = JSON.parse(exec("npm", ["pack", spec, "--ignore-scripts", "--json", "--registry=https://registry.npmjs.org/"], { cwd })) as { filename: string; integrity: string }[];
+  if (!packed || !/^[^/\\]+\.tgz$/.test(packed.filename)) throw new Error("unreadable package file manifest");
+  const tarball = join(cwd, packed.filename);
+  const actualIntegrity = `sha512-${hashFile(tarball, "base64")}`;
+  if (actualIntegrity !== packed.integrity) throw new Error("downloaded tarball integrity mismatch");
+  const staging = mkdtempSync(join(cwd, ".pm-ops-manifest-"));
+  try {
+    const archive = join(staging, "archive.tar");
+    const fd = openSync(archive, "wx");
+    try {
+      exec(process.execPath, ["--input-type=module", "-e",
+        'import { createReadStream } from "node:fs"; import { createGunzip } from "node:zlib"; import { pipeline } from "node:stream/promises"; await pipeline(createReadStream(process.argv[1]), createGunzip(), process.stdout);', tarball], { stdoutFd: fd });
+    } finally { closeSync(fd); }
+    return { integrity: actualIntegrity, manifest: canonicalTarManifest(archive) };
+  } finally { rmSync(staging, { recursive: true, force: true }); }
+}
+
+/** Verify signed workflow ancestry and exact package bytes at the release commit before permitting repair. */
+export function verifyReleaseSource(root: string, commit: string, evidence: NpmEvidence, client: RepairClient): void {
+  if (commit !== evidence.gitHead) throw new Error("tag and npm gitHead mismatch");
+  if (client.git(root, ["rev-parse", `${commit}^{commit}`]) !== commit) throw new Error("release commit unavailable");
+  if (client.git(root, ["merge-base", evidence.commit, commit]) !== evidence.commit) throw new Error("attested source is not an ancestor of the release tag commit");
+  client.verifyTarball(root, commit, evidence);
+}
+
 /** Build the live adapter. All npm operations download/read; scripts are disabled. */
 export function makeRepairClient(exec: RepairExecutor = defaultExec): RepairClient {
+  const integrities = new Map<string, string>();
   return {
     /** Verify the exact registry coordinate in a disposable script-disabled install. */
     npmEvidence(name, version) {
@@ -139,10 +184,29 @@ export function makeRepairClient(exec: RepairExecutor = defaultExec): RepairClie
         writeFileSync(join(scratch, "package.json"), JSON.stringify({ name: "release-evidence", version: "1.0.0", private: true }));
         exec("npm", ["install", `${name}@${version}`, "--ignore-scripts", "--no-audit", "--no-fund", "--legacy-peer-deps", "--registry=https://registry.npmjs.org/"], { cwd: scratch });
         const output = exec("npm", ["audit", "signatures", "--json", "--include-attestations", "--registry=https://registry.npmjs.org/"], { cwd: scratch });
-        return evidenceFromAudit(name, version, metadata.gitHead, output, metadata.dist?.integrity ?? "");
+        const evidence = evidenceFromAudit(name, version, metadata.gitHead, output, metadata.dist?.integrity ?? "");
+        integrities.set(`${name}@${version}`, metadata.dist!.integrity!);
+        return evidence;
       } finally {
         rmSync(scratch, { recursive: true, force: true });
       }
+    },
+    /** Download the signed artifact again and compare canonical packed files against the tag tree, with scripts disabled. */
+    verifyTarball(root, commit, evidence) {
+      const integrity = integrities.get(`${evidence.name}@${evidence.version}`);
+      if (!integrity) throw new Error("tarball comparison requires verified npm evidence from this client");
+      const scratch = mkdtempSync(join(tmpdir(), "pm-ops-tree-"));
+      try {
+        const source = join(scratch, "source"); mkdirSync(source);
+        const archive = join(scratch, "source.tar");
+        exec("git", ["archive", "--format=tar", `--output=${archive}`, commit], { cwd: root });
+        exec("tar", ["-xf", archive, "-C", source], {});
+        const expected = packContents(exec, source, source);
+        const actual = packContents(exec, `${evidence.name}@${evidence.version}`, scratch);
+        if (actual.integrity !== integrity || actual.manifest !== expected.manifest) {
+          throw new Error("published tarball does not match the release tag tree; inspect package files before repair");
+        }
+      } finally { rmSync(scratch, { recursive: true, force: true }); }
     },
     /** Inspect only the requested remote ref and its annotated-tag peel. */
     remoteTag(root, tag) {
@@ -197,7 +261,7 @@ export function committedReleaseNotes(changelog: string, version: string): strin
 export function repairReleaseCompleteness(root: string, fetcher: CompletenessFetcher, client: RepairClient): VerifierResult {
   const notes: string[] = [];
   try {
-    const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { name: string; repository?: string | { url?: string } };
+    const manifest = JSON.parse(readRegularText(join(root, "package.json"))) as { name: string; repository?: string | { url?: string } };
     const name = manifest.name;
     const slug = repoSlugFromUrl(fetcher.remoteUrl(root));
     if (!name || !slug || repoSlugFromUrl(repositoryUrl(manifest.repository)) !== slug) throw new Error("package and origin repository identity mismatch");
@@ -216,13 +280,13 @@ export function repairReleaseCompleteness(root: string, fetcher: CompletenessFet
         const local = client.git(root, ["rev-parse", `refs/tags/${tag}^{commit}`]);
         if (local !== remote) throw new Error(`local and remote tag mismatch for ${tag}`);
       }
+      if (!exists) notes.push(`github_release_absent: ${tag}; confirm access and verify source and tarball before repair (the API uses HTTP 404 for absent releases).`);
       if (remote !== null && exists) continue;
       const evidence = client.npmEvidence(name, version);
-      if (evidence.name !== name || evidence.version !== version || evidence.repository !== slug || !/^[a-f0-9]{40}$/.test(evidence.commit) || evidence.gitHead !== evidence.commit) throw new Error(`npm evidence mismatch for ${tag}`);
-      if (remote !== null && remote !== evidence.commit) throw new Error(`tag and attested gitHead mismatch for ${tag}`);
-      if (tags.includes(tag) && client.git(root, ["rev-parse", `refs/tags/${tag}^{commit}`]) !== evidence.commit) throw new Error(`local tag and attested gitHead mismatch for ${tag}`);
-      const commit = client.git(root, ["rev-parse", `${evidence.commit}^{commit}`]);
-      if (commit !== evidence.commit) throw new Error(`attested commit unavailable for ${tag}`);
+      if (evidence.name !== name || evidence.version !== version || evidence.repository !== slug || !/^[a-f0-9]{40}$/.test(evidence.commit) || !/^[a-f0-9]{40}$/.test(evidence.gitHead)) throw new Error(`npm evidence mismatch for ${tag}`);
+      const commit = remote ?? evidence.gitHead;
+      if (tags.includes(tag) && client.git(root, ["rev-parse", `refs/tags/${tag}^{commit}`]) !== commit) throw new Error(`local tag and npm gitHead mismatch for ${tag}`);
+      verifyReleaseSource(root, commit, evidence, client);
       const committed = JSON.parse(client.git(root, ["show", `${commit}:package.json`])) as { name: string; version: string; repository?: string | { url?: string } };
       if (committed.name !== name || committed.version !== version || repoSlugFromUrl(repositoryUrl(committed.repository)) !== slug) throw new Error(`committed package identity mismatch for ${tag}`);
       const body = committedReleaseNotes(client.git(root, ["show", `${commit}:CHANGELOG.md`]), version);

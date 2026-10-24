@@ -18,3 +18,5 @@ if (process.env.SELECTED_DIAGNOSTIC_PLAN === plan.id) {
   process.exitCode = result.ok ? 0 : 1;
 }
 ```
+
+Plan inputs must be regular JSON files at most 16 KiB. Input reading and scope resolution consume the shared execution deadline; special files refuse promptly with `invalid_plan` and a remedy. Other artifact inputs use the shared 16 MiB regular-file limit.

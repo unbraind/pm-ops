@@ -22,9 +22,9 @@
  * @see {@link https://github.com/unbraind/pm-cli/blob/main/docs/ASSURANCE.md ASSURANCE.md}
  * for the measurement / assertion / gate vocabulary this provider plugs into.
  */
-
+import { InputRefusal, readRegularText } from "./regular-input.ts";
 import type { ExtensionApi } from "@unbrained/pm-cli/sdk/authoring";
-import { readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { analyzeDocstringCoverage } from "./docstrings.ts";
 
@@ -300,8 +300,9 @@ function roundPercent(value: number): number {
 function readCoverageReport(reportPath: string, base: string): LcovRecord[] {
   let text: string;
   try {
-    text = readFileSync(reportPath, "utf8");
-  } catch {
+    text = readRegularText(reportPath);
+  } catch (error) {
+    if (error instanceof InputRefusal && error.reason === "unsupported") throw error;
     throw new Error(
       `pm-ops-quality: coverage report not found at ${reportPath}. ` +
         'Provide the "report" parameter or generate the report by running the ' +

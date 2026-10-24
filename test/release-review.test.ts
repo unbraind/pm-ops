@@ -1,6 +1,8 @@
 /** Execute review-sensitive workflow fragments and the published migration command. */
+import { runBashFixture } from "./bash-fixture.ts";
 import assert from "node:assert/strict";
-import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { type SpawnSyncReturns } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,7 +36,7 @@ esac
 `);
     chmodSync(join(root, "curl"), 0o755);
     for (const filename of ["publish-package.yaml", "release.yml"]) {
-      const result = spawnSync("bash", ["-c", step.run!], {
+      const result = runBashFixture(step.run!, {
         cwd: root, encoding: "utf8", env: {
           ...process.env, PATH: `${root}:${process.env.PATH}`, GITHUB_REPOSITORY: "example-org/example-package",
           CALLER_WORKFLOW: step.env?.CALLER_WORKFLOW === "${{ github.workflow_ref }}"
@@ -94,7 +96,7 @@ test("documented consumer release gate requires verified provenance while CLI de
       { source: caller.replace(releasedSha, "f".repeat(40)), status: "refused", exit: 1 },
     ]) {
       writeFileSync(join(root, ".github/workflows/release.yml"), fixture.source);
-      const result: SpawnSyncReturns<string> = spawnSync("bash", ["-c", command], { cwd: root, encoding: "utf8", env: { ...process.env, PM_OPS_OFFLINE: "1" } });
+      const result: SpawnSyncReturns<string> = runBashFixture(command, { cwd: root, encoding: "utf8", env: { ...process.env, PM_OPS_OFFLINE: "1" } });
       assert.match(result.stderr, new RegExp(fixture.status));
       assert.equal(result.status, fixture.exit, result.stdout + result.stderr);
       if (fixture.status === "unverified-offline") {

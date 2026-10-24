@@ -1,6 +1,6 @@
 /** Remove only process-child discovery per word context, then restore candidate bytes. */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import { readFileSync, writeFileSync } from "node:fs";
 
 /** Source imports let each mutation exercise the scanner without stale build artifacts. */

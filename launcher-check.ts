@@ -3,8 +3,8 @@
  * Historical hashes are append-only: accepting a copy does not upgrade its behavior.
  * @packageDocumentation
  */
+import { readRegularInput } from "./regular-input.ts";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
 
 /** SHA-256 of the frozen v1 template; changing it requires a versioned decision. */
 export const FROZEN_LAUNCHER_SHA256 = "b7f41184dc4c401be8ca80a1c2817e23df5f35df825a141d305bc64e2d3c595a";
@@ -26,7 +26,7 @@ const canonicalHashes: ReadonlySet<string> = new Set([
  * @param filePath - Path to the consumer's copied prepare launcher.
  */
 export function assertCanonicalLauncher(filePath: string): void {
-  const digest = createHash("sha256").update(readFileSync(filePath)).digest("hex");
+  const digest = createHash("sha256").update(readRegularInput(filePath)).digest("hex");
   if (!canonicalHashes.has(digest)) {
     throw new Error("Unrecognized pm-ops prepare launcher (SHA-256 " + digest +
       "). Copy pm-ops/templates/prepare-merge-driver.ts unchanged.");

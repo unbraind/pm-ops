@@ -1,6 +1,6 @@
 /** A migrated consumer keeps the canonical attestation gate without a private publisher copy. */
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "../subprocess.ts";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

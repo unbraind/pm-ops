@@ -9,9 +9,10 @@
  * continuation, and a prose mention of the command inside a quoted string.
  */
 import assert from "node:assert/strict";
+import { syncBuiltinESMExports } from "node:module";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import fs, { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "../subprocess.ts";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
@@ -1383,4 +1384,17 @@ test("a spawning wrapper does not refuse a non-publisher, so releases are not bl
     1,
     "unresolved spawning input must not borrow a literal attestation flag",
   );
+});
+
+test("publish source sniffing refuses a non-regular path before open and a raced descriptor before read", (t) => {
+  const root = trackedFixture({ "tool": "#!/bin/sh\ntrue\n" });
+  try {
+    const original = fs.statSync;
+    t.mock.method(fs, "statSync", () => ({ isFile: () => false })); syncBuiltinESMExports();
+    assert.deepEqual(trackedPublishSources(root), []);
+    t.mock.restoreAll(); syncBuiltinESMExports();
+    t.mock.method(fs, "statSync", original);
+    t.mock.method(fs, "fstatSync", () => ({ isFile: () => false })); syncBuiltinESMExports();
+    assert.deepEqual(trackedPublishSources(root), []);
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports(); rmSync(root, { recursive: true, force: true }); }
 });

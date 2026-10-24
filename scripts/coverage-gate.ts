@@ -26,14 +26,13 @@
  * node scripts/coverage-gate.ts
  * ```
  */
-
-import { spawnSync } from "node:child_process";
+import { readRegularText } from "../regular-input.ts";
+import { spawnSync } from "../subprocess.ts";
 import {
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
-  readFileSync,
   renameSync,
   rmSync,
   statSync,
@@ -134,7 +133,7 @@ export function runCoverageGate(options: CoverageGateOptions = {}): void {
   let manifest: PackageManifest;
   try {
     manifest = JSON.parse(
-      readFileSync(join(repoRoot, "package.json"), "utf8"),
+      readRegularText(join(repoRoot, "package.json")),
     ) as PackageManifest;
   } catch (error) {
     console.error(`coverage-gate: could not read package.json: ${String(error)}`);
@@ -316,7 +315,7 @@ export function runCoverageGate(options: CoverageGateOptions = {}): void {
     // Block comments are stripped as well as line comments: tsc carries a
     // file-leading JSDoc into the emit, so a documented type-only module would
     // otherwise read as runtime code and be rejected for having a comment.
-    const body = readFileSync(emitted, "utf8")
+    const body = readRegularText(emitted)
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/^\s*\/\/.*$/gm, "")
       .replace(/export\s*\{\s*\}\s*;?/g, "")
@@ -437,7 +436,7 @@ export function runCoverageGate(options: CoverageGateOptions = {}): void {
     const reported = new Set<string>();
     try {
       statSync(lcovPath);
-      for (const line of readFileSync(lcovPath, "utf8").split("\n")) {
+      for (const line of readRegularText(lcovPath).split("\n")) {
         if (!line.startsWith("SF:")) continue;
         const raw = line.slice(3).trim();
         const abs = isAbsolute(raw) ? raw : join(repoRoot, raw);

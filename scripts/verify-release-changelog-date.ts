@@ -16,8 +16,9 @@
  *
  * @packageDocumentation
  */
-import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readRegularText } from "../regular-input.ts";
+import { execFileSync } from "../subprocess.ts";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -260,7 +261,7 @@ export function verify(root: string, today: string): VerifierResult {
     .trimEnd()
     .split("\n")
     .filter((file) => file.length > 0 && existsSync(resolve(root, file)));
-  const sources = tracked.map((file) => ({ file, text: readFileSync(resolve(root, file), "utf-8") }));
+  const sources = tracked.map((file) => ({ file, text: readRegularText(resolve(root, file)) }));
   const statics = auditInvocations(sources);
 
   const probe = "2026.1.2";

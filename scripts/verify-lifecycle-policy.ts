@@ -9,7 +9,7 @@
  *
  * @packageDocumentation
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "../subprocess.ts";
 import { resolve } from "node:path";
 
 import {

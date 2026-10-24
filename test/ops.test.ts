@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync
 import { devNull, homedir, tmpdir } from "node:os";
 import { basename, delimiter, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import { createExtensionTestHarness, type ExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import type { FlagDefinition } from "@unbrained/pm-cli/sdk/authoring";
 import { listMergeReceipts, markMergeReceiptReconciled, runMergeReconcile } from "@unbrained/pm-cli/sdk/merge";

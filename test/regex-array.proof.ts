@@ -1,6 +1,6 @@
 /** Scoped behavioral reverts retain current tests and restore all candidate source. */
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "../subprocess.ts";
 import { readFileSync, writeFileSync } from "node:fs";
 
 /** Scanner control bytes come from the stable parent containing #171. */

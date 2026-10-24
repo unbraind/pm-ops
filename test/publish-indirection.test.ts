@@ -1,6 +1,7 @@
 /** Real shell executions prove that indirect publishers cannot borrow sibling evidence. */
+import { runBashFixture } from "./bash-fixture.ts";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -180,12 +181,12 @@ for (const [index, fixture] of [...unsafe.map(/** Retain all original unsafe exe
       writeFileSync(join(bin, "npm"), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$PUBLISH_RECORD"\n');
       chmodSync(join(bin, "npm"), 0o755);
       const script = `npm publish --provenance\n${body}\n`;
-      const execution = spawnSync("bash", ["--noprofile", "--norc", "-e", "-c", script], {
+      const execution = runBashFixture(script, {
         encoding: "utf8",
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, PUBLISH_RECORD: record,
           OVERRIDE: "--provenance=false", VERB: "publish", MIDDLE: "p", PAYLOAD: "npm publish",
           REGISTRY: "https://example.invalid publish", EXTRA: " publish" },
-      });
+      }, ["-e"]);
       assert.equal(execution.status, 0, execution.stderr);
       const calls = readFileSync(record, "utf8").trim().split("\n");
       if (fixture.calls !== undefined) assert.deepEqual(calls, fixture.calls, body);

@@ -1,10 +1,4 @@
 /**
- * Canonical TypeScript duplication analysis and fail-closed gate for the fleet.
- *
- * jscpd 5 runs as a self-contained Rust binary with a validated JSON report.
- * Source discovery uses Node's built-in glob and preserves the authored scope.
- */
-/**
  * Default globs scanned by the duplication gate: every authored TypeScript
  * source (`.ts`, `.tsx`, `.mts`, `.cts`) in the repository.
  */

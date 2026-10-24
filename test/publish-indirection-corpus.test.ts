@@ -1,6 +1,7 @@
 /** Behavioral provenance regressions through real shell, Git and pm fixtures. */
+import { runBashFixture } from "./bash-fixture.ts";
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "../subprocess.ts";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -177,7 +178,7 @@ test("aliases and forwarded function arguments really reach an unattested inert 
         const scenario = cases.find((candidate) => candidate.name === name);
         assert.ok(scenario);
         writeFileSync(log, "");
-        const shell = spawnSync("bash", ["--noprofile", "--norc", "-c", `npm() { printf '%s\\n' "$*" >> "$ATTESTATION_CALLS"; }\n${scenario.script}`], {
+        const shell = runBashFixture(`npm() { printf '%s\\n' "$*" >> "$ATTESTATION_CALLS"; }\n${scenario.script}`, {
           cwd: fixture, env: { ...process.env, ATTESTATION_CALLS: log }, encoding: "utf8",
       });
       assert.equal(shell.status, 0, `${name}: ${shell.stderr}`);

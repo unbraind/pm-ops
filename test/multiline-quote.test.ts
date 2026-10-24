@@ -1,6 +1,7 @@
 /** Paired multiline-quote controls use real Bash with inert npm and GitHub boundaries. */
+import { runBashFixture } from "./bash-fixture.ts";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import test from "node:test";
 import { auditPublishAttestation } from "../attestation.ts";
 import { tokenizeCommands } from "../shell-scan.ts";
@@ -26,9 +27,9 @@ function audit(script: string): void {
 function bash(script: string): string {
   const syntax = spawnSync("bash", ["--noprofile", "--norc", "-n"], { input: script, encoding: "utf8" });
   assert.equal(syntax.status, 0, syntax.stderr);
-  const execution = spawnSync("bash", ["--noprofile", "--norc", "-e", "-c", `npm() { printf 'npm:%s\\n' "$*" >&2; }
+  const execution = runBashFixture(`npm() { printf 'npm:%s\\n' "$*" >&2; }
 gh() { printf 'gh:%q\\n' "$@" >&2; printf 'thread-id\\n'; }
-${script}`], { encoding: "utf8", env: { ...process.env, GITHUB_STEP_SUMMARY: "/dev/null" } });
+${script}`, { encoding: "utf8", env: { ...process.env, GITHUB_STEP_SUMMARY: "/dev/null" } }, ["-e"]);
   assert.equal(execution.status, 0, execution.stderr);
   return execution.stderr;
 }

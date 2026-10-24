@@ -9,6 +9,7 @@ import extension from "../index.ts";
 import { checkReleaseCaller, fetchCanonicalReleaseTags, inspectReleaseCaller } from "../release-caller.ts";
 import { runReleaseCaller, releaseCallerMain } from "../scripts/release-caller.ts";
 import { releaseCallerFixture } from "./canonical-tags-fixture.ts";
+import { CAPTURE_LIMIT, CaptureRefusal } from "../subprocess.ts";
 import { runCmd } from "./command-test-helpers.ts";
 
 const { releasedSha, canonical, caller, api } = releaseCallerFixture();
@@ -139,7 +140,7 @@ test("PM_OPS_OFFLINE defers the shared default resolver in the checker and CLI w
     assert.match(lines[0], /unverified-offline/);
     const moduleUrl = new URL("../scripts/release-caller.ts", import.meta.url).href;
     assert.throws(() => releaseCallerMain([process.execPath, new URL(moduleUrl).pathname, "--online", path], moduleUrl),
-      { code: "ENOENT" }, "the removed --online flag must no longer be filtered out of the path argument");
+      { code: "invalid_input", reason: "unreadable" }, "the removed --online flag must no longer be filtered out of the path argument");
   } finally {
     if (previous === undefined) delete process.env.PM_OPS_OFFLINE;
     else process.env.PM_OPS_OFFLINE = previous;
@@ -189,7 +190,7 @@ test("release-caller CLI and pm-ops policy check report real package files", asy
     assert.equal((await check()).repos[0].checks[0].pass, false);
     rmSync(path);
     assert.match((await check()).repos[0].checks[0].message, /missing/);
-    assert.throws(() => runReleaseCaller(path, () => {}), /ENOENT/);
+    assert.throws(() => runReleaseCaller(path, () => {}), { code: "invalid_input", reason: "unreadable" });
   } finally {
     process.exitCode = previousExit;
     rmSync(root, { recursive: true, force: true });
@@ -269,4 +270,19 @@ esac
     writeFileSync(api.curl, "#!/bin/sh\nexit 7\n");
     api.setTags(canonical);
   }
+});
+
+
+test("canonical API capture overflow refuses without curl or bundled-metadata approval", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-api-overflow-"));
+  const beforePath = process.env.PATH;
+  try {
+    const gh = join(root, "gh");
+    writeFileSync(gh, `#!/bin/sh\nexec "${process.execPath}" -e "process.stdout.write('x'.repeat(${CAPTURE_LIMIT + 1024 * 1024}))"\n`);
+    chmodSync(gh, 0o755); process.env.PATH = `${root}:${beforePath}`;
+    assert.throws(() => fetchCanonicalReleaseTags(), CaptureRefusal);
+    const result = inspectReleaseCaller(caller);
+    assert.equal(result.status, "refused"); assert.match(result.errors[0], /output_limit:.*Reduce or paginate/);
+    assert.doesNotMatch(result.errors[0], /ENOBUFS/);
+  } finally { process.env.PATH = beforePath; rmSync(root, { recursive: true, force: true }); }
 });
