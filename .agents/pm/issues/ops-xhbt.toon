@@ -6,8 +6,7 @@ status: open
 priority: 1
 tags: []
 created_at: "2026-07-31T10:21:21.582Z"
-updated_at: "2026-07-31T10:21:21.582Z"
-assignee: "harness:codex"
+updated_at: "2026-10-24T21:48:33.548Z"
 author: "harness:codex"
 estimated_minutes: 180
 acceptance_criteria: "Inventory every affected object and ref without printing sensitive values into public logs; Prepare a reviewed rewrite mapping from absolute paths to portable workspace-relative examples; Coordinate and execute the history rewrite across branches and tags, then verify GitHub and fresh-clone reachability; Invalidate or recreate affected release provenance only after confirming package integrity"

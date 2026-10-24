@@ -2,12 +2,18 @@ id: ops-bounded-input
 title: Refuse unsafe diagnostic and artifact inputs before reading
 description: Reject non-regular and oversized package inputs with bounded reads and typed remedies; include plan input and scope resolution in the execution deadline.
 type: Issue
-status: in_progress
+status: closed
 priority: 2
 tags[3]: "gh:unbraind/pm-ops#195","gh:unbraind/pm-ops#196","gh:unbraind/pm-ops#198"
 created_at: "2026-10-24T05:12:38.041Z"
-updated_at: "2026-10-24T11:02:14.014Z"
+updated_at: "2026-10-24T23:12:26.283Z"
+closed_at: "2026-10-24T21:48:33.771Z"
+completed_at: "2026-10-24T11:11:15.000Z"
 author: codex-agent
+repro_steps: Reject non-regular and oversized package inputs with bounded reads and typed remedies; include plan input and scope resolution in the execution deadline.
+resolution: "Latest implementing PR completes PR 196 with canonical-manifest refusal documentation; bounded regular-file inputs, capped no-shell captures and complete archive checks precede diagnostic or repair actions."
+expected_result: Reject non-regular and oversized package inputs with bounded reads and typed remedies; include plan input and scope resolution in the execution deadline.
+actual_result: "https://github.com/unbraind/pm-ops/pull/198, merged 2026-10-24T11:11:15Z, merge 7ad4a726d67c2d933c028db335463c36f51015fb: Latest implementing PR completes PR 196 with canonical-manifest refusal documentation; bounded regular-file inputs, capped no-shell captures and complete archive checks precede diagnostic or repair actions."
 comments[34]{created_at,author,text}:
   "2026-10-24T05:12:43.234Z",codex-agent,"Auditing every direct package reader. Use one bounded regular-file reader with nonblocking open and descriptor validation, preserve domain refusal categories and remedies, charge diagnostic input and scope resolution to the shared deadline. Regressions use real special files and externally bounded subprocesses in a non-Git fixture."
   "2026-10-24T05:23:31.840Z",codex-agent,"Implemented one regular-file input primitive across all direct readers, including backend config, policy, evidence versions, workflow files, source scanners, coverage artifacts and plan JSON. Real FIFO without a writer, Unix socket, device, directory and oversized inputs return typed remedies; descriptor race and growth controls pass. Non-Git tracker and empty PATH exercise eight input surfaces. Local reader suites: 130 passed, zero failed/skipped."
@@ -287,4 +293,5 @@ docs[4]:
   - path: README.md
     scope: project
     note: Canonical release-repair overview
+close_reason: "https://github.com/unbraind/pm-ops/pull/198, merged 2026-10-24T11:11:15Z, merge 7ad4a726d67c2d933c028db335463c36f51015fb: Latest implementing PR completes PR 196 with canonical-manifest refusal documentation; bounded regular-file inputs, capped no-shell captures and complete archive checks precede diagnostic or repair actions."
 body: ""

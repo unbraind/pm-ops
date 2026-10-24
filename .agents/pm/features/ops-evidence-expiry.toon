@@ -2,13 +2,18 @@ id: ops-evidence-expiry
 title: Invalidate only operational claims whose evidence expires or whose scoped versions change
 description: "Acceptance: attach explicit freshness and scope requirements to accepted health, coverage and recovery receipts. Changing a relevant package or backend version invalidates only affected claims. Unavailable evidence never becomes a pass. Deliver typed SDK, agent-sized TOON/JSON CLI, refusals with remedies, docs, non-git real-tracker validation and npm/Bun CI release gates."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-10-22T16:06:35.472Z"
-updated_at: "2026-10-22T19:22:31.755Z"
+updated_at: "2026-10-24T23:12:28.235Z"
+closed_at: "2026-10-24T21:48:34.059Z"
+completed_at: "2026-10-22T20:20:53.000Z"
 author: codex-agent
 acceptance_criteria: "Changing the relevant package or backend version invalidates only affected claims; Unavailable evidence never becomes a pass; Accepted health, coverage and recovery receipts have explicit freshness and population scope requirements"
+resolution: Scoped package/backend changes and evidence expiry invalidate only affected operational claims; unavailable evidence remains a gap and accepted receipts retain freshness/population requirements.
+expected_result: "Changing the relevant package or backend version invalidates only affected claims; Unavailable evidence never becomes a pass; Accepted health, coverage and recovery receipts have explicit freshness and population scope requirements"
+actual_result: "https://github.com/unbraind/pm-ops/pull/192, merged 2026-10-22T20:20:53Z, merge a8b2fa99c36ff7c9d3e78d0e7087c83c17e45626: Scoped package/backend changes and evidence expiry invalidate only affected operational claims; unavailable evidence remains a gap and accepted receipts retain freshness/population requirements."
 comments[11]{created_at,author,text}:
   "2026-10-22T16:06:40.798Z",codex-agent,"Overlap check: pinned core SDK assurance owns declarations, scope validation, assertion evaluation and verified durable verdict history (listAssuranceVerdicts); pm-review/src/round.ts gates exact PR heads and completed checks. pm-context receipts track context usage. pm-ops assurance.ts refuses source-stale lcov and backend-capabilities.ts audits list/get/schema contracts. None evaluates retained operational health/coverage/recovery evidence against cross-package and backend version scopes plus wall-clock freshness. Plan: bind explicit policies to core immutable assertion receipts and use the SDK verified verdict reader; no parallel assurance store, contract evaluator, Git dependency or tracker mutation on evaluation. Published CLI latest verified as 2026.10.22; preserve the repo SDK pin 2026.10.17."
   "2026-10-22T16:14:29.378Z",codex-agent,"Implementation: exact core gate/tree/time/assertion attachment, core population scope, exclusive TTL boundary and explicit relevant identity map. Directory audit uses listAssuranceVerdicts, readHistorySnapshot and verifyHistoryRecordHash; core scope semantics are reused with an additional boundary guard because the pinned assertion validator accepts an unknown scope kind. Read-only non-git tests compare every tracker byte and remove Git from PATH. Targeted expiry and renderer suites pass 16/16. Default diagnostic output bounds rows and preserves full counts; ok is the authoritative diagnostic predicate, consistent with ops capabilities. No hosted access or dependency bump."
@@ -34,4 +39,5 @@ docs[4]{path,scope}:
   docs/examples/evidence-policy.json,project
   docs/examples/evidence-versions.json,project
   README.md,project
+close_reason: "https://github.com/unbraind/pm-ops/pull/192, merged 2026-10-22T20:20:53Z, merge a8b2fa99c36ff7c9d3e78d0e7087c83c17e45626: Scoped package/backend changes and evidence expiry invalidate only affected operational claims; unavailable evidence remains a gap and accepted receipts retain freshness/population requirements."
 body: ""
