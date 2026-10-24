@@ -6,9 +6,9 @@ status: in_progress
 priority: 2
 tags[2]: "gh:unbraind/pm-ops#195","gh:unbraind/pm-ops#196"
 created_at: "2026-10-24T05:12:38.041Z"
-updated_at: "2026-10-24T10:18:27.178Z"
+updated_at: "2026-10-24T11:00:59.300Z"
 author: codex-agent
-comments[31]{created_at,author,text}:
+comments[33]{created_at,author,text}:
   "2026-10-24T05:12:43.234Z",codex-agent,"Auditing every direct package reader. Use one bounded regular-file reader with nonblocking open and descriptor validation, preserve domain refusal categories and remedies, charge diagnostic input and scope resolution to the shared deadline. Regressions use real special files and externally bounded subprocesses in a non-Git fixture."
   "2026-10-24T05:23:31.840Z",codex-agent,"Implemented one regular-file input primitive across all direct readers, including backend config, policy, evidence versions, workflow files, source scanners, coverage artifacts and plan JSON. Real FIFO without a writer, Unix socket, device, directory and oversized inputs return typed remedies; descriptor race and growth controls pass. Non-Git tracker and empty PATH exercise eight input surfaces. Local reader suites: 130 passed, zero failed/skipped."
   "2026-10-24T05:23:33.492Z",codex-agent,"Revert proof: replaced only readDiagnosticPlan with its origin/main implementation and restored its open import. node --test --test-name-pattern=\"all artifact readers refuse\" test/regular-input.test.ts failed 1/1 with ETIMEDOUT at the 5000 ms subprocess ceiling on the real writerless FIFO. Restored the fixed function immediately; no tracker bytes were changed by the regression."
@@ -40,7 +40,9 @@ comments[31]{created_at,author,text}:
   "2026-10-24T10:04:51.146Z",codex-agent,"Restored validation: targeted archive/release suites pass 27/27 with zero failures, cancellations or skips; the linked pm test run also passes. Final canonical-tar coverage is 100% statements, branches, functions and lines. Build, test typecheck, production typecheck, lint, zero-duplication gate and 316-declaration docstring gate pass unchanged. Rejected legacy regular-file directory aliases in addition to explicit disallowed entry kinds. Starting isolated-home npm and Bun release checks, followed by exact pushed-head CI evidence."
   "2026-10-24T10:11:35.402Z",codex-agent,"Isolated-home npm run release:check passes: 1448 total tests, 1446 passed, zero failed/canceled/TODO, two existing configured real-data skips; 100% statements/branches/functions/lines across 37 authored source modules. Audit, packaging, changelog, publish-attestation and lifecycle gates pass. The same isolated-home Bun release check is running. Added-text privacy scan passes. Ambient local extension-version skew disappears with isolated HOME; no dependency pin or telemetry configuration was changed."
   "2026-10-24T10:18:26.151Z",codex-agent,"Round 3 verified on implementation head 96cc2eb2633ae33cd13e04c92fe68191fb7a3002. CI https://github.com/unbraind/pm-ops/actions/runs/40084974132 passes all four jobs: npm run release:check and bun run release:check on Node 22 and 26, plus both Windows consumer jobs. Each release gate reports 1448 total tests, 1446 passed, zero failed/canceled/TODO, two configured real-data skips and 100% statements/branches/functions/lines across 37 authored modules. Both isolated-home local release gates also pass with identical counts. Revert proof and linked 27/27 test evidence are retained above. Corpus: 32 seeds, 1088 hostile archive mutations; real-npm adapter: four seeds, 40 mutations across all ten required classes. Matching pairs pass. Open limitation: unsupported archive extensions deliberately refuse; no coverage thresholds changed. Final receipt-only head will receive the same CI checks, with exact final run evidence in PR 196. No new pm CLI/SDK defect found; ambient extension skew was isolated without changing pins."
-files[81]:
+  "2026-10-24T10:59:55.510Z",codex-agent,"Following the non-blocking documentation finding from PR #196: replace the obsolete per-member tar extraction paragraph with the implemented Node gunzip-to-file and canonical parser flow, manifest fields, refused kinds, and typed refusal remedies. README/docs search found no other obsolete extraction description. Reuse this item to retain the implementation and guide evidence together. Scope is documentation plus changelog regeneration; run docstring, lint and changelog checks locally and use CI npm/Bun release gates for full-gate evidence. Behavioral revert proof is not applicable because executable code and tests remain unchanged."
+  "2026-10-24T11:00:58.067Z",codex-agent,"Guide update verified against canonical-tar.ts, release-repair.ts, release-completeness.ts and subprocess.ts. The guide now distinguishes decompression from the Git source materialization step, lists all six manifest fields and refused kinds, and maps invalid_tarball reasons plus output_limit and shell_not_allowed to remedies. The linked command npm run docstring && npm run lint && npm run changelog:check passed 1/1; docstring coverage documents 316 declarations across 37 files. npm run changelog:full succeeded and produced byte-identical CHANGELOG.md because this documentation follow-up reuses the existing item. README/docs grep found no remaining obsolete per-member extraction description; git diff --check passed. No new runtime tests or behavioral revert proof apply to this documentation-only change. Full npm/Bun release gate evidence will be linked in the review PR; no new pm CLI/SDK defect found."
+files[82]:
   - path: assurance.ts
     scope: project
   - path: attestation.ts
@@ -52,6 +54,9 @@ files[81]:
     note: Complete strict streamed tar manifests
   - path: diagnostic-plans.ts
     scope: project
+  - path: docs/subprocess-captures.md
+    scope: project
+    note: Canonical manifest troubleshooting guide
   - path: docstrings.ts
     scope: project
   - path: duplication.ts
@@ -206,7 +211,7 @@ files[81]:
     scope: project
   - path: test/windows-proof-history.test.ts
     scope: project
-tests[7]:
+tests[8]:
   - command: node --test test/regular-input.test.ts test/diagnostic-plans.test.ts
     scope: project
     timeout_seconds: 120
@@ -261,14 +266,23 @@ tests[7]:
       created_at: "2026-10-24T10:01:17.397Z"
       source_kind: local_mutation
       source_ref: fix/bounded-plan-input-and-release-audit
+  - command: "npm run docstring && npm run lint && npm run changelog:check"
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T11:00:00.206Z"
+      source_kind: local_mutation
+      source_ref: docs/canonical-manifest-guide
 docs[4]:
   - path: docs/diagnostic-plans.md
     scope: project
   - path: docs/subprocess-captures.md
     scope: project
+    note: Streaming archive verification and refusal remedies
   - path: docs/tarball-manifests.md
     scope: project
-    note: Canonical fields exclusions supported formats and refusal policy
+    note: Existing complete archive policy
   - path: README.md
     scope: project
     note: Canonical release-repair overview
