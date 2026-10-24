@@ -4,6 +4,7 @@
  * @packageDocumentation
  */
 import { createHash } from "node:crypto";
+import { canonicalTarManifest } from "./canonical-tar.ts";
 import { readRegularText } from "./regular-input.ts";
 import { closeSync, openSync, readSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -143,25 +144,23 @@ function hashFile(path: string, encoding: "hex" | "base64"): string {
   } finally { closeSync(fd); }
 }
 
-/** Hash every regular packed file without extracting registry-controlled paths. npm's file list also detects missing or extra files. */
-function packContents(exec: RepairExecutor, spec: string, cwd: string): { integrity: string; files: [string, string, number][] } {
-  const [packed] = JSON.parse(exec("npm", ["pack", spec, "--ignore-scripts", "--json", "--registry=https://registry.npmjs.org/"], { cwd })) as { filename: string; integrity: string; files: { path: string; mode: number }[] }[];
-  if (!packed || !/^[^/\\]+\.tgz$/.test(packed.filename) || !Array.isArray(packed.files) || packed.files.length === 0) throw new Error("unreadable package file manifest");
+/** Bind registry integrity and a complete archive manifest, independently of npm's lossy file listing. */
+function packContents(exec: RepairExecutor, spec: string, cwd: string): { integrity: string; manifest: string } {
+  const [packed] = JSON.parse(exec("npm", ["pack", spec, "--ignore-scripts", "--json", "--registry=https://registry.npmjs.org/"], { cwd })) as { filename: string; integrity: string }[];
+  if (!packed || !/^[^/\\]+\.tgz$/.test(packed.filename)) throw new Error("unreadable package file manifest");
   const tarball = join(cwd, packed.filename);
   const actualIntegrity = `sha512-${hashFile(tarball, "base64")}`;
   if (actualIntegrity !== packed.integrity) throw new Error("downloaded tarball integrity mismatch");
-  const files = packed.files.map((file): [string, string, number] => {
-    if (!/^[a-zA-Z0-9_.@/-]+$/.test(file.path) || file.path.split("/").some((part) => part === ".." || part === "")) throw new Error("unsafe package member");
-    const staging = mkdtempSync(join(cwd, ".pm-ops-member-"));
+  const staging = mkdtempSync(join(cwd, ".pm-ops-manifest-"));
+  try {
+    const archive = join(staging, "archive.tar");
+    const fd = openSync(archive, "wx");
     try {
-      const member = join(staging, "bytes");
-      const fd = openSync(member, "wx");
-      try { exec("tar", ["-xOf", tarball, `package/${file.path}`], { stdoutFd: fd }); }
-      finally { closeSync(fd); }
-      return [file.path, hashFile(member, "hex"), file.mode];
-    } finally { rmSync(staging, { recursive: true, force: true }); }
-  }).sort(([a], [b]) => a.localeCompare(b));
-  return { integrity: actualIntegrity, files };
+      exec(process.execPath, ["--input-type=module", "-e",
+        'import { createReadStream } from "node:fs"; import { createGunzip } from "node:zlib"; import { pipeline } from "node:stream/promises"; await pipeline(createReadStream(process.argv[1]), createGunzip(), process.stdout);', tarball], { stdoutFd: fd });
+    } finally { closeSync(fd); }
+    return { integrity: actualIntegrity, manifest: canonicalTarManifest(archive) };
+  } finally { rmSync(staging, { recursive: true, force: true }); }
 }
 
 /** Verify signed workflow ancestry and exact package bytes at the release commit before permitting repair. */
@@ -204,7 +203,7 @@ export function makeRepairClient(exec: RepairExecutor = defaultExec): RepairClie
         exec("tar", ["-xf", archive, "-C", source], {});
         const expected = packContents(exec, source, source);
         const actual = packContents(exec, `${evidence.name}@${evidence.version}`, scratch);
-        if (actual.integrity !== integrity || JSON.stringify(actual.files) !== JSON.stringify(expected.files)) {
+        if (actual.integrity !== integrity || actual.manifest !== expected.manifest) {
           throw new Error("published tarball does not match the release tag tree; inspect package files before repair");
         }
       } finally { rmSync(scratch, { recursive: true, force: true }); }

@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "../subprocess.ts";
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tarball, type TarMember } from "./tar-fixtures.ts";
+import { TarballRefusal } from "../canonical-tar.ts";
+import { gunzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -33,6 +36,21 @@ function auditOutput(commit: string, mutate?: (fixture: typeof recorded) => void
   mutate?.(fixture);
   fixture.verified[0]!.attestationBundles[0]!.bundle.dsseEnvelope.payload = Buffer.from(JSON.stringify(fixture.statement)).toString("base64");
   return JSON.stringify(fixture);
+}
+
+/** Bind synthetic signed registry metadata to a real archive and real npm/tar execution. */
+function realArchiveClient(commit: string, registry: string, integrity: string, execute: RepairExecutor = defaultExec): RepairClient {
+  return makeRepairClient((command, args, options = {}) => {
+    if (command === "npm") {
+      switch (args[0]) {
+        case "view": return JSON.stringify({ name, version, gitHead: commit, dist: { integrity } });
+        case "install": return "";
+        case "audit": return auditOutput(commit, (record) => { record.statement.subject[0]!.digest.sha512 = Buffer.from(integrity.slice(7), "base64").toString("hex"); });
+        case "pack": if (args[1] === `${name}@${version}`) return execute(command, ["pack", registry, ...args.slice(2)], options);
+      }
+    }
+    return execute(command, args, options);
+  });
 }
 
 /** Build a real tracker and local git remote; registry and release operations stay injected. */
@@ -430,32 +448,29 @@ test("release audit accepts an attested ancestor and refuses a planted unrelated
   } finally { f.cleanup(); }
 });
 
-test("tarball comparison binds verified integrity, binary bytes, modes and complete file membership and cleans every refusal", () => {
+test("tarball comparison binds verified integrity and complete real archive manifests and cleans every refusal", () => {
   const commit = "a".repeat(40);
-  for (const mode of ["ok", "no-evidence", "empty", "filename", "no-files", "digest", "unsafe", "dotdot", "empty-part", "bytes", "members", "mode", "integrity"] as const) {
+  for (const mode of ["ok", "no-evidence", "empty", "filename", "digest", "unsafe", "dotdot", "bytes", "members", "mode", "integrity"] as const) {
     const directories = new Set<string>();
-    const original = Buffer.from([255, 0, 65]);
+    const original = tarball([{ path: "package/package.json", body: Buffer.from([255, 0, 65]) }]);
     const signedIntegrity = `sha512-${createHash("sha512").update(original).digest("base64")}`;
     const client = makeRepairClient((command, args, options = {}) => {
       if (options.cwd && options.cwd !== ".") directories.add(options.cwd);
+      if (command === process.execPath) return defaultExec(command, args, options);
       if (command === "npm") {
         if (args[0] === "view") return JSON.stringify({ name, version, gitHead: commit, dist: { integrity: signedIntegrity } });
         if (args[0] === "audit") return auditOutput(commit, (f) => { f.statement.subject[0]!.digest.sha512 = Buffer.from(signedIntegrity.slice(7), "base64").toString("hex"); });
         if (args[0] === "pack") {
           assert.ok(args.includes("--ignore-scripts"));
           const actual = args[1] === `${name}@${version}`;
-          const bytes = actual && mode === "integrity" ? Buffer.from("different archive") : original;
+          const members: TarMember[] = [{ path: mode === "unsafe" ? "/bad" : mode === "dotdot" ? "package/../bad" : "package/package.json",
+            body: actual && mode === "bytes" ? Buffer.from([255, 0, 66]) : Buffer.from([255, 0, 65]), mode: actual && mode === "mode" ? 493 : 420 }];
+          if (actual && mode === "members") members.push({ path: "package/extra.txt" });
+          const bytes = actual && mode === "integrity" ? tarball([{ path: "package/other" }]) : tarball(members);
           const filename = "sample.tgz"; writeFileSync(join(options.cwd!, filename), bytes);
-          const files = [{ path: mode === "unsafe" ? "bad space" : mode === "dotdot" ? "../bad" : mode === "empty-part" ? "a//b" : "package.json", mode: actual && mode === "mode" ? 493 : 420 }];
-          if (actual && mode === "members") files.push({ path: "extra.txt", mode: 420 });
           return JSON.stringify(mode === "empty" ? [] : [{ filename: mode === "filename" ? "../bad.tgz" : filename,
-            integrity: mode === "digest" ? "sha512-wrong" : `sha512-${createHash("sha512").update(bytes).digest("base64")}`, files: mode === "no-files" ? [] : files }]);
+            integrity: mode === "digest" ? "sha512-wrong" : `sha512-${createHash("sha512").update(bytes).digest("base64")}` }]);
         }
-      }
-      if (command === "tar" && args[0] === "-xOf") {
-        assert.equal(typeof options.stdoutFd, "number");
-        writeFileSync(options.stdoutFd!, mode === "bytes" && !args[1]!.includes("source") ? Buffer.from("changed") : original);
-        return "";
       }
       return "";
     });
@@ -463,7 +478,7 @@ test("tarball comparison binds verified integrity, binary bytes, modes and compl
     else {
       const evidence = client.npmEvidence(name, version);
       if (mode === "ok") client.verifyTarball(".", commit, evidence);
-      else assert.throws(() => client.verifyTarball(".", commit, evidence), /unreadable|unsafe|integrity mismatch|does not match/);
+      else assert.throws(() => client.verifyTarball(".", commit, evidence), /unreadable|invalid_tarball|integrity mismatch|does not match/);
     }
     for (const directory of directories) assert.equal(existsSync(directory), false);
   }
@@ -484,14 +499,8 @@ for (const mismatch of [false, true]) {
       const [packed] = JSON.parse(defaultExec("npm", ["pack", ".", "--ignore-scripts", "--json"], { cwd: f.cwd })) as { filename: string; integrity: string }[];
       const tarball = join(f.root, "registry.tgz"); copyFileSync(join(f.cwd, packed.filename), tarball);
       let streamedMembers = 0; let capturedMembers = 0;
-      const client = makeRepairClient((command, args, options = {}) => {
-        if (command === "npm") {
-          if (args[0] === "view") return JSON.stringify({ name, version, gitHead: commit, dist: { integrity: packed.integrity } });
-          if (args[0] === "install") return "";
-          if (args[0] === "audit") return auditOutput(commit, record => { record.statement.subject[0]!.digest.sha512 = Buffer.from(packed.integrity.slice(7), "base64").toString("hex"); });
-          if (args[0] === "pack" && args[1] === `${name}@${version}`) return defaultExec(command, ["pack", tarball, ...args.slice(2)], options);
-        }
-        if (command === "tar" && args[0] === "-xOf") {
+      const client = realArchiveClient(commit, tarball, packed.integrity, (command, args, options = {}) => {
+        if (command === process.execPath) {
           if (options.stdoutFd === undefined) capturedMembers++;
           else streamedMembers++;
         }
@@ -502,8 +511,59 @@ for (const mismatch of [false, true]) {
       else client.verifyTarball(f.cwd, commit, evidence);
       assert.equal(readFileSync(sentinel, "utf8"), "unchanged fixture bytes", "staging never follows a source-tree symlink");
       assert.equal(capturedMembers, 0, "member data must never enter a capture buffer");
-      assert.ok(streamedMembers >= 6, "real tar read both complete package file sets");
+      assert.equal(streamedMembers, 2, "both complete archives must be decompressed through file descriptors");
       assert.deepEqual(f.writes, []);
     } finally { f.cleanup(); }
   });
 }
+
+test("seeded real npm tarball mutation fuzz refuses every class before repair (4 seeds)", async () => {
+  const f = await fixture();
+  try {
+    writeFileSync(join(f.cwd, "empty"), "");
+    writeFileSync(join(f.cwd, "payload.bin"), Buffer.from([0, 255, 1, 254]));
+    writeFileSync(join(f.cwd, "package.json"), JSON.stringify({ name, version, files: ["empty", "payload.bin", "CHANGELOG.md"] }));
+    f.git(["add", "empty", "payload.bin", "package.json"]); f.git(["commit", "-qm", "canonical manifest fixture"]);
+    const commit = f.git(["rev-parse", "HEAD"]);
+    const [packed] = JSON.parse(defaultExec("npm", ["pack", ".", "--ignore-scripts", "--json"], { cwd: f.cwd })) as { filename: string }[];
+    const original = readFileSync(join(f.cwd, packed.filename));
+    const uncompressed = gunzipSync(original);
+    const members: TarMember[] = [];
+    for (let offset = 0; uncompressed[offset] !== 0; ) {
+      const header = uncompressed.subarray(offset, offset + 512);
+      const path = header.subarray(0, 100).toString().split("\0")[0]!;
+      const size = Number.parseInt(header.subarray(124, 136).toString(), 8);
+      assert.equal(header[156], 48, "npm baseline consists of regular files");
+      members.push({ path, mode: Number.parseInt(header.subarray(100, 108).toString(), 8), body: uncompressed.subarray(offset + 512, offset + 512 + size) });
+      offset += 512 + Math.ceil(size / 512) * 512;
+    }
+    const registry = join(f.root, "registry.tgz");
+    for (let seed = 1; seed <= 4; seed++) {
+      const empty = members.findIndex((entry) => entry.path === "package/empty");
+      const payload = members.findIndex((entry) => entry.path === "package/payload.bin");
+      const body = Buffer.from(members[payload]!.body!); body[(Math.imul(seed, 1664525) >>> 0) % body.length] ^= 0xff;
+      const mutations: [string, TarMember[]][] = [
+        ["unmutated", members],
+        ["type swap", members.map((entry, i) => i === empty ? { ...entry, type: "2", link: "target-a" } : entry)],
+        ["link target change", members.map((entry, i) => i === empty ? { ...entry, type: "2", link: `target-${seed}` } : entry)],
+        ["mode change", members.map((entry, i) => i === empty ? { ...entry, mode: 0o755 } : entry)],
+        ["extra entry", [...members, { path: `package/extra-${seed}` }]],
+        ["missing entry", members.filter((_, i) => i !== payload)],
+        ["duplicate path", [...members, members[empty]!]],
+        ["path traversal", [...members, { path: "package/../escape" }]],
+        ["normalization collision", [...members, { path: "package/EMPTY" }]],
+        ["content change at equal size", members.map((entry, i) => i === payload ? { ...entry, body } : entry)],
+        ["empty vs missing", members.filter((_, i) => i !== empty)],
+      ];
+      for (const [kind, changed] of mutations) {
+        const bytes = tarball(changed); writeFileSync(registry, bytes);
+        const integrity = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
+        const client = realArchiveClient(commit, registry, integrity);
+        const evidence = client.npmEvidence(name, version);
+        if (kind === "unmutated") client.verifyTarball(f.cwd, commit, evidence);
+        else assert.throws(() => client.verifyTarball(f.cwd, commit, evidence), (error: unknown) => error instanceof TarballRefusal || /published tarball does not match/.test(String(error)), `seed ${seed}: ${kind}`);
+        assert.deepEqual(f.writes, [], "verification never writes tags or releases");
+      }
+    }
+  } finally { f.cleanup(); }
+});
