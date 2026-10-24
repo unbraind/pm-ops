@@ -15,6 +15,11 @@ argument array. Both overloads force `shell: false` after spreading caller
 options, so even an option getter that changes during the spread cannot enable a
 shell. The refusal never retains executable names, arguments or shell paths.
 
+Bash execution fixtures write their owned scripts to private temporary files via
+`test/bash-fixture.ts`, execute those files through the bounded adapter, and clean
+them up on success and refusal. Script text is kept out of executable argument
+arrays; tests still run real Bash with inert publisher and network boundaries.
+
 The package capture inventory covers all root modules and gate scripts:
 
 | Consumer | Transport and overflow result |

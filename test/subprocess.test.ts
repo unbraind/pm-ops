@@ -1,7 +1,7 @@
 /** Real child processes prove every capture adapter rejects overflow without leaking partial output. */
 import assert from "node:assert/strict";
-import childProcess, { type ExecFileSyncOptions } from "node:child_process";
-import { closeSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import childProcess, { type ExecFileSyncOptions, type SpawnSyncOptions } from "node:child_process";
+import fs, { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import test from "node:test";
 import { tokenize } from "../docstrings.ts";
 import { CAPTURE_LIMIT, CaptureRefusal, ShellRefusal, execFileSync, refuseCaptureOverflow, spawnSync } from "../subprocess.ts";
 import { defaultExec } from "../release-completeness.ts";
+import { runBashFixture } from "./bash-fixture.ts";
 
 /** Assert the stable sanitized refusal and actionable remedy. */
 function refused(error: unknown): boolean {
@@ -69,6 +70,39 @@ for (const [name, capture] of [["execFileSync", execFileSync], ["spawnSync", spa
     } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
   });
 }
+
+test("Bash fixtures execute owned script files with bounded capture and clean up on success and refusal", t => {
+  const original = childProcess.spawnSync;
+  const makeTemp = fs.mkdtempSync;
+  const directories: string[] = [];
+  const paths: string[] = [];
+  const script = "printf '%s' 'literal fixture'";
+  t.mock.method(fs, "mkdtempSync", (prefix: string) => {
+    const root = makeTemp(prefix);
+    directories.push(root);
+    return root;
+  });
+  t.mock.method(childProcess, "spawnSync", (file: string, args: readonly string[], options: SpawnSyncOptions) => {
+    assert.equal(file, "bash");
+    assert.deepEqual(args.slice(0, -1), ["--noprofile", "--norc", "-e"]);
+    paths.push(args.at(-1)!);
+    assert.equal(readFileSync(paths.at(-1)!, "utf8"), script);
+    assert.equal(options.shell, false);
+    assert.equal(options.maxBuffer, CAPTURE_LIMIT);
+    return original(file, args, options);
+  });
+  syncBuiltinESMExports();
+  try {
+    const result = runBashFixture(script, { encoding: "utf8" }, ["-e"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "literal fixture");
+    assert.equal(existsSync(paths[0]!), false);
+    assert.throws(() => runBashFixture(script, { encoding: "utf8", shell: true }), ShellRefusal);
+    assert.equal(directories.length, 2);
+    for (const directory of directories) assert.equal(existsSync(directory), false);
+    assert.equal(paths.length, 1);
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+});
 
 test("real exec and spawn captures refuse oversized stdout and stderr with typed remedies", () => {
   for (const capture of [execFileSync, spawnSync]) {

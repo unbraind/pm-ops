@@ -1,4 +1,5 @@
 /** Parse the executable workflow and assert its privilege and publication wiring. */
+import { runBashFixture } from "./bash-fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "../subprocess.ts";
 import { createHash } from "node:crypto";
@@ -133,7 +134,7 @@ test("superseded cleanup failure cannot block the release, and branch cleanup ke
     const gh = join(root, "gh");
     writeFileSync(gh, "#!/bin/sh\nprintf '%s\\n' 'synthetic close refusal' >&2\nexit 1\n");
     chmodSync(gh, 0o755);
-    const result = spawnSync("bash", ["-e", "-o", "pipefail", "-c", step("Close superseded release PRs").run], { env: { ...process.env, PATH: `${root}:${process.env.PATH}`, SUPERSEDED_PR_NUMBERS: "12 13", RELEASE_PR_NUMBER: "14", GITHUB_REPOSITORY: "example/package" }, encoding: "utf8" });
+    const result = runBashFixture(step("Close superseded release PRs").run, { env: { ...process.env, PATH: `${root}:${process.env.PATH}`, SUPERSEDED_PR_NUMBERS: "12 13", RELEASE_PR_NUMBER: "14", GITHUB_REPOSITORY: "example/package" }, encoding: "utf8" }, ["-e", "-o", "pipefail"]);
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.match(result.stdout, /warning::Could not close superseded release PR #12/);
     assert.match(result.stdout, /warning::Could not close superseded release PR #13/);
@@ -167,10 +168,10 @@ test("actual publication dates cap daily resumption as well as reviewed package 
     const plan = step("Decide release").run;
     const dates = plan.slice(plan.indexOf('export RELEASE_PACKAGE_VERSION=""'), plan.indexOf('if [[ -n "$latest_tag" ]]'));
     for (const policy of ["daily", "package"]) {
-      const result = spawnSync("bash", ["-e", "-o", "pipefail", "-c", dates + '\nprintf "%s" "$RELEASE_PUBLISHED_TODAY"'], {
+      const result = runBashFixture(dates + '\nprintf "%s" "$RELEASE_PUBLISHED_TODAY"', {
         encoding: "utf8", env: { ...process.env, PATH: `${root}:${process.env.PATH}`, RUNNER_TEMP: root, NPM_PROJECT_PATH: root,
           GITHUB_REPOSITORY: "example/package", IS_RUST: "false", VERSION_POLICY: policy, RELEASE_TODAY: "2026.10.20", RELEASE_TIMEZONE: "Europe/Vienna" },
-      });
+      }, ["-e", "-o", "pipefail"]);
       assert.equal(result.status, 0, result.stderr);
       assert.equal(result.stdout, "true", policy);
     }
@@ -237,7 +238,7 @@ esac
       writeProvenance(root, "provenance.json", statement);
       for (const file of ["publishes", "sleeps"]) writeFileSync(join(root, file), "");
       writeFileSync(join(root, "reads"), "0");
-      const result = spawnSync("bash", ["-c", step("Publish npm package").run], { cwd: root, encoding: "utf8", env: {
+      const result = runBashFixture(step("Publish npm package").run, { cwd: root, encoding: "utf8", env: {
         ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: root, HOME: root, NPM_CONFIG_USERCONFIG: join(root, "absent-config"),
         NPM_VERSION: "2026.10.20", REGISTRY_METADATA: JSON.stringify({ integrity: fixture.integrity, attestations: { url: "https://registry.npmjs.org/synthetic" } }), METADATA_MODE: fixture.mode,
         VISIBLE_READ: String(fixture.visible), PUBLISH_STATUS: String(fixture.publish), PM_OPS_MODULE: new URL("../dist/daily-release.js", import.meta.url).pathname,
@@ -289,7 +290,7 @@ test("workflow version resolution peels annotated tags, normalizes dates and rej
     for (const fixture of cases) {
       writeFileSync(remote, fixture.tags);
       writeFileSync(output, "");
-      const result = spawnSync("bash", ["-c", step("Resolve pm-ops release version").run], { encoding: "utf8", env: { ...process.env, PATH: `${root}:${process.env.PATH}`, TAG_FIXTURE: remote, WORKFLOW_SHA: sha, GITHUB_ENV: output, GITHUB_OUTPUT: join(root, "step-output") } });
+      const result = runBashFixture(step("Resolve pm-ops release version").run, { encoding: "utf8", env: { ...process.env, PATH: `${root}:${process.env.PATH}`, TAG_FIXTURE: remote, WORKFLOW_SHA: sha, GITHUB_ENV: output, GITHUB_OUTPUT: join(root, "step-output") } });
       if (fixture.expected) {
         assert.equal(result.status, 0, result.stdout + result.stderr);
         assert.equal(readFileSync(output, "utf8"), `PM_OPS_VERSION=${fixture.expected}\n`);
@@ -323,7 +324,7 @@ test("release staging commits first-time outputs, declared release files and del
       writeFileSync(join(root, "release-manifest.json"), '{"release":true}\n');
       mkdirSync(join(project, "cache"));
       writeFileSync(join(project, "cache/ignored"), "cache\n");
-      const result = spawnSync("bash", ["-c", step("Commit release files").run], {
+      const result = runBashFixture(step("Commit release files").run, {
         cwd: root, encoding: "utf8", env: { ...process.env, GITHUB_WORKSPACE: root, NPM_PROJECT_PATH: project, NPM_PROJECT_DIR: directory, RELEASE_FILES: "release-manifest.json", REPO_NAME: "example", RELEASE_TAG: "v2099.1.1" },
       });
       assert.equal(result.status, 0, result.stdout + result.stderr);
@@ -345,7 +346,7 @@ test("pack guard refuses leftover untracked outputs anywhere in the package befo
     execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "Initial"], { cwd: root });
     const guard = step("Pack verified release").run.split('handoff="$(mktemp')[0];
     /** Run exactly the workflow pre-pack guards without any pack/publication effects. */
-    const check = () => spawnSync("bash", ["-c", guard], { cwd: root, encoding: "utf8", env: { ...process.env, NPM_PROJECT_PATH: root } });
+    const check = () => runBashFixture(guard, { cwd: root, encoding: "utf8", env: { ...process.env, NPM_PROJECT_PATH: root } });
     assert.equal(check().status, 0);
     for (const path of ["CHANGELOG.md", "generated-metadata.json"]) {
       writeFileSync(join(root, path), "new output\n");
@@ -396,7 +397,7 @@ test("pack validates CLI pins only when npm publication and Bun verification are
       execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "Initial"], { cwd: repo });
       const output = join(root, "output");
       writeFileSync(output, "");
-      const result = spawnSync("bash", ["-c", step("Pack verified release").run], {
+      const result = runBashFixture(step("Pack verified release").run, {
         cwd: repo, encoding: "utf8", env: { ...process.env, GITHUB_WORKSPACE: repo, NPM_PROJECT_PATH: project, PM_OPS_TOOLS: tools, RUNNER_TEMP: runner, GITHUB_OUTPUT: output, IS_RUST: "false", BUN_VERIFY: String(fixture.npmPublish && fixture.bunVerify) },
       });
       const outputs = readFileSync(output, "utf8");
@@ -442,7 +443,7 @@ test("recovery queries the exact npm coordinate while preserving the original Gi
     for (const [tag, version] of [["v2026.10.18-1", "2026.10.18-1"], ["v2026.08.09-2", "2026.8.9-2"], ["v2026.08.09", "2026.8.9"]]) {
       writeFileSync(join(root, "npm-calls"), "");
       writeFileSync(join(root, "gh-calls"), "");
-      const result = spawnSync("bash", ["-c", step("Repair missing GitHub Release").run], {
+      const result = runBashFixture(step("Repair missing GitHub Release").run, {
         cwd: root, encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: root,
           EXPECTED_COMMIT: commit, RECOVERY_TAG: tag, NPM_PUBLISH: "true", GITHUB_REPOSITORY: "example/package",
           PM_OPS_MODULE: new URL("../dist/daily-release.js", import.meta.url).pathname },
