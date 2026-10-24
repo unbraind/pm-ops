@@ -11,9 +11,10 @@ stderr when a command throws.
 Both adapters execute the executable and argument array directly. Truthy caller
 `shell` options (including shell paths) throw `ShellRefusal` (`shell_not_allowed`,
 exit code 2) before Node is called, with the remedy to pass the executable and an
-argument array. Both overloads force `shell: false` after spreading caller
-options, so even an option getter that changes during the spread cannot enable a
-shell. The refusal never retains executable names, arguments or shell paths.
+argument array. Both overloads remove `shell` from forwarded options and force
+`shell: false` after spreading the remaining caller options, so an option getter
+cannot enable a shell. The refusal never retains executable names, arguments or
+shell paths.
 
 Bash execution fixtures write their owned scripts to private temporary files via
 `test/bash-fixture.ts`, execute those files through the bounded adapter, and clean

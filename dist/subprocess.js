@@ -41,8 +41,8 @@ export function refuseCaptureOverflow(error, limit) {
 /** Capture with a finite ceiling, preserving Node's overloads and ordinary command failures. */
 export const execFileSync = ((command, argsOrOptions = [], supplied = {}) => {
     const args = Array.isArray(argsOrOptions) ? argsOrOptions : [];
-    const options = Array.isArray(argsOrOptions) ? supplied : argsOrOptions;
-    if (options.shell)
+    const { shell, ...options } = Array.isArray(argsOrOptions) ? supplied : argsOrOptions;
+    if (shell)
         throw new ShellRefusal();
     const maxBuffer = options.maxBuffer ?? CAPTURE_LIMIT;
     if (!Number.isSafeInteger(maxBuffer) || maxBuffer <= 0)
@@ -58,8 +58,8 @@ export const execFileSync = ((command, argsOrOptions = [], supplied = {}) => {
 /** Spawn with bounded capture and refuse overflow before a caller can consume truncated stdout. */
 export const spawnSync = ((command, argsOrOptions = [], supplied = {}) => {
     const args = Array.isArray(argsOrOptions) ? argsOrOptions : [];
-    const options = Array.isArray(argsOrOptions) ? supplied : argsOrOptions;
-    if (options.shell)
+    const { shell, ...options } = Array.isArray(argsOrOptions) ? supplied : argsOrOptions;
+    if (shell)
         throw new ShellRefusal();
     const maxBuffer = options.maxBuffer ?? CAPTURE_LIMIT;
     if (!Number.isSafeInteger(maxBuffer) || maxBuffer <= 0)

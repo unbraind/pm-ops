@@ -58,7 +58,7 @@ for (const [name, capture] of [["execFileSync", execFileSync], ["spawnSync", spa
     try {
       for (const overload of ["args", "options"]) {
         let reads = 0;
-        // The guard sees false; the later spread sees true. The final override must still win.
+        // Caller accessors must never replace the literal false sent to Node.
         const changingShell = { get shell() { return reads++ > 0; } };
         for (const options of [{}, { shell: false }, { shell: "" }, changingShell]) {
           assert.throws(() => overload === "args"

@@ -43,8 +43,8 @@ export function refuseCaptureOverflow(error: unknown, limit: number): void {
 /** Capture with a finite ceiling, preserving Node's overloads and ordinary command failures. */
 export const execFileSync = ((command: string, argsOrOptions: readonly string[] | ExecFileSyncOptions = [], supplied: ExecFileSyncOptions = {}) => {
   const args = Array.isArray(argsOrOptions) ? argsOrOptions : [];
-  const options = Array.isArray(argsOrOptions) ? supplied : argsOrOptions as ExecFileSyncOptions;
-  if (options.shell) throw new ShellRefusal();
+  const { shell, ...options } = Array.isArray(argsOrOptions) ? supplied : argsOrOptions as ExecFileSyncOptions;
+  if (shell) throw new ShellRefusal();
   const maxBuffer = options.maxBuffer ?? CAPTURE_LIMIT;
   if (!Number.isSafeInteger(maxBuffer) || maxBuffer <= 0) throw new CaptureRefusal(CAPTURE_LIMIT);
   try { return nodeExecFileSync(command, args, { stdio: "pipe", ...options, maxBuffer, shell: false }); }
@@ -54,8 +54,8 @@ export const execFileSync = ((command: string, argsOrOptions: readonly string[] 
 /** Spawn with bounded capture and refuse overflow before a caller can consume truncated stdout. */
 export const spawnSync = ((command: string, argsOrOptions: readonly string[] | SpawnSyncOptions = [], supplied: SpawnSyncOptions = {}) => {
   const args = Array.isArray(argsOrOptions) ? argsOrOptions : [];
-  const options = Array.isArray(argsOrOptions) ? supplied : argsOrOptions as SpawnSyncOptions;
-  if (options.shell) throw new ShellRefusal();
+  const { shell, ...options } = Array.isArray(argsOrOptions) ? supplied : argsOrOptions as SpawnSyncOptions;
+  if (shell) throw new ShellRefusal();
   const maxBuffer = options.maxBuffer ?? CAPTURE_LIMIT;
   if (!Number.isSafeInteger(maxBuffer) || maxBuffer <= 0) throw new CaptureRefusal(CAPTURE_LIMIT);
   const result = nodeSpawnSync(command, args, { ...options, maxBuffer, shell: false });
