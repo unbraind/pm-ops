@@ -6,9 +6,9 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-10-21T23:23:22.551Z"
-updated_at: "2026-10-24T21:48:34.236Z"
+updated_at: "2026-10-24T23:12:29.011Z"
 closed_at: "2026-10-24T21:48:34.229Z"
-completed_at: "2026-10-24T21:48:34.229Z"
+completed_at: "2026-10-22T10:28:57.000Z"
 author: codex-agent
 repro_steps: Registry audit reproduced TOON stdout for metrics --format json and missing runtime dependencies during fresh GitHub-source activation. Align explicit format handling with sibling commands and lead installation docs with a verified pinned npm source.
 resolution: Honors requested metrics JSON output and documents the verified registry installation/activation route.

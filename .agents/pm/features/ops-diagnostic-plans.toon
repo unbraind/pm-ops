@@ -6,9 +6,9 @@ status: closed
 priority: 2
 tags: []
 created_at: "2026-10-23T16:45:18.706Z"
-updated_at: "2026-10-24T21:48:33.976Z"
+updated_at: "2026-10-24T23:12:27.304Z"
 closed_at: "2026-10-24T21:48:33.958Z"
-completed_at: "2026-10-24T21:48:33.958Z"
+completed_at: "2026-10-23T17:41:41.000Z"
 author: codex-agent
 acceptance_criteria: "Network, process and time budgets stop further probes; private output stays redacted; repeat runs retain command identity and scope. Typed SDK and CLI; compact TOON and JSON; typed refusals and remedies; README and example; read-only public tracker validation outside Git; focused local checks and full npm plus Bun CI gates."
 resolution: "Reviewed read-only plans enforce process/network/deadline budgets, redact private output and preserve command identity and scope through compact no-git SDK/CLI receipts."

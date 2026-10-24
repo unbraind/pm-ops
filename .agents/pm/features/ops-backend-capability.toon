@@ -6,9 +6,9 @@ status: closed
 priority: 1
 tags: []
 created_at: "2026-10-21T20:04:57.459Z"
-updated_at: "2026-10-24T21:47:28.241Z"
+updated_at: "2026-10-24T23:12:24.870Z"
 closed_at: "2026-10-24T21:47:28.227Z"
-completed_at: "2026-10-24T21:47:28.227Z"
+completed_at: "2026-10-22T14:32:23.000Z"
 author: codex-agent
 acceptance_criteria: "Synthetic directory/database/MCP adapters produce distinct supported, unsupported, unavailable and invariant_failed statuses; diagnostics never mutate the tracker or require Git; typed SDK and CLI with compact TOON/JSON and typed remedies; README and example; read-only public fleet copy validated outside Git; targeted tests, typecheck and lint locally plus npm and Bun release gates in CI."
 risk: low

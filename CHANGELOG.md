@@ -4,8 +4,8 @@
 
 ### Added
 
-- Invalidate only operational claims whose evidence expires or whose scoped versions change ([ops-evidence-expiry](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-evidence-expiry.toon))
 - Run reviewed read-only diagnostic plans within explicit budgets ([ops-diagnostic-plans](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-diagnostic-plans.toon))
+- Invalidate only operational claims whose evidence expires or whose scoped versions change ([ops-evidence-expiry](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-evidence-expiry.toon))
 - Report verified backend SDK capabilities without tracker writes ([ops-backend-capability](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-backend-capability.toon))
 
 ### Fixed
