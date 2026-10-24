@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -476,7 +476,9 @@ for (const mismatch of [false, true]) {
     try {
       writeFileSync(join(f.cwd, "large.bin"), Buffer.alloc(5 * 1024 * 1024, 0xa5));
       writeFileSync(join(f.cwd, "package.json"), JSON.stringify({ name, version, repository: `https://github.com/${slug}`, files: ["large.bin", "CHANGELOG.md"] }));
-      f.git(["add", "large.bin", "package.json"]); f.git(["commit", "-qm", "large member fixture"]);
+      const sentinel = join(f.root, "sentinel"); writeFileSync(sentinel, "unchanged fixture bytes");
+      symlinkSync(sentinel, join(f.cwd, "member-bytes"));
+      f.git(["add", "large.bin", "package.json", "member-bytes"]); f.git(["commit", "-qm", "large member fixture"]);
       const commit = f.git(["rev-parse", "HEAD"]);
       if (mismatch) writeFileSync(join(f.cwd, "large.bin"), Buffer.alloc(5 * 1024 * 1024, 0x5a));
       const [packed] = JSON.parse(defaultExec("npm", ["pack", ".", "--ignore-scripts", "--json"], { cwd: f.cwd })) as { filename: string; integrity: string }[];
@@ -498,6 +500,7 @@ for (const mismatch of [false, true]) {
       const evidence = client.npmEvidence(name, version);
       if (mismatch) assert.throws(() => client.verifyTarball(f.cwd, commit, evidence), /published tarball does not match/);
       else client.verifyTarball(f.cwd, commit, evidence);
+      assert.equal(readFileSync(sentinel, "utf8"), "unchanged fixture bytes", "staging never follows a source-tree symlink");
       assert.equal(capturedMembers, 0, "member data must never enter a capture buffer");
       assert.ok(streamedMembers >= 6, "real tar read both complete package file sets");
       assert.deepEqual(f.writes, []);

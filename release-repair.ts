@@ -152,12 +152,14 @@ function packContents(exec: RepairExecutor, spec: string, cwd: string): { integr
   if (actualIntegrity !== packed.integrity) throw new Error("downloaded tarball integrity mismatch");
   const files = packed.files.map((file): [string, string, number] => {
     if (!/^[a-zA-Z0-9_.@/-]+$/.test(file.path) || file.path.split("/").some((part) => part === ".." || part === "")) throw new Error("unsafe package member");
-    const member = join(cwd, "member-bytes");
-    const fd = openSync(member, "w");
-    try { exec("tar", ["-xOf", tarball, `package/${file.path}`], { stdoutFd: fd }); }
-    finally { closeSync(fd); }
-    try { return [file.path, hashFile(member, "hex"), file.mode]; }
-    finally { rmSync(member); }
+    const staging = mkdtempSync(join(cwd, ".pm-ops-member-"));
+    try {
+      const member = join(staging, "bytes");
+      const fd = openSync(member, "wx");
+      try { exec("tar", ["-xOf", tarball, `package/${file.path}`], { stdoutFd: fd }); }
+      finally { closeSync(fd); }
+      return [file.path, hashFile(member, "hex"), file.mode];
+    } finally { rmSync(staging, { recursive: true, force: true }); }
   }).sort(([a], [b]) => a.localeCompare(b));
   return { integrity: actualIntegrity, files };
 }
