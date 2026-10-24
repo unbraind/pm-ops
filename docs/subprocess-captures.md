@@ -33,11 +33,47 @@ The package capture inventory covers all root modules and gate scripts:
 | `diagnostic-plans.ts` | Shared bounded spawn; typed `output_limit` receipt with remedy |
 | `scripts/coverage-gate.ts` | Shared bounded spawn for compiler configuration; the test runner inherits stdio |
 
-Tar members use `tar -xOf` with stdout connected directly to a temporary file
-descriptor. Only stderr is captured. The member file and the tarball integrity
-are hashed in 64 KiB chunks; member contents never enter a subprocess capture.
-Temporary files stay inside the disposable comparison directory and are removed
-on success and refusal. Member paths are validated before passing them to tar.
+Release repair hashes each complete compressed tarball in 64 KiB chunks and
+checks its SHA-512 integrity. A Node subprocess streams `createGunzip()` output
+through stdout directly to a private scratch file descriptor; only stderr is
+captured. `canonicalTarManifest()` then reads the uncompressed archive and hashes
+member contents in 64 KiB chunks. Registry members are never extracted, passed
+as tar arguments, or captured in command output. Scratch files are removed on
+success and refusal. The separate `git archive` / `tar -xf` step materializes
+only the independently verified Git commit for a script-disabled npm pack.
+
+Each canonical manifest record binds the normalized `package`-root path, entry
+type (`file` or `directory`), mode including special bits, exact size, link target
+(empty for permitted entries), and SHA-512 content hash. Records sort by UTF-8
+path bytes; the complete serialized manifests must match. Ownership and timestamp
+fields rewritten by npm are ignored; compression and record order are transport
+details. See [the archive comparison policy](tarball-manifests.md) for the exact
+ignored fields, normalization rules and supported archive formats.
+
+Only USTAR regular files (`0` or NUL), directories (`5`), and local PAX metadata
+(`x`, limited to 1 MiB and describing the next entry) are supported. Symlinks,
+hardlinks, devices, FIFOs, contiguous files, GNU extensions, global PAX overrides
+and unknown entry kinds refuse repair. Unsafe paths, duplicate or colliding
+names, conflicting file ancestors and malformed archive framing also refuse.
+
+Troubleshoot the refusal classification before retrying:
+
+| Refusal | Cause and remedy |
+| --- | --- |
+| `TarballRefusal`, `code: invalid_tarball`, `reason: entry_type` | Unsupported entry kind. Supply an unambiguous package archive containing only regular files and directories in the supported USTAR/local-PAX subset. |
+| `TarballRefusal`, `code: invalid_tarball`, `reason: path` | Traversal, absolute/backslash/NUL paths, entries outside `package`, or regular-file directory aliases. Correct the package layout to use safe package-root paths. |
+| `TarballRefusal`, `code: invalid_tarball`, `reason: collision` | Duplicate normalized paths, case/Unicode collisions (including ancestors), or file/directory ancestor conflicts. Remove duplicate entries and ambiguous names. |
+| `TarballRefusal`, `code: invalid_tarball`, `reason: format` | Invalid checksums, UTF-8, sizes, headers, PAX attributes/framing/limits, link fields, or archive termination. Obtain a complete, valid archive in the supported format; nonzero trailing data also refuses. |
+| `CaptureRefusal`, `code: output_limit` | Invalid capture limit or captured metadata/stderr overflow. Use a positive finite safe-integer limit; reduce or paginate output below the bound, or stream bulk data to a file. Member size alone does not consume the capture budget. |
+| `ShellRefusal`, `code: shell_not_allowed` | A caller requested shell interpretation. Pass the executable and an argument array. |
+
+These typed refusals all carry `exitCode: 2`; `TarballRefusal` includes its generic
+remedy in the message, while the capture and shell refusals also expose a
+`remedy` property. Archive reasons omit member names. Integrity or manifest
+inequality raises an ordinary error instead; inspect the signed artifact and
+release tree rather than treating that mismatch as an `invalid_tarball` code.
+The top-level repair adapter reports failures as `release repair refused: ...`
+and completes verification before any tag or GitHub Release writes.
 
 `merge-driver.ts`, `release-verification.ts`, the prepare template and the inline
 production audit launcher inherit stdio, so they do not capture output. Executable test and acceptance drivers use the same bounded capture adapters.
