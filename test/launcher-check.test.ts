@@ -26,7 +26,7 @@ test("every released launcher revision remains accepted by source and published 
   }
 });
 
-test("canonical assertion rejects altered or empty content and propagates read errors", () => {
+test("canonical assertion rejects altered or empty content and sanitizes unreadable input", () => {
   const root = mkdtempSync(join(tmpdir(), "launcher-check-"));
   try {
     const file = join(root, "launcher.ts");
@@ -41,7 +41,7 @@ test("canonical assertion rejects altered or empty content and propagates read e
         });
       }
     }
-    assert.throws(() => assertCanonicalLauncher(join(root, "absent")), { code: "ENOENT" });
+    assert.throws(() => assertCanonicalLauncher(join(root, "absent")), { code: "invalid_input", reason: "unreadable" });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

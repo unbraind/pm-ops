@@ -6,16 +6,18 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-ops#195"
 created_at: "2026-10-24T05:12:38.041Z"
-updated_at: "2026-10-24T05:25:15.899Z"
+updated_at: "2026-10-24T05:30:31.331Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
-comments[4]{created_at,author,text}:
+comments[6]{created_at,author,text}:
   "2026-10-24T05:12:43.234Z",codex-agent,"Auditing every direct package reader. Use one bounded regular-file reader with nonblocking open and descriptor validation, preserve domain refusal categories and remedies, charge diagnostic input and scope resolution to the shared deadline. Regressions use real special files and externally bounded subprocesses in a non-Git fixture."
   "2026-10-24T05:23:31.840Z",codex-agent,"Implemented one regular-file input primitive across all direct readers, including backend config, policy, evidence versions, workflow files, source scanners, coverage artifacts and plan JSON. Real FIFO without a writer, Unix socket, device, directory and oversized inputs return typed remedies; descriptor race and growth controls pass. Non-Git tracker and empty PATH exercise eight input surfaces. Local reader suites: 130 passed, zero failed/skipped."
   "2026-10-24T05:23:33.492Z",codex-agent,"Revert proof: replaced only readDiagnosticPlan with its origin/main implementation and restored its open import. node --test --test-name-pattern=\"all artifact readers refuse\" test/regular-input.test.ts failed 1/1 with ETIMEDOUT at the 5000 ms subprocess ceiling on the real writerless FIFO. Restored the fixed function immediately; no tracker bytes were changed by the regression."
   "2026-10-24T05:25:15.899Z",codex-agent,"Focused core checks: 76 tests passed with statements/branches/functions/lines all 100% across regular-input, diagnostic-plans, release-completeness and release-repair. Added a CLI-level injected-clock regression proving plan file time exhausts the shared deadline with zero launches. Typecheck, test typecheck, lint, docstring and zero-duplication gates pass locally. Full npm and Bun release gates are reserved for CI because the shared host is saturated."
-files[16]{path,scope}:
+  "2026-10-24T05:30:01.642Z",codex-agent,"CI run 40066282167 measured 100% statements/branches/functions/lines across all authored source, but three legacy launcher/release-caller assertions still expected raw ENOENT. Updating those assertions to the intentionally sanitized invalid_input + unreadable contract. No threshold or runtime check is weakened. Both Linux matrix jobs failed on these same three assertions before Bun could run."
+  "2026-10-24T05:30:31.331Z",codex-agent,"Updated missing-file expectations now pass in the focused launcher/release-caller suite: 14/14, zero failed/skipped. The linked pm test run also passes 14/14. Input refusals retain their code and unreadable reason rather than exposing operating-system diagnostics."
+files[18]{path,scope}:
   assurance.ts,project
   attestation.ts,project
   backend-capabilities.ts,project
@@ -31,9 +33,12 @@ files[16]{path,scope}:
   scripts/verify-release-changelog-date.ts,project
   test/attestation-union.test.ts,project
   test/diagnostic-plans.test.ts,project
+  test/launcher-check.test.ts,project
   test/regular-input.test.ts,project
-tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  test/release-caller.test.ts,project
+tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/regular-input.test.ts test/diagnostic-plans.test.ts,project,120,codex-agent,"2026-10-24T05:24:24.259Z",local_mutation,fix/bounded-plan-input-and-release-audit
+  node --test test/launcher-check.test.ts test/release-caller.test.ts,project,120,codex-agent,"2026-10-24T05:30:03.278Z",local_mutation,fix/bounded-plan-input-and-release-audit
 docs[1]{path,scope}:
   docs/diagnostic-plans.md,project
 body: ""

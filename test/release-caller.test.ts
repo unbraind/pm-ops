@@ -139,7 +139,7 @@ test("PM_OPS_OFFLINE defers the shared default resolver in the checker and CLI w
     assert.match(lines[0], /unverified-offline/);
     const moduleUrl = new URL("../scripts/release-caller.ts", import.meta.url).href;
     assert.throws(() => releaseCallerMain([process.execPath, new URL(moduleUrl).pathname, "--online", path], moduleUrl),
-      { code: "ENOENT" }, "the removed --online flag must no longer be filtered out of the path argument");
+      { code: "invalid_input", reason: "unreadable" }, "the removed --online flag must no longer be filtered out of the path argument");
   } finally {
     if (previous === undefined) delete process.env.PM_OPS_OFFLINE;
     else process.env.PM_OPS_OFFLINE = previous;
@@ -189,7 +189,7 @@ test("release-caller CLI and pm-ops policy check report real package files", asy
     assert.equal((await check()).repos[0].checks[0].pass, false);
     rmSync(path);
     assert.match((await check()).repos[0].checks[0].message, /missing/);
-    assert.throws(() => runReleaseCaller(path, () => {}), /ENOENT/);
+    assert.throws(() => runReleaseCaller(path, () => {}), { code: "invalid_input", reason: "unreadable" });
   } finally {
     process.exitCode = previousExit;
     rmSync(root, { recursive: true, force: true });
