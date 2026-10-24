@@ -23,8 +23,8 @@
  *
  * @packageDocumentation
  */
+import { readRegularText } from "./regular-input.ts";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type { VerifierResult } from "./shell-scan.ts";
@@ -157,7 +157,7 @@ export function repoSlugFromUrl(url: string): string {
  * @returns The `name` field, or an empty string when the manifest lacks one.
  */
 export function packageNameFromManifest(root: string): string {
-  const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf-8")) as { name?: string };
+  const pkg = JSON.parse(readRegularText(resolve(root, "package.json"))) as { name?: string };
   return pkg.name ?? "";
 }
 
@@ -290,9 +290,9 @@ export interface CompletenessFetcher {
 export function defaultExec(
   command: string,
   args: string[],
-  options: { cwd?: string } = {},
+  options: { cwd?: string; encoding?: "utf-8" | "base64" } = {},
 ): string {
-  return execFileSync(command, args, { encoding: "utf-8", ...options });
+  return execFileSync(command, args, { encoding: "utf-8", stdio: "pipe", ...options });
 }
 
 /** Page size for GitHub Release API pagination. The API caps at 100. */
@@ -335,6 +335,24 @@ export function fetchGithubReleasesPaginated(
   return releases;
 }
 
+/** Typed tag lookup: a 404 is explicit absence, while authentication and transport failures still throw. */
+export type GithubReleaseRead = { code: "found"; remedy: "" } | { code: "github_release_absent"; remedy: string };
+
+/** Read one tag without leaking a handled gh diagnostic to stderr. */
+export function readGithubRelease(exec: (command: string, args: string[], options: { cwd?: string }) => string, slug: string, tag: string): GithubReleaseRead {
+  let answered: string;
+  try {
+    answered = exec("gh", ["api", `repos/${slug}/releases/tags/${tag}`, "--method", "GET", "--jq", ".tag_name"], {}).trim();
+  } catch (error) {
+    // Only a 404 answers "no such release"; any other failure is an unreadable source.
+    if (error instanceof Error && error.message.includes("HTTP 404")) return { code: "github_release_absent", remedy: "GitHub returned HTTP 404 for the release tag; verify repository access and repair only after source and tarball verification." };
+    throw error;
+  }
+  // A successful read that names another tag (or none) is unreadable, not absent.
+  if (answered !== tag) throw new Error(`the release read for ${tag} answered tag "${answered}"`);
+  return { code: "found", remedy: "" };
+}
+
 /**
  * Build a fetcher from an executor.
  *
@@ -361,17 +379,7 @@ export function makeFetcher(exec: (command: string, args: string[], options: { c
       return fetchGithubReleasesPaginated(exec, slug);
     },
     githubReleaseForTag(slug, tag) {
-      let answered: string;
-      try {
-        answered = exec("gh", ["api", `repos/${slug}/releases/tags/${tag}`, "--method", "GET", "--jq", ".tag_name"], {}).trim();
-      } catch (error) {
-        // Only a 404 answers "no such release"; any other failure is an unreadable source.
-        if (error instanceof Error && error.message.includes("HTTP 404")) return false;
-        throw error;
-      }
-      // A successful read that names another tag (or none) is unreadable, not absent.
-      if (answered !== tag) throw new Error(`the release read for ${tag} answered tag "${answered}"`);
-      return true;
+      return readGithubRelease(exec, slug, tag).code === "found";
     },
   };
 }

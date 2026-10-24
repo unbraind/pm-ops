@@ -3,7 +3,7 @@ import test, { before, after, type TestContext } from "node:test";
 import childProcess, { spawnSync } from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
 import { assertDiagnosticIdentity, fingerprint } from "./tracker-read-helpers.ts";
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import fs, { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
@@ -266,4 +266,19 @@ test("installed pinned CLI renders compact native TOON and JSON in a non-Git tra
     assert.equal(executed.status, 0, executed.stderr); assert.equal(JSON.parse(executed.stdout).ok, true);
     assert.equal(fingerprint(tracker), before);
   }
+});
+
+test("CLI charges plan file input time to the shared execution deadline", async (t) => {
+  const harness = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser", "services"] });
+  const plan = await createDiagnosticPlan(tracker, ["schema_unreadable"], { processes: 1, network: 0, time_ms: 10 });
+  const input = join(root, "timed-plan.json"); writeFileSync(input, JSON.stringify(plan));
+  const stat = fs.statSync;
+  let clock = 0; let launches = 0;
+  t.mock.method(performance, "now", () => clock);
+  t.mock.method(fs, "statSync", (...args: Parameters<typeof stat>) => { if (String(args[0]) === input) clock += 20; return stat(...args); });
+  t.mock.method(childProcess, "spawnSync", () => { launches++; return { status: 0, stdout: '{"checked":1}' }; }); syncBuiltinESMExports();
+  try {
+    const result = (await harness.runCommand({ command: "ops diagnose", pmRoot: tracker, options: { plan: input, select: plan.id } })).result as { used: DiagnosticBudget; rows: { code: string }[] };
+    assert.equal(launches, 0); assert.equal(result.used.time_ms, 20); assert.equal(result.rows[0]!.code, "time_budget");
+  } finally { restore(t); await harness.deactivate(); }
 });

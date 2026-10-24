@@ -1,5 +1,6 @@
+import { InputRefusal, readRegularText } from "./regular-input.js";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { devNull, homedir } from "node:os";
 import { resolve, basename, dirname, isAbsolute, join, parse, win32 } from "node:path";
@@ -346,9 +347,11 @@ function readJsonFile(path) {
     if (!existsSync(path))
         return undefined;
     try {
-        return JSON.parse(readFileSync(path, "utf-8"));
+        return JSON.parse(readRegularText(path));
     }
-    catch {
+    catch (error) {
+        if (error instanceof InputRefusal)
+            throw error;
         return undefined;
     }
 }
@@ -403,7 +406,7 @@ function readJsoncFile(path) {
     if (!existsSync(path))
         return undefined;
     try {
-        return JSON.parse(stripJsonc(readFileSync(path, "utf-8")));
+        return JSON.parse(stripJsonc(readRegularText(path)));
     }
     catch {
         return undefined;
@@ -882,7 +885,7 @@ function checkPrivateNoRunners(repoPath) {
                 continue;
             let content;
             try {
-                content = readFileSync(join(wfDir, file), "utf-8");
+                content = readRegularText(join(wfDir, file));
             }
             catch (err) {
                 violations.push(`${file}: unable to read workflow (${String(err)})`);
@@ -970,7 +973,7 @@ function runPolicyCheck(def, ctx) {
             break;
         case "release-caller": {
             const path = join(ctx.repoPath, ".github/workflows/release.yml");
-            const caller = existsSync(path) ? inspectReleaseCaller(readFileSync(path, "utf8"), ctx.resolveCanonicalTags) : { status: "refused", errors: ["release.yml is missing"] };
+            const caller = existsSync(path) ? inspectReleaseCaller(readRegularText(path), ctx.resolveCanonicalTags) : { status: "refused", errors: ["release.yml is missing"] };
             result = { id: "release-caller", severity: "error", status: caller.status, pass: caller.status === "verified",
                 message: caller.status === "verified" ? "SHA-pinned reusable release caller" : caller.errors.join("; ") };
             break;
@@ -2164,7 +2167,8 @@ export default defineExtension({
                 if (plan) {
                     if (!selected || failures || processes || network || time)
                         throw new DiagnosticRefusal("selection_required", "Use --plan with its reviewed --select id only; regenerate to change observations or budgets.");
-                    return executeDiagnosticPlan(ctx.pm_root, await readDiagnosticPlan(plan), selected);
+                    const start = performance.now();
+                    return executeDiagnosticPlan(ctx.pm_root, await readDiagnosticPlan(plan), selected, start);
                 }
                 if (!failures || selected)
                     throw new DiagnosticRefusal("invalid_options", "Supply --failures to generate a plan, or --plan and --select to execute a reviewed one.");

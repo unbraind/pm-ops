@@ -8,7 +8,7 @@ export interface NpmEvidence {
     name: string;
     /** Registry version coordinate. */
     version: string;
-    /** Registry gitHead, required to match the signed commit. */
+    /** Registry release commit; the signed workflow source must be its ancestor. */
     gitHead: string;
     /** Signed source repository slug. */
     repository: string;
@@ -23,7 +23,9 @@ export interface RepairClient {
     remoteTag(root: string, tag: string): string | null;
     /** Read an immutable local commit's object or committed file. */
     git(root: string, args: string[]): string;
-    /** Create only an absent remote tag at the attested commit. */
+    /** Compare every packed file and the complete file set with the immutable release tree. */
+    verifyTarball(root: string, commit: string, evidence: NpmEvidence): void;
+    /** Create only an absent remote tag at the verified release commit. */
     createTag(slug: string, tag: string, commit: string): void;
     /** Create only a missing release with committed changelog notes. */
     createRelease(slug: string, tag: string, notes: string): void;
@@ -64,6 +66,8 @@ export interface ProvenanceStatement {
  * Raw registry metadata or a merely present attestation is never sufficient.
  */
 export declare function evidenceFromAudit(name: string, version: string, gitHead: string, output: string, integrity: string): NpmEvidence;
+/** Verify signed workflow ancestry and exact package bytes at the release commit before permitting repair. */
+export declare function verifyReleaseSource(root: string, commit: string, evidence: NpmEvidence, client: RepairClient): void;
 /** Build the live adapter. All npm operations download/read; scripts are disabled. */
 export declare function makeRepairClient(exec?: RepairExecutor): RepairClient;
 /** Extract exactly one nonempty version section from an immutable changelog. */

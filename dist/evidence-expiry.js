@@ -1,5 +1,5 @@
 /** Operational evidence freshness over core assurance receipts; no Git or writes. */
-import { readFile } from "node:fs/promises";
+import { readRegularText } from "./regular-input.js";
 import { getWorkspaceHistoryPath, listAssuranceVerdicts, readHistorySnapshot, validateAssertionDefinition, verifyHistoryRecordHash, WORKSPACE_HISTORY_ID, } from "@unbrained/pm-cli/sdk";
 /** Safe actionable refusal, excluding paths, receipt content and raw backend errors. */
 export class EvidenceExpiryRefusal extends Error {
@@ -179,10 +179,10 @@ export async function auditEvidenceExpiry(pmRoot, policy, versions, options = {}
 /** Parse a JSON input without leaking paths or raw parser diagnostics. */
 async function readInput(path, code) {
     try {
-        return JSON.parse(await readFile(path, "utf8"));
+        return JSON.parse(readRegularText(path));
     }
     catch {
-        throw new EvidenceExpiryRefusal(code, "Provide a readable JSON input file matching the documented schema.");
+        throw new EvidenceExpiryRefusal(code, "Provide a regular JSON input file no larger than 16 MiB matching the documented schema.");
     }
 }
 /** CLI-friendly file inputs; the selected tracker remains host-owned. */

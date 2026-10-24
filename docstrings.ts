@@ -85,10 +85,10 @@
  * surface. There is deliberately no ignore list: an exemption must be a
  * documented rule with a reason, not a configuration entry.
  */
-
+import { readRegularText } from "./regular-input.ts";
 import { createScanner, getLeadingCommentRanges } from "typescript/unstable/ast/scanner";
 import { SyntaxKind, LanguageVariant } from "typescript/unstable/ast";
-import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { readdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
 /**
@@ -1279,7 +1279,7 @@ export function analyzeDocstringCoverage(options: { root: string; sourceDirs?: r
   let declarations = 0;
   const violations: DocstringViolation[] = [];
   for (const file of files) {
-    const text = readFileSync(file, "utf8");
+    const text = readRegularText(file);
     const result = analyzeSource(text, relative(reportBase, file));
     declarations += result.declarations;
     violations.push(...result.violations);

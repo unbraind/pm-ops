@@ -22,7 +22,8 @@
  * @see {@link https://github.com/unbraind/pm-cli/blob/main/docs/ASSURANCE.md ASSURANCE.md}
  * for the measurement / assertion / gate vocabulary this provider plugs into.
  */
-import { readFileSync, statSync } from "node:fs";
+import { InputRefusal, readRegularText } from "./regular-input.js";
+import { statSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { analyzeDocstringCoverage } from "./docstrings.js";
 /** Stable provider id used by measurement declarations and gate allow-lists. */
@@ -220,9 +221,11 @@ function roundPercent(value) {
 function readCoverageReport(reportPath, base) {
     let text;
     try {
-        text = readFileSync(reportPath, "utf8");
+        text = readRegularText(reportPath);
     }
-    catch {
+    catch (error) {
+        if (error instanceof InputRefusal && error.reason === "unsupported")
+            throw error;
         throw new Error(`pm-ops-quality: coverage report not found at ${reportPath}. ` +
             'Provide the "report" parameter or generate the report by running the ' +
             "test suite with an lcov reporter before evaluating the gate.");

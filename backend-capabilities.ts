@@ -1,5 +1,6 @@
 /** Read-only backend contract assurance; never runs Git or tracker mutations. */
-import { chmod, cp, lstat, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { readRegularText } from "./regular-input.ts";
+import { chmod, cp, lstat, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { listAllItemMetadata, locateItem, readLocatedItem, readSettings, resolveItemTypeRegistry } from "@unbrained/pm-cli/sdk";
@@ -266,6 +267,6 @@ export async function auditConfiguredBackends(config: readonly BackendAdapterCon
 /** Read a JSON adapter configuration relative to its own directory. */
 export async function auditBackendConfigFile(path: string): Promise<BackendCapabilityMatrix> {
   let value: unknown;
-  try { value = JSON.parse(await readFile(path, "utf8")); } catch { throw new BackendConfigurationRefusal("invalid_backend_config", "provide a readable JSON adapter array"); }
+  try { value = JSON.parse(readRegularText(path)); } catch { throw new BackendConfigurationRefusal("invalid_backend_config", "provide a regular JSON adapter file no larger than 16 MiB"); }
   return auditConfiguredBackends(parseBackendConfig(value), dirname(resolve(path)));
 }

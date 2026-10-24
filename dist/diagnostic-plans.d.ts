@@ -82,7 +82,7 @@ export declare function createDiagnosticPlan(pmRoot: string, failures: readonly 
 /** Reject tampering, extra fields and stale catalog definitions before execution. */
 export declare function parseDiagnosticPlan(value: unknown): DiagnosticPlan;
 /** Execute exactly the selected reviewed plan, stopping all further dispatch after any budget exhaustion. */
-export declare function executeDiagnosticPlan(pmRoot: string, input: DiagnosticPlan, selected: string): Promise<DiagnosticRun>;
+export declare function executeDiagnosticPlan(pmRoot: string, input: DiagnosticPlan, selected: string, start?: number): Promise<DiagnosticRun>;
 /** Read a bounded review artifact, refusing paths and parser errors without echoing them. */
 export declare function readDiagnosticPlan(path: string): Promise<DiagnosticPlan>;
 //# sourceMappingURL=diagnostic-plans.d.ts.map

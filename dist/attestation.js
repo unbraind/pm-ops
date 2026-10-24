@@ -17,8 +17,9 @@
  *
  * @packageDocumentation
  */
+import { readRegularText } from "./regular-input.js";
 import { execFileSync } from "node:child_process";
-import { closeSync, openSync, readFileSync, readSync } from "node:fs";
+import { closeSync, constants, fstatSync, statSync, openSync, readSync } from "node:fs";
 import { resolve } from "node:path";
 import { isNode, parse, parseDocument } from "yaml";
 import { bashArrayDeclarations, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, declarationPrefixLength, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, isolateShellChildren, joinContinuations, scalarAssignmentEvents, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
@@ -1162,8 +1163,12 @@ export function isExecutableSource(path, firstLine) {
  */
 function firstBytes(file) {
     try {
-        const handle = openSync(file, "r");
+        if (!statSync(file).isFile())
+            return "";
+        const handle = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK);
         try {
+            if (!fstatSync(handle).isFile())
+                return "";
             // The whole shebang LINE, not the `#!` marker. Reading two bytes was
             // enough while any shebang counted as shell, but the interpreter decides
             // that now, and handing this function's caller `"#!"` would make every
@@ -1217,7 +1222,7 @@ export function trackedPublishSources(root) {
 export function verify(root) {
     const sources = trackedPublishSources(root).map((file) => ({
         file,
-        text: readFileSync(resolve(root, file), "utf8"),
+        text: readRegularText(resolve(root, file)),
     }));
     return auditPublishAttestation(sources);
 }

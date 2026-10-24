@@ -150,6 +150,7 @@ export interface CompletenessFetcher {
  */
 export declare function defaultExec(command: string, args: string[], options?: {
     cwd?: string;
+    encoding?: "utf-8" | "base64";
 }): string;
 /**
  * Fetch all GitHub Release tag names for a slug, paginating through the API.
@@ -169,6 +170,18 @@ export declare function defaultExec(command: string, args: string[], options?: {
 export declare function fetchGithubReleasesPaginated(exec: (command: string, args: string[], options: {
     cwd?: string;
 }) => string, slug: string): string[];
+/** Typed tag lookup: a 404 is explicit absence, while authentication and transport failures still throw. */
+export type GithubReleaseRead = {
+    code: "found";
+    remedy: "";
+} | {
+    code: "github_release_absent";
+    remedy: string;
+};
+/** Read one tag without leaking a handled gh diagnostic to stderr. */
+export declare function readGithubRelease(exec: (command: string, args: string[], options: {
+    cwd?: string;
+}) => string, slug: string, tag: string): GithubReleaseRead;
 /**
  * Build a fetcher from an executor.
  *
