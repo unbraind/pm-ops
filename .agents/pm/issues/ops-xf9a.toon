@@ -6,9 +6,7 @@ status: in_progress
 priority: 0
 tags[3]: "area:release","area:supply-chain","type:defect"
 created_at: "2026-08-28T08:23:51.410Z"
-updated_at: "2026-10-24T05:25:41.662Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-24T05:36:42.236Z"
 author: "harness:codex"
 estimated_minutes: 240
 acceptance_criteria: "A release that changes metadata stops after merging and dispatches a fresh main-branch release run; publication occurs only when github.sha equals the merged release SHA; npm audit signatures cryptographically verifies the downloaded exact package and returns the SLSA bundle; the verified statement subject matches the package coordinate and tarball digest; repository, workflow path, ref, and resolved gitCommit exactly match the intended release; missing, invalid, ambiguous, or mismatched evidence fails closed; red-first fixtures cover wrong commit, repository, workflow, ref, coordinate, digest, missing bundle, and invalid audit results; the corrected contract is propagated per-package without copying foreign workflow content"
@@ -20,13 +18,14 @@ actual_result: "The signed provenance names the workflow trigger SHA, while the 
 affected_version: pm-ops daily release through 2026.8.28
 component: .github/workflows/release.yml
 customer_impact: "A package can display valid npm provenance while its Source Commit link identifies code other than the bytes published, defeating exact-source auditability and allowing the release workflow to tag the wrong commit during reconciliation."
-comments[6]{created_at,author,text}:
+comments[7]{created_at,author,text}:
   "2026-10-07T22:03:48.268Z",codex-sol,"Additional measured evidence from ops-3j1z: the recorded npm 11.17.0 signature-audit output for public pm-ops 2026.8.28 verifies signed source c7da4bf04039c3e0543026d003e9ee7bcd8615cd, while the contemporaneous registry gitHead is 5b6fbe73b7072d49c41d5cb3cad4d44142f3fe4a. Offline regression test/fixtures/npm-signature-audit.json and test/release-repair.test.ts preserve this mismatch and require repair refusal. Existing publish-workflow provenance work remains scoped to this item; no duplicate created."
   "2026-10-24T05:12:42.358Z",codex-agent,"Owner requests ancestry plus exact tarball-to-tag content verification for historical publication, replacing strict workflow-trigger SHA equality in the completeness repair auditor. Keep signature, subject digest, workflow and repository checks; refuse unrelated commits and changed package bytes. Publication workflow redesign remains outside this patch."
   "2026-10-24T05:23:35.106Z",codex-agent,"Read-only live evidence: run 39934966266 published successfully and failed only at completeness audit. Current inventory has one missing GitHub Release, v2026.10.20. Its signed source ace3231e5c76e91c0b590b87d1c4cdeabbe9ca39 is an ancestor of tag/npm gitHead ee0297384c5854dc4e372a6bf96ac2ceca6fdf7a. Signature verification, signed tarball integrity and every package file/mode/set match pass. For 2026.10.23 source/tag/gitHead all equal c952e50cf6edd32e4e83b0a82b7cd89b5a769a06 and all 85 published files match. Planted unrelated source commits fail for BOTH versions. No release or tag was created."
   "2026-10-24T05:23:37.051Z",codex-agent,"Revert proof: replaced only evidenceFromAudit with origin/main. node --test --test-name-pattern=\"release audit accepts an attested ancestor\" test/release-repair.test.ts failed 1/1 with npm gitHead does not match unique verified provenance. Restored the fixed function. Existing signature, coordinate, subject digest, approved workflow/ref/repository, unrelated source, tag identity and tarball mismatch refusals remain enforced. HTTP 404 is typed github_release_absent evidence with an access-check remedy; handled stderr is captured."
   "2026-10-24T05:25:16.640Z",codex-agent,"Focused release suites pass 57 tests with zero failures or skips; core four-module targeted coverage is 100% in all dimensions. Tarball controls reject changed binary bytes, modes, missing/extra members, changed integrity and unsafe member paths. npm and Bun full release gates will be verified on the PR head in CI."
   "2026-10-24T05:25:41.662Z",codex-agent,"Linked acceptance correction: pm test ops-xf9a --run --progress reports 58/58 tests passed, not 57. pm test ops-bounded-input --run --progress reports 19/19 passed including the new CLI input-time regression. Both runs have zero failures, skips and TODOs."
+  "2026-10-24T05:36:40.819Z",codex-agent,"Full CI receipt: https://github.com/unbraind/pm-ops/actions/runs/40066539717 at 005fce5c08835b255ec60fbe2c879f8c72767703. npm and Bun release gates passed on Node 22/26, each 1430 passed + 2 real-data skips, zero failed, 100% four-dimension coverage across 35 source files. Both Windows consumer jobs passed. PR: https://github.com/unbraind/pm-ops/pull/196 . Historical v2026.10.20 still lacks its GitHub Release; no live repair writes were performed. This PR fixes auditor verification; publication workflow redesign remains outside this patch. Claim released without closing the item."
 files[6]:
   - path: .github/workflows/release.yml
     scope: project
