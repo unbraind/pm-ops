@@ -2,15 +2,20 @@ id: ops-backend-capability
 title: Report verified backend SDK capabilities without tracker writes
 description: "Build a read-only assurance matrix for every explicitly configured directory, database and MCP adapter. Verify backend operation contracts separately from core command/schema discovery and package ecosystem readiness."
 type: Feature
-status: in_progress
+status: closed
 priority: 1
 tags: []
 created_at: "2026-10-21T20:04:57.459Z"
-updated_at: "2026-10-22T12:08:02.353Z"
+updated_at: "2026-10-24T21:47:28.241Z"
+closed_at: "2026-10-24T21:47:28.227Z"
+completed_at: "2026-10-24T21:47:28.227Z"
 author: codex-agent
 acceptance_criteria: "Synthetic directory/database/MCP adapters produce distinct supported, unsupported, unavailable and invariant_failed statuses; diagnostics never mutate the tracker or require Git; typed SDK and CLI with compact TOON/JSON and typed remedies; README and example; read-only public fleet copy validated outside Git; targeted tests, typecheck and lint locally plus npm and Bun release gates in CI."
 risk: low
 confidence: high
+resolution: "Read-only backend probes distinguish supported, unsupported, unavailable and invariant_failed capabilities without Git or tracker writes; compact SDK/CLI, public-copy and npm/Bun CI evidence are recorded."
+expected_result: "Synthetic directory/database/MCP adapters produce distinct supported, unsupported, unavailable and invariant_failed statuses; diagnostics never mutate the tracker or require Git; typed SDK and CLI with compact TOON/JSON and typed remedies; README and example; read-only public fleet copy validated outside Git; targeted tests, typecheck and lint locally plus npm and Bun release gates in CI."
+actual_result: "https://github.com/unbraind/pm-ops/pull/189, merged 2026-10-22T14:32:23Z, merge 3546c385e30d9914ab8a5690ccee7842ca38a7d9: Read-only backend probes distinguish supported, unsupported, unavailable and invariant_failed capabilities without Git or tracker writes; compact SDK/CLI, public-copy and npm/Bun CI evidence are recorded."
 comments[12]{created_at,author,text}:
   "2026-10-21T20:05:34.420Z",codex-agent,"Overlap check: current core SDK exports command/schema capability discovery and complete-list certification, but no configured backend contract assurance matrix. Sibling pm-web doctor checks database reachability/schema and its capability route discovers commands; pm-context/pm-observer do not verify backend read operations. Cargo readiness remains separate in ops-d8k3. No duplicate backend item found. PR 188 reconciliation items are excluded. Design: fixed read-only list/get/schema contracts, typed per-operation statuses and remedies, directory snapshot isolation to contain SDK-derived caches, and explicit read-port bridges for database/MCP providers. No write operations are probed."
   "2026-10-21T20:12:56.552Z",codex-agent,"Behavioral revert proof: replaced only auditBackendCapabilities with an empty success report, keeping all other functions unchanged. node --test --test-name-pattern \"matrix distinguishes\" test/backend-capabilities.test.ts failed 1/1 (exit 1) on missing operation statuses. Restored source immediately. Targeted backend plus renderer tests passed 16/16 before final hardening. Local build, test typecheck, lint and docstring gate passed; full npm/Bun gates remain delegated to CI on the final PR head."
@@ -53,4 +58,5 @@ tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
 docs[2]{path,scope,note}:
   docs/examples/backend-capabilities.json,project,Runnable directory configuration
   README.md,project,Default tracker selection follows the host
+close_reason: "https://github.com/unbraind/pm-ops/pull/189, merged 2026-10-22T14:32:23Z, merge 3546c385e30d9914ab8a5690ccee7842ca38a7d9: Read-only backend probes distinguish supported, unsupported, unavailable and invariant_failed capabilities without Git or tracker writes; compact SDK/CLI, public-copy and npm/Bun CI evidence are recorded."
 body: ""

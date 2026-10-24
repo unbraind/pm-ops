@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Invalidate only operational claims whose evidence expires or whose scoped versions change ([ops-evidence-expiry](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-evidence-expiry.toon))
+- Run reviewed read-only diagnostic plans within explicit budgets ([ops-diagnostic-plans](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-diagnostic-plans.toon))
+- Report verified backend SDK capabilities without tracker writes ([ops-backend-capability](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-backend-capability.toon))
+
+### Fixed
+
+- Honor metrics JSON format and document verified registry activation ([ops-install-routes-1022](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-install-routes-1022.toon))
+- Refuse unsafe diagnostic and artifact inputs before reading ([ops-bounded-input](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-bounded-input.toon))
+
 ## 2026.10.23 - 2026-10-23
 
 ### Added
