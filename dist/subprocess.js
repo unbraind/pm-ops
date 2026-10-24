@@ -18,6 +18,20 @@ export class CaptureRefusal extends Error {
         this.remedy = remedy;
     }
 }
+/** A caller requested shell interpretation at a direct-executable boundary. */
+export class ShellRefusal extends Error {
+    /** Stable usage-error classification. */
+    code = "shell_not_allowed";
+    /** Shell requests require a corrected invocation. */
+    exitCode = 2;
+    /** Recovery instructions without caller-controlled arguments or shell paths. */
+    remedy = "Pass the executable and an argument array instead of requesting a shell.";
+    /** Construct a sanitized refusal before launching any child process. */
+    constructor() {
+        super("shell_not_allowed: Pass the executable and an argument array instead of requesting a shell.");
+        this.name = "ShellRefusal";
+    }
+}
 /** Translate both synchronous and asynchronous Node overflow error codes without retaining partial output. */
 export function refuseCaptureOverflow(error, limit) {
     const code = error?.code;
@@ -28,11 +42,13 @@ export function refuseCaptureOverflow(error, limit) {
 export const execFileSync = ((command, argsOrOptions = [], supplied = {}) => {
     const args = Array.isArray(argsOrOptions) ? argsOrOptions : [];
     const options = Array.isArray(argsOrOptions) ? supplied : argsOrOptions;
+    if (options.shell)
+        throw new ShellRefusal();
     const maxBuffer = options.maxBuffer ?? CAPTURE_LIMIT;
     if (!Number.isSafeInteger(maxBuffer) || maxBuffer <= 0)
         throw new CaptureRefusal(CAPTURE_LIMIT);
     try {
-        return nodeExecFileSync(command, args, { stdio: "pipe", ...options, maxBuffer });
+        return nodeExecFileSync(command, args, { stdio: "pipe", ...options, maxBuffer, shell: false });
     }
     catch (error) {
         refuseCaptureOverflow(error, maxBuffer);
@@ -43,10 +59,12 @@ export const execFileSync = ((command, argsOrOptions = [], supplied = {}) => {
 export const spawnSync = ((command, argsOrOptions = [], supplied = {}) => {
     const args = Array.isArray(argsOrOptions) ? argsOrOptions : [];
     const options = Array.isArray(argsOrOptions) ? supplied : argsOrOptions;
+    if (options.shell)
+        throw new ShellRefusal();
     const maxBuffer = options.maxBuffer ?? CAPTURE_LIMIT;
     if (!Number.isSafeInteger(maxBuffer) || maxBuffer <= 0)
         throw new CaptureRefusal(CAPTURE_LIMIT);
-    const result = nodeSpawnSync(command, args, { ...options, maxBuffer });
+    const result = nodeSpawnSync(command, args, { ...options, maxBuffer, shell: false });
     refuseCaptureOverflow(result.error, maxBuffer);
     return result;
 });

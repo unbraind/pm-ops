@@ -8,6 +8,13 @@ reduce, paginate or stream remedy. Partial output and raw child errors are never
 retained by that refusal. Explicit pipe stdio prevents Node from echoing captured
 stderr when a command throws.
 
+Both adapters execute the executable and argument array directly. Truthy caller
+`shell` options (including shell paths) throw `ShellRefusal` (`shell_not_allowed`,
+exit code 2) before Node is called, with the remedy to pass the executable and an
+argument array. Both overloads force `shell: false` after spreading caller
+options, so even an option getter that changes during the spread cannot enable a
+shell. The refusal never retains executable names, arguments or shell paths.
+
 The package capture inventory covers all root modules and gate scripts:
 
 | Consumer | Transport and overflow result |

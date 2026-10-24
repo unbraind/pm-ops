@@ -13,6 +13,17 @@ export declare class CaptureRefusal extends Error {
     /** Construct a refusal that never retains raw subprocess errors. */
     constructor(limit: number);
 }
+/** A caller requested shell interpretation at a direct-executable boundary. */
+export declare class ShellRefusal extends Error {
+    /** Stable usage-error classification. */
+    readonly code = "shell_not_allowed";
+    /** Shell requests require a corrected invocation. */
+    readonly exitCode = 2;
+    /** Recovery instructions without caller-controlled arguments or shell paths. */
+    readonly remedy = "Pass the executable and an argument array instead of requesting a shell.";
+    /** Construct a sanitized refusal before launching any child process. */
+    constructor();
+}
 /** Translate both synchronous and asynchronous Node overflow error codes without retaining partial output. */
 export declare function refuseCaptureOverflow(error: unknown, limit: number): void;
 /** Capture with a finite ceiling, preserving Node's overloads and ordinary command failures. */

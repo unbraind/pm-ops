@@ -4,11 +4,13 @@ description: Reject non-regular and oversized package inputs with bounded reads 
 type: Issue
 status: in_progress
 priority: 2
-tags[1]: "gh:unbraind/pm-ops#195"
+tags[2]: "gh:unbraind/pm-ops#195","gh:unbraind/pm-ops#196"
 created_at: "2026-10-24T05:12:38.041Z"
-updated_at: "2026-10-24T06:06:25.324Z"
+updated_at: "2026-10-24T07:47:25.459Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
-comments[17]{created_at,author,text}:
+comments[20]{created_at,author,text}:
   "2026-10-24T05:12:43.234Z",codex-agent,"Auditing every direct package reader. Use one bounded regular-file reader with nonblocking open and descriptor validation, preserve domain refusal categories and remedies, charge diagnostic input and scope resolution to the shared deadline. Regressions use real special files and externally bounded subprocesses in a non-Git fixture."
   "2026-10-24T05:23:31.840Z",codex-agent,"Implemented one regular-file input primitive across all direct readers, including backend config, policy, evidence versions, workflow files, source scanners, coverage artifacts and plan JSON. Real FIFO without a writer, Unix socket, device, directory and oversized inputs return typed remedies; descriptor race and growth controls pass. Non-Git tracker and empty PATH exercise eight input surfaces. Local reader suites: 130 passed, zero failed/skipped."
   "2026-10-24T05:23:33.492Z",codex-agent,"Revert proof: replaced only readDiagnosticPlan with its origin/main implementation and restored its open import. node --test --test-name-pattern=\"all artifact readers refuse\" test/regular-input.test.ts failed 1/1 with ETIMEDOUT at the 5000 ms subprocess ceiling on the real writerless FIFO. Restored the fixed function immediately; no tracker bytes were changed by the regression."
@@ -26,6 +28,9 @@ comments[17]{created_at,author,text}:
   "2026-10-24T05:59:31.569Z",codex-agent,"Extended the bounded adapter to every executable test, proof and acceptance driver as well as runtime modules and gate scripts; remaining raw child-process imports are inherited-stdio launchers, asynchronous streaming transport, or mocks/types. Frozen historical source snapshots remain unchanged. The token-aware inventory guard now scans runtime, script, template and test sources. The isolated historical-Windows fixture copies the shared adapter alongside its copied npm launcher. First code-head CI passed both npm/Bun release gates on Node 22/26 and both Windows jobs; final driver head will be verified separately."
   "2026-10-24T06:00:23.536Z",codex-agent,"Executable-driver closure passed the linked six-suite command: 58/58, zero failures/skips, including real npm pack and historical proof diagnostics. npm run typecheck, npm run build:test, npm run lint, npm run duplication (0%) and npm run docstring pass after driver changes. The first code-head CI run 40068059329 succeeded in all four jobs: npm/Bun gates report 1438 passed, 0 failed, 2 configured real-data skips and 100% in all four coverage dimensions across 36 authored modules. Final-head driver CI is required before handoff."
   "2026-10-24T06:06:25.323Z",codex-agent,"Verified final executable code head 9640e08870ba895128bc9d87208dde3a0da2b254 in CI https://github.com/unbraind/pm-ops/actions/runs/40068489204: all 4 jobs succeeded. npm run release:check and bun run release:check each passed on Node 22 and 26: 1440 total tests, 1438 passed, 0 failed, 2 configured real-data skips; statements/branches/functions/lines all 100% across 36 authored modules, unchanged thresholds. Both Windows consumer jobs passed. Repeated source-only revert on this final code: selected real-tar and capture tests 0/3 passed with old controls (real tar ENOBUFS); sources restored byte-for-byte, rebuilt, identical command 3/3 passed. Linked final six-suite command passed 58/58. No merge, release or thread reply performed; item remains in progress and unclaimed for orchestrator verification."
+  "2026-10-24T07:44:21.657Z",codex-agent,"Addressing PR #196 CodeQL thread PRRT_kwDOTOTl1M6v2EbX (alert 19): both bounded subprocess wrappers will reject truthy shell options with a typed usage refusal and force shell: false after the caller-option spread. Regression coverage will exercise both overload forms, verify the options reaching Node, and fail with wrapper-only behavioral reverts. Targeted tests, typecheck and lint run locally; unchanged 100% npm/Bun release gates run in CI. No merge."
+  "2026-10-24T07:46:35.447Z",codex-agent,"Revert proof for the shell boundary: reverted only execFileSync to the prior wrapper, leaving tests and ShellRefusal intact; node --test --test-name-pattern=\"^execFileSync \" test/subprocess.test.ts gave 0 passed, 2 failed. Reverting only spawnSync gave 0 passed, 2 failed with the equivalent ^spawnSync pattern. For each wrapper separately, removing only the truthy-shell guard gave 1 passed/1 failed; removing only the final shell: false override also gave 1 passed/1 failed. All six controls exited 1. Restored subprocess.ts byte-for-byte; node --test --test-name-pattern=\"^(execFileSync|spawnSync) \" test/subprocess.test.ts passed 4/4, zero failures/skips. These tests import source directly; the final build also regenerates dist. No shell was launched in the controls."
+  "2026-10-24T07:47:25.459Z",codex-agent,"Shell fix validation: node --test test/subprocess.test.ts passed 8/8, including the four new execFileSync/spawnSync refusal and forced-shell-false tests. The same linked command passed via pm test ops-bounded-input --run --only-last --progress; project policy disables result persistence, so this comment retains its receipt. node --test test/subprocess.test.ts test/release-repair.test.ts test/release-caller.test.ts test/diagnostic-plans.test.ts passed 58/58, zero failures/skips, including the real non-Git tracker cases. Focused c8 for subprocess.ts reports 100% statements/branches/functions/lines. npm run typecheck, npm run build:test, npm run lint, npm run duplication (0%, unchanged threshold), npm run docstring (36 modules, 307 documented declarations) and npm run build pass. Full npm/Bun gates and CodeQL alert 19 verification are pending CI on the pushed head."
 files[77]{path,scope}:
   assurance.ts,project
   attestation.ts,project
@@ -104,7 +109,7 @@ files[77]{path,scope}:
   test/verify-release-completeness.test.ts,project
   test/windows-consumers.proof.ts,project
   test/windows-proof-history.test.ts,project
-tests[4]:
+tests[5]:
   - command: node --test test/regular-input.test.ts test/diagnostic-plans.test.ts
     scope: project
     timeout_seconds: 120
@@ -133,6 +138,14 @@ tests[4]:
     provenance:
       author: codex-agent
       created_at: "2026-10-24T05:59:33.178Z"
+      source_kind: local_mutation
+      source_ref: fix/bounded-plan-input-and-release-audit
+  - command: node --test test/subprocess.test.ts
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T07:46:36.157Z"
       source_kind: local_mutation
       source_ref: fix/bounded-plan-input-and-release-audit
 docs[2]{path,scope}:

@@ -1,11 +1,13 @@
 /** Real child processes prove every capture adapter rejects overflow without leaking partial output. */
 import assert from "node:assert/strict";
+import childProcess, { type ExecFileSyncOptions } from "node:child_process";
 import { closeSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import test from "node:test";
 import { tokenize } from "../docstrings.ts";
-import { CAPTURE_LIMIT, CaptureRefusal, execFileSync, refuseCaptureOverflow, spawnSync } from "../subprocess.ts";
+import { CAPTURE_LIMIT, CaptureRefusal, ShellRefusal, execFileSync, refuseCaptureOverflow, spawnSync } from "../subprocess.ts";
 import { defaultExec } from "../release-completeness.ts";
 
 /** Assert the stable sanitized refusal and actionable remedy. */
@@ -15,6 +17,57 @@ function refused(error: unknown): boolean {
   assert.match(error.remedy, /Reduce or paginate.*stream bulk data/);
   assert.doesNotMatch(error.message, /ENOBUFS|SECRET|stdio_maxbuffer/i);
   return true;
+}
+
+for (const [name, capture] of [["execFileSync", execFileSync], ["spawnSync", spawnSync]] as const) {
+  test(`${name} refuses truthy shell options before reaching Node`, t => {
+    let launches = 0;
+    t.mock.method(childProcess, name, () => { launches++; throw new Error("unexpected Node launch"); });
+    syncBuiltinESMExports();
+    try {
+      for (const shell of [true, "SECRET-shell"]) {
+        for (const invoke of [() => capture("SECRET-command", ["SECRET-argument"], { shell }), () => capture("SECRET-command", { shell })]) {
+          assert.throws(invoke, error => {
+            assert.ok(error instanceof ShellRefusal);
+            assert.equal(error.code, "shell_not_allowed"); assert.equal(error.exitCode, 2);
+            assert.equal(error.name, "ShellRefusal");
+            assert.match(error.remedy, /Pass the executable and an argument array/);
+            assert.equal(error.message, `${error.code}: ${error.remedy}`);
+            assert.doesNotMatch(error.message, /SECRET/);
+            return true;
+          });
+        }
+      }
+      assert.equal(launches, 0);
+    } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+  });
+
+  test(`${name} forces shell false after caller options in both overloads`, t => {
+    const reachedNode = new Error("observed Node options");
+    let launches = 0;
+    t.mock.method(childProcess, name, (file: string, args: readonly string[], options: ExecFileSyncOptions) => {
+      launches++;
+      assert.equal(file, "literal-executable");
+      assert.deepEqual(args, []);
+      assert.equal(options.shell, false);
+      assert.equal(options.maxBuffer, CAPTURE_LIMIT);
+      throw reachedNode;
+    });
+    syncBuiltinESMExports();
+    try {
+      for (const overload of ["args", "options"]) {
+        let reads = 0;
+        // The guard sees false; the later spread sees true. The final override must still win.
+        const changingShell = { get shell() { return reads++ > 0; } };
+        for (const options of [{}, { shell: false }, { shell: "" }, changingShell]) {
+          assert.throws(() => overload === "args"
+            ? capture("literal-executable", [], options)
+            : capture("literal-executable", options), error => error === reachedNode);
+        }
+      }
+      assert.equal(launches, 8);
+    } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+  });
 }
 
 test("real exec and spawn captures refuse oversized stdout and stderr with typed remedies", () => {
