@@ -6,11 +6,9 @@ status: in_progress
 priority: 2
 tags[2]: "gh:unbraind/pm-ops#195","gh:unbraind/pm-ops#196"
 created_at: "2026-10-24T05:12:38.041Z"
-updated_at: "2026-10-24T10:11:35.403Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-24T10:18:27.178Z"
 author: codex-agent
-comments[30]{created_at,author,text}:
+comments[31]{created_at,author,text}:
   "2026-10-24T05:12:43.234Z",codex-agent,"Auditing every direct package reader. Use one bounded regular-file reader with nonblocking open and descriptor validation, preserve domain refusal categories and remedies, charge diagnostic input and scope resolution to the shared deadline. Regressions use real special files and externally bounded subprocesses in a non-Git fixture."
   "2026-10-24T05:23:31.840Z",codex-agent,"Implemented one regular-file input primitive across all direct readers, including backend config, policy, evidence versions, workflow files, source scanners, coverage artifacts and plan JSON. Real FIFO without a writer, Unix socket, device, directory and oversized inputs return typed remedies; descriptor race and growth controls pass. Non-Git tracker and empty PATH exercise eight input surfaces. Local reader suites: 130 passed, zero failed/skipped."
   "2026-10-24T05:23:33.492Z",codex-agent,"Revert proof: replaced only readDiagnosticPlan with its origin/main implementation and restored its open import. node --test --test-name-pattern=\"all artifact readers refuse\" test/regular-input.test.ts failed 1/1 with ETIMEDOUT at the 5000 ms subprocess ceiling on the real writerless FIFO. Restored the fixed function immediately; no tracker bytes were changed by the regression."
@@ -41,6 +39,7 @@ comments[30]{created_at,author,text}:
   "2026-10-24T10:02:37.494Z",codex-agent,"Behavioral revert proof: replaced only packContents and the manifest equality expression with their pre-fix implementations, leaving the new tests intact, then rebuilt. node --test --test-name-pattern=\"seeded real npm tarball mutation fuzz\" test/release-repair.test.ts exited 1 (0 passed, 1 failed): Missing expected exception: seed 1: type swap. The old verifier accepted the same-mode empty-file-to-symlink substitution through real npm and tar. Restored the fix byte-for-byte and rebuilt immediately. The preceding fixed targeted run passed 27/27 with zero failures/skips; final restored checks follow."
   "2026-10-24T10:04:51.146Z",codex-agent,"Restored validation: targeted archive/release suites pass 27/27 with zero failures, cancellations or skips; the linked pm test run also passes. Final canonical-tar coverage is 100% statements, branches, functions and lines. Build, test typecheck, production typecheck, lint, zero-duplication gate and 316-declaration docstring gate pass unchanged. Rejected legacy regular-file directory aliases in addition to explicit disallowed entry kinds. Starting isolated-home npm and Bun release checks, followed by exact pushed-head CI evidence."
   "2026-10-24T10:11:35.402Z",codex-agent,"Isolated-home npm run release:check passes: 1448 total tests, 1446 passed, zero failed/canceled/TODO, two existing configured real-data skips; 100% statements/branches/functions/lines across 37 authored source modules. Audit, packaging, changelog, publish-attestation and lifecycle gates pass. The same isolated-home Bun release check is running. Added-text privacy scan passes. Ambient local extension-version skew disappears with isolated HOME; no dependency pin or telemetry configuration was changed."
+  "2026-10-24T10:18:26.151Z",codex-agent,"Round 3 verified on implementation head 96cc2eb2633ae33cd13e04c92fe68191fb7a3002. CI https://github.com/unbraind/pm-ops/actions/runs/40084974132 passes all four jobs: npm run release:check and bun run release:check on Node 22 and 26, plus both Windows consumer jobs. Each release gate reports 1448 total tests, 1446 passed, zero failed/canceled/TODO, two configured real-data skips and 100% statements/branches/functions/lines across 37 authored modules. Both isolated-home local release gates also pass with identical counts. Revert proof and linked 27/27 test evidence are retained above. Corpus: 32 seeds, 1088 hostile archive mutations; real-npm adapter: four seeds, 40 mutations across all ten required classes. Matching pairs pass. Open limitation: unsupported archive extensions deliberately refuse; no coverage thresholds changed. Final receipt-only head will receive the same CI checks, with exact final run evidence in PR 196. No new pm CLI/SDK defect found; ambient extension skew was isolated without changing pins."
 files[81]:
   - path: assurance.ts
     scope: project
@@ -262,7 +261,7 @@ tests[7]:
       created_at: "2026-10-24T10:01:17.397Z"
       source_kind: local_mutation
       source_ref: fix/bounded-plan-input-and-release-audit
-docs[3]:
+docs[4]:
   - path: docs/diagnostic-plans.md
     scope: project
   - path: docs/subprocess-captures.md
@@ -270,4 +269,7 @@ docs[3]:
   - path: docs/tarball-manifests.md
     scope: project
     note: Canonical fields exclusions supported formats and refusal policy
+  - path: README.md
+    scope: project
+    note: Canonical release-repair overview
 body: ""
