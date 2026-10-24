@@ -4,8 +4,8 @@
  * @packageDocumentation
  */
 import { createHash } from "node:crypto";
-import { readRegularInput, readRegularText } from "./regular-input.ts";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readRegularText } from "./regular-input.ts";
+import { closeSync, openSync, readSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -131,17 +131,33 @@ export function evidenceFromAudit(name: string, version: string, gitHead: string
   return { name, version, gitHead, ...sources[0]! };
 }
 
+/** Hash a file in fixed chunks so tarball and member sizes never determine capture or allocation size. */
+function hashFile(path: string, encoding: "hex" | "base64"): string {
+  const fd = openSync(path, "r");
+  try {
+    const hash = createHash("sha512");
+    const chunk = Buffer.alloc(64 * 1024);
+    let count: number;
+    while ((count = readSync(fd, chunk, 0, chunk.length, null)) > 0) hash.update(chunk.subarray(0, count));
+    return hash.digest(encoding);
+  } finally { closeSync(fd); }
+}
+
 /** Hash every regular packed file without extracting registry-controlled paths. npm's file list also detects missing or extra files. */
 function packContents(exec: RepairExecutor, spec: string, cwd: string): { integrity: string; files: [string, string, number][] } {
   const [packed] = JSON.parse(exec("npm", ["pack", spec, "--ignore-scripts", "--json", "--registry=https://registry.npmjs.org/"], { cwd })) as { filename: string; integrity: string; files: { path: string; mode: number }[] }[];
   if (!packed || !/^[^/\\]+\.tgz$/.test(packed.filename) || !Array.isArray(packed.files) || packed.files.length === 0) throw new Error("unreadable package file manifest");
   const tarball = join(cwd, packed.filename);
-  const actualIntegrity = `sha512-${createHash("sha512").update(readRegularInput(tarball)).digest("base64")}`;
+  const actualIntegrity = `sha512-${hashFile(tarball, "base64")}`;
   if (actualIntegrity !== packed.integrity) throw new Error("downloaded tarball integrity mismatch");
   const files = packed.files.map((file): [string, string, number] => {
     if (!/^[a-zA-Z0-9_.@/-]+$/.test(file.path) || file.path.split("/").some((part) => part === ".." || part === "")) throw new Error("unsafe package member");
-    const body = exec("tar", ["-xOf", tarball, `package/${file.path}`], { encoding: "base64" });
-    return [file.path, createHash("sha512").update(Buffer.from(body, "base64")).digest("hex"), file.mode];
+    const member = join(cwd, "member-bytes");
+    const fd = openSync(member, "w");
+    try { exec("tar", ["-xOf", tarball, `package/${file.path}`], { stdoutFd: fd }); }
+    finally { closeSync(fd); }
+    try { return [file.path, hashFile(member, "hex"), file.mode]; }
+    finally { rmSync(member); }
   }).sort(([a], [b]) => a.localeCompare(b));
   return { integrity: actualIntegrity, files };
 }

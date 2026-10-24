@@ -282,3 +282,15 @@ test("CLI charges plan file input time to the shared execution deadline", async 
     assert.equal(launches, 0); assert.equal(result.used.time_ms, 20); assert.equal(result.rows[0]!.code, "time_budget");
   } finally { restore(t); await harness.deactivate(); }
 });
+
+
+test("diagnostic capture overflow produces an output_limit receipt and remedy", async (t) => {
+  const plan = await createDiagnosticPlan(tracker, ["schema_unreadable"], budget);
+  t.mock.method(childProcess, "spawnSync", () => ({ status: null, error: Object.assign(new Error("private child output"), { code: "ENOBUFS" }) })); syncBuiltinESMExports();
+  try {
+    const result = await executeDiagnosticPlan(tracker, plan, plan.id);
+    assert.equal(result.ok, false); assert.equal(result.rows[0].code, "output_limit");
+    assert.match(result.rows[0].remedy, /Reduce diagnostic output.*stream/);
+    assert.doesNotMatch(JSON.stringify(result), /ENOBUFS|private child output/);
+  } finally { restore(t); }
+});

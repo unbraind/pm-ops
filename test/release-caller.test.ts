@@ -9,6 +9,7 @@ import extension from "../index.ts";
 import { checkReleaseCaller, fetchCanonicalReleaseTags, inspectReleaseCaller } from "../release-caller.ts";
 import { runReleaseCaller, releaseCallerMain } from "../scripts/release-caller.ts";
 import { releaseCallerFixture } from "./canonical-tags-fixture.ts";
+import { CAPTURE_LIMIT, CaptureRefusal } from "../subprocess.ts";
 import { runCmd } from "./command-test-helpers.ts";
 
 const { releasedSha, canonical, caller, api } = releaseCallerFixture();
@@ -269,4 +270,19 @@ esac
     writeFileSync(api.curl, "#!/bin/sh\nexit 7\n");
     api.setTags(canonical);
   }
+});
+
+
+test("canonical API capture overflow refuses without curl or bundled-metadata approval", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-api-overflow-"));
+  const beforePath = process.env.PATH;
+  try {
+    const gh = join(root, "gh");
+    writeFileSync(gh, `#!/bin/sh\nexec "${process.execPath}" -e "process.stdout.write('x'.repeat(${CAPTURE_LIMIT + 1024 * 1024}))"\n`);
+    chmodSync(gh, 0o755); process.env.PATH = `${root}:${beforePath}`;
+    assert.throws(() => fetchCanonicalReleaseTags(), CaptureRefusal);
+    const result = inspectReleaseCaller(caller);
+    assert.equal(result.status, "refused"); assert.match(result.errors[0], /output_limit:.*Reduce or paginate/);
+    assert.doesNotMatch(result.errors[0], /ENOBUFS/);
+  } finally { process.env.PATH = beforePath; rmSync(root, { recursive: true, force: true }); }
 });

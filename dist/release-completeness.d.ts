@@ -151,6 +151,7 @@ export interface CompletenessFetcher {
 export declare function defaultExec(command: string, args: string[], options?: {
     cwd?: string;
     encoding?: "utf-8" | "base64";
+    stdoutFd?: number;
 }): string;
 /**
  * Fetch all GitHub Release tag names for a slug, paginating through the API.

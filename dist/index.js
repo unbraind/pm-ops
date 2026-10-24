@@ -1,5 +1,5 @@
 import { InputRefusal, readRegularText } from "./regular-input.js";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./subprocess.js";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { devNull, homedir } from "node:os";

@@ -1,6 +1,6 @@
 import { InputRefusal, readRegularText } from "./regular-input.ts";
 import type { ExtensionApi, ExtensionModule, CommandHandlerContext } from "@unbrained/pm-cli/sdk/authoring";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./subprocess.ts";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { devNull, homedir } from "node:os";

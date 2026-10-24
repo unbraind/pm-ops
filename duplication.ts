@@ -10,7 +10,7 @@ import { createRequire } from "node:module";
 import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, matchesGlob, relative, resolve, sep } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./subprocess.ts";
 
 /**
  * Default globs scanned by the duplication gate: every authored TypeScript

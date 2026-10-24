@@ -1,7 +1,7 @@
 /** Reviewed, scope-bound orchestration over a closed read-only diagnostic catalog. */
 import { readRegularText } from "./regular-input.ts";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { CaptureRefusal, spawnSync } from "./subprocess.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
@@ -60,7 +60,7 @@ export class DiagnosticRefusal extends Error {
   }
 }
 /** Receipt codes never carry subprocess output. */
-export type DiagnosticCode = "verified" | "probe_failed" | "network_budget" | "process_budget" | "time_budget";
+export type DiagnosticCode = "verified" | "probe_failed" | "output_limit" | "network_budget" | "process_budget" | "time_budget";
 /** One sanitized receipt, including skipped probes so scope never silently shrinks. */
 export interface DiagnosticReceipt {
   /** Exact reviewed command identity. */
@@ -91,6 +91,7 @@ export interface DiagnosticRun {
 const COMMANDS: readonly DiagnosticCommand[] = ["sdk:schema:v1", "sdk:items:v1", "sdk:history:v1", "http:registry-head:v1"];
 const REMEDIES: Record<DiagnosticCode, string> = {
   verified: "", probe_failed: "Restore readable tracker data or registry reachability, then review and retry the same scope.",
+  output_limit: "Reduce diagnostic output or stream bulk data to a file, then review and retry the same scope.",
   network_budget: "Review a new plan with a sufficient network ceiling, or omit registry diagnostics.",
   process_budget: "Review a new plan with a sufficient process ceiling or fewer observations.",
   time_budget: "Review a new plan with a longer deadline or fewer observations.",
@@ -178,7 +179,7 @@ export async function executeDiagnosticPlan(pmRoot: string, input: DiagnosticPla
     else {
       used.processes += step.cost.processes; used.network += step.cost.network;
       try { result = probe(step.command, scope.root, Math.floor(remaining)); }
-      catch { result = { code: "probe_failed", checked: 0 }; }
+      catch (error) { result = { code: error instanceof CaptureRefusal ? "output_limit" : "probe_failed", checked: 0 }; }
       if (result.code === "time_budget" || performance.now() - start >= plan.budget.time_ms) {
         stopped = "time_budget"; result = { code: stopped, checked: 0 };
       }

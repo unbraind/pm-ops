@@ -24,7 +24,7 @@
  * @packageDocumentation
  */
 import { readRegularText } from "./regular-input.ts";
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "./subprocess.ts";
 import { resolve } from "node:path";
 
 import type { VerifierResult } from "./shell-scan.ts";
@@ -290,9 +290,10 @@ export interface CompletenessFetcher {
 export function defaultExec(
   command: string,
   args: string[],
-  options: { cwd?: string; encoding?: "utf-8" | "base64" } = {},
+  options: { cwd?: string; encoding?: "utf-8" | "base64"; stdoutFd?: number } = {},
 ): string {
-  return execFileSync(command, args, { encoding: "utf-8", stdio: "pipe", ...options });
+  const { stdoutFd, ...capture } = options;
+  return execFileSync(command, args, { encoding: "utf-8", stdio: stdoutFd === undefined ? "pipe" : ["ignore", stdoutFd, "pipe"], ...capture }) ?? "";
 }
 
 /** Page size for GitHub Release API pagination. The API caps at 100. */

@@ -1,6 +1,6 @@
 /** Structural and canonical tag provenance checks for shared release workflow callers. */
 import { isScalar, parseDocument } from "yaml";
-import { execFileSync } from "node:child_process";
+import { CaptureRefusal, execFileSync } from "./subprocess.ts";
 import metadata from "./release-metadata.json" with { type: "json" };
 
 /** Resolve canonical release tags, or only one exact tag, including annotated tag peeling. */
@@ -28,7 +28,8 @@ export function fetchCanonicalReleaseTags(run: (args: string[]) => string = runC
 function runCanonicalTagApi(args: string[]): string {
   try {
     return execFileSync("gh", ["api", "--hostname", "github.com", ...args.slice(1)], { encoding: "utf8", timeout: 20_000, stdio: ["ignore", "pipe", "pipe"] });
-  } catch {
+  } catch (error) {
+    if (error instanceof CaptureRefusal) throw error;
     const endpoint = args.find(arg => arg.startsWith("repos/"))!.replace("/git/refs/tags", "/git/matching-refs/tags/");
     const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
     const response = execFileSync("curl", ["--fail", "--silent", "--show-error", "--max-time", "20", "--header", "Accept: application/vnd.github+json", "--header", "@-", `https://api.github.com/${endpoint}`], {
@@ -113,7 +114,8 @@ export function inspectReleaseCaller(source: string, resolveTags: ((tag: string)
   let tags: Readonly<Record<string, string>>;
   try {
     tags = resolveTags(pin.tag);
-  } catch {
+  } catch (error) {
+    if (error instanceof CaptureRefusal) return { status: "refused", errors: [error.message] };
     tags = metadata.tags;
     if (!(pin.tag in tags)) return { status: "unverified-offline", errors: ["unverified-offline: canonical release tag is absent from the bundled snapshot; retry online to verify SHA provenance"] };
   }

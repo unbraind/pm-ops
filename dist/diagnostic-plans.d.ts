@@ -50,7 +50,7 @@ export declare class DiagnosticRefusal extends Error {
     constructor(code: DiagnosticRefusal["code"], remedy: string);
 }
 /** Receipt codes never carry subprocess output. */
-export type DiagnosticCode = "verified" | "probe_failed" | "network_budget" | "process_budget" | "time_budget";
+export type DiagnosticCode = "verified" | "probe_failed" | "output_limit" | "network_budget" | "process_budget" | "time_budget";
 /** One sanitized receipt, including skipped probes so scope never silently shrinks. */
 export interface DiagnosticReceipt {
     /** Exact reviewed command identity. */

@@ -2,12 +2,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { create, init } from "@unbrained/pm-cli/sdk";
-import { auditReleaseCompleteness, makeFetcher, verify, type CompletenessFetcher } from "../release-completeness.ts";
+import { auditReleaseCompleteness, defaultExec, makeFetcher, verify, type CompletenessFetcher } from "../release-completeness.ts";
 import { repairReleaseCompleteness as repairBuiltPackage } from "../dist/release-repair.js";
 import { committedReleaseNotes, evidenceFromAudit, makeRepairClient, repairReleaseCompleteness, verifyReleaseSource, type NpmEvidence, type ProvenanceStatement, type RepairClient, type RepairExecutor } from "../release-repair.ts";
 import { runIfMain } from "../scripts/verify-release-completeness.ts";
@@ -453,8 +453,9 @@ test("tarball comparison binds verified integrity, binary bytes, modes and compl
         }
       }
       if (command === "tar" && args[0] === "-xOf") {
-        assert.equal(options.encoding, "base64");
-        return (mode === "bytes" && !args[1]!.includes("source") ? Buffer.from("changed") : original).toString("base64");
+        assert.equal(typeof options.stdoutFd, "number");
+        writeFileSync(options.stdoutFd!, mode === "bytes" && !args[1]!.includes("source") ? Buffer.from("changed") : original);
+        return "";
       }
       return "";
     });
@@ -467,3 +468,39 @@ test("tarball comparison binds verified integrity, binary bytes, modes and compl
     for (const directory of directories) assert.equal(existsSync(directory), false);
   }
 });
+
+
+for (const mismatch of [false, true]) {
+  test(mismatch ? "real tarball refuses a mismatching 5 MiB member before repair" : "real tarball accepts a matching 5 MiB member without capturing its bytes", async () => {
+    const f = await fixture();
+    try {
+      writeFileSync(join(f.cwd, "large.bin"), Buffer.alloc(5 * 1024 * 1024, 0xa5));
+      writeFileSync(join(f.cwd, "package.json"), JSON.stringify({ name, version, repository: `https://github.com/${slug}`, files: ["large.bin", "CHANGELOG.md"] }));
+      f.git(["add", "large.bin", "package.json"]); f.git(["commit", "-qm", "large member fixture"]);
+      const commit = f.git(["rev-parse", "HEAD"]);
+      if (mismatch) writeFileSync(join(f.cwd, "large.bin"), Buffer.alloc(5 * 1024 * 1024, 0x5a));
+      const [packed] = JSON.parse(defaultExec("npm", ["pack", ".", "--ignore-scripts", "--json"], { cwd: f.cwd })) as { filename: string; integrity: string }[];
+      const tarball = join(f.root, "registry.tgz"); copyFileSync(join(f.cwd, packed.filename), tarball);
+      let streamedMembers = 0; let capturedMembers = 0;
+      const client = makeRepairClient((command, args, options = {}) => {
+        if (command === "npm") {
+          if (args[0] === "view") return JSON.stringify({ name, version, gitHead: commit, dist: { integrity: packed.integrity } });
+          if (args[0] === "install") return "";
+          if (args[0] === "audit") return auditOutput(commit, record => { record.statement.subject[0]!.digest.sha512 = Buffer.from(packed.integrity.slice(7), "base64").toString("hex"); });
+          if (args[0] === "pack" && args[1] === `${name}@${version}`) return defaultExec(command, ["pack", tarball, ...args.slice(2)], options);
+        }
+        if (command === "tar" && args[0] === "-xOf") {
+          if (options.stdoutFd === undefined) capturedMembers++;
+          else streamedMembers++;
+        }
+        return defaultExec(command, args, options);
+      });
+      const evidence = client.npmEvidence(name, version);
+      if (mismatch) assert.throws(() => client.verifyTarball(f.cwd, commit, evidence), /published tarball does not match/);
+      else client.verifyTarball(f.cwd, commit, evidence);
+      assert.equal(capturedMembers, 0, "member data must never enter a capture buffer");
+      assert.ok(streamedMembers >= 6, "real tar read both complete package file sets");
+      assert.deepEqual(f.writes, []);
+    } finally { f.cleanup(); }
+  });
+}

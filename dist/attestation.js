@@ -18,7 +18,7 @@
  * @packageDocumentation
  */
 import { readRegularText } from "./regular-input.js";
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "./subprocess.js";
 import { closeSync, constants, fstatSync, statSync, openSync, readSync } from "node:fs";
 import { resolve } from "node:path";
 import { isNode, parse, parseDocument } from "yaml";

@@ -27,7 +27,7 @@
  * ```
  */
 import { readRegularText } from "../regular-input.ts";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import {
   existsSync,
   mkdirSync,

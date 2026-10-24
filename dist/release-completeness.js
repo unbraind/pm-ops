@@ -24,7 +24,7 @@
  * @packageDocumentation
  */
 import { readRegularText } from "./regular-input.js";
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "./subprocess.js";
 import { resolve } from "node:path";
 /** A release tag matches a calendar version, optionally with a `-N` suffix. */
 export const RELEASE_TAG_PATTERN = /^v\d{4}\.\d{2}\.\d{2}(-\d+)?$/;
@@ -251,7 +251,8 @@ export function auditReleaseCompleteness(tags, npmVersions, githubReleases) {
  * @returns The process stdout, decoded as UTF-8.
  */
 export function defaultExec(command, args, options = {}) {
-    return execFileSync(command, args, { encoding: "utf-8", stdio: "pipe", ...options });
+    const { stdoutFd, ...capture } = options;
+    return execFileSync(command, args, { encoding: "utf-8", stdio: stdoutFd === undefined ? "pipe" : ["ignore", stdoutFd, "pipe"], ...capture }) ?? "";
 }
 /** Page size for GitHub Release API pagination. The API caps at 100. */
 const GITHUB_RELEASES_PER_PAGE = 100;
