@@ -4,6 +4,7 @@ import { closeSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync } f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { tokenize } from "../docstrings.ts";
 import { CAPTURE_LIMIT, CaptureRefusal, execFileSync, refuseCaptureOverflow, spawnSync } from "../subprocess.ts";
 import { defaultExec } from "../release-completeness.ts";
 
@@ -52,15 +53,31 @@ test("descriptor output streams bulk bytes while stderr remains bounded", () => 
   } finally { closeSync(fd); rmSync(root, { recursive: true, force: true }); }
 });
 
-test("production capture inventory uses only the bounded adapters or inherited stdio", () => {
+test("package and test capture inventory uses bounded adapters or inherited stdio", () => {
   const root = new URL("../", import.meta.url);
-  for (const directory of ["", "scripts/", "templates/"]) {
+  for (const directory of ["", "scripts/", "templates/", "test/"]) {
     for (const name of readdirSync(new URL(directory, root)).filter(name => name.endsWith(".ts"))) {
       const path = directory + name;
-      const source = readFileSync(new URL(path, root), "utf8");
-      if (!source.includes('from "node:child_process"') || path === "subprocess.ts") continue;
-      assert.ok(["merge-driver.ts", "release-verification.ts", "templates/prepare-merge-driver.ts"].includes(path), `raw process capture import: ${path}`);
-      assert.match(source, /stdio: "inherit"/);
+      if (path === "subprocess.ts") continue;
+      const tokens = tokenize(readFileSync(new URL(path, root), "utf8"), path).map(token => token.text);
+      const raw = new Set<string>();
+      for (let i = 0; i < tokens.length; i++) {
+        if (tokens[i] !== "import") continue;
+        const end = tokens.indexOf(";", i);
+        const statement = tokens.slice(i, end);
+        if (!statement.some(token => /^['"]node:child_process['"]$/.test(token))) continue;
+        for (const token of statement) if (/^(exec|execFile|execSync|execFileSync|spawnSync)$/.test(token)) raw.add(token);
+      }
+      for (let i = 0; i < tokens.length; i++) {
+        if (!raw.has(tokens[i]) || tokens[i + 1] !== "(") continue;
+        let depth = 1; let end = i + 2;
+        for (; end < tokens.length && depth > 0; end++) {
+          if (tokens[end] === "(") depth++;
+          if (tokens[end] === ")") depth--;
+        }
+        const call = tokens.slice(i + 2, end - 1);
+        assert.ok(call.some((token, index) => token === "stdio" && call[index + 1] === ":" && /^['"]inherit['"]$/.test(call[index + 2])), `raw process capture: ${path}`);
+      }
     }
   }
 });

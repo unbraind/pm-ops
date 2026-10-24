@@ -6,9 +6,9 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-ops#195"
 created_at: "2026-10-24T05:12:38.041Z"
-updated_at: "2026-10-24T05:56:33.459Z"
+updated_at: "2026-10-24T06:00:24.269Z"
 author: codex-agent
-comments[14]{created_at,author,text}:
+comments[16]{created_at,author,text}:
   "2026-10-24T05:12:43.234Z",codex-agent,"Auditing every direct package reader. Use one bounded regular-file reader with nonblocking open and descriptor validation, preserve domain refusal categories and remedies, charge diagnostic input and scope resolution to the shared deadline. Regressions use real special files and externally bounded subprocesses in a non-Git fixture."
   "2026-10-24T05:23:31.840Z",codex-agent,"Implemented one regular-file input primitive across all direct readers, including backend config, policy, evidence versions, workflow files, source scanners, coverage artifacts and plan JSON. Real FIFO without a writer, Unix socket, device, directory and oversized inputs return typed remedies; descriptor race and growth controls pass. Non-Git tracker and empty PATH exercise eight input surfaces. Local reader suites: 130 passed, zero failed/skipped."
   "2026-10-24T05:23:33.492Z",codex-agent,"Revert proof: replaced only readDiagnosticPlan with its origin/main implementation and restored its open import. node --test --test-name-pattern=\"all artifact readers refuse\" test/regular-input.test.ts failed 1/1 with ETIMEDOUT at the 5000 ms subprocess ceiling on the real writerless FIFO. Restored the fixed function immediately; no tracker bytes were changed by the regression."
@@ -23,7 +23,9 @@ comments[14]{created_at,author,text}:
   "2026-10-24T05:53:47.561Z",codex-agent,"All 3 linked commands passed: 20/20, 15/15 and 54/54. Changelog generation and check passed. Strict tracker health passes with isolated HOME and Git configuration (only advisory telemetry queue pending). Inherited host health reports installed extension/host pm-cli version skew (pinned 2026.10.20 versus host 2026.10.24); dependency pins and telemetry configuration remain unchanged. Claim released; item stays in progress for orchestrator verification."
   "2026-10-24T05:55:53.259Z",codex-agent,"Self-review refinement: stage each streamed member inside a newly created private directory with exclusive file creation, so a committed source-tree symlink cannot occupy the staging path. Both real 5 MiB tarball cases now include a tracked symlink to an owned sentinel and verify that the sentinel remains byte-identical. This stays within the same capture fix and retains the source-only revert proof."
   "2026-10-24T05:56:32.779Z",codex-agent,"Final staging refinement validation: targeted command passed 54/54 with zero failures/skips; focused c8 remains 100% in all four dimensions for all four changed runtime modules. Both 5 MiB real-tar cases preserve the symlink sentinel. Typecheck, test typecheck, lint, 0% duplication and docstrings pass. Releasing claim while CI verifies the pushed code."
-files[25]{path,scope}:
+  "2026-10-24T05:59:31.569Z",codex-agent,"Extended the bounded adapter to every executable test, proof and acceptance driver as well as runtime modules and gate scripts; remaining raw child-process imports are inherited-stdio launchers, asynchronous streaming transport, or mocks/types. Frozen historical source snapshots remain unchanged. The token-aware inventory guard now scans runtime, script, template and test sources. The isolated historical-Windows fixture copies the shared adapter alongside its copied npm launcher. First code-head CI passed both npm/Bun release gates on Node 22/26 and both Windows jobs; final driver head will be verified separately."
+  "2026-10-24T06:00:23.536Z",codex-agent,"Executable-driver closure passed the linked six-suite command: 58/58, zero failures/skips, including real npm pack and historical proof diagnostics. npm run typecheck, npm run build:test, npm run lint, npm run duplication (0%) and npm run docstring pass after driver changes. The first code-head CI run 40068059329 succeeded in all four jobs: npm/Bun gates report 1438 passed, 0 failed, 2 configured real-data skips and 100% in all four coverage dimensions across 36 authored modules. Final-head driver CI is required before handoff."
+files[77]{path,scope}:
   assurance.ts,project
   attestation.ts,project
   backend-capabilities.ts,project
@@ -42,14 +44,66 @@ files[25]{path,scope}:
   scripts/verify-lifecycle-policy.ts,project
   scripts/verify-release-changelog-date.ts,project
   subprocess.ts,project
+  test/assurance.test.ts,project
   test/attestation-union.test.ts,project
+  test/backend-capabilities.test.ts,project
+  test/canonical-tags-fixture.ts,project
+  test/command-test-helpers.ts,project
+  test/compatibility-floor.test.ts,project
+  test/compose-attestation.proof.ts,project
+  test/compose-attestation.test.ts,project
+  test/coverage-gate.test.ts,project
+  test/daily-release-workflow.test.ts,project
+  test/daily-release.test.ts,project
+  test/dependency-contract.test.ts,project
+  test/dependency-contract.ts,project
+  test/diagnostic-plans.acceptance.ts,project
   test/diagnostic-plans.test.ts,project
+  test/docstring-gate.test.ts,project
+  test/docstrings.test.ts,project
+  test/duplication-glob-unions.test.ts,project
+  test/duplication-glob.test.ts,project
+  test/duplication-packed.acceptance.ts,project
+  test/evidence-expiry.test.ts,project
+  test/fleet-publish-attestation.proof.ts,project
+  test/function-control.ts,project
+  test/identity-audit.test.ts,project
   test/launcher-check.test.ts,project
+  test/lifecycle-policy.test.ts,project
+  test/lint-and-duplication-gates.test.ts,project
+  test/merge-driver-launcher.test.ts,project
+  test/merge-driver.test.ts,project
+  test/multiline-quote.proof.ts,project
+  test/multiline-quote.test.ts,project
+  test/nested-substitution.proof.ts,project
+  test/npm-launcher.ts,project
+  test/ops.test.ts,project
+  test/pack-prepare.test.ts,project
+  test/packed-consumer.acceptance.ts,project
+  test/process-substitution.proof.ts,project
+  test/publish-indirection-corpus.test.ts,project
+  test/publish-indirection.test.ts,project
+  test/published-attestation.test.ts,project
+  test/regex-array.proof.ts,project
+  test/regex-array.test.ts,project
   test/regular-input.test.ts,project
+  test/release-caller-attestation.test.ts,project
   test/release-caller.test.ts,project
   test/release-repair.test.ts,project
+  test/release-review.test.ts,project
+  test/release-verification.test.ts,project
+  test/release-workflow.test.ts,project
+  test/renderer-ownership.test.ts,project
+  test/shell-command-scan.test.ts,project
   test/subprocess.test.ts,project
-tests[3]:
+  test/third-party-publish-wrappers.test.ts,project
+  test/tracker-read-helpers.ts,project
+  test/verify-lifecycle-policy.test.ts,project
+  test/verify-release-changelog-date.test.ts,project
+  test/verify-release-completeness.test.ts,project
+  test/windows-consumers.proof.ts,project
+  test/windows-proof-history.test.ts,project
+tests[4]:
   - command: node --test test/regular-input.test.ts test/diagnostic-plans.test.ts
     scope: project
     timeout_seconds: 120
@@ -71,6 +125,13 @@ tests[3]:
     provenance:
       author: codex-agent
       created_at: "2026-10-24T05:51:19.348Z"
+      source_kind: local_mutation
+      source_ref: fix/bounded-plan-input-and-release-audit
+  - command: node --test test/subprocess.test.ts test/release-repair.test.ts test/release-caller.test.ts test/diagnostic-plans.test.ts test/pack-prepare.test.ts test/windows-proof-history.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-24T05:59:33.178Z"
       source_kind: local_mutation
       source_ref: fix/bounded-plan-input-and-release-audit
 docs[2]{path,scope}:

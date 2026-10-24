@@ -1,6 +1,6 @@
 /** Paired multiline-quote controls use real Bash with inert npm and GitHub boundaries. */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import test from "node:test";
 import { auditPublishAttestation } from "../attestation.ts";
 import { tokenizeCommands } from "../shell-scan.ts";

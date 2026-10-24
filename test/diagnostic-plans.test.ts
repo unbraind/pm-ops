@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test, { before, after, type TestContext } from "node:test";
-import childProcess, { spawnSync } from "node:child_process";
+import childProcess from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import { syncBuiltinESMExports } from "node:module";
 import { assertDiagnosticIdentity, fingerprint } from "./tracker-read-helpers.ts";
 import fs, { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";

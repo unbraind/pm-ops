@@ -1,6 +1,6 @@
 /** Packing must preserve clone-local Git configuration while installs still register drivers. */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
@@ -35,7 +35,7 @@ test("real npm pack never mutates git config and npm install/ci still run prepar
     const installed = join(root, "node_modules/pm-ops");
     mkdirSync(installed, { recursive: true });
     writeFileSync(join(installed, "package.json"), JSON.stringify({ name: "pm-ops", type: "module", exports: { "./merge-driver/prepare": "./prepare.js" } }));
-    writeFileSync(join(installed, "prepare.js"), 'import { execFileSync } from "node:child_process"; execFileSync("git", ["config", "--local", "merge.fixture.driver", "pm merge driver"]);');
+    writeFileSync(join(installed, "prepare.js"), 'import { execFileSync } from "node:child_process"; execFileSync("git", ["config", "--local", "merge.fixture.driver", "pm merge driver"], { stdio: "inherit" });');
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "pack-prepare-fixture", version: "1.0.0", type: "module", scripts: { prepare: "node scripts/prepare-merge-driver.ts" } }));
     const env: NodeJS.ProcessEnv = { ...process.env, PATH: process.env.PATH, npm_config_userconfig: devNull, NPM_CONFIG_USERCONFIG: devNull };
     delete env.npm_command;

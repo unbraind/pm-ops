@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "../subprocess.ts";
 import {
   chmodSync,
   mkdirSync,

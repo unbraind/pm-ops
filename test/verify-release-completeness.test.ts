@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "../subprocess.ts";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";

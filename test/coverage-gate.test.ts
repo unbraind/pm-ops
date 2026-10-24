@@ -4,7 +4,8 @@
  * the measured denominator. Fixture reports never represent release coverage.
  */
 import assert from "node:assert/strict";
-import { spawn, spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { spawn, type SpawnSyncReturns } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import {
   chmodSync,
   existsSync,

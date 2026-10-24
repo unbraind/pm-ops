@@ -1,6 +1,7 @@
 /** Execute review-sensitive workflow fragments and the published migration command. */
 import assert from "node:assert/strict";
-import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { type SpawnSyncReturns } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

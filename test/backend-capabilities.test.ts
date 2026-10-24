@@ -3,7 +3,7 @@ import test from "node:test";
 import fsPromises from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { createServer } from "node:http";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import { chmodSync, existsSync, renameSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";

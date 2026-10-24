@@ -27,10 +27,10 @@ Temporary files stay inside the disposable comparison directory and are removed
 on success and refusal. Member paths are validated before passing them to tar.
 
 `merge-driver.ts`, `release-verification.ts`, the prepare template and the inline
-production audit launcher inherit stdio, so they do not capture output. Test
-fixtures may invoke real children to exercise package commands; the production
-capture inventory test guards the package and its scripts against new raw capture
-imports. No subprocess buffer is made unbounded.
+production audit launcher inherit stdio, so they do not capture output. Executable test and acceptance drivers use the same bounded capture adapters.
+The token-aware inventory test guards package modules, scripts, templates and
+test drivers against raw capture calls. Archived source-only revert snapshots
+remain unchanged. No subprocess buffer is made unbounded.
 
 Regression commands:
 

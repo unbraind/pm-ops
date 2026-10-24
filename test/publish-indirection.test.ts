@@ -1,6 +1,6 @@
 /** Real shell executions prove that indirect publishers cannot borrow sibling evidence. */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

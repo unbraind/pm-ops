@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import fs, { mkdtempSync, writeFileSync, rmSync, constants } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import { syncBuiltinESMExports } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";

@@ -1,6 +1,6 @@
 /** Source-only controls execute the existing inert Bash corpus against accepted code, then restore every byte. */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import { readFileSync, writeFileSync } from "node:fs";
 
 /** Accepted resource repair before the nested semantic candidate. */

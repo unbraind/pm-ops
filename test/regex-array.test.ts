@@ -1,6 +1,6 @@
 /** Bash-backed paired controls for issue #172's non-command word contexts. */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import test from "node:test";
 import { auditPublishAttestation } from "../attestation.ts";
 import { isolateShellChildren, tokenizeCommands } from "../shell-scan.ts";

@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { syncBuiltinESMExports } from "node:module";
 import test from "node:test";
 import fs, { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "../subprocess.ts";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";

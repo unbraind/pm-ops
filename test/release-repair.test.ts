@@ -1,7 +1,7 @@
 /** Hermetic release recovery with a real pm tracker, local git remote, and recorded npm output shape. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "../subprocess.ts";
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";

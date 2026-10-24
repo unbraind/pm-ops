@@ -1,6 +1,6 @@
 /** Resolve npm's installed Windows CLI without passing arguments through a shell. */
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "../subprocess.ts";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
