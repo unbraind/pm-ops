@@ -1,0 +1,16 @@
+id: ops-release-1020-recovery
+title: Recover the historical 2026.10.20 GitHub Release with verified release evidence
+description: "The read-only completeness audit reports exactly one missing GitHub Release: v2026.10.20. Its immutable release commit lacks the matching changelog section, so the automatic repair refuses it. The current changelog fix restores main and future release windows, but cannot alter that historical commit. Orchestrator must decide an evidence-preserving recovery path and separately authorize release creation; no tag, npm artifact or GitHub Release was changed here."
+type: Task
+status: open
+priority: 1
+tags: []
+created_at: "2026-10-25T10:54:35.891Z"
+updated_at: "2026-10-25T11:01:45.334Z"
+author: codex-agent
+files[2]{path,scope}:
+  .github/workflows/release.yml,project
+  release-repair.ts,project
+docs[1]{path,scope}:
+  README.md,project
+body: ""

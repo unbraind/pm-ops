@@ -158,13 +158,10 @@ test("every changelog and release-note read disables both host output bounds", (
       `${name} must disable the host row limit before reading the tracker`,
     );
   }
-  const workflowCommands = releaseWorkflow.split("\n").filter((line) => line.includes("npx pm-changelog"));
+  const workflowCommands = releaseWorkflow.split("\n").filter((line) => /^\s+npm run (?:--silent )?(?:changelog:full|changelog:check|release:notes)\b/u.test(line));
   assert.equal(workflowCommands.length, 3, "the release workflow must keep its three changelog and release-note commands");
-  for (const command of workflowCommands) {
-    assert.match(command, /--pm-bin \.\/node_modules\/\.bin\/pm/u, "release workflow changelog reads must use the package-local CLI");
-    assert.match(command, /--pm-arg=--output-budget\s+--pm-arg=unbounded/u, "release workflow changelog reads must disable the token budget");
-    assert.match(command, /--pm-arg=--output-limit\s+--pm-arg=unbounded/u, "release workflow changelog reads must disable the row limit");
-  }
+  assert.deepEqual(workflowCommands.map(command => /\b(changelog:full|changelog:check|release:notes)\b/u.exec(command)![1]),
+    ["changelog:full", "changelog:check", "release:notes"], "release reads must delegate to the three scripts whose pinned CLI and unbounded reads are checked above");
 });
 
 test("the version comparison orders YYYY.M.D numerically, not lexicographically", () => {
