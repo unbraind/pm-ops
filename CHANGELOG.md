@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-No tracked changes.
+### Fixed
+
+- Every published release needs exactly one changelog section, including releases with no tracked items ([ops-changelog-sections](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-changelog-sections.toon))
 
 ## 2026.10.25 - 2026-10-25
 

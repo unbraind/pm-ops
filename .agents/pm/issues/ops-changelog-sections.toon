@@ -2,12 +2,18 @@ id: ops-changelog-sections
 title: "Every published release needs exactly one changelog section, including releases with no tracked items"
 description: "Daily release run 40177125675 generated the changelog successfully, then its completeness repair refused missing notes for 2026.10.20. Retain empty release windows in every generation entry point, regenerate full history, and prove tag cardinality and repair-note compatibility across empty and suffixed releases."
 type: Issue
-status: in_progress
+status: closed
 priority: 1
 tags: []
 created_at: "2026-10-25T10:51:36.364Z"
-updated_at: "2026-10-25T11:13:01.450Z"
+updated_at: "2026-10-25T11:29:19.571Z"
+closed_at: "2026-10-25T11:29:19.554Z"
+completed_at: "2026-10-25T11:22:43.000Z"
 author: codex-agent
+repro_steps: "Run the daily release (run 40177125675): Audit release completeness refused repair with 'committed changelog must have exactly one section for 2026.10.20'; CHANGELOG.md had no sections for published 2026.10.18-.21 and .24."
+resolution: Changelog generation keeps itemless release windows on every path; CHANGELOG.md regenerated with all 59 published versions.
+expected_result: Exactly one changelog section per published version so the completeness audit accepts the changelog.
+actual_result: "59/59 versions have exactly one section; the 64-combination property test and both release gates pass (1,451 tests each, 100% coverage). The audit's remaining v2026.10.20 GitHub Release gap is tracked in ops-release-1020-recovery."
 comments[5]{created_at,author,text}:
   "2026-10-25T10:52:21.337Z",codex-agent,"Root cause confirmed: daily run 40177125675 completed Generate changelog and release notes, then repair refused 2026.10.20. Pinned pm-changelog 2026.10.20 builds tag windows but filters itemless windows unless include-empty is enabled. respect-item-release controls membership, not window retention. Enable include-empty in every local generation path and reuse npm scripts in the release job. The generator hardcodes No changes. and lacks configurable empty-section text; a small repository adapter will render No tracked changes. Historical repair reads CHANGELOG.md at each immutable release commit, so regenerating main cannot retroactively repair absent GitHub Releases."
   "2026-10-25T10:55:58.087Z",codex-agent,"Regeneration verified against live npm inventory and Git tags: 59 published versions, 59 release tags, exactly 59 version sections, 19 empty release sections plus an Unreleased heading. Read-only npm run verify:release-completeness exited 1 with: FAIL - release tag v2026.10.20 has no corresponding GitHub Release; verify-release-completeness: 1 failure(s). Follow-up ops-release-1020-recovery records the immutable historical-note blocker; release creation remains outside authorization. Property covers all 64 item-presence masks across six real tags, including consecutive empty windows and v2026.10.20-1, and calls committedReleaseNotes for each. Behavioural revert proof: removing include-empty from package scripts makes the property fail at mask 0 (0 pass, 1 fail); restoring flags and reverting only describeEmptyReleases to return its input makes the same property fail (0 pass, 1 fail). Both changes restored. Linked pm test passed 5/5; results are recorded here because test-result tracking is disabled."
@@ -25,4 +31,5 @@ tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/changelog-sections.test.ts,project,codex-agent,"2026-10-25T10:54:13.127Z",local_mutation,fix/changelog-section-per-release
 docs[1]{path,scope}:
   README.md,project
+close_reason: "https://github.com/unbraind/pm-ops/pull/205 merged 2026-10-25T11:22:43Z, merge 36478d717b40a5f73a49b06b486c1c83f93d39bc: every published version gets exactly one changelog section (--include-empty on all generation paths, 'No tracked changes.' adapter, 19 restored sections); reviewed by a Claude Sonnet agent (MERGE), CI 4/4."
 body: ""
