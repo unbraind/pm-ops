@@ -77,6 +77,8 @@ export interface DiagnosticRun {
     /** Complete ordered receipt set. */
     rows: DiagnosticReceipt[];
 }
+/** Closed canonical command identities shared by plans and witness references. */
+export declare const DIAGNOSTIC_COMMANDS: readonly DiagnosticCommand[];
 /** Generate a review artifact only; does not launch probes or write the tracker. */
 export declare function createDiagnosticPlan(pmRoot: string, failures: readonly DiagnosticFailure[], budget?: DiagnosticBudget): Promise<DiagnosticPlan>;
 /** Reject tampering, extra fields and stale catalog definitions before execution. */

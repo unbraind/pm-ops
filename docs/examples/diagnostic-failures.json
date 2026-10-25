@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "facts": [
+    {
+      "id": "actual",
+      "scope": "public-snapshot",
+      "key": "sdk.actual",
+      "value": "2026.10.19"
+    },
+    {
+      "id": "required",
+      "scope": "public-snapshot",
+      "key": "sdk.required",
+      "value": ">=2026.10.20"
+    },
+    {
+      "id": "noise",
+      "scope": "public-snapshot",
+      "key": "unrelated.context",
+      "value": "not needed for this declared failure"
+    }
+  ],
+  "checks": [
+    {
+      "id": "check-1",
+      "failure": "sdk_incompatible",
+      "scope": "public-snapshot",
+      "command": "sdk:schema:v1",
+      "diagnosis": "unverified",
+      "sufficient": [
+        [
+          "actual",
+          "required"
+        ]
+      ]
+    },
+    {
+      "id": "check-2",
+      "failure": "sdk_incompatible",
+      "scope": "public-snapshot",
+      "command": "sdk:items:v1",
+      "diagnosis": "unverified",
+      "sufficient": [
+        [
+          "actual",
+          "required"
+        ]
+      ]
+    },
+    {
+      "id": "check-3",
+      "failure": "sdk_incompatible",
+      "scope": "public-snapshot",
+      "command": "sdk:history:v1",
+      "diagnosis": "unverified",
+      "sufficient": [
+        [
+          "actual",
+          "required"
+        ]
+      ]
+    },
+    {
+      "id": "check-4",
+      "failure": "sdk_incompatible",
+      "scope": "public-snapshot",
+      "command": "sdk:schema:v1",
+      "diagnosis": "unverified",
+      "sufficient": [
+        [
+          "actual",
+          "required"
+        ]
+      ]
+    },
+    {
+      "id": "check-5",
+      "failure": "sdk_incompatible",
+      "scope": "public-snapshot",
+      "command": "sdk:items:v1",
+      "diagnosis": "unverified",
+      "sufficient": [
+        [
+          "actual",
+          "required"
+        ]
+      ]
+    }
+  ]
+}

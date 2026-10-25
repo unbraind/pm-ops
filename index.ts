@@ -24,6 +24,7 @@ import { analyzeDocstringCoverage, type DocstringViolation } from "./docstrings.
 import { auditBackendConfigFile, auditConfiguredBackends } from "./backend-capabilities.ts";
 import { auditEvidenceExpiryFiles, EvidenceExpiryRefusal } from "./evidence-expiry.ts";
 import { createDiagnosticPlan, executeDiagnosticPlan, readDiagnosticPlan, DiagnosticRefusal, type DiagnosticFailure } from "./diagnostic-plans.ts";
+import { readDiagnosticWitnesses, WitnessRefusal } from "./diagnostic-witnesses.ts";
 import { qualityMeasurementProvider } from "./assurance.ts";
 import { defaultCanonicalTagResolver, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.ts";
 
@@ -110,6 +111,7 @@ function asArray(value: unknown): string[] {
 }
 
 const OPS_COMMAND_PATHS = [
+  "ops witnesses",
   "ops diagnose",
   "ops capabilities",
   "ops evidence-expiry",
@@ -2634,6 +2636,18 @@ export default defineExtension({
     // same `authorization_decision` as any other bound regression. See
     // `./assurance.ts` for the key contract and the staleness refusal.
     api.registerAssuranceMeasurementProvider(qualityMeasurementProvider);
+
+    api.registerCommand({
+      name: "ops witnesses",
+      description: "Reduce declared sufficient diagnostic input facts to an exact minimum shared packet. Read-only; no Git or probe execution. ok means reduction succeeded, never proven root cause.",
+      examples: ["pm ops witnesses --input diagnostic-failures.json", "pm ops witnesses --input diagnostic-failures.json --json"],
+      flags: [{ long: "--input", value_name: "file", description: "Strict version 1 JSON fact/check selection, at most 64 KiB (required)" }],
+      async run(ctx: CommandHandlerContext) {
+        const input = readString(ctx.options, "input");
+        if (!input) throw new WitnessRefusal("invalid_witness_input", "Supply --input with explicit facts and sufficient clauses for each failing check.");
+        return readDiagnosticWitnesses(input);
+      },
+    });
 
     api.registerCommand({
       name: "ops diagnose",

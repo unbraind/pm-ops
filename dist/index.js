@@ -11,6 +11,7 @@ import { analyzeDocstringCoverage } from "./docstrings.js";
 import { auditBackendConfigFile, auditConfiguredBackends } from "./backend-capabilities.js";
 import { auditEvidenceExpiryFiles, EvidenceExpiryRefusal } from "./evidence-expiry.js";
 import { createDiagnosticPlan, executeDiagnosticPlan, readDiagnosticPlan, DiagnosticRefusal } from "./diagnostic-plans.js";
+import { readDiagnosticWitnesses, WitnessRefusal } from "./diagnostic-witnesses.js";
 import { qualityMeasurementProvider } from "./assurance.js";
 import { defaultCanonicalTagResolver, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.js";
 // ---------------------------------------------------------------------------
@@ -72,6 +73,7 @@ function asArray(value) {
     return value.split(",").map((entry) => entry.trim()).filter(Boolean);
 }
 const OPS_COMMAND_PATHS = [
+    "ops witnesses",
     "ops diagnose",
     "ops capabilities",
     "ops evidence-expiry",
@@ -2145,6 +2147,18 @@ export default defineExtension({
         // same `authorization_decision` as any other bound regression. See
         // `./assurance.ts` for the key contract and the staleness refusal.
         api.registerAssuranceMeasurementProvider(qualityMeasurementProvider);
+        api.registerCommand({
+            name: "ops witnesses",
+            description: "Reduce declared sufficient diagnostic input facts to an exact minimum shared packet. Read-only; no Git or probe execution. ok means reduction succeeded, never proven root cause.",
+            examples: ["pm ops witnesses --input diagnostic-failures.json", "pm ops witnesses --input diagnostic-failures.json --json"],
+            flags: [{ long: "--input", value_name: "file", description: "Strict version 1 JSON fact/check selection, at most 64 KiB (required)" }],
+            async run(ctx) {
+                const input = readString(ctx.options, "input");
+                if (!input)
+                    throw new WitnessRefusal("invalid_witness_input", "Supply --input with explicit facts and sufficient clauses for each failing check.");
+                return readDiagnosticWitnesses(input);
+            },
+        });
         api.registerCommand({
             name: "ops diagnose",
             description: "Generate a reviewable read-only diagnostic plan from observed failure codes. Execute only with --plan and its exact --select id. Budgets stop further probes; receipts contain counts only. No Git required. Inspect result.ok for diagnostic success.",

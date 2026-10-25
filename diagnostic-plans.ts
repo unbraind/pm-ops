@@ -88,7 +88,8 @@ export interface DiagnosticRun {
   rows: DiagnosticReceipt[];
 }
 
-const COMMANDS: readonly DiagnosticCommand[] = ["sdk:schema:v1", "sdk:items:v1", "sdk:history:v1", "http:registry-head:v1"];
+/** Closed canonical command identities shared by plans and witness references. */
+export const DIAGNOSTIC_COMMANDS: readonly DiagnosticCommand[] = ["sdk:schema:v1", "sdk:items:v1", "sdk:history:v1", "http:registry-head:v1"];
 const REMEDIES: Record<DiagnosticCode, string> = {
   verified: "", probe_failed: "Restore readable tracker data or registry reachability, then review and retry the same scope.",
   output_limit: "Reduce diagnostic output or stream bulk data to a file, then review and retry the same scope.",
@@ -107,7 +108,7 @@ function makePlan(scope: string, failures: readonly DiagnosticFailure[], budget:
     throw new DiagnosticRefusal("invalid_options", "Supply known failure codes and integer ceilings: processes 0-4, network 0-1, time_ms 1-60000.");
   }
   const steps = DIAGNOSTIC_FAILURES.flatMap((failure, index): DiagnosticStep[] => failures.includes(failure)
-    ? [{ failure, command: COMMANDS[index]!, cost: { processes: 1, network: index === 3 ? 1 : 0 } }] : []);
+    ? [{ failure, command: DIAGNOSTIC_COMMANDS[index]!, cost: { processes: 1, network: index === 3 ? 1 : 0 } }] : []);
   const body = { version: 1 as const, scope, budget: { processes: budget.processes, network: budget.network, time_ms: budget.time_ms }, steps };
   return { ...body, id: digest(body) };
 }
