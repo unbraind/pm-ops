@@ -11,6 +11,7 @@ Multi-repo fleet operations for [pm-cli](https://github.com/unbraind/pm-cli).
 ## Installation
 
 Use the published package so npm installs its runtime dependencies before activation.
+The host must be pm CLI 2026.10.20 or newer for certified SDK corpus reads.
 In a plain project directory (no git repository required), initialize a tracker and
 activate the pinned registry release:
 

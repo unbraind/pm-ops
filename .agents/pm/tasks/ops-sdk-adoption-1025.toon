@@ -1,0 +1,37 @@
+id: ops-sdk-adoption-1025
+title: Use SDK corpus reads for backend assurance and diagnostics
+description: "Replace both unused SDK findings from the October audit. Preserve observational snapshots, independent byte-scope checks and live history verification; prove equivalence against public tracker copies and behavioural reverts."
+type: Task
+status: in_progress
+priority: 1
+tags: []
+created_at: "2026-10-25T17:54:35.044Z"
+updated_at: "2026-10-25T18:21:39.177Z"
+author: codex-agent
+dependencies[1]{id,kind,created_at,author,source_kind,author_source}:
+  ops-3w9m,related,"2026-10-25T18:21:33.777Z",codex-agent,"cli:update:dep",detected
+comments[8]{created_at,author,text}:
+  "2026-10-25T17:54:37.248Z",codex-agent,"Related SDK adoption: ops-3w9m (canonical fleet metric reads), ops-hiee (SDK certification), ops-sdk-settlement-floor (separate receipt-history assurance floor). Scope: backend-capabilities.ts list/get via PmClient complete-list/get and diagnostic-probes.ts enumeration via listAllItemMetadata; retain independent scope and document/history verification. No dependency pin changes."
+  "2026-10-25T18:00:03.840Z",codex-agent,"Implemented PmClient.listAllComplete/get in disposable backend snapshots and listAllItemMetadata in diagnostic snapshots. Independent physical count, UTF-8 and SDK format-version checks preserve failures normalized enumeration would otherwise hide. History still uses readHistorySnapshot plus verifyHistoryEntries against freshly read source documents. Added cache-then-corrupt coverage with real metadata/event caches. The low-level SDK list accepts ahead-of-runtime format versions, so scanItemFormatVersions explicitly retains the previous refusal."
+  "2026-10-25T18:02:37.575Z",codex-agent,"Differential proof: origin/main build 2f28e15 versus candidate on read-only public pm-ops and pm-context tracker exports in non-git temporary directories, empty PATH and Git ceiling. Eight complete outputs identical: 246 items and 3126 verified history entries; source byte fingerprints unchanged. Details and exact commands: docs/sdk-adoption-1025.md."
+  "2026-10-25T18:02:38.394Z",codex-agent,"Revert proofs: restoring only baseline directoryRead makes canonical-get regression fail 0/1 (unavailable instead of invariant_failed); restoring baseline readItems with signature adaptation makes SDK-enumeration regression fail 0/1 (raw parser exception instead of data-free items_invalid). Removing only verifyHistoryEntries makes cache-then-corrupt regression fail 0/1 with missing rejection. All candidates restored; focused suite 30/30, linked pm test passed; typecheck, test typecheck, lint, duplication and docstring gates passed. Deliberate refusal classifications and replay details are in docs/sdk-adoption-1025.md."
+  "2026-10-25T18:04:56.726Z",codex-agent,"Stronger diagnostic revert proof: rename a source document so metadata identity no longer has a canonical physical location. SDK locateItem now refuses history evidence before verification. Candidate passes 1/1; reverting only readItems makes this test fail 0/1 with missing rejection. This stricter SDK identity refusal is documented; healthy public tracker outputs remain identical."
+  "2026-10-25T18:05:44.382Z",codex-agent,"Compatibility: aligned the peer/manifest host admission floor to the existing tested SDK pin, 2026.10.20, because certified complete-list reads need that API surface. The pinned SDK/devDependency remains unchanged. README documents the stricter minimum; existing dependency-contract tests validate matching floors and locked pins."
+  "2026-10-25T18:12:21.109Z",codex-agent,"Final focused validation: linked pm suite 31/31; dependency/manifest compatibility suite 8/8; changed modules measured at 100% statements, branches, functions and lines. Full-suite first pass had 1456 passes, no failures and two existing opt-in real-data skips, but correctly failed coverage for missing read-error branches; those paths now have real filesystem fault tests and focused coverage is 100%. No thresholds were changed. Final behavioural function reverts each fail 0/1 as required."
+  "2026-10-25T18:21:36.900Z",codex-agent,"Implementation and local verification complete: clean-home npm run release:check passed with 1456 passing tests, zero failures and two existing opt-in live-fleet skips; all 38 measured source files have 100% statements, branches, functions and lines. Lint, zero duplication, docstrings, audit, package dry-run, changelog and release/lifecycle checks passed. Final differential replay again matched all eight outputs without source writes. No finding is blocked or deferred. Preparing the review PR; npm/Bun CI on the pushed commit will provide the hosted full-gate receipts. Default local health has unrelated global-extension SDK skew; isolated no-extensions health passes. Claim released for orchestrator verification; item remains in progress."
+files[10]{path,scope}:
+  backend-capabilities.ts,project
+  diagnostic-probes.ts,project
+  manifest.json,project
+  package-lock.json,project
+  package.json,project
+  README.md,project
+  test/backend-capabilities.test.ts,project
+  test/compatibility-floor.test.ts,project
+  test/diagnostic-plans.test.ts,project
+  test/sdk-adoption.differential.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/backend-capabilities.test.ts test/diagnostic-plans.test.ts,project,codex-agent,"2026-10-25T18:01:04.168Z",local_mutation,refactor/sdk-adoption-1025
+docs[1]{path,scope}:
+  docs/sdk-adoption-1025.md,project
+body: ""

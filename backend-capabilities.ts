@@ -3,7 +3,7 @@ import { readRegularText } from "./regular-input.ts";
 import { chmod, cp, lstat, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { listAllItemMetadata, locateItem, readLocatedItem, readSettings, resolveItemTypeRegistry } from "@unbrained/pm-cli/sdk";
+import { PmClient, PmCliError, readSettings, resolveItemTypeRegistry } from "@unbrained/pm-cli/sdk";
 
 /** Fixed audited read surface. Mutations are deliberately outside this contract. */
 export const BACKEND_OPERATIONS = ["list", "get", "schema"] as const;
@@ -205,16 +205,22 @@ async function directoryRead(root: string, operation: BackendOperation, id?: str
   const settings = await readSettings(root);
   const registry = resolveItemTypeRegistry(settings);
   if (operation === "schema") return { types: registry.types };
-  const warnings: string[] = [];
+  const client = new PmClient({ pmRoot: root, noExtensions: true });
   if (operation === "list") {
-    const items = await listAllItemMetadata(root, settings.item_format, registry.type_to_folder, warnings, settings.schema);
-    if (warnings.length) throw new BackendReadRefusal("invariant_failed");
-    return { items, count: items.length, complete: true };
+    try {
+      const result = await client.listAllComplete();
+      return { items: result.items, count: result.count, complete: result.complete_list.source_complete };
+    } catch (error) {
+      if (error instanceof PmCliError && error.code === "list_source_incomplete") throw new BackendReadRefusal("invariant_failed");
+      throw error;
+    }
   }
-  const item = await locateItem(root, id!, settings.id_prefix, settings.item_format, registry.type_to_folder);
-  if (!item) throw new BackendReadRefusal("invariant_failed");
-  const result = await readLocatedItem(item, { schema: settings.schema });
-  return result.document.metadata;
+  try {
+    return (await client.get(id!, { fields: "id" })).item;
+  } catch (error) {
+    if (error instanceof PmCliError && error.code !== "tracker_root_unreadable") throw new BackendReadRefusal("invariant_failed");
+    throw error;
+  }
 }
 
 /** Relax owned snapshot directories before reading their children, even after a partial copy. */
