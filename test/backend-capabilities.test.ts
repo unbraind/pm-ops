@@ -212,6 +212,48 @@ test("directory parsing warnings fail list and mismatched physical identity fail
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("canonical get classifies invalid documents and SDK reads preserve transport failures", async (t) => {
+  const root = fixture();
+  const tracker = join(root, ".agents", "pm");
+  const before = snapshot(tracker);
+  const readFile = fsPromises.readFile;
+  const opendir = fsPromises.opendir;
+  try {
+    for (const failure of ["corruption", "transport", "tracker", "list-EACCES", "list-EIO"]) {
+      let injected = 0;
+      let enumerated = false;
+      const listFailure = failure.startsWith("list-");
+      t.mock.method(fsPromises, "readFile", (...args: Parameters<typeof readFile>) => {
+        // SDK enumeration reads text; get must re-read authoritative bytes.
+        if (String(args[0]).endsWith(join("tasks", "sample-a.toon"))) {
+          if (args[1] === undefined) {
+            injected++;
+            if (failure === "corruption") return Promise.resolve(Buffer.from("invalid document"));
+            return Promise.reject(Object.assign(new Error("read transport failed"), { code: "EACCES" }));
+          }
+          enumerated = true;
+        }
+        return readFile(...args);
+      });
+      t.mock.method(fsPromises, "opendir", (...args: Parameters<typeof opendir>) => {
+        if (listFailure || (failure === "tracker" && enumerated)) {
+          injected++;
+          return Promise.reject(Object.assign(new Error("tracker transport failed"), { code: failure === "list-EIO" ? "EIO" : "EACCES" }));
+        }
+        return opendir(...args);
+      });
+      syncBuiltinESMExports();
+      try {
+        const report = await auditConfiguredBackends([{ id: "dir", kind: "directory", root: tracker, operations: ["list", "get", "schema"] }], root);
+        assert.equal(injected, 1);
+        assert.equal(report.rows[listFailure ? 0 : 1]!.status, failure === "corruption" ? "invariant_failed" : "unavailable");
+        assert.equal(report.rows[listFailure ? 1 : 0]!.status, listFailure ? "unverified" : "supported");
+        assert.equal(snapshot(tracker), before);
+      } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("a configured nested folder blocked by a file refuses the snapshot", async () => {
   const root = fixture();
   try {

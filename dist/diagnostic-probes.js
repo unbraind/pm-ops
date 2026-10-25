@@ -1,7 +1,8 @@
-/** Side-effect-free catalog primitives; no extension hooks, Git, caches or tracker writes. */
-import { copyFile, lstat, mkdir, readdir } from "node:fs/promises";
+/** Catalog probes isolate SDK caches; no source writes, extension hooks or Git. */
+import { copyFile, lstat, mkdir, readFile, readdir } from "node:fs/promises";
+import { isUtf8 } from "node:buffer";
 import { dirname, isAbsolute, join, win32 } from "node:path";
-import { getHistoryPath, readHistorySnapshot, readLocatedItem, readSettingsWithMetadata, runWithConfigurationOnlySettings, resolveItemTypeRegistry, verifyHistoryEntries } from "@unbrained/pm-cli/sdk";
+import { effectiveItemFormatVersion, getHistoryPath, listAllItemMetadata, locateItem, readHistorySnapshot, readLocatedItem, readSettingsWithMetadata, runWithConfigurationOnlySettings, resolveItemTypeRegistry, scanItemFormatVersions, verifyHistoryEntries } from "@unbrained/pm-cli/sdk";
 /** Refuse links and unexpected filesystem types instead of escaping the selected tracker. */
 async function requireType(path, directory) {
     const stat = await lstat(path);
@@ -43,14 +44,11 @@ async function diagnosticSettings(root, scratch) {
         throw new Error("schema_invalid");
     return hydrated.settings;
 }
-/** Enumerate only registered item folders and delegate every document read to the canonical SDK. */
-async function readItems(root, history, settings) {
+/** Inspect physical scope independently; SDK caches and normalized reads cannot prove link safety or file cardinality. */
+async function snapshotItems(root, scratch, settings) {
     const registry = resolveItemTypeRegistry(settings);
-    const ids = new Set();
-    let checked = 0;
-    if (history)
-        await requireType(join(root, "history"), true);
-    for (const [type, folder] of Object.entries(registry.type_to_folder)) {
+    let count = 0;
+    for (const folder of new Set(Object.values(registry.type_to_folder))) {
         let path;
         try {
             path = await scopedPath(root, folder, true);
@@ -60,27 +58,48 @@ async function readItems(root, history, settings) {
                 continue;
             throw error;
         }
+        await mkdir(join(scratch, folder), { recursive: true });
         for (const entry of await readdir(path)) {
-            const match = /^(.*)\.(toon|md)$/.exec(entry);
-            if (!match)
+            if (!/\.(toon|md)$/.test(entry))
                 continue;
             const itemPath = join(path, entry);
             await requireType(itemPath, false);
-            const { document } = await readLocatedItem({ id: match[1], type, itemPath, item_format: match[2] === "toon" ? "toon" : "json_markdown" }, { schema: settings.schema });
-            if (ids.has(document.metadata.id))
-                throw new Error("duplicate_item");
-            ids.add(document.metadata.id);
-            if (history) {
-                const path = getHistoryPath(root, document.metadata.id);
-                await requireType(path, false);
-                const snapshot = await readHistorySnapshot(path, document.metadata.id);
-                if (!snapshot.entries.length || !verifyHistoryEntries(snapshot.entries, document).ok)
-                    throw new Error("history_invalid");
-                checked += snapshot.entries.length;
-            }
-            else
-                checked++;
+            if (!isUtf8(await readFile(itemPath)))
+                throw new Error("items_invalid");
+            await copyFile(itemPath, join(scratch, folder, entry));
+            count++;
         }
+    }
+    return count;
+}
+/** Count canonical SDK rows in an isolated copy; verify history against fresh source documents before reporting evidence. */
+async function readItems(root, scratch, history, settings) {
+    const registry = resolveItemTypeRegistry(settings);
+    if (history)
+        await requireType(join(root, "history"), true);
+    const physicalCount = await snapshotItems(root, scratch, settings);
+    const warnings = [];
+    const items = await listAllItemMetadata(scratch, settings.item_format, registry.type_to_folder, warnings, settings.schema);
+    if (warnings.length)
+        throw new Error("items_invalid");
+    if (items.length !== physicalCount)
+        throw new Error("duplicate_item");
+    if (scanItemFormatVersions(items.map((item) => ({ ref: item.id, version: effectiveItemFormatVersion(item) }))).ahead.length)
+        throw new Error("items_invalid");
+    if (!history)
+        return items.length;
+    let checked = 0;
+    for (const item of items) {
+        const located = await locateItem(root, item.id, settings.id_prefix, settings.item_format, registry.type_to_folder);
+        if (!located)
+            throw new Error("items_invalid");
+        const { document } = await readLocatedItem(located, { schema: settings.schema });
+        const path = getHistoryPath(root, item.id);
+        await requireType(path, false);
+        const snapshot = await readHistorySnapshot(path, item.id);
+        if (!snapshot.entries.length || !verifyHistoryEntries(snapshot.entries, document).ok)
+            throw new Error("history_invalid");
+        checked += snapshot.entries.length;
     }
     return checked;
 }
@@ -98,7 +117,7 @@ export async function runDiagnosticProbe(command, root, scratch) {
     if (command === "sdk:schema:v1")
         return resolveItemTypeRegistry(settings).types.length;
     if (command === "sdk:items:v1" || command === "sdk:history:v1")
-        return readItems(root, command === "sdk:history:v1", settings);
+        return readItems(root, scratch, command === "sdk:history:v1", settings);
     throw new Error("unknown_command");
 }
 //# sourceMappingURL=diagnostic-probes.js.map

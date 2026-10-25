@@ -9,7 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { decode } from "@toon-format/toon";
-import { readLocatedItem, serializeItemDocument } from "@unbrained/pm-cli/sdk";
+import { PmClient, readHistoryAnalyticsWindow, readLocatedItem, serializeItemDocument } from "@unbrained/pm-cli/sdk";
 import { createExtensionTestHarness } from "@unbrained/pm-cli/sdk/testing";
 import { createDiagnosticPlan, executeDiagnosticPlan, parseDiagnosticPlan, readDiagnosticPlan, DiagnosticRefusal, DIAGNOSTIC_FAILURES, type DiagnosticBudget, type DiagnosticPlan, type DiagnosticCommand } from "../diagnostic-plans.ts";
 import { runDiagnosticProbe as rawProbe } from "../diagnostic-probes.ts";
@@ -193,6 +193,52 @@ test("source probes fail closed on malformed data, links, duplicate identity and
   }
   await assert.rejects(runDiagnosticProbe("sdk:items:v1", join(root, "absent")));
   await assert.rejects(runDiagnosticProbe("unknown" as "sdk:schema:v1", scratch), /unknown_command/);
+});
+
+test("history verification detects corruption after SDK metadata and event caches are primed", async () => {
+  const source = join(root, "cache-corruption"); cpSync(tracker, source, { recursive: true });
+  const client = new PmClient({ pmRoot: source, noExtensions: true });
+  assert.equal((await client.listAllComplete()).count, 1);
+  const window = await readHistoryAnalyticsWindow(source, { since: "2000-01-01T00:00:00.000Z", eventLimit: 100 });
+  assert.equal(window.receipt.source, "history_event_index");
+  assert.ok(window.receipt.events > 0);
+  assert.ok(await runDiagnosticProbe("sdk:history:v1", source) > 0);
+  const history = join(source, "history", "diag-first.jsonl");
+  const raw = readFileSync(history, "utf8");
+  const corrupt = raw.replace(/"after_hash":"[^"]+"/, '"after_hash":"bad"');
+  assert.notEqual(corrupt, raw);
+  writeFileSync(history, corrupt);
+  const before = fingerprint(source);
+  await assert.rejects(runDiagnosticProbe("sdk:history:v1", source), /history_invalid/);
+  assert.equal(fingerprint(source), before);
+});
+
+test("SDK enumeration refuses malformed rows rather than returning a normalized partial count", async () => {
+  const source = join(root, "sdk-enumeration"); cpSync(tracker, source, { recursive: true });
+  writeFileSync(join(source, "tasks", "invalid.toon"), "invalid private content");
+  const before = fingerprint(source);
+  await assert.rejects(runDiagnosticProbe("sdk:items:v1", source), /items_invalid/);
+  assert.equal(fingerprint(source), before);
+});
+
+test("history refuses SDK identities missing from their authoritative source location", async () => {
+  const source = join(root, "sdk-identity"); cpSync(tracker, source, { recursive: true });
+  renameSync(join(source, "tasks", "diag-first.toon"), join(source, "tasks", "different.toon"));
+  const before = fingerprint(source);
+  await assert.rejects(runDiagnosticProbe("sdk:history:v1", source), /items_invalid/);
+  assert.equal(fingerprint(source), before);
+});
+
+test("independent byte and SDK format checks survive normalized metadata enumeration", async () => {
+  const source = join(root, "sdk-format"); cpSync(tracker, source, { recursive: true });
+  const task = join(source, "tasks", "diag-first.toon");
+  const raw = readFileSync(task);
+  for (const content of [Buffer.concat([raw, Buffer.from([0xff])]), Buffer.concat([raw, Buffer.from("pm_format_version: 999\n")])]) {
+    writeFileSync(task, content);
+    const before = fingerprint(source);
+    await assert.rejects(runDiagnosticProbe("sdk:items:v1", source), /items_invalid/);
+    assert.equal(fingerprint(source), before);
+  }
 });
 
 test("settings and optional schema diagnostics never scaffold the source or silently accept invalid defaults", async () => {

@@ -127,7 +127,7 @@ test("the development dependency is an exact pin at or above the declared floor"
 test("the installed CLI package matches the exact development pin", () => {
   const installed = JSON.parse(readFileSync(resolve(repoRoot, "node_modules", CLI, "package.json"), "utf8")) as { version: string };
   assert.equal(installed.version, developmentCliVersion(repoRoot));
-  assert.equal(extensionManifest.pm_min_version, "2026.8.20");
+  assert.equal(extensionManifest.pm_min_version, "2026.10.20");
 });
 
 test("the complete raw manifest satisfies the public SDK compatibility contract", () => {
@@ -135,6 +135,8 @@ test("the complete raw manifest satisfies the public SDK compatibility contract"
   assert.ok(dev, `package.json devDependencies must declare ${CLI}`);
   const result = checkExtensionManifestCompatibility(extensionManifest, { pmVersion: dev });
   assert.equal(result.compatible, true, "the declared PM version bounds must accept the pinned CLI");
+  assert.equal(checkExtensionManifestCompatibility(extensionManifest, { pmVersion: "2026.8.20" }).compatible, false,
+    "hosts predating the certified corpus SDK contract must be refused before activation");
   assert.deepEqual(
     result.findings,
     [],
