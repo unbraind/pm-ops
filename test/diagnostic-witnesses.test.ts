@@ -136,10 +136,18 @@ test("500 seeded model-based sequences replay old inputs and exact CRLF/whitespa
         const action = Math.floor(random() * 6);
         if (action === 0 && past.length) current = structuredClone(past[Math.floor(random() * past.length)]!);
         if (action === 1) current.facts[2]!.value = ` ${sequence}\r\n${operation} `;
-        if (action === 2) current.checks[Math.floor(random() * current.checks.length)]!.sufficient = random() < 0.5 ? [["actual"], ["noise", "required"]] : [["actual", "required"]];
+        if (action === 2) {
+          const choice = random();
+          current.checks[Math.floor(random() * current.checks.length)]!.sufficient = choice < 1 / 3 ? [["actual"], ["noise", "required"]]
+            : choice < 2 / 3 ? [["actual", "required"]] : [["noise", "required"]];
+        }
         if (action === 3) current.checks[0]!.diagnosis = random() < 0.5 ? "observed" : "unverified";
         if (action === 4) current.checks[0]!.failure = random() < 0.5 ? "sdk_incompatible" : "items_unreadable";
-        if (action === 5) current = decode(encode(current)) as unknown as DiagnosticWitnessInput;
+        if (action === 5) {
+          const decoded = decode(encode(current));
+          assert.deepEqual(decoded, current);
+          current = decoded as unknown as DiagnosticWitnessInput;
+        }
         const input = join(root, "input.json");
         writeFileSync(input, JSON.stringify(current, null, 2).replace(/\n/g, "\r\n"));
         const report = readDiagnosticWitnesses(input); verify(current, report);
