@@ -643,12 +643,25 @@ and Cargo package readiness are separate checks.
 
 ## Without git
 
+The repository changelog scripts require Git for release-tag windows and refuse
+plain-directory trackers with an explicit diagnostic. The changelog adapter can
+still generate directly from tracker items when invoked without tag flags.
+
 Evidence expiry, backend capability diagnostics, scan, policy, status, outdated, audit, metrics,
 reports and docstring analysis work in plain directories. The capability and
 evidence expiry paths never invoke Git. Release verification runs package-defined
 scripts, which may
 need Git; GitHub queries need their own credentials and network access. Configure
 and validate those requirements separately.
+
+The release job and local changelog scripts retain empty release windows with
+`--include-empty`. `scripts/pm-changelog.ts` delegates selection and release
+membership to the pinned generator, then renders empty sections as
+`No tracked changes.` for file generation, drift checks and release notes. The
+generator currently hardcodes `No changes.` and has no empty-message option.
+Every tag gets one section, including consecutive empty releases and same-day
+suffixes; a pending release also gets its section before its tag exists.
+Regenerating main cannot change changelogs inside historical release commits.
 
 ## Operational evidence expiry
 

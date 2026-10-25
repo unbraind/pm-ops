@@ -1,0 +1,28 @@
+id: ops-changelog-sections
+title: "Every published release needs exactly one changelog section, including releases with no tracked items"
+description: "Daily release run 40177125675 generated the changelog successfully, then its completeness repair refused missing notes for 2026.10.20. Retain empty release windows in every generation entry point, regenerate full history, and prove tag cardinality and repair-note compatibility across empty and suffixed releases."
+type: Issue
+status: in_progress
+priority: 1
+tags: []
+created_at: "2026-10-25T10:51:36.364Z"
+updated_at: "2026-10-25T11:13:01.450Z"
+author: codex-agent
+comments[5]{created_at,author,text}:
+  "2026-10-25T10:52:21.337Z",codex-agent,"Root cause confirmed: daily run 40177125675 completed Generate changelog and release notes, then repair refused 2026.10.20. Pinned pm-changelog 2026.10.20 builds tag windows but filters itemless windows unless include-empty is enabled. respect-item-release controls membership, not window retention. Enable include-empty in every local generation path and reuse npm scripts in the release job. The generator hardcodes No changes. and lacks configurable empty-section text; a small repository adapter will render No tracked changes. Historical repair reads CHANGELOG.md at each immutable release commit, so regenerating main cannot retroactively repair absent GitHub Releases."
+  "2026-10-25T10:55:58.087Z",codex-agent,"Regeneration verified against live npm inventory and Git tags: 59 published versions, 59 release tags, exactly 59 version sections, 19 empty release sections plus an Unreleased heading. Read-only npm run verify:release-completeness exited 1 with: FAIL - release tag v2026.10.20 has no corresponding GitHub Release; verify-release-completeness: 1 failure(s). Follow-up ops-release-1020-recovery records the immutable historical-note blocker; release creation remains outside authorization. Property covers all 64 item-presence masks across six real tags, including consecutive empty windows and v2026.10.20-1, and calls committedReleaseNotes for each. Behavioural revert proof: removing include-empty from package scripts makes the property fail at mask 0 (0 pass, 1 fail); restoring flags and reverting only describeEmptyReleases to return its input makes the same property fail (0 pass, 1 fail). Both changes restored. Linked pm test passed 5/5; results are recorded here because test-result tracking is disabled."
+  "2026-10-25T10:59:24.337Z",codex-agent,"Targeted regression run passed 66/66: node --test test/changelog-sections.test.ts test/release-repair.test.ts test/verify-release-completeness.test.ts. The first full gate found the existing compatibility-floor assertion required direct npx generator invocations; it now checks delegation to the three npm scripts, retaining all pinned-CLI and unbounded-read assertions. node --test test/compatibility-floor.test.ts test/dependency-contract.test.ts passed 8/8 after that adaptation. Strict tracker health passes with a fresh HOME and isolated Git configuration; the interactive home loads an unrelated newer pm-github extension, which is not present in the isolated CI environment."
+  "2026-10-25T11:08:12.566Z",codex-agent,"Full npm release gate passed with isolated HOME and Git configuration: env HOME=<fresh directory> GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 npm run release:check. Suite: 1451 passed, 0 failed, 2 opt-in real-data cases skipped (1453 total). All 38 measured source files, including scripts/pm-changelog.ts, are 100% in statements, branches, functions and lines. Typecheck, lint, duplication (0%), docstrings, production audit (0 vulnerabilities), pack dry run, changelog check, date verifier, publish-attestation verifier and lifecycle policy verifier all passed. Bun release gate is running next; skipped real-data cases do not certify live fleet behavior."
+  "2026-10-25T11:13:00.161Z",codex-agent,"Bun release gate passed: env HOME=<fresh directory> GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 bun run release:check. Same 1451 passed, 0 failed, 2 opt-in real-data skips, and 100% statements/branches/functions/lines across all 38 measured sources. All release checks passed. Ready for review; leave this item in progress for orchestrator verification and retain ops-release-1020-recovery as the open historical audit blocker. No merge, publication or release creation performed."
+files[6]{path,scope}:
+  .github/workflows/release.yml,project
+  CHANGELOG.md,project
+  package.json,project
+  scripts/pm-changelog.ts,project
+  test/changelog-sections.test.ts,project
+  test/compatibility-floor.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/changelog-sections.test.ts,project,codex-agent,"2026-10-25T10:54:13.127Z",local_mutation,fix/changelog-section-per-release
+docs[1]{path,scope}:
+  README.md,project
+body: ""

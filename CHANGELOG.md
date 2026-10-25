@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+No tracked changes.
+
 ## 2026.10.25 - 2026-10-25
 
 ### Added
@@ -12,6 +16,10 @@
 
 - Honor metrics JSON format and document verified registry activation ([ops-install-routes-1022](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-install-routes-1022.toon))
 - Refuse unsafe diagnostic and artifact inputs before reading ([ops-bounded-input](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-bounded-input.toon))
+
+## 2026.10.24 - 2026-10-24
+
+No tracked changes.
 
 ## 2026.10.23 - 2026-10-23
 
@@ -47,6 +55,30 @@
 - Enable GitHub CodeQL code scanning ([ops-jasw](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-jasw.toon))
 - Characterize pre-existing fleet workflow scanner refusals ([ops-0u7l](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-0u7l.toon))
 
+## 2026.10.21 - 2026-10-21
+
+No tracked changes.
+
+## 2026.10.20 - 2026-10-20
+
+No tracked changes.
+
+## 2026.10.19 - 2026-10-19
+
+No tracked changes.
+
+## 2026.10.18 - 2026-10-18
+
+No tracked changes.
+
+## 2026.10.17 - 2026-10-17
+
+No tracked changes.
+
+## 2026.10.16 - 2026-10-16
+
+No tracked changes.
+
 ## 2026.10.15 - 2026-10-15
 
 ### Security
@@ -59,6 +91,10 @@
 
 - Reject unresolved alias and function publish indirection in canonical attestation auditor ([ops-publish-indirection](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-publish-indirection.toon))
 - Keep merge-driver prepare read-only during npm pack and publish ([ops-pack-prepare](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-pack-prepare.toon))
+
+## 2026.10.13 - 2026-10-13
+
+No tracked changes.
 
 ## 2026.10.12 - 2026-10-12
 
@@ -74,6 +110,10 @@
 
 - Certify pm-ops on PM CLI/SDK 2026.10.10 with linear declaration scanner ([ops-hiee](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-hiee.toon))
 
+## 2026.10.6 - 2026-10-06
+
+No tracked changes.
+
 ## 2026.10.5 - 2026-10-05
 
 ### Fixed
@@ -83,6 +123,10 @@
 ### Other
 
 - Auto-merge green Dependabot updates and group the pm toolchain into one daily PR ([ops-k1lf](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-k1lf.toon))
+
+## 2026.10.4 - 2026-10-04
+
+No tracked changes.
 
 ## 2026.9.29 - 2026-09-29
 
@@ -107,6 +151,10 @@
 
 - Certify pm CLI 2026.9.23 and adopt the guarded pm-ops merge-driver launcher ([ops-me3v](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-me3v.toon))
 
+## 2026.9.23 - 2026-09-23
+
+No tracked changes.
+
 ## 2026.9.18 - 2026-09-18
 
 ### Added
@@ -121,6 +169,10 @@
 ### Other
 
 - Certify pm CLI 2026.9.17 ([ops-xz9q](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-xz9q.toon))
+
+## 2026.9.13 - 2026-09-13
+
+No tracked changes.
 
 ## 2026.9.11 - 2026-09-11
 
@@ -302,6 +354,10 @@
 
 - Resolve pm-changelog to the release that derives release dates in UTC ([ops-70qk](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-70qk.toon))
 
+## 2026.8.3 - 2026-08-03
+
+No tracked changes.
+
 ## 2026.8.1 - 2026-08-01
 
 ### Added
@@ -322,6 +378,10 @@
 
 - Expose the analyzer as a pm ops subcommand and a package subpath export ([ops-qvbu](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-qvbu.toon))
 - Build the lexer-backed docstring analyzer and its negative controls ([ops-w8n4](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-w8n4.toon))
+
+## 2026.7.31 - 2026-07-31
+
+No tracked changes.
 
 ## 2026.7.29 - 2026-07-29
 
@@ -376,6 +436,14 @@
 
 - Adopt pm field-aware merge driver for multi-agent branch-merge safety ([ops-3ype](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-3ype.toon))
 
+## 2026.7.22 - 2026-07-22
+
+No tracked changes.
+
+## 2026.7.20 - 2026-07-20
+
+No tracked changes.
+
 ## 2026.7.19 - 2026-07-19
 
 ### Other
@@ -401,6 +469,10 @@
 - Production hardening and fleet-operations safety pass 2026-07-09 ([ops-b2aa](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-b2aa.toon))
 - Address bot review feedback on PR \#1 (gemini+cubic+coderabbit) ([ops-81x9](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-81x9.toon))
 
+## 2026.7.11 - 2026-07-11
+
+No tracked changes.
+
 ## 2026.7.10-1 - 2026-07-10
 
 ### Other
@@ -412,3 +484,11 @@
 ### Fixed
 
 - Fix manifest: add schema capability so registerCommand flags load (extension failed to activate) ([ops-tg86](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-tg86.toon))
+
+## 2026.7.7 - 2026-07-07
+
+No tracked changes.
+
+## 2026.7.6 - 2026-07-06
+
+No tracked changes.
