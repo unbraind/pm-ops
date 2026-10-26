@@ -1,6 +1,6 @@
 {
   "name": "pm-ops",
-  "version": "2026.10.25",
+  "version": "2026.10.26",
   "description": "Multi-repo fleet operations for pm-cli",
   "repository": {
     "type": "git",
@@ -9,7 +9,7 @@
   "bugs": {
     "url": "https://github.com/unbraind/pm-ops/issues"
   },
-  "homepage": "https://github.com/unbraind/pm-ops#readme",
+  "homepage": "https://pm-cli.unbrained.dev/packages/pm-ops",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -156,7 +156,7 @@
     "@unbrained/pm-cli": "2026.10.20",
     "c8": "12.0.0",
     "eslint": "10.13.0",
-    "jscpd": "5.4.1",
+    "jscpd": "5.4.2",
     "pm-changelog": "2026.10.20"
   },
   "keywords": [
@@ -171,7 +171,10 @@
   "engines": {
     "node": ">=22.18.0"
   },
-  "author": "@unbrained",
+  "author": {
+    "name": "unbrained",
+    "url": "https://unbrained.dev/about"
+  },
   "pm": {
     "aliases": [
       "ops"
