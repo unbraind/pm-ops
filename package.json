@@ -156,7 +156,7 @@
     "@unbrained/pm-cli": "2026.10.20",
     "c8": "12.0.0",
     "eslint": "10.13.0",
-    "jscpd": "5.4.1",
+    "jscpd": "5.4.2",
     "pm-changelog": "2026.10.20"
   },
   "keywords": [
