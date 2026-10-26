@@ -1,0 +1,460 @@
+{
+  "package": "pm-ops",
+  "auditedMain": "1ceb53b69d4bb0eea323625744fe9200a38bb267",
+  "requiredFloor": "2026.10.2",
+  "previousFloors": {
+    "manifest": "2026.10.20",
+    "peer": ">=2026.10.20",
+    "dependency": null
+  },
+  "scope": "Published stable artifact API availability; no package runtime or lifecycle scripts executed. Purely erased types are excluded; function and constructor types used by runtime SDK loaders are included.",
+  "apis": [
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "effectiveItemFormatVersion",
+      "uses": [
+        "diagnostic-probes.ts:5"
+      ],
+      "first": "2026.6.21",
+      "previous": "2026.6.20",
+      "sha256": "3f9f6d4aa12d32f1570a895e2499ea61d15d7b1266c5157b93d2b272b90e963c",
+      "previousSha256": "aba2e84e4f025d5f3590ab263c05d292c6c2e2f6f179252bf996b471281cbd20"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "getHistoryPath",
+      "uses": [
+        "diagnostic-probes.ts:5"
+      ],
+      "first": "2026.5.14",
+      "previous": "2026.5.12",
+      "sha256": "7f7e9131afadb891344bf2fb93b15bc157d18c532a5da4ec31677957d37b7260",
+      "previousSha256": "42dcaef84dc441b7792aeffa059bfe10a86ae8b12b1084472229bba03fb29910"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "getWorkspaceHistoryPath",
+      "uses": [
+        "evidence-expiry.ts:3"
+      ],
+      "first": "2026.7.24",
+      "previous": "2026.7.23",
+      "sha256": "ae7757c7e4b02bf5c0908a7bcfd487926912bc2f71332c68c9e1be4017d796ab",
+      "previousSha256": "caf1a21b0b587dc55c3509654466dd1e20383e30f2d17b47678887a15a5490af"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "listAllItemMetadata",
+      "uses": [
+        "diagnostic-probes.ts:5"
+      ],
+      "first": "2026.7.13",
+      "previous": "2026.7.12",
+      "sha256": "10d5b0f8787c643cb8caf58f656cc95097f6ac84fcdaa6ff59911780fcd894a5",
+      "previousSha256": "a612224324e3ae91e2fc8c25f83d9a65fc13db66914aeb04ee65e16a523521be"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "listAssuranceVerdicts",
+      "uses": [
+        "evidence-expiry.ts:3"
+      ],
+      "first": "2026.8.11",
+      "previous": "2026.8.10",
+      "sha256": "9d330a904e73d46ceff88153c6715ecf5480d27194ad225029b4e190c148075f",
+      "previousSha256": "04a015fec8f2f448a0e184977c350ebfc4c409ff3025b4956770c45c90dda193"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "locateItem",
+      "uses": [
+        "diagnostic-probes.ts:5"
+      ],
+      "first": "2026.5.14",
+      "previous": "2026.5.12",
+      "sha256": "7f7e9131afadb891344bf2fb93b15bc157d18c532a5da4ec31677957d37b7260",
+      "previousSha256": "42dcaef84dc441b7792aeffa059bfe10a86ae8b12b1084472229bba03fb29910"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "PmClient",
+      "uses": [
+        "backend-capabilities.ts:6"
+      ],
+      "first": "2026.7.6",
+      "previous": "2026.7.5",
+      "sha256": "0d6e446cf93a0f0660ce4e21943adf1e0c21381010ef67369f40cc9834b8d158",
+      "previousSha256": "4a6664f68120cace5648faf48d51b08c14e969d9c7e185e592f1a0fceae57274"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "PmCliError",
+      "uses": [
+        "backend-capabilities.ts:6"
+      ],
+      "first": "2026.5.14",
+      "previous": "2026.5.12",
+      "sha256": "7f7e9131afadb891344bf2fb93b15bc157d18c532a5da4ec31677957d37b7260",
+      "previousSha256": "42dcaef84dc441b7792aeffa059bfe10a86ae8b12b1084472229bba03fb29910"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "readHistorySnapshot",
+      "uses": [
+        "diagnostic-probes.ts:5",
+        "evidence-expiry.ts:3"
+      ],
+      "first": "2026.9.8",
+      "previous": "2026.9.7",
+      "sha256": "529c08a4cb65507f86dc3f9b7efd673a031c6491156ae753c0a058d0d48e10bc",
+      "previousSha256": "9befaac9056ce94b2dff006e0fe2329c0b0c18479bf9c9f9027684789387c7ae"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "readLocatedItem",
+      "uses": [
+        "diagnostic-probes.ts:5"
+      ],
+      "first": "2026.5.14",
+      "previous": "2026.5.12",
+      "sha256": "7f7e9131afadb891344bf2fb93b15bc157d18c532a5da4ec31677957d37b7260",
+      "previousSha256": "42dcaef84dc441b7792aeffa059bfe10a86ae8b12b1084472229bba03fb29910"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "readSettings",
+      "uses": [
+        "backend-capabilities.ts:6"
+      ],
+      "first": "2026.5.14",
+      "previous": "2026.5.12",
+      "sha256": "7f7e9131afadb891344bf2fb93b15bc157d18c532a5da4ec31677957d37b7260",
+      "previousSha256": "42dcaef84dc441b7792aeffa059bfe10a86ae8b12b1084472229bba03fb29910"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "readSettingsWithMetadata",
+      "uses": [
+        "diagnostic-probes.ts:5"
+      ],
+      "first": "2026.7.23",
+      "previous": "2026.7.22",
+      "sha256": "caf1a21b0b587dc55c3509654466dd1e20383e30f2d17b47678887a15a5490af",
+      "previousSha256": "d013832d6afc97c9a5c6f4a48a497f54a216643f8c7017b9c4f807ce6607532b"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "resolveItemTypeRegistry",
+      "uses": [
+        "backend-capabilities.ts:6",
+        "diagnostic-probes.ts:5"
+      ],
+      "first": "2026.5.14",
+      "previous": "2026.5.12",
+      "sha256": "7f7e9131afadb891344bf2fb93b15bc157d18c532a5da4ec31677957d37b7260",
+      "previousSha256": "42dcaef84dc441b7792aeffa059bfe10a86ae8b12b1084472229bba03fb29910"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "runWithConfigurationOnlySettings",
+      "uses": [
+        "diagnostic-probes.ts:5"
+      ],
+      "first": "2026.10.2",
+      "previous": "2026.10.1",
+      "sha256": "d1cc9a7c6ccc1da01788cf307be73cca81089215a88a63ce41c32803fdc45e3e",
+      "previousSha256": "54eafd4428b5554a1860aa5311349f7dff167a63560f55e7f1315da63a775c02"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "scanItemFormatVersions",
+      "uses": [
+        "diagnostic-probes.ts:5"
+      ],
+      "first": "2026.6.21",
+      "previous": "2026.6.20",
+      "sha256": "3f9f6d4aa12d32f1570a895e2499ea61d15d7b1266c5157b93d2b272b90e963c",
+      "previousSha256": "aba2e84e4f025d5f3590ab263c05d292c6c2e2f6f179252bf996b471281cbd20"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "validateAssertionDefinition",
+      "uses": [
+        "evidence-expiry.ts:3"
+      ],
+      "first": "2026.8.11",
+      "previous": "2026.8.10",
+      "sha256": "9d330a904e73d46ceff88153c6715ecf5480d27194ad225029b4e190c148075f",
+      "previousSha256": "04a015fec8f2f448a0e184977c350ebfc4c409ff3025b4956770c45c90dda193"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "verifyHistoryEntries",
+      "uses": [
+        "diagnostic-probes.ts:5"
+      ],
+      "first": "2026.7.24",
+      "previous": "2026.7.23",
+      "sha256": "ae7757c7e4b02bf5c0908a7bcfd487926912bc2f71332c68c9e1be4017d796ab",
+      "previousSha256": "caf1a21b0b587dc55c3509654466dd1e20383e30f2d17b47678887a15a5490af"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "verifyHistoryRecordHash",
+      "uses": [
+        "evidence-expiry.ts:3"
+      ],
+      "first": "2026.9.4",
+      "previous": "2026.9.3",
+      "sha256": "4e77a3ff4e20ec62dbdfe8efeb8e8816893f802dbcdb5532017731325d3daa07",
+      "previousSha256": "3159cb0dc1bb73be81ea44f2923f41c7cb8945d5cff6af6598a7331a466f8e90"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk",
+      "name": "WORKSPACE_HISTORY_ID",
+      "uses": [
+        "evidence-expiry.ts:3"
+      ],
+      "first": "2026.7.24",
+      "previous": "2026.7.23",
+      "sha256": "ae7757c7e4b02bf5c0908a7bcfd487926912bc2f71332c68c9e1be4017d796ab",
+      "previousSha256": "caf1a21b0b587dc55c3509654466dd1e20383e30f2d17b47678887a15a5490af"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk/merge",
+      "name": "auditMergeAttributeFence",
+      "uses": [
+        "index.ts:14"
+      ],
+      "first": "2026.7.26",
+      "previous": "2026.7.25",
+      "sha256": "b10b647a7fce423106dfb964934ac2d43b8770f8f085df89a13c9a04e75569cc",
+      "previousSha256": "20dfec2ca4ddfcebd484af686b76aebcb1f479a7b81c781380a7fe6b6f8506f5"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk/merge",
+      "name": "auditMergeDriverConfiguration",
+      "uses": [
+        "index.ts:14"
+      ],
+      "first": "2026.7.27",
+      "previous": "2026.7.26",
+      "sha256": "d42dc525a76d61662929adfbd3e160f6411f0991b1913c0de274d329b46495d4",
+      "previousSha256": "b10b647a7fce423106dfb964934ac2d43b8770f8f085df89a13c9a04e75569cc"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk/merge",
+      "name": "findGitWorkspaceRoot",
+      "uses": [
+        "index.ts:14"
+      ],
+      "first": "2026.7.26",
+      "previous": "2026.7.25",
+      "sha256": "b10b647a7fce423106dfb964934ac2d43b8770f8f085df89a13c9a04e75569cc",
+      "previousSha256": "20dfec2ca4ddfcebd484af686b76aebcb1f479a7b81c781380a7fe6b6f8506f5"
+    },
+    {
+      "kind": "export",
+      "module": "/sdk/merge",
+      "name": "listMergeReceipts",
+      "uses": [
+        "index.ts:14"
+      ],
+      "first": "2026.7.27",
+      "previous": "2026.7.26",
+      "sha256": "d42dc525a76d61662929adfbd3e160f6411f0991b1913c0de274d329b46495d4",
+      "previousSha256": "b10b647a7fce423106dfb964934ac2d43b8770f8f085df89a13c9a04e75569cc"
+    },
+    {
+      "kind": "member",
+      "module": "AssuranceMeasurementProviderContext",
+      "name": "key",
+      "uses": [
+        "assurance.ts:618",
+        "assurance.ts:629"
+      ],
+      "first": "2026.8.13",
+      "previous": "2026.8.12",
+      "sha256": "c75cdabb8b82ca219e2d669589065039f20de5ac6ac93f5fc589aa284ca621d1",
+      "previousSha256": "c8cb9c030106c7998e247ba1496a7e1f66a3ba30c2ef1fc97d7d1211c23466d6"
+    },
+    {
+      "kind": "member",
+      "module": "CommandHandlerContext",
+      "name": "args",
+      "uses": [
+        "index.ts:291",
+        "index.ts:2987"
+      ],
+      "first": "2026.5.1",
+      "previous": "2026.3.12",
+      "sha256": "730de8b79aa0074dc2ca81a54ce37f9aaa0a4167b690c9a62b87d2121a8b37f7",
+      "previousSha256": "4e4e6a33cb45d665f072120e9e1ce25d2e5773e738cbc914b29e8f54367747fb"
+    },
+    {
+      "kind": "member",
+      "module": "CommandHandlerContext",
+      "name": "global",
+      "uses": [
+        "index.ts:292",
+        "index.ts:3001"
+      ],
+      "first": "2026.5.1",
+      "previous": "2026.3.12",
+      "sha256": "730de8b79aa0074dc2ca81a54ce37f9aaa0a4167b690c9a62b87d2121a8b37f7",
+      "previousSha256": "4e4e6a33cb45d665f072120e9e1ce25d2e5773e738cbc914b29e8f54367747fb"
+    },
+    {
+      "kind": "member",
+      "module": "CommandHandlerContext",
+      "name": "options",
+      "uses": [
+        "index.ts:206",
+        "index.ts:208",
+        "index.ts:288",
+        "index.ts:2646",
+        "index.ts:2665",
+        "index.ts:2666",
+        "index.ts:2667",
+        "index.ts:2668",
+        "index.ts:2669",
+        "index.ts:2670",
+        "index.ts:2692",
+        "index.ts:2710",
+        "index.ts:2711",
+        "index.ts:2713",
+        "index.ts:2714",
+        "index.ts:2877",
+        "index.ts:2986"
+      ],
+      "first": "2026.5.1",
+      "previous": "2026.3.12",
+      "sha256": "730de8b79aa0074dc2ca81a54ce37f9aaa0a4167b690c9a62b87d2121a8b37f7",
+      "previousSha256": "4e4e6a33cb45d665f072120e9e1ce25d2e5773e738cbc914b29e8f54367747fb"
+    },
+    {
+      "kind": "member",
+      "module": "CommandHandlerContext",
+      "name": "pm_root",
+      "uses": [
+        "index.ts:2674",
+        "index.ts:2677",
+        "index.ts:2694",
+        "index.ts:2714"
+      ],
+      "first": "2026.5.1",
+      "previous": "2026.3.12",
+      "sha256": "730de8b79aa0074dc2ca81a54ce37f9aaa0a4167b690c9a62b87d2121a8b37f7",
+      "previousSha256": "4e4e6a33cb45d665f072120e9e1ce25d2e5773e738cbc914b29e8f54367747fb"
+    },
+    {
+      "kind": "member",
+      "module": "ExtensionApi",
+      "name": "registerAssuranceMeasurementProvider",
+      "uses": [
+        "index.ts:2638"
+      ],
+      "first": "2026.8.13",
+      "previous": "2026.8.12",
+      "sha256": "c75cdabb8b82ca219e2d669589065039f20de5ac6ac93f5fc589aa284ca621d1",
+      "previousSha256": "c8cb9c030106c7998e247ba1496a7e1f66a3ba30c2ef1fc97d7d1211c23466d6"
+    },
+    {
+      "kind": "member",
+      "module": "ExtensionApi",
+      "name": "registerCommand",
+      "uses": [
+        "index.ts:2640",
+        "index.ts:2652",
+        "index.ts:2684",
+        "index.ts:2699",
+        "index.ts:2718",
+        "index.ts:2746",
+        "index.ts:2797",
+        "index.ts:2855",
+        "index.ts:2887",
+        "index.ts:2913",
+        "index.ts:2938",
+        "index.ts:2963",
+        "index.ts:3031",
+        "index.ts:3102"
+      ],
+      "first": "2026.5.1",
+      "previous": "2026.3.12",
+      "sha256": "730de8b79aa0074dc2ca81a54ce37f9aaa0a4167b690c9a62b87d2121a8b37f7",
+      "previousSha256": "4e4e6a33cb45d665f072120e9e1ce25d2e5773e738cbc914b29e8f54367747fb"
+    },
+    {
+      "kind": "member",
+      "module": "ExtensionApi",
+      "name": "registerParser",
+      "uses": [
+        "index.ts:3140"
+      ],
+      "first": "2026.5.1",
+      "previous": "2026.3.12",
+      "sha256": "730de8b79aa0074dc2ca81a54ce37f9aaa0a4167b690c9a62b87d2121a8b37f7",
+      "previousSha256": "4e4e6a33cb45d665f072120e9e1ce25d2e5773e738cbc914b29e8f54367747fb"
+    },
+    {
+      "kind": "member",
+      "module": "ExtensionApi",
+      "name": "registerRenderer",
+      "uses": [
+        "index.ts:2615",
+        "index.ts:2628",
+        "index.ts:2629"
+      ],
+      "first": "2026.5.1",
+      "previous": "2026.3.12",
+      "sha256": "730de8b79aa0074dc2ca81a54ce37f9aaa0a4167b690c9a62b87d2121a8b37f7",
+      "previousSha256": "4e4e6a33cb45d665f072120e9e1ce25d2e5773e738cbc914b29e8f54367747fb"
+    },
+    {
+      "kind": "member",
+      "module": "PmClient",
+      "name": "get",
+      "uses": [
+        "backend-capabilities.ts:219"
+      ],
+      "first": "2026.7.6",
+      "previous": "2026.7.5",
+      "sha256": "0d6e446cf93a0f0660ce4e21943adf1e0c21381010ef67369f40cc9834b8d158",
+      "previousSha256": "4a6664f68120cace5648faf48d51b08c14e969d9c7e185e592f1a0fceae57274"
+    },
+    {
+      "kind": "member",
+      "module": "PmClient",
+      "name": "listAllComplete",
+      "uses": [
+        "backend-capabilities.ts:211"
+      ],
+      "first": "2026.8.18",
+      "previous": "2026.8.17",
+      "sha256": "b00374f0e32c98ccec03a5893d8bfbbae45650f44bd04292ceafd8d9aac059f7",
+      "previousSha256": "fda330eb4887031751889ef85b510d52886fa5f70b4813f3951d7eed705023f2"
+    }
+  ]
+}
