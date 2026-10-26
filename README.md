@@ -648,8 +648,8 @@ The repository changelog scripts require Git for release-tag windows and refuse
 plain-directory trackers with an explicit diagnostic. The changelog adapter can
 still generate directly from tracker items when invoked without tag flags.
 
-Evidence expiry, backend capability diagnostics, scan, policy, status, outdated, audit, metrics,
-reports and docstring analysis work in plain directories. The capability and
+Diagnostic witnesses, evidence expiry, backend capability diagnostics, scan, policy, status, outdated, audit, metrics,
+reports and docstring analysis work in plain directories. The witness, capability and
 evidence expiry paths never invoke Git. Release verification runs package-defined
 scripts, which may
 need Git; GitHub queries need their own credentials and network access. Configure
@@ -803,3 +803,28 @@ absent from PATH, for an ordinary directory tracker. They never invoke Git or mu
 the tracker. Public HTTP diagnostics require explicit network budget. Database and
 MCP diagnostics remain the separate backend read-bridge capability command; directory
 plans do not claim to execute against those backends.
+
+## Minimal diagnostic failure witnesses
+
+`pm ops witnesses --input diagnostic-failures.json` reduces explicit diagnostic
+input facts into the smallest sufficient packet under the caller's declared
+clauses. Add `--json` for JSON; the default is compact native TOON. Five checks
+with one incompatible SDK input set produce one witness listing all five check
+IDs with their canonical commands. Different classes, scopes, diagnosis levels or selected
+clauses stay separate. No affected check is dropped.
+
+The exact objective is the fewest **distinct facts** needed to satisfy at least
+one declared sufficient clause for every check. This is not a minimum-byte or
+minimum-witness-count claim. Sufficiency is declared by the caller; reduction
+never verifies SDK compatibility, executes a probe or proves a root cause.
+`ok: true` means the input was reduced successfully. `unverified` remains
+`unverified`, and the output always states `basis: declared_sufficiency`.
+
+The typed SDK is exported from `pm-ops/diagnostic-witnesses`. It reuses the
+canonical diagnostic command catalog; use `pm ops diagnose` to review and run
+those checks. Inputs are strict, bounded JSON with typed refusals and remedies.
+See the [SDK contract and example](docs/diagnostic-witnesses.md) and the
+[public tracker measurements](docs/diagnostic-witnesses-validation.md).
+
+Witness reduction works without Git, including when Git is absent from PATH.
+It reads only the selected input file and never reads or changes tracker state.

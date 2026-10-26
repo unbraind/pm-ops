@@ -81,6 +81,10 @@
     "./evidence-expiry": {
       "types": "./dist/evidence-expiry.d.ts",
       "default": "./dist/evidence-expiry.js"
+    },
+    "./diagnostic-witnesses": {
+      "types": "./dist/diagnostic-witnesses.d.ts",
+      "default": "./dist/diagnostic-witnesses.js"
     }
   },
   "files": [
