@@ -9,7 +9,7 @@
   "bugs": {
     "url": "https://github.com/unbraind/pm-ops/issues"
   },
-  "homepage": "https://github.com/unbraind/pm-ops#readme",
+  "homepage": "https://pm-cli.unbrained.dev/packages/pm-ops",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -171,7 +171,10 @@
   "engines": {
     "node": ">=22.18.0"
   },
-  "author": "@unbrained",
+  "author": {
+    "name": "unbrained",
+    "url": "https://unbrained.dev/about"
+  },
   "pm": {
     "aliases": [
       "ops"
