@@ -1,14 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Use SDK corpus reads for backend assurance and diagnostics ([ops-sdk-adoption-1025](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-sdk-adoption-1025.toon))
+
 ## 2026.10.26 - 2026-10-26
 
 ### Fixed
 
 - Every published release needs exactly one changelog section, including releases with no tracked items ([ops-changelog-sections](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-changelog-sections.toon))
-
-### Other
-
-- Use SDK corpus reads for backend assurance and diagnostics ([ops-sdk-adoption-1025](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-sdk-adoption-1025.toon))
 
 ## 2026.10.25 - 2026-10-25
 
