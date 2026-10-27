@@ -237,9 +237,10 @@ test("CLI JSON and TOON agree with SDK outside Git with no git executable; refus
   const harness = await createExtensionTestHarness(extension, { name: "pm-ops", capabilities: ["commands", "renderers", "schema", "parser", "services"] });
   const root = fileSystem.mkdtempSync(paths.join(tmpdir(), "compat-cli-"));
   try {
-    const input = paths.join(root, "input.json"); fileSystem.writeFileSync(input, JSON.stringify(fixture()));
-    assert.deepEqual((await harness.runCommand({ command: "ops compatibility", options: { input }, global: { json: false }, pmRoot: root })).result, { pmOpsRendered: true, output: encode(explainCompatibility(fixture())) });
-    assert.deepEqual((await harness.runCommand({ command: "ops compatibility", options: { input }, global: { json: true }, pmRoot: root })).result, { pmOpsRendered: true, output: JSON.stringify(explainCompatibility(fixture())) });
+    const packet = fixture(); packet.requirements[0]!.manifest = { pm_min_version: "1.0.0" };
+    const input = paths.join(root, "input.json"); fileSystem.writeFileSync(input, JSON.stringify(packet));
+    assert.deepEqual((await harness.runCommand({ command: "ops compatibility", options: { input }, global: { json: false }, pmRoot: root })).result, { pmOpsRendered: true, output: encode(explainCompatibility(packet)) });
+    assert.deepEqual((await harness.runCommand({ command: "ops compatibility", options: { input }, global: { json: true }, pmRoot: root })).result, { pmOpsRendered: true, output: JSON.stringify(explainCompatibility(packet)) });
     await assert.rejects(harness.runCommand({ command: "ops compatibility", options: {}, pmRoot: root }), /Supply --input/);
     const cli = paths.resolve("node_modules/@unbrained/pm-cli/dist/cli.js"); const tracker = paths.join(root, ".agents", "pm");
     const env = { ...process.env, PM_PATH: tracker, GIT_CEILING_DIRECTORIES: paths.dirname(root), PATH: "" };
@@ -252,7 +253,7 @@ test("CLI JSON and TOON agree with SDK outside Git with no git executable; refus
     for (const json of [true, false]) {
       const result = invoke(["ops", "compatibility", "--input", input, ...(json ? ["--json"] : [])]);
       const actualReport = json ? JSON.parse(result.stdout) : decode(result.stdout);
-      assert.deepEqual(actualReport, explainCompatibility(fixture()));
+      assert.deepEqual(actualReport, explainCompatibility(packet));
       assert.equal(result.status, 0, result.stderr);
       assert.ok(Buffer.byteLength(result.stdout) < 5000);
     }

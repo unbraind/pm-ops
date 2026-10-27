@@ -65,6 +65,10 @@ feature. Concurrent invocations share no writable feature state. Its only input
 file read uses the existing bounded regular-file descriptor guard. Suggested
 commands are literal read-only argv previews and are never executed.
 
+The packed acceptance script passes all 6 launch modes, 12 JSON/TOON checks and
+4 installed SDK consumers with isolated Bun 1.4.4. The branch also incorporates
+main's 2026.10.27 release metadata; the tested SDK pin remains 2026.10.20.
+
 The packed acceptance script uses isolated installations and exercises npm global,
 Bun global, npm project-local, Bun project-local, npx and bunx, both JSON and TOON,
 plus the installed typed SDK entrypoint with native manifest checks. Native SDK
@@ -73,3 +77,19 @@ package graph, independent of executable paths. A real unsupported Node loader
 configuration returns a typed SDK refusal and remedy. CI runs it after both release gates.
 Full-package npm/Bun release counts and behavioral revert evidence are recorded
 in the linked pm item and PR; coverage/duplication thresholds remain unchanged.
+
+
+Global activation uses core's supported packed archive installer. A directory
+snapshot outside npm's global discovery graph can omit dependency resolution for
+an external Bun global package. This existing host UX limitation is retained in
+[ops-global-activation-ux](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-global-activation-ux.toon).
+The global fixtures verify that the install leaves the project package metadata
+unchanged; the feature command itself performs no install or configuration edit.
+The no-Git CLI regression includes native manifest checks with an empty PATH.
+
+Typecheck, test typecheck, lint, documentation (322 declarations across 40 files),
+duplication (zero clones) and production audit (zero vulnerabilities) pass.
+Clean-home strict tracker health and changelog checks pass. The hosted full gates
+are still queued when this evidence is committed; their run URLs and exact counts
+belong to the PR checks. Greptile reports an expired trial, which provides no
+review approval.
