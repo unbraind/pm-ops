@@ -36,7 +36,7 @@ Reproduce with `node test/compatibility-public.acceptance.ts PUBLIC_EXPORT`, whe
 
 ## Regression scope
 
-`node --test --test-concurrency=2 test/compatibility-reasons.test.ts` passes 7/7,
+`node --test --test-concurrency=2 test/compatibility-reasons.test.ts test/compatibility-ranges.test.ts` passes 11/11,
 without failures, cancellations, skips or TODOs. The new production module measures
 100% statements, branches, functions and lines. The seeded model runs 500 sequences
 of six operations, including old input replay, version/range changes, CRLF and
@@ -65,9 +65,9 @@ feature. Concurrent invocations share no writable feature state. Its only input
 file read uses the existing bounded regular-file descriptor guard. Suggested
 commands are literal read-only argv previews and are never executed.
 
-The packed acceptance script passes all 6 launch modes, 12 JSON/TOON checks and
-4 installed SDK consumers with isolated Bun 1.4.4. The branch also incorporates
-main's 2026.10.27 release metadata; the tested SDK pin remains 2026.10.20.
+The expanded packed acceptance passes all 6 launch modes, 72 JSON/TOON checks and
+4 installed SDK consumers with 24 SDK cases using isolated Bun 1.4.4. The branch
+incorporates main's 2026.10.27 release metadata and SDK 2026.10.24 pin.
 
 The packed acceptance script uses isolated installations and exercises npm global,
 Bun global, npm project-local, Bun project-local, npx and bunx, both JSON and TOON,
@@ -87,12 +87,16 @@ The global fixtures verify that the install leaves the project package metadata
 unchanged; the feature command itself performs no install or configuration edit.
 The no-Git CLI regression includes native manifest checks with an empty PATH.
 
-Typecheck, test typecheck, lint, documentation (322 declarations across 40 files),
-duplication (zero clones) and production audit (zero vulnerabilities) pass.
-Clean-home strict tracker health and changelog checks pass. The hosted full gates
-are still queued when this evidence is committed; their run URLs and exact counts
-belong to the PR checks. Greptile reports an expired trial, which provides no
-review approval.
+Current focused compatibility tests pass 11/11 with no failures, cancellations
+or skips; the compatibility module measures 100% in all four coverage dimensions.
+Build and test typecheck pass. Renderer ownership passes 7/7 and the installed CLI
+routing check passes 1/1. The artifact-reader test retains its five-second child
+deadline; import-only startup took 13.721 seconds under host load, exceeding that
+deadline before any input read. The related timing receipt is on
+[ops-gp0d](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-gp0d.toon).
+No timeout, test assertion or quality threshold was relaxed.
+Full npm/Bun gate URLs and exact final counts belong to the pm item and PR.
+Greptile reports an expired trial, which provides no review approval.
 
 
 ## Re-review: derived version representation
@@ -125,3 +129,8 @@ non-Git trackers with no Git
 executable, all six packed launch modes, and four installed SDK consumers.
 The full test runner now explicitly uses at most two workers; coverage and
 all other quality thresholds are unchanged.
+
+The corrected source/main-merge CI run remained queued through the 30-minute
+observation limit: [CI run 40517724020](https://github.com/unbraind/pm-ops/actions/runs/40517724020).
+Completed npm/Bun release gates at that receipt: 0/4; fresh full-suite counts were
+unavailable. The latest head and any later CI status are reported on the PR.
