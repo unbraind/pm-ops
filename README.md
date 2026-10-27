@@ -662,6 +662,9 @@ membership to the pinned generator, then renders empty sections as
 generator currently hardcodes `No changes.` and has no empty-message option.
 Every tag gets one section, including consecutive empty releases and same-day
 suffixes; a pending release also gets its section before its tag exists.
+The adapter omits an empty `Unreleased` window above release history, so creating
+the release tag does not change the committed changelog. Nonempty unreleased
+work stays visible, and empty version sections retain their notes.
 Regenerating main cannot change changelogs inside historical release commits.
 
 ## Operational evidence expiry
