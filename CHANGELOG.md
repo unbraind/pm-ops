@@ -2,9 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- Keep release changelog bytes stable when the pending version becomes a tag ([ops-release-changelog-stability](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-changelog-stability.toon))
+
 ### Other
 
 - Use SDK corpus reads for backend assurance and diagnostics ([ops-sdk-adoption-1025](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-sdk-adoption-1025.toon))
+- Stop Hound from linting generated dist/ output ([ops-hound-generated-dist](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-hound-generated-dist.toon))
 
 ## 2026.10.26 - 2026-10-26
 
