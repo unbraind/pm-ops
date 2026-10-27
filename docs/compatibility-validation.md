@@ -93,3 +93,35 @@ Clean-home strict tracker health and changelog checks pass. The hosted full gate
 are still queued when this evidence is committed; their run URLs and exact counts
 belong to the PR checks. Greptile reports an expired trial, which provides no
 review approval.
+
+
+## Re-review: derived version representation
+
+The re-review finding exposed a class of errors: constructing a successor string,
+discarding it when semver rejects it, then treating the remaining candidate list
+as proof that the range is empty. The solver no longer constructs version probes.
+It uses semver comparator sets and library operations for every joint decision,
+validates every library-produced version, and preserves any rejection as typed
+`unrepresentable_range` evidence naming the original range/conjunction. The same
+evaluator serves minimum conflict reduction, the SDK and CLI; unknown range
+metadata fails independently from other target rows.
+
+The package-wide audit found no other joint-range probe producers. Calendar tag
+formatting in `release-completeness.ts` and existing-tool major detection in
+`duplication.ts` are not joint-range probes and remain unchanged. Native manifest
+bounds still use the host SDK's authoritative checker.
+
+The additional seeded property test compares 500 random range pairs against a
+brute-force corpus with maximum-length prerelease tags and valid observed
+witnesses. Separate cases verify named conservative results for invalid
+prereleases, numeric overflow and an unrepresentable derived minimum. Library-only
+inference tests preserve prerelease admission without an installed witness. The
+same validated minimum producer checks both conjunctions and individual
+comparators, including a strict prerelease successor hidden behind a stable lower
+bound. Function-only reverts of the former string-probe solver and of this
+comparator-minimum check each fail the seeded property test; restoring each fix
+passes all 500 pairs. The same adversarial packets run through JSON/TOON in
+non-Git trackers with no Git
+executable, all six packed launch modes, and four installed SDK consumers.
+The full test runner now explicitly uses at most two workers; coverage and
+all other quality thresholds are unchanged.

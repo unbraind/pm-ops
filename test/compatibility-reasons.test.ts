@@ -13,6 +13,7 @@ import { explainCompatibility, parseCompatibilityInput, readCompatibilityReasons
 import extension from "../index.ts";
 import { spawnSync } from "../subprocess.ts";
 import { fingerprint } from "./tracker-read-helpers.ts";
+import { adversarialRangePackets, assertRangePackets } from "./compatibility-range-corpus.ts";
 
 /** Three pairwise compatible pins whose joint intersection is empty. */
 function fixture(): CompatibilityInput {
@@ -57,7 +58,8 @@ test("known pin, capability, unknown metadata, transitive chains, cycles and pro
   input.requirements[0]!.range = "workspace:*";
   const unknown = explainCompatibility(input).rows[0]!;
   assert.equal(unknown.status, "unknown"); assert.equal(unknown.compatible_ranges, null);
-  assert.deepEqual(unknown.unknown.map((entry) => entry.code), ["range_unknown", "version_unknown", "capabilities_unknown"]);
+  assert.deepEqual(unknown.unknown.map((entry) => entry.code), ["unrepresentable_range", "version_unknown", "capabilities_unknown"]);
+  assert.equal(unknown.unknown[0]!.code === "unrepresentable_range" && unknown.unknown[0]!.range, "workspace:*");
   for (const range of [null, "   ", "latest", "file:../dependency", "Infinity", "999999999999999999999999.0.0"]) {
     input.requirements[0]!.range = range; assert.equal(explainCompatibility(input).rows[0]!.status, "unknown");
   }
@@ -256,6 +258,15 @@ test("CLI JSON and TOON agree with SDK outside Git with no git executable; refus
       assert.deepEqual(actualReport, explainCompatibility(packet));
       assert.equal(result.status, 0, result.stderr);
       assert.ok(Buffer.byteLength(result.stdout) < 5000);
+    }
+    for (const json of [true, false]) {
+      const reports = adversarialRangePackets().map((adversarial) => {
+        fileSystem.writeFileSync(input, JSON.stringify(adversarial));
+        const rendered = invoke(["ops", "compatibility", "--input", input, ...(json ? ["--json"] : [])]);
+        assert.equal(rendered.status, 0, rendered.stderr);
+        return (json ? JSON.parse(rendered.stdout) : decode(rendered.stdout)) as ReturnType<typeof explainCompatibility>;
+      });
+      assertRangePackets(reports);
     }
     const missing = invoke(["ops", "compatibility"]); assert.equal(missing.status, 2); assert.match(missing.stderr, /Supply --input/);
   } finally { await harness.deactivate(); fileSystem.rmSync(root, { recursive: true, force: true }); }

@@ -7,6 +7,7 @@ import { decode } from "@toon-format/toon";
 import { spawnSync } from "../subprocess.ts";
 import { explainCompatibility, parseCompatibilityInput } from "../compatibility-reasons.ts";
 import { developmentCliVersion } from "./dependency-contract.ts";
+import { adversarialRangePackets, assertRangePackets } from "./compatibility-range-corpus.ts";
 
 const source = process.cwd();
 const scratch = disk.mkdtempSync(join(tmpdir(), "compat-packed-"));
@@ -15,7 +16,9 @@ const selectedMode = process.argv[2];
 assert.ok(selectedMode === undefined || ["npm-local", "npm-global", "bun-local", "bun-global"].includes(selectedMode));
 const metadata = parseCompatibilityInput(JSON.parse(disk.readFileSync("docs/examples/compatibility.json", "utf8")));
 metadata.requirements[0]!.manifest = { pm_min_version: "1.0.0" };
-const expected = explainCompatibility(metadata);
+const packets = [metadata, ...adversarialRangePackets()];
+const expected = packets.map(explainCompatibility);
+assertRangePackets(expected.slice(1));
 const baseEnvironment = { ...process.env, HOME: join(scratch, "home"), NPM_CONFIG_USERCONFIG: devNull, PM_AUTHOR: "codex-agent",
   GIT_CEILING_DIRECTORIES: dirname(scratch), PM_OPS_OFFLINE: "1" };
 disk.mkdirSync(baseEnvironment.HOME);
@@ -32,6 +35,7 @@ try {
   const archive = join(scratch, disk.readdirSync(scratch).find((entry) => entry.endsWith(".tgz"))!);
   let accepted = 0;
   let sdkConsumers = 0;
+  let formatChecks = 0;
   for (const runtime of ["npm", "bun"] as const) {
     for (const global of [false, true]) {
       if (selectedMode !== undefined && selectedMode !== `${runtime}-${global ? "global" : "local"}`) continue;
@@ -55,15 +59,18 @@ try {
         { command: pm, prefix: [] }, { command: runtime === "npm" ? "npx" : "bunx", prefix: runtime === "npm" ? ["--no-install", "pm"] : ["--bun", "--no-install", "pm"] },
       ];
       for (const launcher of launchers) {
-        for (const json of [false, true]) {
+        for (const [packetIndex, packet] of packets.entries()) for (const json of [false, true]) {
+          disk.writeFileSync(input, JSON.stringify(packet));
           const output = execute(project, launcher.command, [...launcher.prefix, "ops", "compatibility", "--input", input, ...(json ? ["--json"] : [])], context);
-          assert.deepEqual(json ? JSON.parse(output) : decode(output), expected);
+          assert.deepEqual(json ? JSON.parse(output) : decode(output), expected[packetIndex]);
+          formatChecks++;
         }
         accepted++;
       }
       // The SDK resolves from the installed graph, independent of CLI executable paths.
       const probe = join(modules, "compat-sdk.mjs");
-      disk.writeFileSync(probe, 'import { explainCompatibility } from "pm-ops/compatibility-reasons"; import fs from "node:fs"; console.log(JSON.stringify(explainCompatibility(JSON.parse(fs.readFileSync(process.argv[2], "utf8")))));');
+      disk.writeFileSync(input, JSON.stringify(packets));
+      disk.writeFileSync(probe, 'import { explainCompatibility } from "pm-ops/compatibility-reasons"; import fs from "node:fs"; console.log(JSON.stringify(JSON.parse(fs.readFileSync(process.argv[2], "utf8")).map(explainCompatibility)));');
       assert.deepEqual(JSON.parse(execute(project, runtime === "bun" ? "bun" : process.execPath, [probe, input], context)), expected);
       sdkConsumers++;
       assert.equal(disk.existsSync(join(project, ".git")), false);
@@ -72,5 +79,6 @@ try {
   }
   assert.equal(accepted, selectedMode === undefined ? 6 : selectedMode.endsWith("global") ? 1 : 2);
   assert.equal(sdkConsumers, selectedMode === undefined ? 4 : 1);
-  console.log(`${accepted} launch modes, ${accepted * 2} format checks, ${sdkConsumers} SDK consumers: PASS`);
+  assert.equal(formatChecks, accepted * 2 * packets.length);
+  console.log(`${accepted} launch modes, ${formatChecks} format checks, ${sdkConsumers} SDK consumers / ${sdkConsumers * packets.length} SDK cases: PASS`);
 } finally { disk.rmSync(resolve(scratch), { recursive: true, force: true }); }

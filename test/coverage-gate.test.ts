@@ -169,6 +169,7 @@ test("coverage gate accepts a complete report and forwards all four exact thresh
     assert.strictEqual(calls[0].args[index + 1], "100");
   }
   assert.ok(calls[0].args.includes("--per-file"));
+  assert.ok(calls[0].args.includes("--test-concurrency=2"));
   const reportDirectory = calls[0].args[calls[0].args.indexOf("--reports-dir") + 1];
   assert.strictEqual(dirname(reportDirectory), join(directory, "coverage"));
   assert.match(basename(reportDirectory), /^run-/);

@@ -1,3 +1,4 @@
+import type { ExtensionManifestCompatibilityCode } from "@unbrained/pm-cli/sdk/authoring";
 /** Explicit metadata; null means unknown, while an empty capability list means known empty. */
 export interface CompatibilityComponent {
     /** Public metadata identity, independent of package resolution or paths. */
@@ -54,6 +55,24 @@ export interface CompatibilityConflict {
     /** Conflicting capability or native SDK code, if relevant. */
     detail: string;
 }
+/** A rejected library value is incomplete evidence, never proof of an empty version domain. */
+export interface UnrepresentableRangeReason {
+    /** Declaration that could not be evaluated. */
+    requirement: string;
+    /** Stable discriminant for conservative domain refusals. */
+    code: "unrepresentable_range";
+    /** Exact range or conjunction the library could not represent. */
+    range: string;
+    /** Safe action without installs or configuration edits. */
+    remedy: string;
+}
+/** Metadata gaps and native SDK advisories remain distinct from range representation failures. */
+export type CompatibilityUnknownReason = UnrepresentableRangeReason | {
+    /** Declaration owning the incomplete evidence. */
+    requirement: string;
+    /** Missing metadata or the native SDK's own diagnostic. */
+    code: "range_unknown" | "version_unknown" | "capabilities_unknown" | ExtensionManifestCompatibilityCode;
+};
 /** Compact explanation for a component with incoming constraints. */
 export interface CompatibilityRow {
     /** Observed target metadata, including unknowns. */
@@ -65,10 +84,7 @@ export interface CompatibilityRow {
     /** Minimum witnesses per established conflict dimension. */
     conflicts: CompatibilityConflict[];
     /** Declaration ids with incomplete metadata and a reason code. */
-    unknown: {
-        requirement: string;
-        code: string;
-    }[];
+    unknown: CompatibilityUnknownReason[];
     /** Deterministic shortest upstream paths ending at relevant declarations; ids refer to declarations. */
     chains: string[][];
     /** Next safe step; never an authorization or automatic change. */

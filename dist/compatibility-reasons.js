@@ -1,5 +1,5 @@
 /** Observational compatibility explanations. Core alone decides extension admission. */
-import { Range, SemVer, satisfies, valid } from "semver";
+import { Range, inc, intersects, minVersion, satisfies, valid } from "semver";
 import { createRequire } from "node:module";
 import { readRegularText } from "./regular-input.js";
 /** Resolve only the supported public SDK export, relative to this installed package graph. */
@@ -106,60 +106,100 @@ function parseRange(value) {
         return null;
     }
 }
-/** Candidate lower boundaries; strict prerelease successors append .0, with finite segment rollover. */
-function boundaries(range) {
-    const result = ["0.0.0", "0.0.0-0"];
-    for (const set of range.set)
-        for (const comparator of set) {
-            if (!comparator.value)
-                continue;
-            const version = comparator.semver;
-            const stable = `${version.major}.${version.minor}.${version.patch}`;
-            result.push(version.version, stable);
-            if (version.prerelease.length)
-                result.push(`${version.version}.0`);
-            else {
-                const parts = [version.major, version.minor, version.patch];
-                for (let index = 2; index >= 0; index--)
-                    if (parts[index] < Number.MAX_SAFE_INTEGER) {
-                        parts[index]++;
-                        parts.fill(0, index + 1);
-                        result.push(parts.join("."), `${parts.join(".")}-0`);
-                        break;
-                    }
-            }
-        }
-    return result.filter((value) => valid(value) !== null);
+/** Internal control flow preserves the rejected range without exposing library exception text. */
+class UnrepresentableRangeError extends Error {
+    /** The source conjunction remains available to SDK/CLI consumers. */
+    range;
+    /** Preserve representation failure separately from incompatibility. */
+    constructor(range) {
+        super("unrepresentable_range");
+        this.range = range;
+    }
 }
-/** Intersect disjunctions without flattening away each original npm prerelease admission predicate. */
-function intersection(ranges) {
+/** Translate a library rejection into a typed, actionable per-declaration result. */
+function rangeReason(requirement, range) {
+    return { requirement, code: "unrepresentable_range", range,
+        remedy: "Supply a representable range or an observed version satisfying these declarations; no joint incompatibility was inferred from the rejected value." };
+}
+/** A library-produced version must itself survive the library parser before it can establish a verdict. */
+function representedVersion(value, range) {
+    const normalized = valid(value);
+    if (normalized === null)
+        throw new UnrepresentableRangeError(range);
+    return normalized;
+}
+/** A single validated producer supplies minima for both full conjunctions and their comparator constraints. */
+function minimumWitnesses(range) {
+    const minimum = minVersion(range);
+    return minimum === null ? [] : [representedVersion(minimum.version, range.raw)];
+}
+/** Comparator intervals can disprove a conjunction without inventing a version or changing prerelease admission. */
+function overlappingClause(clause) {
+    const merged = new Range(clause.map((range) => range.range || "*").join(" "));
+    return intersects(merged, merged, { includePrerelease: true });
+}
+/** Let semver produce witnesses; keep each declaration's prerelease admission predicate authoritative. */
+function feasibleClause(clause) {
+    if (!overlappingClause(clause))
+        return false;
+    const merged = new Range(clause.map((range) => range.range || "*").join(" "));
+    const accepts = (version) => clause.every((range) => range.test(version));
+    for (const candidate of minimumWitnesses(merged)) {
+        if (accepts(candidate))
+            return true;
+        if (accepts(representedVersion(inc(candidate, "patch"), merged.raw)))
+            return true;
+    }
+    // A strict stable lower bound can hide an admitted prerelease core from minVersion.
+    // Numeric identifier 0 is requested through semver's public increment operation.
+    for (const range of clause)
+        for (const comparators of range.set)
+            for (const comparator of comparators) {
+                if (!comparator.value || !comparator.semver.prerelease.length)
+                    continue;
+                if (minimumWitnesses(new Range(comparator.value)).some(accepts))
+                    return true;
+                const minimumPre = representedVersion(inc(comparator.semver, "prerelease", "0", false), merged.raw);
+                if (accepts(minimumPre))
+                    return true;
+            }
+    return false;
+}
+/** Intersect using library comparator sets and operations, preserving every original prerelease predicate. */
+function intersection(ranges, observed) {
     if (!ranges.length)
         return [["*"]];
-    const candidates = [...new Set(ranges.flatMap(boundaries))].map((version) => new SemVer(version))
-        .filter((candidate) => ranges.every((range) => range.test(candidate)));
-    if (!candidates.length)
-        return [];
-    // Keep wide unions exact as one conjunction instead of repeating a Cartesian expansion for agents.
-    if (ranges.reduce((product, range) => product * range.set.length, 1) > 16)
-        return [ranges.map((range) => range.range || "*")];
-    let clauses = [[]];
-    for (const range of ranges) {
-        const choices = range.set.map((set) => new Range(set.map((comparator) => comparator.value).join(" ") || "*"));
-        clauses = clauses.flatMap((clause) => choices.map((choice) => [...clause, choice]));
+    const label = ranges.map((range) => range.raw).join(" && ");
+    try {
+        const literals = [...observed, "0.0.0", "0.0.0-0", ...ranges.flatMap((range) => range.set.flatMap((set) => set.filter((comparator) => comparator.value).map((comparator) => comparator.semver.version)))];
+        const witnessed = literals.some((version) => ranges.every((range) => range.test(version)));
+        let clauses = [[]];
+        for (const range of ranges) {
+            const choices = range.set.map((set) => new Range(set.map((comparator) => comparator.value).join(" ") || "*"));
+            clauses = clauses.flatMap((clause) => choices.map((choice) => [...clause, choice]));
+        }
+        // A supplied/declared valid witness proves nonemptiness without asking for a derived successor.
+        // Keeping structurally possible empty branches changes no version admitted by the exact expression.
+        const possible = clauses.filter(witnessed ? overlappingClause : feasibleClause);
+        if (!possible.length)
+            return [];
+        if (clauses.length > 16)
+            return [ranges.map((range) => range.range || "*")];
+        return possible.map((clause) => clause.map((range) => range.range || "*"));
     }
-    return clauses.filter((clause) => candidates.some((candidate) => clause.every((part) => part.test(candidate))))
-        .map((clause) => clause.map((part) => part.range || "*"));
+    catch {
+        throw new UnrepresentableRangeError(label);
+    }
 }
-/** Exhaustive cardinality search, bounded to 12 declarations; stable id order breaks ties. */
-function minimumConflict(entries) {
+/** Exhaustive cardinality search uses the same library evaluator, including conservative representation refusals. */
+function minimumConflict(entries, observed) {
     for (let size = 1; size < entries.length; size++) {
         for (let mask = 1; mask < 2 ** entries.length; mask++) {
             const subset = entries.filter((_, index) => (mask & (1 << index)) !== 0);
-            if (subset.length === size && !intersection(subset.map((entry) => entry.range)).length)
+            if (subset.length === size && !intersection(subset.map((entry) => entry.range), observed).length)
                 return subset.map((entry) => entry.id);
         }
     }
-    // The caller already proved that the full set is contradictory.
     return entries.map((entry) => entry.id);
 }
 /** Find a shortest upstream path; cycles terminate and disconnected cycles retain their own declaration. */
@@ -204,7 +244,8 @@ export function explainCompatibility(value) {
         for (const entry of incoming) {
             const range = parseRange(entry.range);
             if (range === null)
-                unknown.push({ requirement: entry.id, code: "range_unknown" });
+                unknown.push(entry.range === null || !entry.range.trim()
+                    ? { requirement: entry.id, code: "range_unknown" } : rangeReason(entry.id, entry.range));
             else
                 known.push({ id: entry.id, range });
             if (current === null)
@@ -227,17 +268,28 @@ export function explainCompatibility(value) {
                 }
             }
         }
-        const common = intersection(known.map((entry) => entry.range));
-        if (!common.length)
-            conflicts.unshift({ code: "joint_range_conflict", requirements: minimumConflict(known), detail: "No version satisfies these declarations together." });
-        else if (current !== null) {
+        let common = null;
+        const observed = current === null ? [] : [current];
+        try {
+            common = intersection(known.map((entry) => entry.range), observed);
+            if (!common.length)
+                conflicts.unshift({ code: "joint_range_conflict", requirements: minimumConflict(known, observed), detail: "No version satisfies these declarations together." });
+        }
+        catch (error) {
+            // The evaluator converts every library failure to this internal error contract.
+            const rejected = error;
+            common = null;
+            for (const entry of known)
+                unknown.push(rangeReason(entry.id, rejected.range));
+        }
+        if (current !== null && !conflicts.some((conflict) => conflict.code === "joint_range_conflict")) {
             const failed = known.find((entry) => !satisfies(current, entry.range));
             if (failed)
                 conflicts.unshift({ code: "installed_pin_conflict", requirements: [failed.id], detail: current });
         }
         const status = conflicts.length ? "incompatible" : unknown.length ? "unknown" : "compatible";
         const relevant = new Set([...conflicts.flatMap((conflict) => conflict.requirements), ...unknown.map((entry) => entry.requirement)]);
-        rows.push({ component, status, compatible_ranges: !common.length || known.length === incoming.length ? common : null, conflicts, unknown,
+        rows.push({ component, status, compatible_ranges: common !== null && (!common.length || known.length === incoming.length) ? common : null, conflicts, unknown,
             chains: incoming.filter((entry) => !relevant.size || relevant.has(entry.id)).map((entry) => chain(entry, requirements)),
             remedy: status === "compatible" ? "Declarations agree; core still decides extension admission." : status === "unknown"
                 ? "Obtain missing or supported version/capability metadata and rerun; do not infer incompatibility." : "Review the minimum witnesses and compatible ranges; verify replacement metadata before changing any pin or capability declaration." });

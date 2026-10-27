@@ -393,6 +393,7 @@ export function runCoverageGate(options: CoverageGateOptions = {}): void {
         join(runDirectory, "tmp"),
         process.execPath,
         "--test",
+        "--test-concurrency=2",
         ...gateConfig.tests,
       ],
       {

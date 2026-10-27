@@ -876,6 +876,16 @@ capabilities. Optional native `manifest` bounds are independently evaluated thro
 reported separately from the joint npm range intersection; include the declared
 supported npm range explicitly in `range`.
 
+Joint decisions use semver's `Range`, `intersects`, `minVersion`, `inc` and
+validated observations/declarations. The solver never constructs numeric or
+prerelease successor strings. Every derived library value is parsed again before
+it can support a decision. A rejected value produces a typed
+`UnrepresentableRangeReason` with `code: "unrepresentable_range"`, the rejected
+range/conjunction and a remedy; it never proves a joint conflict. A valid observed
+witness can establish a conjunction without deriving a successor, including
+maximum-length prereleases. An independently verified installed-pin, capability
+or native-bound conflict still remains visible alongside incomplete evidence.
+
 `null` means unknown metadata; `[]` means a known empty capability declaration,
 and `*` means a declared unrestricted range. Tags, workspace/file protocols,
 unparseable versions and missing metadata produce `unknown`, never a fabricated
