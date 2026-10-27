@@ -115,7 +115,9 @@ test("strict boundary refuses invalid structures and extremes while permitting r
   const alternatives = "1 || 2 || 3 || 4";
   const large = { ...input, requirements: Array.from({ length: 5 }, (_, index) => ({ ...input.requirements[0]!, id: `r${index}`, range: alternatives })) };
   assert.throws(() => explainCompatibility(large), CompatibilityRefusal);
-  large.requirements.pop(); explainCompatibility(large);
+  large.requirements.pop(); assert.equal(explainCompatibility(large).rows[0]!.compatible_ranges!.length, 1, "wide alternatives stay exact in a compact conjunction");
+  large.requirements.push({ ...input.requirements[0]!, id: "unrestricted", range: "*" });
+  assert.ok(explainCompatibility(large).rows[0]!.compatible_ranges![0]!.includes("*"));
   assert.throws(() => explainCompatibility(Object.create(input)), CompatibilityRefusal);
   assert.deepEqual(parseCompatibilityInput(Object.assign(Object.create(null), input)), input);
   const optionalUndefined = structuredClone(input); optionalUndefined.requirements[0]!.manifest = undefined;

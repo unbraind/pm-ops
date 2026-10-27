@@ -51,7 +51,9 @@ Removing any one of its three minimum witnesses yields the exact compatible rang
 Other tests cover known observed pin failures, capability gaps, isolated unknown
 metadata, native inclusive bounds and invalid bounds, cyclic/transitive chains,
 prototype-shaped ids, sparse arrays, extreme numbers, finite output counts and
-semver prerelease boundaries. The actual CLI runs outside Git with an empty PATH,
+semver prerelease boundaries. Wide unions retain one exact conjunction instead
+of emitting more than 16 expanded alternatives; the maximum 256-combination input
+exercises this compact form. The actual CLI runs outside Git with an empty PATH,
 so it cannot invoke Git. Both output formats round-trip without the host's table
 flattening of nested capability arrays. The three-pin example measures 933 JSON
 bytes and 1007 TOON bytes. Another 500 seeded patch-interval cases verify exact

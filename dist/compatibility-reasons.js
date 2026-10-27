@@ -139,6 +139,9 @@ function intersection(ranges) {
         .filter((candidate) => ranges.every((range) => range.test(candidate)));
     if (!candidates.length)
         return [];
+    // Keep wide unions exact as one conjunction instead of repeating a Cartesian expansion for agents.
+    if (ranges.reduce((product, range) => product * range.set.length, 1) > 16)
+        return [ranges.map((range) => range.range || "*")];
     let clauses = [[]];
     for (const range of ranges) {
         const choices = range.set.map((set) => new Range(set.map((comparator) => comparator.value).join(" ") || "*"));

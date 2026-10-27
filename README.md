@@ -866,7 +866,9 @@ const report = explainCompatibility(metadata);
 Every `range` uses npm semver semantics, including prerelease admission.
 `compatible_ranges` is an OR of inner arrays; **every** range in an inner array
 must hold. Keeping conjunctions separate preserves each declaration's prerelease
-rules. Joint version contradictions use exact minimum-cardinality subsets;
+rules. A range can itself contain `||`; when expansion exceeds 16 alternatives,
+one conjunction retains the original ranges exactly to keep output compact.
+Joint version contradictions use exact minimum-cardinality subsets;
 observed pin/support conflicts additionally rely on the target metadata shown in
 the row. The report retains one minimum witness for a pin failure and all missing
 capabilities. Optional native `manifest` bounds are independently evaluated through
