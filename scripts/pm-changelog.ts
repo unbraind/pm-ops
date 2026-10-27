@@ -6,9 +6,11 @@ import { mergeChangelog } from "pm-changelog";
 import { execFileSync, spawnSync } from "../subprocess.ts";
 import { isMainInvocation } from "./main-invocation.ts";
 
-/** Clarify that empty tracker windows make no claim about untracked code changes. */
+/** Retain empty releases without adding an empty Unreleased window after tagging. */
 export function describeEmptyReleases(markdown: string): string {
-  return markdown.replace(/(^## [^\n]+\n\n)No changes\.\n(?=\n## |$)/gm, "$1No tracked changes.\n");
+  return markdown
+    .replace(/^## Unreleased\n\nNo changes\.\n\n(?=## \d)/m, "")
+    .replace(/(^## [^\n]+\n\n)No changes\.\n(?=\n## |$)/gm, "$1No tracked changes.\n");
 }
 
 /** Generate once, then use identical normalized bytes for writes, checks and notes. */

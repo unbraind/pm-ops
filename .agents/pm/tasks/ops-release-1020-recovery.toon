@@ -6,10 +6,12 @@ status: open
 priority: 1
 tags: []
 created_at: "2026-10-25T10:54:35.891Z"
-updated_at: "2026-10-26T03:14:09.006Z"
+updated_at: "2026-10-27T03:02:46.663Z"
 author: codex-agent
-comments[1]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-10-26T03:11:34.131Z",codex-agent,"Closure audit on main 1ceb53b69d4bb0eea323625744fe9200a38bb267: merged PR #205 (36478d717b40a5f73a49b06b486c1c83f93d39bc, merged 2026-10-25T11:22:43Z). REST GET releases/tags/v2026.10.20 returns HTTP 404. Inspected release-repair.ts and .github/workflows/release.yml; the changelog fix does not create a historical GitHub Release. Owner decision and separately authorized historical release recovery remain required. Leave open; no release or tag is changed. Existing behavioural revert evidence is retained; this tracker-only audit changes no runtime functions."
+  "2026-10-27T02:55:57.395Z",codex-agent,"Reconfirmed for the release-changelog recurrence: git show v2026.10.20:CHANGELOG.md lacks the matching section, while v2026.10.26 and current main contain it exactly once. The repair error refers to immutable historical notes, not current main. This remains a separately authorized release-recovery task; ops-release-changelog-stability fixes pending-to-tag generation drift."
+  "2026-10-27T03:02:46.663Z",codex-agent,"The exact release workflow audit command was re-run behind a GitHub GET-only guard: npm run verify:release-completeness -- --repair. It reported github_release_absent: v2026.10.20 and FAIL - release repair refused: committed changelog must have exactly one section for 2026.10.20, with exactly one failure. All source/provenance/tarball checks before historical-note extraction succeeded. No release or tag was created. A passing live audit still requires separately authorized historical recovery; changing current generator output cannot alter the immutable tagged file."
 files[2]{path,scope}:
   .github/workflows/release.yml,project
   release-repair.ts,project

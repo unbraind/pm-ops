@@ -1,0 +1,28 @@
+id: ops-release-changelog-stability
+title: Keep release changelog bytes stable when the pending version becomes a tag
+description: "Release commit 32ecf1e passes generation before v2026.10.26 exists, but the fetched tag makes the full generator emit an empty Unreleased section and changelog:check fails. The earlier empty-release fix remains valid. Investigate the independent immutable v2026.10.20 repair blocker without rewriting release evidence."
+type: Issue
+status: in_progress
+priority: 1
+tags: []
+created_at: "2026-10-27T02:55:44.757Z"
+updated_at: "2026-10-27T03:12:35.922Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+acceptance_criteria: "Real tracker regression commits and tags a pending release and proves changelog:check still passes with exactly one section per version; The regression fails when only the changed generation behavior is reverted; Regenerate with fetched tags and pass npm and Bun release gates at unchanged thresholds; Run release completeness verification and record any immutable historical blocker without publishing or changing tags; Open a PR with tracker evidence and green CI, leaving it unmerged"
+comments[5]{created_at,author,text}:
+  "2026-10-27T02:55:53.555Z",codex-agent,"Comparison confirms v2026.10.20:CHANGELOG.md has no 2026.10.20 section. Current main and v2026.10.26 each have exactly one such section: it was not lost or duplicated by the new release. Repair reads notes from the immutable 2026.10.20 commit, so its missing GitHub Release remains ops-release-1020-recovery. The new stale-main cause is separate: include-empty emits an empty Unreleased window only after the pending version becomes a real tag. Plan: normalize that empty non-release window while retaining every version section and all nonempty unreleased work, then exercise the complete commit/tag/check transition with a real tracker."
+  "2026-10-27T02:58:46.624Z",codex-agent,"The release log confirms changelog:check passed at 14:42:02Z and the repair refused historical notes at 14:50:20Z. Normalization now drops only the generator-supplied empty Unreleased heading above version history. Regression covers real committed tracker snapshots, pending-to-tag byte equality, empty releases, a same-day suffix, and retained nonempty unreleased work. Full gates will run under bounded CPU affinity so Node uses at most two test workers. The live read-only completeness command still reports one missing GitHub Release, v2026.10.20."
+  "2026-10-27T03:00:11.286Z",codex-agent,"Behavioural revert proof: restoring only describeEmptyReleases to the pre-fix implementation makes node --test --test-concurrency=2 --test-name-pattern='release commits stay' test/changelog-sections.test.ts fail (0 passed, 1 failed) at the first post-tag changelog:check, with Changelog is out of date. Restoring the fix passes all three release transitions (1 passed, 0 failed). The regression imports the TypeScript source directly, so no dist rebuild is needed for this proof."
+  "2026-10-27T03:02:41.172Z",codex-agent,"Linked pm test run passed 6/6 with no failures or skips; test-result tracking is disabled, so this comment retains the result. Regenerating the original 32ecf1e tree with all fetched tags adds exactly four lines: an empty Unreleased heading and No tracked changes. Current changelog:full and changelog:check pass; 60 release tags map to 60 sections with zero cardinality mismatches. Current main had already regenerated the file in #211, so regeneration adds no file diff. The guarded exact workflow command, npm run verify:release-completeness -- --repair, still exits 1 at immutable 2026.10.20 notes before any mutation; GitHub writes were blocked by a local read-only guard."
+  "2026-10-27T03:12:35.922Z",codex-agent,"Opening the review candidate after focused tests and revert proof, while the full isolated npm gate continues. GitHub CI can run independently while local npm/Bun verification completes. The PR will remain unmerged and its validation section will state the pending gates until their results are known. Historical v2026.10.20 generation scripts and release workflow both lacked include-empty, confirming the original missing-window cause."
+files[3]{path,scope}:
+  CHANGELOG.md,project
+  scripts/pm-changelog.ts,project
+  test/changelog-sections.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/changelog-sections.test.ts,project,codex-agent,"2026-10-27T02:58:40.509Z",local_mutation,fix/release-audit-changelog-sections
+docs[1]{path,scope}:
+  README.md,project
+body: ""
