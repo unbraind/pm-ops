@@ -65,6 +65,9 @@ jobs:
       - name: Bun release gate
         run: bun run release:check
 
+      - name: Compatibility packed global, local and x consumers
+        run: node test/compatibility-packed.acceptance.ts
+
       - name: Verify Bun can install the package graph
         run: bun install --no-save
 

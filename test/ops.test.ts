@@ -697,8 +697,8 @@ test("installed pm CLI routes --repos values to every fleet command", { timeout:
   const installedManifest = JSON.parse(readFileSync(join(consumer, "node_modules", "pm-ops", "package.json"), "utf-8")) as {
     dependencies?: Record<string, string>;
   };
-  assert.deepEqual(Object.keys(installedManifest.dependencies ?? {}).sort(), ["@toon-format/toon", "typescript", "yaml"],
-    "runtime analyzers require YAML; lint and duplication tooling remain optional peers");
+  assert.deepEqual(Object.keys(installedManifest.dependencies ?? {}).sort(), ["@toon-format/toon", "semver", "typescript", "yaml"],
+    "runtime analyzers require YAML and semver; lint and duplication tooling remain optional peers");
   const auditorProbe = spawnSync(process.execPath, ["--input-type=module", "-e", `
     import assert from "node:assert/strict";
     import { auditPublishAttestation } from "pm-ops/attestation";

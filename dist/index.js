@@ -12,6 +12,7 @@ import { auditBackendConfigFile, auditConfiguredBackends } from "./backend-capab
 import { auditEvidenceExpiryFiles, EvidenceExpiryRefusal } from "./evidence-expiry.js";
 import { createDiagnosticPlan, executeDiagnosticPlan, readDiagnosticPlan, DiagnosticRefusal } from "./diagnostic-plans.js";
 import { readDiagnosticWitnesses, WitnessRefusal } from "./diagnostic-witnesses.js";
+import { readCompatibilityReasons, CompatibilityRefusal } from "./compatibility-reasons.js";
 import { qualityMeasurementProvider } from "./assurance.js";
 import { defaultCanonicalTagResolver, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.js";
 // ---------------------------------------------------------------------------
@@ -73,6 +74,7 @@ function asArray(value) {
     return value.split(",").map((entry) => entry.trim()).filter(Boolean);
 }
 const OPS_COMMAND_PATHS = [
+    "ops compatibility",
     "ops witnesses",
     "ops diagnose",
     "ops capabilities",
@@ -2147,6 +2149,19 @@ export default defineExtension({
         // same `authorization_decision` as any other bound regression. See
         // `./assurance.ts` for the key contract and the staleness refusal.
         api.registerAssuranceMeasurementProvider(qualityMeasurementProvider);
+        api.registerCommand({
+            name: "ops compatibility",
+            description: "Explain joint declared version/capability constraints with minimum conflict witnesses. Read-only preview; unknown metadata stays unknown and core decides extension admission. No Git required.",
+            examples: ["pm ops compatibility --input compatibility.json", "pm ops compatibility --input compatibility.json --json"],
+            flags: [{ long: "--input", value_name: "file", description: "Strict version 1 JSON metadata, at most 64 KiB (required)" }],
+            async run(ctx) {
+                const input = readString(ctx.options, "input");
+                if (!input)
+                    throw new CompatibilityRefusal("invalid_compatibility_input", "Supply --input with explicit components and directed requirements.");
+                const report = readCompatibilityReasons(input);
+                return renderedCommandResult(ctx.global.json === true ? JSON.stringify(report) : encode(report));
+            },
+        });
         api.registerCommand({
             name: "ops witnesses",
             description: "Reduce declared sufficient diagnostic input facts to an exact minimum shared packet. Read-only; no Git or probe execution. ok means reduction succeeded, never proven root cause.",

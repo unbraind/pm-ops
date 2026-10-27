@@ -1,0 +1,13 @@
+id: ops-global-activation-ux
+title: Explain dependency discovery for external global directory snapshots
+description: "Follow-up host activation UX observed with the pinned pm CLI 2026.10.20: after an isolated Bun global installation, activating the installed package directory with pm package install GLOBAL_MODULE/pm-ops --project --json snapshots the package without its external dependency graph and fails to discover the toon dependency. The host diagnostic recommends installing the packed archive instead. That supported archive path passes Bun global activation, both output formats, and the native installed SDK consumer. Improve the directory-source diagnostic or supported topology handling without copying private data or implementing a package resolver in pm-ops. No upstream issue was filed; package-install SDK declarations/help and open upstream issues were inspected."
+type: Issue
+status: open
+priority: 2
+tags[2]: "area:packages",host-ux
+created_at: "2026-10-27T11:09:26.059Z"
+updated_at: "2026-10-27T11:09:32.353Z"
+author: codex-agent
+files[1]{path,scope}:
+  test/compatibility-packed.acceptance.ts,project
+body: ""
