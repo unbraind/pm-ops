@@ -33,19 +33,20 @@ try {
     for (const global of [false, true]) {
       const project = join(scratch, `${runtime}-${global ? "global" : "local"}`); disk.mkdirSync(project);
       const prefix = join(project, "prefix");
-      const bunConfig = join(project, "bunfig.toml");
-      disk.writeFileSync(bunConfig, `[install]\nglobalDir = ${JSON.stringify(join(prefix, "modules"))}\nglobalBinDir = ${JSON.stringify(join(prefix, "bin"))}\n`);
-      const context = { PM_PATH: join(project, ".agents", "pm"), PM_GLOBAL_PATH: join(project, "global-state"), BUN_INSTALL: prefix };
+      const context = { PM_PATH: join(project, ".agents", "pm"), PM_GLOBAL_PATH: join(project, "global-state"), BUN_INSTALL: prefix,
+        BUN_INSTALL_GLOBAL_DIR: join(prefix, "modules"), BUN_INSTALL_BIN: join(prefix, "bin") };
       disk.writeFileSync(join(project, "package.json"), JSON.stringify({ name: "compat-consumer", private: true, type: "module" }));
+      const initialPackage = disk.readFileSync(join(project, "package.json"));
       execute(project, runtime, runtime === "npm"
         ? ["install", ...(global ? ["--global", "--prefix", prefix] : []), "--ignore-scripts", "--no-audit", "--no-fund", archive, `@unbrained/pm-cli@${hostVersion}`]
-        : ["add", "--config", bunConfig, ...(global ? ["--global"] : []), "--ignore-scripts", archive, `@unbrained/pm-cli@${hostVersion}`], context);
+        : ["add", ...(global ? ["--global"] : []), "--ignore-scripts", archive, `@unbrained/pm-cli@${hostVersion}`], context);
+      if (global) assert.deepEqual(disk.readFileSync(join(project, "package.json")), initialPackage);
       const modules = global ? join(prefix, runtime === "npm" ? "lib/node_modules" : "modules/node_modules") : join(project, "node_modules");
       const pm = global ? join(prefix, "bin", "pm") : join(modules, ".bin", "pm");
       execute(project, pm, ["init", "--defaults", "--agent-guidance", "skip"], context);
       execute(project, pm, ["package", "install", join(modules, "pm-ops"), "--project", "--json"], context);
       const input = join(project, "metadata.json"); disk.writeFileSync(input, JSON.stringify(metadata));
-      const launchers = global ? [{ command: pm, prefix: [] }] : [
+      const launchers = global ? [{ command: runtime === "bun" ? "bun" : pm, prefix: runtime === "bun" ? ["run", "--bun", pm] : [] }] : [
         { command: pm, prefix: [] }, { command: runtime === "npm" ? "npx" : "bunx", prefix: runtime === "npm" ? ["--no-install", "pm"] : ["--bun", "--no-install", "pm"] },
       ];
       for (const launcher of launchers) {
@@ -58,7 +59,7 @@ try {
       // The SDK resolves from the installed graph, independent of CLI executable paths.
       const probe = join(modules, "compat-sdk.mjs");
       disk.writeFileSync(probe, 'import { explainCompatibility } from "pm-ops/compatibility-reasons"; import fs from "node:fs"; console.log(JSON.stringify(explainCompatibility(JSON.parse(fs.readFileSync(process.argv[2], "utf8")))));');
-      assert.deepEqual(JSON.parse(execute(project, process.execPath, [probe, input], context)), expected);
+      assert.deepEqual(JSON.parse(execute(project, runtime === "bun" ? "bun" : process.execPath, [probe, input], context)), expected);
       assert.equal(disk.existsSync(join(project, ".git")), false);
       console.log(`${runtime} ${global ? "global" : "local + x"}: PASS`);
     }

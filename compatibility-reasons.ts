@@ -1,5 +1,5 @@
 /** Observational compatibility explanations. Core alone decides extension admission. */
-import { Range, satisfies, valid } from "semver";
+import { Range, SemVer, satisfies, valid } from "semver";
 import { createRequire } from "node:module";
 import type { ExtensionManifestCompatibilityManifest, ExtensionManifestCompatibilityTarget, ExtensionManifestCompatibilityResult } from "@unbrained/pm-cli/sdk/authoring";
 import { readRegularText } from "./regular-input.ts";
@@ -207,21 +207,29 @@ function boundaries(range: Range): string[] {
 
 /** Intersect disjunctions without flattening away each original npm prerelease admission predicate. */
 function intersection(ranges: Range[]): string[][] {
-  let clauses: string[][] = [[]];
-  for (const range of ranges) clauses = clauses.flatMap((clause) => range.set.map((set) => [...clause, set.map((comparator) => comparator.value).join(" ") || "*"]));
-  const candidates = [...new Set(ranges.flatMap(boundaries))];
   if (!ranges.length) return [["*"]];
-  return clauses.filter((clause) => candidates.some((candidate) => clause.every((part) => satisfies(candidate, part))));
+  const candidates = [...new Set(ranges.flatMap(boundaries))].map((version) => new SemVer(version))
+    .filter((candidate) => ranges.every((range) => range.test(candidate)));
+  if (!candidates.length) return [];
+  let clauses: Range[][] = [[]];
+  for (const range of ranges) {
+    const choices = range.set.map((set) => new Range(set.map((comparator) => comparator.value).join(" ") || "*"));
+    clauses = clauses.flatMap((clause) => choices.map((choice) => [...clause, choice]));
+  }
+  return clauses.filter((clause) => candidates.some((candidate) => clause.every((part) => part.test(candidate))))
+    .map((clause) => clause.map((part) => part.range || "*"));
 }
 
 /** Exhaustive cardinality search, bounded to 12 declarations; stable id order breaks ties. */
 function minimumConflict(entries: { id: string; range: Range }[]): string[] {
-  const subsets = Array.from({ length: 2 ** entries.length - 1 }, (_, offset) =>
-    entries.filter((_, index) => ((offset + 1) & (1 << index)) !== 0));
-  // The caller established that the full set is contradictory, so this is nonempty.
-  const contradictory = subsets.filter((subset) => !intersection(subset.map((entry) => entry.range)).length);
-  contradictory.sort((left, right) => left.length - right.length);
-  return contradictory[0]!.map((entry) => entry.id);
+  for (let size = 1; size < entries.length; size++) {
+    for (let mask = 1; mask < 2 ** entries.length; mask++) {
+      const subset = entries.filter((_, index) => (mask & (1 << index)) !== 0);
+      if (subset.length === size && !intersection(subset.map((entry) => entry.range)).length) return subset.map((entry) => entry.id);
+    }
+  }
+  // The caller already proved that the full set is contradictory.
+  return entries.map((entry) => entry.id);
 }
 
 /** Find a shortest upstream path; cycles terminate and disconnected cycles retain their own declaration. */
