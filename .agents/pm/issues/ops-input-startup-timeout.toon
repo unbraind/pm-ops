@@ -1,0 +1,17 @@
+id: ops-input-startup-timeout
+title: Separate artifact-reader startup time from the bounded input-refusal deadline
+description: "The unchanged special-input regression in test/regular-input.test.ts hit its five-second child timeout in a two-worker full gate and an isolated one-worker retry. The npm serial full gate and PR CI passed unchanged. Its child imports the full SDK, package extension and all input consumers before exercising the input boundary, so the deadline includes cold startup. A diagnostic measured about 3.5 seconds of imports before the first refusal assertion; a full successful phase trace is still being collected. Do not infer a blocked FIFO read from the timeout alone."
+type: Issue
+status: open
+priority: 3
+tags: []
+created_at: "2026-10-27T03:42:57.531Z"
+updated_at: "2026-10-27T04:00:35.245Z"
+author: codex-agent
+acceptance_criteria: "Measure child readiness and input-refusal execution separately with bounded deadlines; Preserve real writerless FIFO, socket, device, directory and oversized-file assertions without weakening coverage thresholds; Demonstrate stable cold-start behavior under bounded test concurrency"
+comments[2]{created_at,author,text}:
+  "2026-10-27T03:44:19.100Z",codex-agent,"Control evidence from the unchanged test: unrestricted one-worker execution passed 6/6, and a subsequent one-worker run on another CPU pair also passed 6/6. A separate real FIFO diagnostic recorded preload-to-import readiness of about 1.5 seconds and all eight typed refusals within roughly 20 milliseconds after readiness; total child wall time was about 1.8 seconds. A prior diagnostic measured about 3.5 seconds of import time. These observations support a startup/load timing risk, while not identifying the exact phase of the killed child. All existing five-second limits and assertions remain unchanged."
+  "2026-10-27T04:00:35.244Z",codex-agent,"The complete one-worker Bun release gate passed unchanged: 1468 passed, 0 failed, 2 opt-in skips, with 100% coverage in every dimension across 39 measured sources. The special-input case passed in that full run. The initial two-worker timeout and isolated timeout remain valid observations; successful retries do not establish load-independent timing. Leave this follow-up open."
+files[1]{path,scope}:
+  test/regular-input.test.ts,project
+body: ""
