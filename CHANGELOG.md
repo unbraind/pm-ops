@@ -44,12 +44,9 @@ No tracked changes.
 ### Fixed
 
 - A release run bumped and committed a new version every night while publishing was impossible, because the only externally-failable step runs last ([ops-e9g6](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-e9g6.toon))
-- Fix release publish-before-protected-main-push ordering ([ops-gitr](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-gitr.toon))
-- A parenthesised command inside a case arm is read as an arm label, refusing a publish the shell attests ([ops-vkvy](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-vkvy.toon))
 - Self-hosted pm-changelog is reported not ready because it does not depend on itself ([ops-pksh](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-pksh.toon))
 - Adding a source file breaks the coverage gate in three places, and none of them says so ([ops-cl0o](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-cl0o.toon))
 - Recognize third-party publish wrappers (semantic-release, np, release-it, lerna publish, changeset publish) in the canonical attestation auditor ([ops-third-party-publish-wrappers](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-third-party-publish-wrappers.toon))
-- A hardcoded fixture date aged out of the seven day window and broke the daily release ([ops-i2iz](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-i2iz.toon))
 - The release completeness audit reported a published version and its GitHub Release as missing, turning a successful release into a failed one ([ops-fcow](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-fcow.toon))
 - Guarded merge-driver launcher: omit-dev clone installs complete instead of failing on the devDependency import ([ops-mqdi](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-mqdi.toon))
 - Duplication gate scans generated PM extension copies ([ops-to4t](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-to4t.toon))
@@ -62,6 +59,12 @@ No tracked changes.
 
 - Enable GitHub CodeQL code scanning ([ops-jasw](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-jasw.toon))
 - Characterize pre-existing fleet workflow scanner refusals ([ops-0u7l](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-0u7l.toon))
+
+### Closed
+
+- Closed: Fix release publish-before-protected-main-push ordering ([ops-gitr](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-gitr.toon))
+- Closed: A parenthesised command inside a case arm is read as an arm label, refusing a publish the shell attests ([ops-vkvy](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-vkvy.toon))
+- Closed: A hardcoded fixture date aged out of the seven day window and broke the daily release ([ops-i2iz](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-i2iz.toon))
 
 ## 2026.10.21 - 2026-10-21
 
@@ -214,9 +217,9 @@ No tracked changes.
 
 ## 2026.9.8 - 2026-09-08
 
-### Security
+### Closed
 
-- An assignment the scanner cannot read leaves the previous binding standing, so a replaced provenance flag still attests the publish ([ops-3wbz](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3wbz.toon))
+- Closed: An assignment the scanner cannot read leaves the previous binding standing, so a replaced provenance flag still attests the publish ([ops-3wbz](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3wbz.toon))
 
 ## 2026.9.7 - 2026-09-07
 
@@ -243,9 +246,9 @@ No tracked changes.
 
 ## 2026.9.5 - 2026-09-05
 
-### Security
+### Closed
 
-- The merge-driver test builds a shell command from an environment-controlled path, which is the pattern this repository asks every other one to stop using ([ops-6no1](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-6no1.toon))
+- Closed: The merge-driver test builds a shell command from an environment-controlled path, which is the pattern this repository asks every other one to stop using ([ops-6no1](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-6no1.toon))
 
 ## 2026.9.2 - 2026-09-02
 
@@ -258,7 +261,6 @@ No tracked changes.
 
 - Finish shell-accurate heredoc and unset handling in publish attestation ([ops-62d1](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-62d1.toon))
 - Repaired the ops-5jp6 history drift that had blocked two stacked release pull requests ([ops-yxej](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-yxej.toon))
-- A case opener sharing its first arm cleared the outer scope and refused a genuinely attested publish ([ops-cout](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-cout.toon))
 - Three shell-scope and quoting fail-opens attest unproven npm publishes ([ops-p9lb](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-p9lb.toon))
 - A malformed npm reply crashed the release audit, and the docstring already promised it would not ([ops-f5m7](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-f5m7.toon))
 - The revert-proof test read its vulnerable fixture from origin/main, so merging it would have turned it red ([ops-9ktn](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-9ktn.toon))
@@ -271,10 +273,7 @@ No tracked changes.
 ### Security
 
 - A heredoc body and a discarded binding both let an unattested publish pass the attestation gate ([ops-5jp6](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-5jp6.toon))
-- Four more fail modes in the canonical gate: an arm pattern read as an opener, an escaped run key read as data, a sequence marker missing from the indent, and composite actions unscanned ([ops-cxrx](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-cxrx.toon))
-- Attributing a case arm label by presence rather than position refused an attested publish, and a quoted key hid a phantom one ([ops-setc](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-setc.toon))
 - An arm that opens a nested case skipped the sibling reset, so a publish could borrow a flag from a mutually exclusive arm ([ops-rsbn](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-rsbn.toon))
-- Skipping the sibling-arm reset for any depth-increasing segment let a later arm borrow the previous arm's binding ([ops-narm](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-narm.toon))
 - A tracked executable whose name merely ends in package.json has its publish hidden from the audit ([ops-fnbd](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-fnbd.toon))
 - A case opener sharing a segment with its first arm leaks that arm's binding past esac ([ops-csop](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-csop.toon))
 - Branch-local and compound-line publish bindings let an unattested npm publish pass the attestation gate ([ops-brsc](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-brsc.toon))
@@ -284,21 +283,31 @@ No tracked changes.
 
 - Converge the pinned pm-cli on 2026.8.31 and repair history hashes ([ops-uulf](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-uulf.toon))
 
+### Closed
+
+- Closed: Four more fail modes in the canonical gate: an arm pattern read as an opener, an escaped run key read as data, a sequence marker missing from the indent, and composite actions unscanned ([ops-cxrx](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-cxrx.toon))
+- Closed: Attributing a case arm label by presence rather than position refused an attested publish, and a quoted key hid a phantom one ([ops-setc](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-setc.toon))
+- Closed: Skipping the sibling-arm reset for any depth-increasing segment let a later arm borrow the previous arm's binding ([ops-narm](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-narm.toon))
+- Closed: A case opener sharing its first arm cleared the outer scope and refused a genuinely attested publish ([ops-cout](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-cout.toon))
+
 ## 2026.8.31 - 2026-08-31
 
-### Fixed
+### Closed
 
-- The release changelog remained Unreleased after the release tag was created ([ops-3ete](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3ete.toon))
+- Closed: The release changelog remained Unreleased after the release tag was created ([ops-3ete](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3ete.toon))
 
 ## 2026.8.29 - 2026-08-29
 
 ### Fixed
 
 - Prevent a failed provenance publish from silently falling back to an unattested publish ([ops-w3ke](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-w3ke.toon))
-- Harden literal scalar assignment parsing ([ops-mjnd](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-mjnd.toon))
 - Escaped shell metacharacter in scalar value bypasses the attestation gate ([ops-5mv7](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-5mv7.toon))
-- Shell scalar assignments were read from raw text, so a comment could make an unattested publish pass the attestation gate ([ops-q6wi](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-q6wi.toon))
 - A multi-line fixture joined with a literal backslash-n made the array-flag case pass without exercising it ([ops-xmb6](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-xmb6.toon))
+
+### Closed
+
+- Closed: Harden literal scalar assignment parsing ([ops-mjnd](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-mjnd.toon))
+- Closed: Shell scalar assignments were read from raw text, so a comment could make an unattested publish pass the attestation gate ([ops-q6wi](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-q6wi.toon))
 
 ## 2026.8.28 - 2026-08-28
 
@@ -309,17 +318,20 @@ No tracked changes.
 - The changelog gate stamps an untagged version with the current date, so its verdict flips every midnight with no commit ([ops-vll0](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-vll0.toon))
 - Canonicalize fleet metric reads and enforce the pm 2026.8.20 host contract ([ops-3w9m](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3w9m.toon))
 
-### Security
+### Closed
 
-- The identity gate deadlocks the one remediation its own failure message prescribes ([ops-wsi9](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-wsi9.toon))
+- Closed: The identity gate deadlocks the one remediation its own failure message prescribes ([ops-wsi9](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-wsi9.toon))
 
 ## 2026.8.17 - 2026-08-17
 
 ### Fixed
 
-- merge-receipts labels two canonical fence patterns as stale, inviting someone to delete extension merge protection ([ops-github-db3225403a4b-44](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-44.toon))
 - The pm CLI compatibility floor was declared only in peerDependencies, which only npm enforces, and not in manifest.json pm_min_version, which is the field the CLI enforces ([ops-zl7a](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-zl7a.toon))
 - A truncated list-all answer corrupts fleet throughput and cycle-time metrics ([ops-x3wc](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-x3wc.toon))
+
+### Closed
+
+- Closed: merge-receipts labels two canonical fence patterns as stale, inviting someone to delete extension merge protection ([ops-github-db3225403a4b-44](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-44.toon))
 
 ## 2026.8.16 - 2026-08-16
 
@@ -436,13 +448,13 @@ No tracked changes.
 
 ## 2026.7.23 - 2026-07-23
 
-### Fixed
-
-- Recommend pm merge reconcile (2026.7.22) over raw history-repair in Multi-agent merge safety docs ([ops-owhy](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-owhy.toon))
-
 ### Other
 
 - Adopt pm field-aware merge driver for multi-agent branch-merge safety ([ops-3ype](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-3ype.toon))
+
+### Closed
+
+- Closed: Recommend pm merge reconcile (2026.7.22) over raw history-repair in Multi-agent merge safety docs ([ops-owhy](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-owhy.toon))
 
 ## 2026.7.22 - 2026-07-22
 
@@ -489,9 +501,7 @@ No tracked changes.
 
 ## 2026.7.10 - 2026-07-10
 
-### Fixed
-
-- Fix manifest: add schema capability so registerCommand flags load (extension failed to activate) ([ops-tg86](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-tg86.toon))
+No tracked changes.
 
 ## 2026.7.7 - 2026-07-07
 
