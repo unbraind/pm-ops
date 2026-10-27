@@ -33,7 +33,7 @@ activation.
 
 ### Without git
 
-Tracker metrics, policy checks and file-based reports work in plain directories.
+Compatibility explanations, tracker metrics, policy checks and file-based reports work in plain directories.
 GitHub probes, release inventory/repair and changelog generation from tags need a
 git repository and their provider tools. Git-only checks do not certify a plain
 tracker as a release checkout.
@@ -648,8 +648,8 @@ The repository changelog scripts require Git for release-tag windows and refuse
 plain-directory trackers with an explicit diagnostic. The changelog adapter can
 still generate directly from tracker items when invoked without tag flags.
 
-Diagnostic witnesses, evidence expiry, backend capability diagnostics, scan, policy, status, outdated, audit, metrics,
-reports and docstring analysis work in plain directories. The witness, capability and
+Compatibility explanations, diagnostic witnesses, evidence expiry, backend capability diagnostics, scan, policy, status, outdated, audit, metrics,
+reports and docstring analysis work in plain directories. The compatibility, witness, capability and
 evidence expiry paths never invoke Git. Release verification runs package-defined
 scripts, which may
 need Git; GitHub queries need their own credentials and network access. Configure
@@ -831,3 +831,64 @@ See the [SDK contract and example](docs/diagnostic-witnesses.md) and the
 
 Witness reduction works without Git, including when Git is absent from PATH.
 It reads only the selected input file and never reads or changes tracker state.
+
+## Compatibility reason chains
+
+`pm ops compatibility --input docs/examples/compatibility.json --json` explains
+joint package, host and extension requirements. TOON is the default; both formats
+preserve nested arrays and nulls. The example's three pins are pairwise compatible
+but jointly contradictory. The report names exactly `pin-a`, `pin-b`, `pin-c` as
+the minimum conflict, with `compatible_ranges: []`. Removing any one leaves a
+compatible version. It also reports observed pin failures and missing capabilities,
+with directed upstream declaration chains for each reason.
+
+This is a read-only metadata preview. `commands` contains literal argv previews
+for version and extension discovery; the package never executes them, resolves
+packages, installs dependencies or changes configuration. Core remains authoritative
+for extension admission. This command works without Git and never opens a tracker.
+
+```ts
+import { explainCompatibility, type CompatibilityInput } from "pm-ops/compatibility-reasons";
+
+const metadata: CompatibilityInput = {
+  version: 1,
+  components: [
+    { id: "package", version: "1.0.0", capabilities: [] },
+    { id: "host", version: "2026.10.20", capabilities: ["commands"] },
+  ],
+  requirements: [{ id: "host-peer", from: "package", to: "host",
+    range: ">=2026.10.20", capabilities: ["commands"],
+    manifest: { pm_min_version: "2026.10.20" } }],
+};
+const report = explainCompatibility(metadata);
+```
+
+Every `range` uses npm semver semantics, including prerelease admission.
+`compatible_ranges` is an OR of inner arrays; **every** range in an inner array
+must hold. Keeping conjunctions separate preserves each declaration's prerelease
+rules. Joint version contradictions use exact minimum-cardinality subsets;
+observed pin/support conflicts additionally rely on the target metadata shown in
+the row. The report retains one minimum witness for a pin failure and all missing
+capabilities. Optional native `manifest` bounds are independently evaluated through
+`checkExtensionManifestCompatibility`, the SDK helper shared with core. They are
+reported separately from the joint npm range intersection; include the declared
+supported npm range explicitly in `range`.
+
+`null` means unknown metadata; `[]` means a known empty capability declaration,
+and `*` means a declared unrestricted range. Tags, workspace/file protocols,
+unparseable versions and missing metadata produce `unknown`, never a fabricated
+incompatibility. Known conflicts take precedence while unknown reasons stay visible.
+Each target is evaluated independently. A package's arbitrary capability labels
+are declared metadata, independent of backend probes or core's admission policy.
+
+The strict version 1 schema accepts 1–16 unique components and 1–12 unique directed
+requirements, 1–96 character public ids, strings of at most 256 characters, and at
+most 16 unique capabilities per declaration. Input arrays must be dense, unknown
+keys are refused, and files must be regular JSON no larger than 64 KiB. Up to 256
+expanded alternatives per target bound the exact search. Cycles terminate; a
+rootless cycle retains the local declaration. Typed `CompatibilityRefusal` errors
+carry `code`, `remedy` and usage exit code 2. `ok` is false for unknown or
+incompatible rows; a completed explanation still exits successfully so agents
+should inspect `ok` and row status. Counts are checked for finite integer bounds.
+
+See the [public tracker and packed validation](docs/compatibility-validation.md).
