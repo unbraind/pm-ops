@@ -94,39 +94,36 @@ export function verify(root: string, tags: readonly string[] = parseLines(execFi
 }
 
 /**
- * Report a result and set a failing exit code when it failed.
+ * Emit the per-version audit lines, then every failure, then the verdict, and
+ * request exit code 1 only when a failure was reported.
  *
- * @param result - The audit outcome.
- * @param write - Sink for the report lines.
+ * @param audit - The section-gate outcome to print.
+ * @param sink - Sink for the report lines.
  * @param exit - Called with the process exit code when there were failures.
  */
-export function report(
-  result: VerifierResult,
-  write: (line: string) => void,
-  exit: (code: number) => void,
-): void {
-  for (const note of result.notes) write(note);
-  for (const failure of result.failures) write(`FAIL - ${failure}`);
-  if (result.failures.length === 0) {
-    write("verify-release-changelog-sections: every released version has exactly one nonempty changelog section.");
+export function report(audit: VerifierResult, sink: (line: string) => void, exit: (code: number) => void): void {
+  for (const note of audit.notes) sink(note);
+  for (const failure of audit.failures) sink(`FAIL - ${failure}`);
+  const verdict = `verify-release-changelog-sections: ${audit.failures.length} failure(s).`;
+  if (audit.failures.length > 0) {
+    sink(verdict);
+    exit(1);
     return;
   }
-  write(`verify-release-changelog-sections: ${result.failures.length} failure(s).`);
-  exit(1);
+  sink("verify-release-changelog-sections: every released version has exactly one nonempty changelog section.");
 }
 
 /**
- * Verify and report, but only when this module is the process entry point.
+ * Audit and report only when this file is the process entry point; the suite
+ * declines the run when it is not.
  *
- * The guard is a function so the suite can execute both answers.
- *
- * @param argv - The process argv to judge.
+ * @param args - The process argv to judge.
  * @param moduleUrl - This module's `import.meta.url`.
- * @param root - Repository root to verify.
+ * @param checkout - Repository root to verify.
  * @returns True when the verifier ran.
  */
-export function runIfMain(argv: string[], moduleUrl: string, root: string): boolean {
-  return runVerifierIfMain(argv, moduleUrl, () => verify(root), report);
+export function runIfMain(args: readonly string[], moduleUrl: string, checkout: string): boolean {
+  return runVerifierIfMain(args, moduleUrl, () => verify(checkout), report);
 }
 
 runIfMain(process.argv, import.meta.url, resolve(import.meta.dirname, ".."));
