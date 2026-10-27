@@ -19,12 +19,15 @@ export function adversarialRangePackets(): CompatibilityInput[] {
     rangePacket([MAX_PRERELEASE_RANGE, "<1.0.0-z"], null),
     rangePacket([">=1.0.0-01"], "1.0.0-b"),
     rangePacket([">9007199254740991.9007199254740991.9007199254740991"], null),
-    rangePacket([">1.0.0 >1.0.1-alpha", ">=1.0.1-0 <1.0.1"], null)];
+    rangePacket([">1.0.0 >1.0.1-alpha", ">=1.0.1-0 <1.0.1"], null),
+    rangePacket([MAX_PRERELEASE_RANGE, ">=2.0.0 <3.0.0", ">=3.0.0 <4.0.0"], null),
+    rangePacket([MAX_PRERELEASE_RANGE, "*", ">=1.0.0-alpha <1.0.0"], null),
+    rangePacket([">9007199254740991.9007199254740991.9007199254740991 || >0.0.0 <0.0.2"], null)];
 }
 
 /** Independently assert the protocol outcomes; never calculate expected values with the producer. */
 export function assertRangePackets(reports: CompatibilityReport[]): void {
-  assert.equal(reports.length, 5);
+  assert.equal(reports.length, 8);
   assert.equal(reports[0]!.ok, true);
   assert.equal(reports[0]!.rows[0]!.status, "compatible");
   assert.ok(reports[0]!.rows[0]!.compatible_ranges!.length > 0);
@@ -41,5 +44,16 @@ export function assertRangePackets(reports: CompatibilityReport[]): void {
   assert.ok(reports[4]!.rows[0]!.compatible_ranges!.length > 0);
   assert.equal(reports[4]!.rows[0]!.conflicts.length, 0);
   assert.ok(reports[4]!.rows[0]!.unknown.every((reason) => reason.code === "version_unknown"));
-
+  for (const report of reports.slice(5, 7)) {
+    const row = report.rows[0]!;
+    assert.equal(row.status, "incompatible");
+    assert.deepEqual(row.compatible_ranges, []);
+    assert.deepEqual(row.conflicts[0]!.requirements, ["range-1", "range-2"]);
+    assert.equal(row.conflicts[0]!.minimum_unproven, true);
+    assert.ok(row.unknown.some((reason) => reason.code === "unrepresentable_range"));
+  }
+  assert.equal(reports[7]!.rows[0]!.status, "unknown");
+  assert.ok(reports[7]!.rows[0]!.compatible_ranges!.length > 0);
+  assert.equal(reports[7]!.rows[0]!.conflicts.length, 0);
+  assert.ok(reports[7]!.rows[0]!.unknown.some((reason) => reason.code === "unrepresentable_range"));
 }

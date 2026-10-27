@@ -36,7 +36,7 @@ Reproduce with `node test/compatibility-public.acceptance.ts PUBLIC_EXPORT`, whe
 
 ## Regression scope
 
-`node --test --test-concurrency=2 test/compatibility-reasons.test.ts test/compatibility-ranges.test.ts` passes 11/11,
+`node --test --test-concurrency=2 test/compatibility-reasons.test.ts test/compatibility-ranges.test.ts test/compatibility-evidence.test.ts` passes 14/14,
 without failures, cancellations, skips or TODOs. The new production module measures
 100% statements, branches, functions and lines. The seeded model runs 500 sequences
 of six operations, including old input replay, version/range changes, CRLF and
@@ -65,8 +65,8 @@ feature. Concurrent invocations share no writable feature state. Its only input
 file read uses the existing bounded regular-file descriptor guard. Suggested
 commands are literal read-only argv previews and are never executed.
 
-The expanded packed acceptance passes all 6 launch modes, 72 JSON/TOON checks and
-4 installed SDK consumers with 24 SDK cases using isolated Bun 1.4.4. The branch
+The expanded packed acceptance passes all 6 launch modes, 108 JSON/TOON checks and
+4 installed SDK consumers with 36 SDK cases using isolated Bun 1.4.4. The branch
 incorporates main's 2026.10.27 release metadata and SDK 2026.10.24 pin.
 
 The packed acceptance script uses isolated installations and exercises npm global,
@@ -87,7 +87,7 @@ The global fixtures verify that the install leaves the project package metadata
 unchanged; the feature command itself performs no install or configuration edit.
 The no-Git CLI regression includes native manifest checks with an empty PATH.
 
-Current focused compatibility tests pass 11/11 with no failures, cancellations
+Current focused compatibility tests pass 14/14 with no failures, cancellations
 or skips; the compatibility module measures 100% in all four coverage dimensions.
 Build and test typecheck pass. Renderer ownership passes 7/7 and the installed CLI
 routing check passes 1/1. The artifact-reader test retains its five-second child
@@ -125,8 +125,9 @@ comparators, including a strict prerelease successor hidden behind a stable lowe
 bound. Function-only reverts of the former string-probe solver and of this
 comparator-minimum check each fail the seeded property test; restoring each fix
 passes all 500 pairs. The same adversarial packets run through JSON/TOON in
-non-Git trackers with no Git
-executable, all six packed launch modes, and four installed SDK consumers.
+non-Git trackers with no Git executable, all six packed launch modes, and four
+installed SDK consumers. This finite corpus is regression evidence on its stated
+versions, not an exact oracle for arbitrary semver ranges.
 The full test runner now explicitly uses at most two workers; coverage and
 all other quality thresholds are unchanged.
 
@@ -134,3 +135,45 @@ The corrected source/main-merge CI run remained queued through the 30-minute
 observation limit: [CI run 40517724020](https://github.com/unbraind/pm-ops/actions/runs/40517724020).
 Completed npm/Bun release gates at that receipt: 0/4; fresh full-suite counts were
 unavailable. The latest head and any later CI status are reported on the PR.
+
+## Monotonic evidence during reduction
+
+An optional refinement must not erase a proven result. Intersection evidence is
+tri-state: a known empty domain, a known nonempty expression, or undecided. A
+refused OR branch cannot erase a positive branch, and an empty branch cannot
+turn an undecided alternative into a contradiction. Subset reduction isolates
+refusals, continues searching, and retains the full-set contradiction as its
+fallback. An undecided full set can still yield a proven conflicting subset.
+`minimum_unproven: true` distinguishes a proven witness from a globally certified
+minimum when smaller subsets remain undecided. Typed subset refusals remain
+visible alongside the conflict and are bounded to one per declaration in reduction.
+
+The new 500-sequence property has an independent exact bit-set oracle over its
+explicit finite-pin grammar. Every finite constraint restricts versions to three
+declared stable literals; added noise admits all three, with explicit positive
+certificates even for noise-only subsets. Thus every subset's satisfiability and
+minimum cardinality are exactly enumerable on this domain. Sequences add noise,
+permute declarations, round-trip JSON/TOON/CRLF and replay older packets. They
+retain the proven conflict and check the emitted witness against the oracle.
+Additional cases cover empty singletons, mixed unknown/empty alternatives,
+independent capability conflicts and a rejected library boundary before branches.
+
+The package-wide audit also inspected diagnostic witness reduction, backend
+capability aggregation, diagnostic plans and CLI rendering. The witness reducer
+operates on validated bit masks without fallible probes; backend and plan failures
+remain local to their operation/step. CLI and packed SDK paths use the same
+compatibility evaluator. No additional substantive review findings were present.
+
+Round 2 focused validation passes 14/14 at unchanged per-file 100% coverage
+thresholds. Both the minimum-reduction and OR-branch function-only reverts fail
+0/1 and pass 1/1 after restoration in disposable non-Git copies. The linked new
+regression file also passes 3/3. Build, test typecheck, typecheck, lint, zero
+duplication (114 sources / 33221 lines) and documentation (323 declarations /
+40 files) pass. Packed and exact-head full-gate receipts are linked on the pm item
+and PR; no queued check counts as a pass.
+
+Round 2 packed acceptance passes through the linked pm test: six launch modes,
+108 JSON/TOON checks and four installed SDK consumers / 36 SDK cases. Strict
+clean-home health exits zero with ten passing checks and one advisory; the
+production dependency audit reports zero vulnerabilities. The original three-pin
+example remains 933 JSON / 1007 TOON bytes.

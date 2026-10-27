@@ -165,10 +165,10 @@ function feasibleClause(clause) {
             }
     return false;
 }
-/** Intersect using library comparator sets and operations, preserving every original prerelease predicate. */
+/** Intersect with tri-state evidence, preserving every original predicate and independently proven branch. */
 function intersection(ranges, observed) {
     if (!ranges.length)
-        return [["*"]];
+        return { ranges: [["*"]], rejected: [] };
     const label = ranges.map((range) => range.raw).join(" && ");
     try {
         const literals = [...observed, "0.0.0", "0.0.0-0", ...ranges.flatMap((range) => range.set.flatMap((set) => set.filter((comparator) => comparator.value).map((comparator) => comparator.semver.version)))];
@@ -180,27 +180,58 @@ function intersection(ranges, observed) {
         }
         // A supplied/declared valid witness proves nonemptiness without asking for a derived successor.
         // Keeping structurally possible empty branches changes no version admitted by the exact expression.
-        const possible = clauses.filter(witnessed ? overlappingClause : feasibleClause);
+        const possible = [];
+        let proven = false;
+        let refused = false;
+        for (const clause of clauses) {
+            try {
+                if ((witnessed ? overlappingClause : feasibleClause)(clause)) {
+                    possible.push(clause);
+                    proven = true;
+                }
+            }
+            catch {
+                // An undecided alternative remains part of the exact expression, but proves neither verdict.
+                possible.push(clause);
+                refused = true;
+            }
+        }
+        const rejected = refused ? [label] : [];
+        if (!proven && refused)
+            return { ranges: null, rejected };
         if (!possible.length)
-            return [];
-        if (clauses.length > 16)
-            return [ranges.map((range) => range.range || "*")];
-        return possible.map((clause) => clause.map((range) => range.range || "*"));
+            return { ranges: [], rejected };
+        return { ranges: clauses.length > 16 ? [ranges.map((range) => range.range || "*")]
+                : possible.map((clause) => clause.map((range) => range.range || "*")), rejected };
     }
     catch {
-        throw new UnrepresentableRangeError(label);
+        return { ranges: null, rejected: [label] };
     }
 }
-/** Exhaustive cardinality search uses the same library evaluator, including conservative representation refusals. */
-function minimumConflict(entries, observed) {
+/** Search other subsets after refusals; fall back only to a full-set contradiction already established. */
+function minimumConflict(entries, observed, established) {
+    const unknown = new Map();
+    let minimumUnproven = false;
     for (let size = 1; size < entries.length; size++) {
+        let undecided = false;
         for (let mask = 1; mask < 2 ** entries.length; mask++) {
             const subset = entries.filter((_, index) => (mask & (1 << index)) !== 0);
-            if (subset.length === size && !intersection(subset.map((entry) => entry.range), observed).length)
-                return subset.map((entry) => entry.id);
+            if (subset.length !== size)
+                continue;
+            const result = intersection(subset.map((entry) => entry.range), observed);
+            for (const range of result.rejected)
+                for (const entry of subset) {
+                    if (!unknown.has(entry.id))
+                        unknown.set(entry.id, rangeReason(entry.id, range));
+                }
+            if (result.ranges === null)
+                undecided = true;
+            else if (!result.ranges.length)
+                return { requirements: subset.map((entry) => entry.id), minimumUnproven, unknown: [...unknown.values()] };
         }
+        minimumUnproven ||= undecided;
     }
-    return entries.map((entry) => entry.id);
+    return { requirements: established ? entries.map((entry) => entry.id) : null, minimumUnproven, unknown: [...unknown.values()] };
 }
 /** Find a shortest upstream path; cycles terminate and disconnected cycles retain their own declaration. */
 function chain(edge, requirements) {
@@ -268,19 +299,20 @@ export function explainCompatibility(value) {
                 }
             }
         }
-        let common = null;
         const observed = current === null ? [] : [current];
-        try {
-            common = intersection(known.map((entry) => entry.range), observed);
-            if (!common.length)
-                conflicts.unshift({ code: "joint_range_conflict", requirements: minimumConflict(known, observed), detail: "No version satisfies these declarations together." });
-        }
-        catch (error) {
-            // The evaluator converts every library failure to this internal error contract.
-            const rejected = error;
-            common = null;
+        const full = intersection(known.map((entry) => entry.range), observed);
+        let common = full.ranges;
+        for (const range of full.rejected)
             for (const entry of known)
-                unknown.push(rangeReason(entry.id, rejected.range));
+                unknown.push(rangeReason(entry.id, range));
+        if (common === null || !common.length) {
+            const reduced = minimumConflict(known, observed, common !== null);
+            unknown.push(...reduced.unknown);
+            if (reduced.requirements !== null) {
+                common = [];
+                conflicts.unshift({ code: "joint_range_conflict", requirements: reduced.requirements, detail: "No version satisfies these declarations together.",
+                    ...(reduced.minimumUnproven ? { minimum_unproven: true } : {}) });
+            }
         }
         if (current !== null && !conflicts.some((conflict) => conflict.code === "joint_range_conflict")) {
             const failed = known.find((entry) => !satisfies(current, entry.range));
@@ -292,7 +324,10 @@ export function explainCompatibility(value) {
         rows.push({ component, status, compatible_ranges: common !== null && (!common.length || known.length === incoming.length) ? common : null, conflicts, unknown,
             chains: incoming.filter((entry) => !relevant.size || relevant.has(entry.id)).map((entry) => chain(entry, requirements)),
             remedy: status === "compatible" ? "Declarations agree; core still decides extension admission." : status === "unknown"
-                ? "Obtain missing or supported version/capability metadata and rerun; do not infer incompatibility." : "Review the minimum witnesses and compatible ranges; verify replacement metadata before changing any pin or capability declaration." });
+                ? "Obtain missing or supported version/capability metadata and rerun; do not infer incompatibility."
+                : conflicts.some((conflict) => conflict.minimum_unproven)
+                    ? "Retain the proven contradiction; obtain representable metadata before claiming minimum cardinality or changing any pin or capability declaration."
+                    : "Review the minimum witnesses and compatible ranges; verify replacement metadata before changing any pin or capability declaration." });
     }
     const counts = { compatible: 0, incompatible: 0, unknown: 0 };
     for (const row of rows)

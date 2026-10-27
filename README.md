@@ -886,6 +886,16 @@ witness can establish a conjunction without deriving a successor, including
 maximum-length prereleases. An independently verified installed-pin, capability
 or native-bound conflict still remains visible alongside incomplete evidence.
 
+A proven empty intersection survives failures while reducing its witness. The
+search records each rejected subset and continues through the other candidates.
+The minimum concerns parsed npm-range declarations; missing or unsupported range
+declarations remain separately listed as unknown.
+If smaller subsets remain undecided, `minimum_unproven: true` marks the retained
+conflict: the contradiction is proven, while global minimum cardinality is not.
+An undecided full set still searches for a provably conflicting subset. Within
+an OR expression, an independently proven nonempty branch remains available even
+when another branch cannot be represented; an unknown branch never proves emptiness.
+
 `null` means unknown metadata; `[]` means a known empty capability declaration,
 and `*` means a declared unrestricted range. Tags, workspace/file protocols,
 unparseable versions and missing metadata produce `unknown`, never a fabricated

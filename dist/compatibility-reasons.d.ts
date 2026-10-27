@@ -46,7 +46,7 @@ export declare class CompatibilityRefusal extends Error {
     /** Construct a sanitized refusal. */
     constructor(code: CompatibilityRefusal["code"], remedy: string);
 }
-/** One independently established conflict with a minimum-cardinality witness. */
+/** One established conflict; minimum cardinality is certified unless explicitly unproven. */
 export interface CompatibilityConflict {
     /** Joint declarations, observed pin, capability declaration, or native admission finding. */
     code: "joint_range_conflict" | "installed_pin_conflict" | "capability_conflict" | "extension_bound_conflict";
@@ -54,6 +54,8 @@ export interface CompatibilityConflict {
     requirements: string[];
     /** Conflicting capability or native SDK code, if relevant. */
     detail: string;
+    /** A smaller candidate was unrepresentable; the retained contradiction is still proven. */
+    minimum_unproven?: true;
 }
 /** A rejected library value is incomplete evidence, never proof of an empty version domain. */
 export interface UnrepresentableRangeReason {
@@ -81,7 +83,7 @@ export interface CompatibilityRow {
     status: "compatible" | "incompatible" | "unknown";
     /** OR of conjunctions (all ranges in each inner array must hold). Preserves npm prerelease rules. */
     compatible_ranges: string[][] | null;
-    /** Minimum witnesses per established conflict dimension. */
+    /** Proven witnesses per conflict dimension; uncertain global minima are explicitly marked. */
     conflicts: CompatibilityConflict[];
     /** Declaration ids with incomplete metadata and a reason code. */
     unknown: CompatibilityUnknownReason[];
