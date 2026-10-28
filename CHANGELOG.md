@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026.10.28 - 2026-10-28
+
+### Fixed
+
+- Keep release changelog bytes stable when the pending version becomes a tag ([ops-release-changelog-stability](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-changelog-stability.toon))
+
+### Other
+
+- Stop Hound from linting generated dist/ output ([ops-hound-generated-dist](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-hound-generated-dist.toon))
+
 ## 2026.10.27 - 2026-10-27
 
 ### Other

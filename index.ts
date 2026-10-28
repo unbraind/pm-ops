@@ -25,6 +25,7 @@ import { auditBackendConfigFile, auditConfiguredBackends } from "./backend-capab
 import { auditEvidenceExpiryFiles, EvidenceExpiryRefusal } from "./evidence-expiry.ts";
 import { createDiagnosticPlan, executeDiagnosticPlan, readDiagnosticPlan, DiagnosticRefusal, type DiagnosticFailure } from "./diagnostic-plans.ts";
 import { readDiagnosticWitnesses, WitnessRefusal } from "./diagnostic-witnesses.ts";
+import { readCompatibilityReasons, CompatibilityRefusal } from "./compatibility-reasons.ts";
 import { qualityMeasurementProvider } from "./assurance.ts";
 import { defaultCanonicalTagResolver, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.ts";
 
@@ -111,6 +112,7 @@ function asArray(value: unknown): string[] {
 }
 
 const OPS_COMMAND_PATHS = [
+  "ops compatibility",
   "ops witnesses",
   "ops diagnose",
   "ops capabilities",
@@ -2609,7 +2611,7 @@ const defineExtension = <TModule extends ExtensionModule>(module: TModule): TMod
 
 export default defineExtension({
   name: "pm-ops",
-  version: "2026.10.27",
+  version: "2026.10.28",
 
   activate(api: ExtensionApi) {
     if (typeof api.registerRenderer === "function") {
@@ -2636,6 +2638,19 @@ export default defineExtension({
     // same `authorization_decision` as any other bound regression. See
     // `./assurance.ts` for the key contract and the staleness refusal.
     api.registerAssuranceMeasurementProvider(qualityMeasurementProvider);
+
+    api.registerCommand({
+      name: "ops compatibility",
+      description: "Explain joint declared version/capability constraints with minimum conflict witnesses. Read-only preview; unknown metadata stays unknown and core decides extension admission. No Git required.",
+      examples: ["pm ops compatibility --input compatibility.json", "pm ops compatibility --input compatibility.json --json"],
+      flags: [{ long: "--input", value_name: "file", description: "Strict version 1 JSON metadata, at most 64 KiB (required)" }],
+      async run(ctx: CommandHandlerContext) {
+        const input = readString(ctx.options, "input");
+        if (!input) throw new CompatibilityRefusal("invalid_compatibility_input", "Supply --input with explicit components and directed requirements.");
+        const report = readCompatibilityReasons(input);
+        return renderedCommandResult(ctx.global.json === true ? JSON.stringify(report) : encode(report));
+      },
+    });
 
     api.registerCommand({
       name: "ops witnesses",

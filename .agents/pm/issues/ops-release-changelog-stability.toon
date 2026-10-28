@@ -2,17 +2,20 @@ id: ops-release-changelog-stability
 title: Keep release changelog bytes stable when the pending version becomes a tag
 description: "Release commit 32ecf1e passes generation before v2026.10.26 exists, but the fetched tag makes the full generator emit an empty Unreleased section and changelog:check fails. The earlier empty-release fix remains valid. Investigate the independent immutable v2026.10.20 repair blocker without rewriting release evidence."
 type: Issue
-status: in_progress
+status: closed
 priority: 1
 tags: []
 created_at: "2026-10-27T02:55:44.757Z"
-updated_at: "2026-10-27T04:00:36.947Z"
+updated_at: "2026-10-27T10:41:39.430Z"
+closed_at: "2026-10-27T10:03:22.478Z"
+completed_at: "2026-10-27T04:22:31.000Z"
 author: codex-agent
 acceptance_criteria: "Real tracker regression commits and tags a pending release and proves changelog:check still passes with exactly one section per version; The regression fails when only the changed generation behavior is reverted; Regenerate with fetched tags and pass npm and Bun release gates at unchanged thresholds; Run release completeness verification and record any immutable historical blocker without publishing or changing tags; Open a PR with tracker evidence and green CI, leaving it unmerged"
-resolution: "Normalize the generator-supplied empty Unreleased window above release history through the shared adapter used by generation, checks and notes. Preserve empty version sections and nonempty unreleased work. Leave final review and closure to the orchestrator."
-expected_result: "Committing and tagging a pending release preserves changelog:check and exactly one dated section per release, retaining meaningful unreleased work."
-actual_result: "Real tracker regression and source-only revert proof verified. Both local release gates pass 1468 tests with 2 opt-in skips and 100% in all coverage dimensions across 39 measured sources. Current changelog has 60 sections for 60 tags. The independent historical completeness audit still reports one missing GitHub Release, tracked in ops-release-1020-recovery."
-comments[11]{created_at,author,text}:
+repro_steps: "Generate and commit a pending release changelog, create its version tag, fetch tags, then rerun changelog:check; the old adapter added an empty Unreleased section and changed the committed bytes."
+resolution: Keep release changelog bytes stable across tag creation by omitting only the empty Unreleased window above history while preserving empty dated releases and meaningful unreleased work.
+expected_result: "Committing and tagging a release leaves changelog:check passing and exactly one dated section per version, with meaningful unreleased work preserved."
+actual_result: "Current main passes all six changelog-section tests, including the real commit/tag regression. PR #216 retains the behavioral revert proof and passing npm/Bun gates. The historical release recovery and separate cold-start timing risk remain open."
+comments[17]{created_at,author,text}:
   "2026-10-27T02:55:53.555Z",codex-agent,"Comparison confirms v2026.10.20:CHANGELOG.md has no 2026.10.20 section. Current main and v2026.10.26 each have exactly one such section: it was not lost or duplicated by the new release. Repair reads notes from the immutable 2026.10.20 commit, so its missing GitHub Release remains ops-release-1020-recovery. The new stale-main cause is separate: include-empty emits an empty Unreleased window only after the pending version becomes a real tag. Plan: normalize that empty non-release window while retaining every version section and all nonempty unreleased work, then exercise the complete commit/tag/check transition with a real tracker."
   "2026-10-27T02:58:46.624Z",codex-agent,"The release log confirms changelog:check passed at 14:42:02Z and the repair refused historical notes at 14:50:20Z. Normalization now drops only the generator-supplied empty Unreleased heading above version history. Regression covers real committed tracker snapshots, pending-to-tag byte equality, empty releases, a same-day suffix, and retained nonempty unreleased work. Full gates will run under bounded CPU affinity so Node uses at most two test workers. The live read-only completeness command still reports one missing GitHub Release, v2026.10.20."
   "2026-10-27T03:00:11.286Z",codex-agent,"Behavioural revert proof: restoring only describeEmptyReleases to the pre-fix implementation makes node --test --test-concurrency=2 --test-name-pattern='release commits stay' test/changelog-sections.test.ts fail (0 passed, 1 failed) at the first post-tag changelog:check, with Changelog is out of date. Restoring the fix passes all three release transitions (1 passed, 0 failed). The regression imports the TypeScript source directly, so no dist rebuild is needed for this proof."
@@ -24,12 +27,36 @@ comments[11]{created_at,author,text}:
   "2026-10-27T03:43:03.897Z",codex-agent,"The focused regular-input file also timed out (5 passed, 1 failed). A diagnostic measured about 3.5 seconds between preload and completed imports before any input assertions, so the five-second wall deadline includes substantial startup cost; the exact timed-out phase is not yet proven. Follow-up ops-input-startup-timeout tracks the separate timing issue. A focused retry without restricted CPU affinity and a complete diagnostic trace are being used before another full gate attempt. No test deadline, assertion or coverage threshold is changed."
   "2026-10-27T03:44:31.885Z",codex-agent,"The unchanged input-boundary control now passes 6/6 both with unrestricted one-worker execution and with a different two-CPU affinity (one test worker). Instrumented real FIFO refusal completed all eight consumers within roughly 20 milliseconds after imports, with about 1.5 seconds of import startup in that successful run. The full isolated Bun gate is being repeated with one worker; no source, timeout, test set or coverage threshold was changed. The earlier failure remains recorded under ops-input-startup-timeout."
   "2026-10-27T04:00:32.697Z",codex-agent,"Final local gate results: npm run release:check and the one-worker bun run release:check both pass, each with 1470 total tests, 1468 passed, 0 failed and 2 opt-in real-data skips. Both measure 39 source files at 100% statements, branches, functions and lines, with unchanged thresholds. All remaining release checks pass, including production audit (0 vulnerabilities), pack dry run, changelog, date, publish-attestation and lifecycle policy. The first two-worker Bun timeout remains in ops-input-startup-timeout; no test deadline or assertion changed. Refreshed read-only npm run verify:release-completeness still reports exactly one missing GitHub Release, v2026.10.20. The guarded workflow repair command previously reproduced the immutable-note refusal with one failure. That audit cannot pass through generator changes alone, and release creation is forbidden by the queue rules. Keep ops-release-1020-recovery open. PR #216 code CI and CodeQL passed; the final tracker evidence commit will receive exact-head CI before handoff."
+  "2026-10-27T09:45:49.650Z",codex-agent,"Closure audit of current main: All acceptance criteria are accounted for: the real tracker regression commits and tags pending populated, same-day and empty releases and checks unchanged bytes and one section per version; the merged PR records its source-only revert failure and both full gates (1468 passed, 2 opt-in skips). Fetched-tag regeneration and changelog checking are repeated in this closure branch. The read-only release-completeness audit in PR #216 records the independent immutable v2026.10.20 gap in ops-release-1020-recovery. That owner decision and ops-input-startup-timeout remain open. Green implementation CI and the existing unmerged review PR evidence are retained. Delivered by PR #216, merge commit eac1589d0fd598ae0c5375b4d83806418b86c5e4, merged_at 2026-10-27T04:22:31Z. Focused verification follows; full npm and Bun release gates are delegated to PR CI for this tracker-only change."
+  "2026-10-27T09:57:53.835Z",codex-agent,"Closure audit of current main: All acceptance criteria are accounted for: the real tracker regression commits and tags pending populated, same-day and empty releases and checks unchanged bytes and one section per version; the merged PR records its source-only revert failure and both full gates (1468 passed, 2 opt-in skips). Fetched-tag regeneration and changelog checking are repeated in this closure branch. The read-only release-completeness audit in PR #216 records the independent immutable v2026.10.20 gap in ops-release-1020-recovery. That owner decision and ops-input-startup-timeout remain open. Green implementation CI and the existing unmerged review PR evidence are retained. Delivered by PR #216, merge commit eac1589d0fd598ae0c5375b4d83806418b86c5e4, merged_at 2026-10-27T04:22:31Z. Focused verification follows; full npm and Bun release gates are delegated to PR CI for this tracker-only change."
+  "2026-10-27T10:03:07.719Z",codex-agent,"Verified current main with `node --test --test-concurrency=2 test/changelog-sections.test.ts` via the pinned pm linked runner: PASS. Current main passes all six changelog-section tests, including the real commit/tag regression. PR #216 retains the behavioral revert proof and passing npm/Bun gates. The historical release recovery and separate cold-start timing risk remain open."
+  "2026-10-27T10:05:57.050Z",codex-agent,"Closure validation: project tracker health passes strictly with extensions disabled. Default health reports only the existing global extension version skew (extension_host_pm_cli_version_skew:2026.10.20:2026.10.27:pm-github). This local extension warning is separate from delivered acceptance and is not represented as a passing default health result. Dependency pins and global extensions are unchanged."
+  "2026-10-27T10:40:19.440Z",codex-agent,"Bounded CI handoff: exact closure head 200e61ad89bb90ebbf465015eea65583043b0e3c still has pending checks after the allowed wait. codeql (queued): https://github.com/unbraind/pm-ops/actions/runs/40485989055/job/122127781024; windows-consumers (22) (queued): https://github.com/unbraind/pm-ops/actions/runs/40485989042/job/122127779994; test (22) (queued): https://github.com/unbraind/pm-ops/actions/runs/40485989042/job/122127779844; windows-consumers (26) (queued): https://github.com/unbraind/pm-ops/actions/runs/40485989042/job/122127779779; test (26) (queued): https://github.com/unbraind/pm-ops/actions/runs/40485989042/job/122127779348. These checks are missing evidence, not passes or approval. The focused current-main checks and tracker validation passed; full release validation remains for the orchestrator pipeline before merging. No PR merge or release was performed."
+  "2026-10-27T10:41:39.430Z",codex-agent,"Closure validation: project tracker health passes strictly with extensions disabled. Default health reports only the existing global extension version skew (extension_host_pm_cli_version_skew:2026.10.20:2026.10.27:pm-github). This local extension warning is separate from delivered acceptance and is not represented as a passing default health result. Dependency pins and global extensions are unchanged."
 files[3]{path,scope}:
   CHANGELOG.md,project
   scripts/pm-changelog.ts,project
   test/changelog-sections.test.ts,project
-tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
-  node --test --test-concurrency=2 test/changelog-sections.test.ts,project,codex-agent,"2026-10-27T02:58:40.509Z",local_mutation,fix/release-audit-changelog-sections
+tests[2]:
+  - command: node --test --test-concurrency=2 test/changelog-sections.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-27T02:58:40.509Z"
+      source_kind: local_mutation
+      source_ref: fix/release-audit-changelog-sections
+  - command: node --test --test-concurrency=2 test/changelog-sections.test.ts
+    scope: project
+    timeout_seconds: 900
+    pm_context_mode: schema
+    workspace_context_mode: source
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-27T09:45:56.732Z"
+      source_kind: local_mutation
+      source_ref: chore/close-delivered-1027
+    shared_host_safe: true
 docs[1]{path,scope}:
   README.md,project
+close_reason: "Delivered by merged PR #216 (eac1589d0fd598ae0c5375b4d83806418b86c5e4); current main evidence: scripts/pm-changelog.ts, test/changelog-sections.test.ts; focused linked checks passed."
 body: ""

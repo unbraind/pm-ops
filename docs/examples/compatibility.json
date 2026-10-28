@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "components": [
+    { "id": "host", "version": "2.0.0", "capabilities": ["commands", "schema"] },
+    { "id": "alpha", "version": "1.0.0", "capabilities": [] },
+    { "id": "beta", "version": "1.0.0", "capabilities": [] },
+    { "id": "gamma", "version": "1.0.0", "capabilities": [] }
+  ],
+  "requirements": [
+    { "id": "pin-a", "from": "alpha", "to": "host", "range": "1.0.0 || 2.0.0", "capabilities": ["commands"] },
+    { "id": "pin-b", "from": "beta", "to": "host", "range": "2.0.0 || 3.0.0", "capabilities": ["schema"] },
+    { "id": "pin-c", "from": "gamma", "to": "host", "range": "1.0.0 || 3.0.0", "capabilities": [] }
+  ]
+}
