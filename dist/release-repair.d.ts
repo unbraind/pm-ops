@@ -73,6 +73,32 @@ export declare function makeRepairClient(exec?: RepairExecutor): RepairClient;
 /** Extract exactly one nonempty version section from an immutable changelog. */
 export declare function committedReleaseNotes(changelog: string, version: string): string;
 /**
+ * Resolve one release's notes from committed changelogs, never from the working tree.
+ *
+ * The release commit's own changelog is the primary source: it records the
+ * notes exactly as the released tree carried them. But a release whose commit
+ * predates a changelog regeneration (the 2026.10.20 release commit was created
+ * during this repository's generation-drift window and contains no section for
+ * its own version, nor for 2026.10.16-2026.10.19) can never gain one - the
+ * commit is immutable - so a single-source read refuses that repair forever
+ * while every later daily release fails the same audit. The audit-time
+ * committed changelog is the repository's own recovery source: it is
+ * regenerated from every release tag (`changelog:full --all-release-tags`),
+ * re-checked (`changelog:check`), and now guarded by the pre-release section
+ * gate, so by the time a repair runs it carries exactly one section for every
+ * released version. Both reads go through committed git state; uncommitted
+ * working-tree edits are never release notes, and a fallback that also fails
+ * still fails closed with the single-section requirement.
+ *
+ * @param root - Repository root the audit runs in.
+ * @param commit - The verified release commit the notes describe.
+ * @param version - The npm version string of the release.
+ * @param client - The git boundary the repair reads committed files through.
+ * @returns The nonempty release-note body for the version.
+ * @throws When neither committed changelog has exactly one nonempty section.
+ */
+export declare function releaseNotesFor(root: string, commit: string, version: string, client: RepairClient): string;
+/**
  * Preflight all incomplete triples before writing. Never infer absence from a
  * failed read, move an existing tag, overwrite a release, or publish to npm.
  * Re-read remote state before each write and after uncertain write outcomes.

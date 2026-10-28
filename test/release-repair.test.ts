@@ -12,7 +12,7 @@ import { test } from "node:test";
 import { create, init } from "@unbrained/pm-cli/sdk";
 import { auditReleaseCompleteness, defaultExec, makeFetcher, verify, type CompletenessFetcher } from "../release-completeness.ts";
 import { repairReleaseCompleteness as repairBuiltPackage } from "../dist/release-repair.js";
-import { committedReleaseNotes, evidenceFromAudit, makeRepairClient, repairReleaseCompleteness, verifyReleaseSource, type NpmEvidence, type ProvenanceStatement, type RepairClient, type RepairExecutor } from "../release-repair.ts";
+import { committedReleaseNotes, evidenceFromAudit, makeRepairClient, releaseNotesFor, repairReleaseCompleteness, verifyReleaseSource, type NpmEvidence, type ProvenanceStatement, type RepairClient, type RepairExecutor } from "../release-repair.ts";
 import { runIfMain } from "../scripts/verify-release-completeness.ts";
 
 const tag = "v2026.08.28";
@@ -117,6 +117,39 @@ test("report-only repeats the missing release; repair uses committed notes and i
     assert.deepEqual(f.bodies, ["### Fixed\n\n- Committed recovery notes.\n"]);
     assert.deepEqual(repairReleaseCompleteness(f.cwd, f.fetcher, f.client).failures, []);
     assert.equal(f.writes.length, 1);
+  } finally { f.cleanup(); }
+});
+
+test("a drift-window release commit without its own section recovers notes from the audit-time committed changelog", async () => {
+  // The 2026.10.20 shape: the release commit was created during the
+  // changelog generation-drift window, so its own changelog has no section
+  // for the released version, while a later commit restored the section.
+  const drifted = "# Changelog\n\n## 2026.8.27 - 2026-08-27\n\n- Earlier release.\n";
+  const f = await fixture({ changelog: drifted });
+  try {
+    writeFileSync(join(f.cwd, "CHANGELOG.md"), changelog);
+    f.git(["add", "CHANGELOG.md"]);
+    f.git(["commit", "-qm", "restore the drifted changelog sections"]);
+    // Uncommitted working-tree state is never a note source, on either path.
+    writeFileSync(join(f.cwd, "CHANGELOG.md"), "uncommitted notes must not be used");
+    const repaired = repairReleaseCompleteness(f.cwd, f.fetcher, f.client);
+    assert.deepEqual(repaired.failures, [], JSON.stringify(repaired));
+    assert.deepEqual(f.writes, [`release ${tag}`]);
+    assert.deepEqual(f.bodies, ["### Fixed\n\n- Committed recovery notes.\n"]);
+    // The resolver returns the same committed notes for this drift shape, and
+    // the working-tree edit above was never read on either path.
+    assert.equal(releaseNotesFor(f.cwd, f.commit, version, f.client), "### Fixed\n\n- Committed recovery notes.\n");
+  } finally { f.cleanup(); }
+});
+
+test("a release missing its section in both committed changelogs still refuses before writes", async () => {
+  const f = await fixture({ changelog: "# no notes" });
+  try {
+    const result = repairReleaseCompleteness(f.cwd, f.fetcher, f.client);
+    assert.match(result.failures[0]!, /release repair refused: committed changelog must have exactly one section for 2026\.8\.28/);
+    assert.match(result.failures[0]!, /the release commit's changelog/);
+    assert.match(result.failures[0]!, /the audit-time committed changelog/);
+    assert.deepEqual(f.writes, []);
   } finally { f.cleanup(); }
 });
 

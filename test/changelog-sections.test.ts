@@ -8,6 +8,7 @@ import { createChangelog, resolveReleaseTagWindows, type PmItem } from "pm-chang
 import { execFileSync } from "../subprocess.ts";
 import { committedReleaseNotes } from "../release-repair.ts";
 import { describeEmptyReleases, runChangelog } from "../scripts/pm-changelog.ts";
+import { verify as verifySections } from "../scripts/verify-release-changelog-sections.ts";
 
 /** Read the actual repository commands so reverting their policy breaks the proof. */
 const scripts = (JSON.parse(readFileSync(resolve("package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
@@ -108,6 +109,8 @@ test("tag generation refuses a plain tracker clearly while item generation works
     assert.throws(() => runChangelog(args("changelog:full"), root, noGit), /need a git repository/);
     assert.equal(runChangelog(["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22"], root, noGit), 0);
     assert.equal(committedReleaseNotes(readFileSync(join(root, "CHANGELOG.md"), "utf8"), "2026.10.22"), "No tracked changes.\n");
+    assert.deepEqual(verifySections(root, []).failures, [], "an explicit empty historical inventory still checks the pending version without Git");
+    assert.match(verifySections(root).failures[0]!, /git repository/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
