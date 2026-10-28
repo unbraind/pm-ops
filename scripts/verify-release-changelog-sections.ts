@@ -1,6 +1,6 @@
 /**
  * Proves the changelog carries exactly one nonempty section for every released
- * version BEFORE a release starts.
+ * version AND the pending package version BEFORE a release starts.
  *
  * Why this gate exists separately from `npm run changelog:check`: that script
  * proves the committed changelog matches the generator's current output, so a
@@ -10,8 +10,8 @@
  * passed, and the v2026.10.20 release commit was created with no section for
  * its own version. The tag and the npm publish succeeded, the GitHub Release
  * was never created, and the release repair then refused forever, because its
- * only note source is the immutable release commit's changelog. This gate
- * anchors the check on the release tags themselves - independent of the
+ * only note source was the immutable release commit's changelog. This gate
+ * anchors the check on the release tags and package coordinate - independent of the
  * generator - and reuses {@link committedReleaseNotes}, the exact section
  * matcher the repair uses, so a changelog it accepts is a changelog the repair
  * can take notes from, and a changelog it refuses can never reach a release
@@ -28,7 +28,7 @@ import { join, resolve } from "node:path";
 import { readRegularText } from "../regular-input.ts";
 import { execFileSync } from "../subprocess.ts";
 import { committedReleaseNotes } from "../release-repair.ts";
-import { isReleaseTag, parseLines, tagToNpmVersion } from "../release-completeness.ts";
+import { isReleaseTag, npmVersionToTag, parseLines, tagToNpmVersion } from "../release-completeness.ts";
 import type { VerifierResult } from "../shell-scan.ts";
 import { runVerifierIfMain } from "./main-invocation.ts";
 
@@ -46,51 +46,67 @@ export function releasedVersions(tags: readonly string[]): string[] {
   return [...new Set(tags.filter(isReleaseTag).map(tagToNpmVersion))];
 }
 
+/** Include the intended package coordinate before tagging, normalized like historical tags. */
+export function requiredVersions(tags: readonly string[], pendingVersion: unknown): string[] {
+  if (typeof pendingVersion !== "string" || !isReleaseTag(npmVersionToTag(pendingVersion))) {
+    throw new Error("package.json must declare a calendar release version");
+  }
+  return [...new Set([...releasedVersions(tags), tagToNpmVersion(pendingVersion)])];
+}
+
 /**
- * Audit one changelog text against released versions.
+ * Audit one changelog text against every required release version.
  *
- * Every released version must have exactly one nonempty section - the same
+ * Every historical and pending version must have exactly one nonempty section - the same
  * requirement the repair places on the notes it publishes - so a missing,
  * duplicated or empty section fails before a release starts rather than as an
  * unrepairable historical refusal afterwards. An empty version list is a
- * failure rather than a pass: a scan that finds no release tags is either
- * pointed at the wrong repository or run without fetching tags, and both look
- * identical to a clean result unless said out loud.
+ * failure rather than a pass: a scan must not succeed without checking any
+ * release coordinate. A first release still checks its pending package version.
  *
  * @param changelog - The changelog text the release would commit.
- * @param versions - Released npm version strings.
+ * @param versions - Required historical and pending npm version strings.
  * @returns Failures and per-version notes.
  */
 export function auditChangelogSections(changelog: string, versions: readonly string[]): VerifierResult {
   const failures: string[] = [];
   const notes: string[] = [];
   if (versions.length === 0) {
-    failures.push("no released versions found - the section gate needs the release tags to anchor its check");
+    failures.push("no required release versions found - the section gate needs a release inventory");
   }
   for (const version of versions) {
     try {
       committedReleaseNotes(changelog, version);
       notes.push(`ok - exactly one changelog section for ${version}`);
     } catch (error) {
-      failures.push(`released version ${version} has no usable changelog section: ${String(error)}`);
+      failures.push(`required release version ${version} has no usable changelog section: ${String(error)}`);
     }
   }
   return { failures, notes };
 }
 
 /**
- * Read the release tags of a checkout and audit its changelog.
+ * Read the complete intended release inventory and audit the checkout's changelog.
  *
  * The tag list is injectable so the suite can drive the rules hermetically;
  * the default reads `git tag` in the checkout, which CI and the release job
- * both fetch before running the gate.
+ * both fetch before running the gate. The package version is always read from
+ * the checkout being checked, even when no corresponding tag exists yet.
+ * Non-Git trackers can supply an explicit tag inventory; the default Git read
+ * fails with a verifier diagnostic instead of crashing the caller.
  *
- * @param root - Repository root containing `CHANGELOG.md`.
+ * @param root - Checkout containing `package.json` and `CHANGELOG.md`.
  * @param tags - Git tag names; defaults to the checkout's own tags.
  * @returns Failures and notes for the checkout.
  */
-export function verify(root: string, tags: readonly string[] = parseLines(execFileSync("git", ["tag"], { cwd: root, encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 }))): VerifierResult {
-  return auditChangelogSections(readRegularText(join(root, "CHANGELOG.md")), releasedVersions(tags));
+export function verify(root: string, tags?: readonly string[]): VerifierResult {
+  try {
+    const manifest = JSON.parse(readRegularText(join(root, "package.json"))) as { version?: unknown } | null;
+    const inventory = tags ?? parseLines(execFileSync("git", ["tag"], { cwd: root, encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 }));
+    return auditChangelogSections(readRegularText(join(root, "CHANGELOG.md")), requiredVersions(inventory, manifest?.version));
+  } catch (error) {
+    return { failures: [`release section audit failed: ${String(error)}`], notes: [] };
+  }
 }
 
 /**
@@ -110,7 +126,7 @@ export function report(audit: VerifierResult, sink: (line: string) => void, exit
     exit(1);
     return;
   }
-  sink("verify-release-changelog-sections: every released version has exactly one nonempty changelog section.");
+  sink("verify-release-changelog-sections: every required release version has exactly one nonempty changelog section.");
 }
 
 /**
