@@ -93,7 +93,7 @@ test("npm and Bun verifier commands refuse untagged missing, duplicated and empt
   const script = new URL("../scripts/verify-release-changelog-sections.ts", import.meta.url);
   const env: NodeJS.ProcessEnv = { ...process.env, NPM_CONFIG_USERCONFIG: devNull, npm_config_userconfig: devNull };
   for (const key of Object.keys(env)) {
-    if (/TOKEN|SECRET|PASSWORD|API_KEY|CREDENTIAL|AUTH/i.test(key)) delete env[key];
+    if (key.toUpperCase() === "NPM_MEDIA_SERVER" || /TOKEN|SECRET|PASSWORD|API_KEY|CREDENTIAL|AUTH/i.test(key)) delete env[key];
   }
   try {
     execFileSync("git", ["init", "-q", root], { env });
