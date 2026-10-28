@@ -1,16 +1,16 @@
 id: ops-release-1020-recovery
 title: Recover the historical 2026.10.20 GitHub Release with verified release evidence
-description: "The read-only completeness audit reports exactly one missing GitHub Release: v2026.10.20. Its immutable release commit lacks the matching changelog section, so the automatic repair refuses it. The current changelog fix restores main and future release windows, but cannot alter that historical commit. Orchestrator must decide an evidence-preserving recovery path and separately authorize release creation; no tag, npm artifact or GitHub Release was changed here."
+description: "Recover the missing v2026.10.20 GitHub Release without changing its tag or npm artifact. The release commit omitted its changelog section because the historical pm-changelog scripts excluded empty release windows; current main was repaired separately. Verify registry identity, signed provenance, source ancestry, tag identity, full tarball/tree equality and committed package identity before recovering notes from a later committed changelog. Add an independent missing/duplicate section gate before publication. Local repair preflight must reach the guarded release write; actual GitHub Release creation remains delegated to the daily job's existing --repair after review and merge. Keep this item open for orchestrator verification."
 type: Task
 status: in_progress
 priority: 1
 tags: []
 created_at: "2026-10-25T10:54:35.891Z"
-updated_at: "2026-10-28T15:45:09.379Z"
+updated_at: "2026-10-28T15:59:14.184Z"
 assignee: glm-agent
 claim_principal: glm-agent
 author: codex-agent
-comments[11]{created_at,author,text}:
+comments[14]{created_at,author,text}:
   "2026-10-26T03:11:34.131Z",codex-agent,"Closure audit on main 1ceb53b69d4bb0eea323625744fe9200a38bb267: merged PR #205 (36478d717b40a5f73a49b06b486c1c83f93d39bc, merged 2026-10-25T11:22:43Z). REST GET releases/tags/v2026.10.20 returns HTTP 404. Inspected release-repair.ts and .github/workflows/release.yml; the changelog fix does not create a historical GitHub Release. Owner decision and separately authorized historical release recovery remain required. Leave open; no release or tag is changed. Existing behavioural revert evidence is retained; this tracker-only audit changes no runtime functions."
   "2026-10-27T02:55:57.395Z",codex-agent,"Reconfirmed for the release-changelog recurrence: git show v2026.10.20:CHANGELOG.md lacks the matching section, while v2026.10.26 and current main contain it exactly once. The repair error refers to immutable historical notes, not current main. This remains a separately authorized release-recovery task; ops-release-changelog-stability fixes pending-to-tag generation drift."
   "2026-10-27T03:02:46.663Z",codex-agent,"The exact release workflow audit command was re-run behind a GitHub GET-only guard: npm run verify:release-completeness -- --repair. It reported github_release_absent: v2026.10.20 and FAIL - release repair refused: committed changelog must have exactly one section for 2026.10.20, with exactly one failure. All source/provenance/tarball checks before historical-note extraction succeeded. No release or tag was created. A passing live audit still requires separately authorized historical recovery; changing current generator output cannot alter the immutable tagged file."
@@ -22,8 +22,15 @@ comments[11]{created_at,author,text}:
   "2026-10-28T15:42:30.265Z",glm-agent,"Updated to origin/main 983b632 (v2026.10.28). Restored the item and history from main and re-recorded this branch's intended comments, files and linked tests with the pinned CLI, preserving main as an exact history prefix. Earlier branch audit records remain in prior commits."
   "2026-10-28T15:43:27.280Z",glm-agent,"Fresh diagnosis confirms the concrete generator policy defect: at v2026.10.20, package.json used pm-changelog 2026.10.16 without --include-empty in changelog, changelog:full or changelog:check. Empty release windows were omitted, so regeneration and equality checking agreed on a file missing 2026.10.16 through 2026.10.20. git log -p v2026.10.15..v2026.10.20 -- CHANGELOG.md has no commits; ee0297384c5854dc4e372a6bf96ac2ceca6fdf7a changed five version files only. Commit 36478d7 (PR #205) later added the missing sections using --include-empty and No tracked changes. npm view pm-ops@2026.10.20 dist gitHead confirms gitHead ee0297384c5854dc4e372a6bf96ac2ceca6fdf7a and tarball integrity sha512-8Xz98Bff2d0prXzexNyiAwFLDZ2LanaK+S2uFFgzXwClTuSwrq42O5I36NTUn/MVtWQtBSEiaWXUzQPqsfp/rQ==. The repair still read only the immutable old changelog. Regenerated current CHANGELOG.md through changelog:full, then changelog:check passed with no diff from current main."
   "2026-10-28T15:45:09.378Z",glm-agent,The automatic merge driver emitted a clone-local union/reanchor receipt before the required main-prefix restoration. Reconciliation refused that superseded receipt without validated staged evidence and wrote no history. Preserved it outside the active tracker; no reanchor was accepted. Byte comparison confirms main history remains an exact prefix. Local health also reports extension_host_pm_cli_version_skew for the host-discovered pm-github extension; the pinned CLI itself is installed correctly and dependency pins are unchanged by this fix.
-files[6]{path,scope}:
+  "2026-10-28T15:48:58.570Z",glm-agent,"Fresh local execution: npm run verify:release-completeness -- --repair has no built-in dry-run flag. Ran that exact CLI behind an external GitHub GET-only guard: all registry, signature/provenance, tag/source ancestry, full npm tarball/tree and committed package identity checks ran unchanged. It reached only the expected v2026.10.20 release creation with notes exactly No tracked changes. The guard refused the write, so the CLI intentionally ended with one guard failure rather than the former missing-section refusal. No release/tag/npm write occurred. The daily job must create the historical release with its existing --repair on its next authorized run. Focused repair and section-gate suites pass 34/34, zero failures/skips; the section audit passes all 62 currently released versions. Full npm release gate is running with isolated HOME and disabled global/system Git config."
+  "2026-10-28T15:57:09.015Z",glm-agent,"First isolated npm release gate: 1491 tests passed, 0 failed, 2 pre-existing optional real-data tests skipped (configured fleet repositories are not supplied). Typecheck, lint, duplication and docstrings passed. Coverage correctly refused the new error-formatting ternaries: release-repair.ts 99.34% branches and the section verifier 93.33%, while all statements/functions/lines were 100%. Simplifying both diagnostics through String(error) removes redundant type-specific formatting without weakening the parser or coverage thresholds; re-running focused checks, revert proof and the full gates."
+  "2026-10-28T15:59:14.181Z",glm-agent,"Pinned pm test ops-release-1020-recovery --run --progress --timeout 1200 passed all 3 linked commands: node --test --test-concurrency=2 test/release-repair.test.ts (27/27), node --test --test-concurrency=2 test/verify-release-changelog-sections.test.ts (7/7), and npm run verify:release-changelog-sections (62 release versions). Zero focused failures/skips. Automatic test-result recording is disabled by project policy, so this comment preserves the results without changing that policy."
+files[10]{path,scope}:
   .github/workflows/release.yml,project
+  dist/release-repair.d.ts,project
+  dist/release-repair.d.ts.map,project
+  dist/release-repair.js,project
+  dist/release-repair.js.map,project
   package.json,project
   release-repair.ts,project
   scripts/verify-release-changelog-sections.ts,project
@@ -33,6 +40,7 @@ tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/release-repair.test.ts,project,glm-agent,"2026-10-28T15:42:22.168Z",local_mutation,fix/release-1020-recovery
   node --test --test-concurrency=2 test/verify-release-changelog-sections.test.ts,project,glm-agent,"2026-10-28T15:42:24.596Z",local_mutation,fix/release-1020-recovery
   "npm run verify:release-changelog-sections",project,glm-agent,"2026-10-28T15:42:27.260Z",local_mutation,fix/release-1020-recovery
-docs[1]{path,scope}:
+docs[2]{path,scope}:
+  CHANGELOG.md,project
   README.md,project
 body: ""

@@ -30,8 +30,8 @@ const healthy = "# Changelog\n\n## 2026.10.20 - 2026-10-20\n\n- One section.\n\n
 /** The drift shape: the changelog stops before versions that are already released. */
 const drifted = "# Changelog\n\n## 2026.10.15 - 2026-10-15\n\n- Stops before the drift window.\n";
 
-test("releasedVersions keeps release tags, drops others and collapses one version's spellings", () => {
-  assert.deepEqual(releasedVersions(["v2026.10.20", "v2026.10.04", "not-a-release-tag", "backup/v2026.10.19"]), ["2026.10.20", "2026.10.4"]);
+test("releasedVersions keeps suffix releases, drops unrelated tags and collapses repeated tags", () => {
+  assert.deepEqual(releasedVersions(["v2026.10.20", "v2026.10.20", "v2026.10.20-1", "v2026.10.04", "not-a-release-tag", "backup/v2026.10.19"]), ["2026.10.20", "2026.10.20-1", "2026.10.4"]);
   assert.deepEqual(releasedVersions([]), []);
 });
 
@@ -48,7 +48,7 @@ test("the drift shape fails before a release starts: missing, duplicated and emp
   const missing = auditChangelogSections(drifted, ["2026.10.15", "2026.10.16", "2026.10.20"]);
   assert.equal(missing.failures.length, 2, missing.failures.join("; "));
   for (const version of ["2026.10.16", "2026.10.20"]) {
-    assert.ok(missing.failures.some((failure) => failure.startsWith(`released version ${version} has no usable changelog section: committed changelog must have exactly one section for ${version}`)), missing.failures.join("; "));
+    assert.ok(missing.failures.some((failure) => failure.startsWith(`released version ${version} has no usable changelog section: Error: committed changelog must have exactly one section for ${version}`)), missing.failures.join("; "));
   }
   const duplicated = auditChangelogSections(`${healthy}\n## 2026.10.20 - 2026-10-20\n\n- A second copy of the section.\n`, ["2026.10.20"]);
   assert.match(duplicated.failures[0]!, /exactly one section for 2026\.10\.20/);

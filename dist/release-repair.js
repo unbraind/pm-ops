@@ -244,8 +244,7 @@ export function releaseNotesFor(root, commit, version, client) {
             return committedReleaseNotes(client.git(root, ["show", "HEAD:CHANGELOG.md"]), version);
         }
         catch (current) {
-            const reason = (error) => error instanceof Error ? error.message : String(error);
-            throw new Error(`committed changelog must have exactly one section for ${version}: the release commit's changelog ${reason(history)} and the audit-time committed changelog ${reason(current)}`);
+            throw new Error(`committed changelog must have exactly one section for ${version}: the release commit's changelog ${String(history)} and the audit-time committed changelog ${String(current)}`);
         }
     }
 }

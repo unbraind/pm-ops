@@ -36,8 +36,8 @@ import { runVerifierIfMain } from "./main-invocation.ts";
  * Reduce raw git tag names to the released npm versions they correspond to.
  *
  * Non-release tags are not part of the release contract and are ignored, and
- * distinct spellings that map to one npm version (a same-day suffix family)
- * collapse to one check.
+ * repeated tags collapse to one check while same-day suffix releases remain
+ * distinct npm versions.
  *
  * @param tags - Git tag names as `git tag` prints them.
  * @returns The unique released npm version strings, in tag order.
@@ -72,7 +72,7 @@ export function auditChangelogSections(changelog: string, versions: readonly str
       committedReleaseNotes(changelog, version);
       notes.push(`ok - exactly one changelog section for ${version}`);
     } catch (error) {
-      failures.push(`released version ${version} has no usable changelog section: ${error instanceof Error ? error.message : String(error)}`);
+      failures.push(`released version ${version} has no usable changelog section: ${String(error)}`);
     }
   }
   return { failures, notes };
