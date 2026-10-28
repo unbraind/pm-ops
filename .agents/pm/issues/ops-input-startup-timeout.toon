@@ -6,13 +6,15 @@ status: open
 priority: 3
 tags: []
 created_at: "2026-10-27T03:42:57.531Z"
-updated_at: "2026-10-27T10:05:25.445Z"
+updated_at: "2026-10-28T16:32:42.714Z"
 author: codex-agent
 acceptance_criteria: "Measure child readiness and input-refusal execution separately with bounded deadlines; Preserve real writerless FIFO, socket, device, directory and oversized-file assertions without weakening coverage thresholds; Demonstrate stable cold-start behavior under bounded test concurrency"
-comments[3]{created_at,author,text}:
+comments[5]{created_at,author,text}:
   "2026-10-27T03:44:19.100Z",codex-agent,"Control evidence from the unchanged test: unrestricted one-worker execution passed 6/6, and a subsequent one-worker run on another CPU pair also passed 6/6. A separate real FIFO diagnostic recorded preload-to-import readiness of about 1.5 seconds and all eight typed refusals within roughly 20 milliseconds after readiness; total child wall time was about 1.8 seconds. A prior diagnostic measured about 3.5 seconds of import time. These observations support a startup/load timing risk, while not identifying the exact phase of the killed child. All existing five-second limits and assertions remain unchanged."
   "2026-10-27T04:00:35.244Z",codex-agent,"The complete one-worker Bun release gate passed unchanged: 1468 passed, 0 failed, 2 opt-in skips, with 100% coverage in every dimension across 39 measured sources. The special-input case passed in that full run. The initial two-worker timeout and isolated timeout remain valid observations; successful retries do not establish load-independent timing. Leave this follow-up open."
   "2026-10-27T10:05:25.444Z",codex-agent,"Closure audit of PR #216 (eac1589d0fd598ae0c5375b4d83806418b86c5e4): passing unchanged release gates do not satisfy this item. Separate child-readiness and refusal deadlines, retained special-input assertions, and cold-start stability still need implementation and measurement. Keep open and unclaimed."
+  "2026-10-28T16:30:05.432Z",glm-agent,"Observed again while validating the historical-release recovery branch: the unchanged regular-input subprocess test exceeded its existing 5000 ms child limit in a two-worker full release gate. Total test duration was about 10 seconds, including setup; this does not prove a blocked input read. That full run reported 1490 passed, 1 failed, 2 optional configured-repository skips. The timeout prevented assurance.ts and index.ts refusal branches from being counted; release-repair.ts and the new changelog-section verifier each reached 100% across all dimensions. Retrying the reader file separately before the Bun gate; leaving this issue open and unclaimed, with all deadlines and thresholds unchanged."
+  "2026-10-28T16:32:42.713Z",glm-agent,"Fresh isolated reproductions during release recovery validation: node --test --test-concurrency=2 test/regular-input.test.ts reported 5 passed, 1 failed, 0 skipped on both nvm Node 24.19.0 and nvm Node 26.12.0. The same unchanged 5000 ms special-input child limit timed out; other reader assertions passed. This supports the existing startup/load follow-up but does not identify a blocked input operation. No test deadline or production input code was changed."
 files[1]{path,scope}:
   test/regular-input.test.ts,project
 body: ""
