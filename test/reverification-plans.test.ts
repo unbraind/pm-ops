@@ -173,6 +173,7 @@ test("CLI uses current SDK expiry instead of caller freshness, formats agree and
     const expected = await auditReverificationFiles(tracker, policyFile, versionsFile, input, { now: expired });
     assert.equal(expected.cost, 6); assert.equal(expected.ok, false); assert.equal(expected.rows[2]!.code, "no_supporting_check");
     for (const json of [true, false]) assert.deepEqual((await harness.runCommand({ command: "ops reverify", options, global: { json }, pmRoot: tracker })).result, { pmOpsRendered: true, output: json ? JSON.stringify(expected) : encode(expected) });
+    assert.deepEqual((await harness.runCommand({ command: "ops reverify", options: { input, policy: policyFile, versions: versionsFile }, global: { json: true }, pmRoot: tracker })).result, { pmOpsRendered: true, output: JSON.stringify(expected) });
     for (const omitted of ["input", "policy", "versions"]) { const incomplete: Record<string, unknown> = { ...options }; delete incomplete[omitted]; await assert.rejects(harness.runCommand({ command: "ops reverify", options: incomplete, pmRoot: tracker }), ReverificationRefusal); }
     await assert.rejects(harness.runCommand({ command: "ops reverify", options: { ...options, now: " " }, pmRoot: tracker }), ReverificationRefusal);
     const fresh = await auditReverificationFiles(tracker, policyFile, versionsFile, input, { now: captured });
@@ -194,6 +195,8 @@ test("CLI uses current SDK expiry instead of caller freshness, formats agree and
       assert.equal(rendered.status, 0, rendered.stderr);
       assert.deepEqual(format === "json" ? JSON.parse(rendered.stdout) : decode(rendered.stdout), expected);
     }
+    const defaultClock = invoke(argumentsForPlan.slice(0, -2).concat("--json"));
+    assert.equal(defaultClock.status, 0, defaultClock.stderr); assert.deepEqual(JSON.parse(defaultClock.stdout), expected);
     assert.equal(invoke(["ops", "reverify"]).status, 2);
   } finally { await harness.deactivate(); }
 });
