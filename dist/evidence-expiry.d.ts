@@ -1,4 +1,4 @@
-import { type AssuranceGateVerdict, type AssuranceScope } from "@unbrained/pm-cli/sdk";
+import type { AssuranceGateVerdict, AssuranceScope } from "@unbrained/pm-cli/sdk";
 /** Stable outcomes; fresh means reusable evidence, never a new operational test. */
 export type EvidenceStatus = "fresh" | "revalidate" | "unavailable";
 /** Typed diagnostics shared by SDK and CLI. */

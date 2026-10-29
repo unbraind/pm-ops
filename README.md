@@ -650,9 +650,9 @@ The repository changelog scripts require Git for release-tag windows and refuse
 plain-directory trackers with an explicit diagnostic. The changelog adapter can
 still generate directly from tracker items when invoked without tag flags.
 
-Compatibility explanations, diagnostic witnesses, evidence expiry, backend capability diagnostics, scan, policy, status, outdated, audit, metrics,
+Re-verification plans, compatibility explanations, diagnostic witnesses, evidence expiry, backend capability diagnostics, scan, policy, status, outdated, audit, metrics,
 reports and docstring analysis work in plain directories. The compatibility, witness, capability and
-evidence expiry paths never invoke Git. Release verification runs package-defined
+evidence expiry and re-verification paths never invoke Git. Release verification runs package-defined
 scripts, which may
 need Git; GitHub queries need their own credentials and network access. Configure
 and validate those requirements separately.
@@ -668,6 +668,26 @@ The adapter omits an empty `Unreleased` window above release history, so creatin
 the release tag does not change the committed changelog. Nonempty unreleased
 work stays visible, and empty version sections retain their notes.
 Regenerating main cannot change changelogs inside historical release commits.
+
+## Cheapest valid re-verification plans
+
+`pm ops reverify` selects the exact cheapest approved dependency closure that
+can repair explicitly requested stale claims. Shared prerequisites appear once,
+and every target has fresh evidence, a conditional rerun check or an explicit
+gap with a remedy. It reuses evidence expiry and the caller's existing runner;
+planning does not execute checks or create assurance evidence.
+
+```sh
+pm ops reverify --input docs/examples/reverification.json --policy docs/examples/reverification-policy.json --versions docs/examples/evidence-versions.json --json
+```
+
+TOON is the default. Both formats retain every target and unique ordered step.
+The typed `pm-ops/reverification-plans` SDK exports `compileReverificationPlan`,
+`parseReverificationInput`, `parseReverificationPlan` and `auditReverificationFiles`.
+Integer costs, explicit approvals and a maximum of 18 checks make optimality
+exact and bounded. The example costs 6 versus 16 for rerunning all approved
+checks. `ok` means complete repair coverage; only a new accepted receipt can
+make a rerun claim fresh. See the [contract and SDK example](docs/reverification-plans.md).
 
 ## Operational evidence expiry
 

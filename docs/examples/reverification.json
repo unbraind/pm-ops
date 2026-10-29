@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "claims": [
+    { "id": "health", "status": "revalidate" },
+    { "id": "coverage", "status": "revalidate" },
+    { "id": "recovery", "status": "fresh" }
+  ],
+  "targets": ["health", "coverage", "recovery"],
+  "checks": [
+    { "id": "schema", "approved": true, "cost": 2, "requires": [], "supports": [] },
+    { "id": "combined", "approved": true, "cost": 4, "requires": ["schema"], "supports": ["health", "coverage"] },
+    { "id": "health-only", "approved": true, "cost": 5, "requires": ["schema"], "supports": ["health"] },
+    { "id": "coverage-only", "approved": true, "cost": 5, "requires": ["schema"], "supports": ["coverage"] },
+    { "id": "unapproved", "approved": false, "cost": 0, "requires": [], "supports": ["health", "coverage"] }
+  ]
+}

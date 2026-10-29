@@ -1,6 +1,9 @@
 /** Operational evidence freshness over core assurance receipts; no Git or writes. */
 import { readRegularText } from "./regular-input.js";
-import { getWorkspaceHistoryPath, listAssuranceVerdicts, readHistorySnapshot, validateAssertionDefinition, verifyHistoryRecordHash, WORKSPACE_HISTORY_ID, } from "@unbrained/pm-cli/sdk";
+import { createRequire } from "node:module";
+const requireSdk = createRequire(import.meta.url);
+/** Acquire the public SDK only when evidence evaluation needs it, independent of CLI executable paths. */
+function evidenceSdk() { return requireSdk("@unbrained/pm-cli/sdk"); }
 /** Safe actionable refusal, excluding paths, receipt content and raw backend errors. */
 export class EvidenceExpiryRefusal extends Error {
     /** Stable machine-readable classification. */
@@ -56,7 +59,7 @@ export function parseEvidenceExpiryPolicy(value) {
         let scope;
         let versions;
         try {
-            scope = validateAssertionDefinition({ id: "expiry-scope", measurement_id: "expiry-scope", owner_item_id: "expiry-scope",
+            scope = evidenceSdk().validateAssertionDefinition({ id: "expiry-scope", measurement_id: "expiry-scope", owner_item_id: "expiry-scope",
                 scope: claim.scope, zero: true, enforcement: "block",
                 negative_control: { cases: [{ observed: 0, expected: "pass" }, { observed: 1, expected: "fail" }] }, }).scope;
             versions = parseEvidenceVersions(claim.versions);
@@ -157,6 +160,7 @@ export function evaluateEvidenceExpiry(policy, currentVersions, receipts, option
 /** Read core receipts and verify record envelopes through SDK primitives, refusing concurrent history changes. */
 async function readEvidence(pmRoot) {
     try {
+        const { getWorkspaceHistoryPath, listAssuranceVerdicts, readHistorySnapshot, verifyHistoryRecordHash, WORKSPACE_HISTORY_ID } = evidenceSdk();
         const path = getWorkspaceHistoryPath(pmRoot);
         const before = await readHistorySnapshot(path, WORKSPACE_HISTORY_ID);
         for (const entry of before.entries.filter((entry) => entry.op === "assurance:gate:verdict")) {

@@ -8,6 +8,8 @@ import { spawnSync } from "../subprocess.ts";
 import { explainCompatibility, parseCompatibilityInput } from "../compatibility-reasons.ts";
 import { developmentCliVersion } from "./dependency-contract.ts";
 import { adversarialRangePackets, assertRangePackets } from "./compatibility-range-corpus.ts";
+import { compileReverificationPlan } from "../reverification-plans.ts";
+import { repairFixture } from "./reverification-fixtures.ts";
 
 const source = process.cwd();
 const scratch = disk.mkdtempSync(join(tmpdir(), "compat-packed-"));
@@ -22,6 +24,7 @@ assertRangePackets(expected.slice(1));
 const baseEnvironment = { ...process.env, HOME: join(scratch, "home"), NPM_CONFIG_USERCONFIG: devNull, PM_AUTHOR: "codex-agent",
   GIT_CEILING_DIRECTORIES: dirname(scratch), PM_OPS_OFFLINE: "1" };
 disk.mkdirSync(baseEnvironment.HOME);
+for (const key of Object.keys(baseEnvironment)) if (/TOKEN|SECRET|PASSWORD|CREDENTIAL|API_KEY|^NPM_MEDIA_SERVER$/i.test(key)) delete (baseEnvironment as NodeJS.ProcessEnv)[key];
 
 /** Execute a real consumer command with a bounded deadline and sanitized failure reporting. */
 function execute(cwd: string, program: string, args: string[], extra: NodeJS.ProcessEnv = {}): string {
@@ -36,6 +39,10 @@ try {
   let accepted = 0;
   let sdkConsumers = 0;
   let formatChecks = 0;
+  let reverificationFormats = 0;
+  const repairs = repairFixture();
+  repairs.claims.forEach((claim) => { claim.status = "unavailable"; });
+  const repairExpected = compileReverificationPlan(repairs);
   for (const runtime of ["npm", "bun"] as const) {
     for (const global of [false, true]) {
       if (selectedMode !== undefined && selectedMode !== `${runtime}-${global ? "global" : "local"}`) continue;
@@ -55,6 +62,9 @@ try {
       // Core's archive installer retains dependencies outside npm's global module discovery graph.
       execute(project, pm, ["package", "install", global ? archive : join(modules, "pm-ops"), "--project", "--json"], context);
       const input = join(project, "metadata.json"); disk.writeFileSync(input, JSON.stringify(metadata));
+      const repairInput = join(project, "checks.json"); disk.writeFileSync(repairInput, JSON.stringify(repairs));
+      const policy = join(project, "policy.json"); disk.copyFileSync(join(source, "docs/examples/reverification-policy.json"), policy);
+      const versions = join(project, "versions.json"); disk.copyFileSync(join(source, "docs/examples/evidence-versions.json"), versions);
       const launchers = global ? [{ command: runtime === "bun" ? "bun" : pm, prefix: runtime === "bun" ? ["run", "--bun", pm] : [] }] : [
         { command: pm, prefix: [] }, { command: runtime === "npm" ? "npx" : "bunx", prefix: runtime === "npm" ? ["--no-install", "pm"] : ["--bun", "--no-install", "pm"] },
       ];
@@ -65,13 +75,18 @@ try {
           assert.deepEqual(json ? JSON.parse(output) : decode(output), expected[packetIndex]);
           formatChecks++;
         }
+        for (const json of [true, false]) {
+          const output = execute(project, launcher.command, [...launcher.prefix, "ops", "reverify", "--input", repairInput, "--policy", policy, "--versions", versions, ...(json ? ["--json"] : [])], context);
+          assert.deepEqual(json ? JSON.parse(output) : decode(output), repairExpected);
+          reverificationFormats++;
+        }
         accepted++;
       }
       // The SDK resolves from the installed graph, independent of CLI executable paths.
       const probe = join(modules, "compat-sdk.mjs");
       disk.writeFileSync(input, JSON.stringify(packets));
-      disk.writeFileSync(probe, 'import { explainCompatibility } from "pm-ops/compatibility-reasons"; import fs from "node:fs"; console.log(JSON.stringify(JSON.parse(fs.readFileSync(process.argv[2], "utf8")).map(explainCompatibility)));');
-      assert.deepEqual(JSON.parse(execute(project, runtime === "bun" ? "bun" : process.execPath, [probe, input], context)), expected);
+      disk.writeFileSync(probe, 'import { explainCompatibility } from "pm-ops/compatibility-reasons"; import { compileReverificationPlan } from "pm-ops/reverification-plans"; import fs from "node:fs"; console.log(JSON.stringify({compatibility: JSON.parse(fs.readFileSync(process.argv[2], "utf8")).map(explainCompatibility), repairs: compileReverificationPlan(JSON.parse(fs.readFileSync(process.argv[3], "utf8")))}));');
+      assert.deepEqual(JSON.parse(execute(project, runtime === "bun" ? "bun" : process.execPath, [probe, input, repairInput], context)), { compatibility: expected, repairs: repairExpected });
       sdkConsumers++;
       assert.equal(disk.existsSync(join(project, ".git")), false);
       console.log(`${runtime} ${global ? "global" : "local + x"}: PASS`);
@@ -80,5 +95,7 @@ try {
   assert.equal(accepted, selectedMode === undefined ? 6 : selectedMode.endsWith("global") ? 1 : 2);
   assert.equal(sdkConsumers, selectedMode === undefined ? 4 : 1);
   assert.equal(formatChecks, accepted * 2 * packets.length);
+  assert.equal(reverificationFormats, accepted * 2);
   console.log(`${accepted} launch modes, ${formatChecks} format checks, ${sdkConsumers} SDK consumers / ${sdkConsumers * packets.length} SDK cases: PASS`);
+  console.log(`Re-verification: ${accepted} launch modes, ${reverificationFormats} format checks, ${sdkConsumers} SDK consumers: PASS`);
 } finally { disk.rmSync(resolve(scratch), { recursive: true, force: true }); }

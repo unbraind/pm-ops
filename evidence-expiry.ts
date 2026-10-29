@@ -1,10 +1,12 @@
 /** Operational evidence freshness over core assurance receipts; no Git or writes. */
 import { readRegularText } from "./regular-input.ts";
-import {
-  getWorkspaceHistoryPath, listAssuranceVerdicts, readHistorySnapshot,
-  validateAssertionDefinition, verifyHistoryRecordHash, WORKSPACE_HISTORY_ID,
-  type AssuranceGateVerdict, type AssuranceScope,
-} from "@unbrained/pm-cli/sdk";
+import { createRequire } from "node:module";
+import type * as PmSdk from "@unbrained/pm-cli/sdk";
+import type { AssuranceGateVerdict, AssuranceScope } from "@unbrained/pm-cli/sdk";
+
+const requireSdk = createRequire(import.meta.url);
+/** Acquire the public SDK only when evidence evaluation needs it, independent of CLI executable paths. */
+function evidenceSdk(): typeof PmSdk { return requireSdk("@unbrained/pm-cli/sdk") as typeof PmSdk; }
 
 /** Stable outcomes; fresh means reusable evidence, never a new operational test. */
 export type EvidenceStatus = "fresh" | "revalidate" | "unavailable";
@@ -131,7 +133,7 @@ export function parseEvidenceExpiryPolicy(value: unknown): EvidenceExpiryPolicy 
     let scope: AssuranceScope;
     let versions: EvidenceVersions;
     try {
-      scope = validateAssertionDefinition({ id: "expiry-scope", measurement_id: "expiry-scope", owner_item_id: "expiry-scope",
+      scope = evidenceSdk().validateAssertionDefinition({ id: "expiry-scope", measurement_id: "expiry-scope", owner_item_id: "expiry-scope",
         scope: claim.scope as AssuranceScope, zero: true, enforcement: "block",
         negative_control: { cases: [{ observed: 0, expected: "pass" }, { observed: 1, expected: "fail" }] },
       }).scope;
@@ -218,6 +220,7 @@ export function evaluateEvidenceExpiry(policy: EvidenceExpiryPolicy, currentVers
 /** Read core receipts and verify record envelopes through SDK primitives, refusing concurrent history changes. */
 async function readEvidence(pmRoot: string): Promise<AssuranceGateVerdict[] | null> {
   try {
+    const { getWorkspaceHistoryPath, listAssuranceVerdicts, readHistorySnapshot, verifyHistoryRecordHash, WORKSPACE_HISTORY_ID } = evidenceSdk();
     const path = getWorkspaceHistoryPath(pmRoot);
     const before = await readHistorySnapshot(path, WORKSPACE_HISTORY_ID);
     for (const entry of before.entries.filter((entry) => entry.op === "assurance:gate:verdict")) {
