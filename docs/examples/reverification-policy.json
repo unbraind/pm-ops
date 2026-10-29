@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "claims": [
+    {
+      "id": "health",
+      "kind": "health",
+      "receipt": {
+        "gate_id": "operational",
+        "tree_id": "snapshot-v1",
+        "evaluated_at": "2026-10-22T10:00:00.000Z",
+        "assertion_id": "health"
+      },
+      "scope": {
+        "kind": "all"
+      },
+      "max_age_seconds": 3600,
+      "versions": {
+        "package:consumer": "1.0.0",
+        "backend:directory": "v1"
+      }
+    },
+    {
+      "id": "coverage",
+      "kind": "coverage",
+      "receipt": {
+        "gate_id": "operational",
+        "tree_id": "snapshot-v1",
+        "evaluated_at": "2026-10-22T10:00:00.000Z",
+        "assertion_id": "coverage"
+      },
+      "scope": {
+        "kind": "all"
+      },
+      "max_age_seconds": 86400,
+      "versions": {
+        "package:consumer": "1.0.0"
+      }
+    },
+    {
+      "id": "recovery",
+      "kind": "recovery",
+      "receipt": {
+        "gate_id": "operational",
+        "tree_id": "snapshot-v1",
+        "evaluated_at": "2026-10-22T10:00:00.000Z",
+        "assertion_id": "recovery"
+      },
+      "scope": {
+        "kind": "all"
+      },
+      "max_age_seconds": 604800,
+      "versions": {
+        "backend:recovery": "v1"
+      }
+    }
+  ]
+}

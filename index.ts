@@ -26,6 +26,7 @@ import { auditEvidenceExpiryFiles, EvidenceExpiryRefusal } from "./evidence-expi
 import { createDiagnosticPlan, executeDiagnosticPlan, readDiagnosticPlan, DiagnosticRefusal, type DiagnosticFailure } from "./diagnostic-plans.ts";
 import { readDiagnosticWitnesses, WitnessRefusal } from "./diagnostic-witnesses.ts";
 import { readCompatibilityReasons, CompatibilityRefusal } from "./compatibility-reasons.ts";
+import { auditReverificationFiles, ReverificationRefusal } from "./reverification-plans.ts";
 import { qualityMeasurementProvider } from "./assurance.ts";
 import { defaultCanonicalTagResolver, inspectReleaseCaller, isPmOpsOffline } from "./release-caller.ts";
 
@@ -112,6 +113,7 @@ function asArray(value: unknown): string[] {
 }
 
 const OPS_COMMAND_PATHS = [
+  "ops reverify",
   "ops compatibility",
   "ops witnesses",
   "ops diagnose",
@@ -2638,6 +2640,29 @@ export default defineExtension({
     // same `authorization_decision` as any other bound regression. See
     // `./assurance.ts` for the key contract and the staleness refusal.
     api.registerAssuranceMeasurementProvider(qualityMeasurementProvider);
+
+    api.registerCommand({
+      name: "ops reverify",
+      description: "Compile the exact cheapest approved rerun set using current evidence expiry and explicit dependency/cost contracts. Read-only; no Git, execution, scheduling or assurance writes. ok means complete repair coverage, never fresh evidence.",
+      examples: ["pm ops reverify --policy evidence-policy.json --versions evidence-versions.json --input checks.json --json"],
+      flags: [
+        { long: "--input", value_name: "file", description: "Strict version 1 JSON check contract, at most 64 KiB (required)" },
+        { long: "--policy", value_name: "file", description: "Existing evidence-expiry claim policy (required)" },
+        { long: "--versions", value_name: "file", description: "Current exact version map (required)" },
+        { long: "--now", value_name: "iso", description: "Canonical UTC evaluation instant (default: current time)" },
+      ],
+      async run(ctx: CommandHandlerContext) {
+        const input = readString(ctx.options, "input");
+        const policy = readString(ctx.options, "policy");
+        const versions = readString(ctx.options, "versions");
+        const now = readString(ctx.options, "now");
+        if (!input || !policy || !versions || (Object.hasOwn(ctx.options, "now") && !now)) {
+          throw new ReverificationRefusal("invalid_reverification_input", "Supply --input, --policy and --versions; a supplied --now must be a canonical UTC instant.");
+        }
+        const plan = await auditReverificationFiles(ctx.pm_root, policy, versions, input, { now });
+        return renderedCommandResult(ctx.global.json === true ? JSON.stringify(plan) : encode(plan));
+      },
+    });
 
     api.registerCommand({
       name: "ops compatibility",

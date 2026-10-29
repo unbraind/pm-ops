@@ -82,6 +82,10 @@
       "types": "./dist/evidence-expiry.d.ts",
       "default": "./dist/evidence-expiry.js"
     },
+    "./reverification-plans": {
+      "types": "./dist/reverification-plans.d.ts",
+      "default": "./dist/reverification-plans.js"
+    },
     "./diagnostic-witnesses": {
       "types": "./dist/diagnostic-witnesses.d.ts",
       "default": "./dist/diagnostic-witnesses.js"
