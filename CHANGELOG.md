@@ -2,9 +2,19 @@
 
 ## 2026.10.29 - 2026-10-29
 
-No tracked changes.
+### Added
+
+- Choose the cheapest approved checks to re-verify stale claims ([ops-reverification](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-reverification.toon))
+
+### Other
+
+- Recover the historical 2026.10.20 GitHub Release with verified release evidence ([ops-release-1020-recovery](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-release-1020-recovery.toon))
 
 ## 2026.10.28 - 2026-10-28
+
+### Added
+
+- Explain joint compatibility constraints with minimal reason chains ([ops-compatibility-reasons](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-compatibility-reasons.toon))
 
 ### Fixed
 
@@ -22,9 +32,17 @@ No tracked changes.
 
 ## 2026.10.26 - 2026-10-26
 
+### Added
+
+- Reduce diagnostic failures to minimal shared input witnesses ([ops-minimal-witnesses](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/features/ops-minimal-witnesses.toon))
+
 ### Fixed
 
 - Every published release needs exactly one changelog section, including releases with no tracked items ([ops-changelog-sections](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-changelog-sections.toon))
+
+### Other
+
+- Point the npm homepage at the package catalog and link the author ([ops-dyh7](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-dyh7.toon))
 
 ## 2026.10.25 - 2026-10-25
 

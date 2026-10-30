@@ -2,12 +2,19 @@ id: ops-compatibility-reasons
 title: Explain joint compatibility constraints with minimal reason chains
 description: "Explain package, host and extension incompatibility from declared version constraints and supported capabilities. Acceptance: three incompatible pins report the exact conflict and compatible ranges; unknown metadata differs from incompatibility; every proposed command is a preview with no installs or configuration edits. Deliver typed SDK and CLI, bounded TOON/JSON, typed refusals and remedies, README and example, no-git and read-only public tracker evidence, model-based replay tests, and CI npm plus Bun release gates."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-10-27T10:32:02.370Z"
-updated_at: "2026-10-27T15:50:52.895Z"
+updated_at: "2026-10-30T14:32:55.782Z"
+closed_at: "2026-10-30T14:32:48.154Z"
+completed_at: "2026-10-27T17:22:00.000Z"
 author: codex-agent
+acceptance_criteria: Three incompatible pins report the exact conflict and compatible ranges; unknown metadata differs from incompatibility; every proposed command is a preview with no installs or configuration edits.
+release: 2026.10.28
+resolution: "Delivered by PR #220 (ae66ec5): Explain package, host and extension conflicts with minimal reason chains"
+expected_result: Explain joint compatibility constraints with minimal reason chains
+actual_result: "PR #220 merged at 2026-10-27T17:22:00Z as ae66ec5; required CI passed on the merged head."
 comments[25]{created_at,author,text}:
   "2026-10-27T10:33:17.117Z",codex-agent,"Overlap rechecked: ops status/outdated report individual versions; backend-capabilities.ts verifies list/get/schema support; diagnostic-witnesses.ts reduces declared sufficient facts without solving versions. Sibling starter/presets compatibility-floor tests check manifest admission only. Installed SDK authoring exports checkExtensionManifestCompatibility with the loader-shared inclusive bounds; reuse it for extension checks. This feature explains joint declared dependency ranges and capabilities, leaving actual admission authoritative in core. Explicit bounded metadata input only; no registry fetch, install, configuration edit, tracker mutation, journal, claim or outbox path is introduced. Model tests cover JSON/TOON/file replay and SDK state read-back on a non-git tracker; mutation/recovery/status-role requirements do not apply to this observational path."
   "2026-10-27T10:43:11.513Z",codex-agent,"Focused suite passes 7/7; new module coverage is 100% statements/branches/functions/lines. Behavioral revert: remove only intersection satisfiability filtering while retaining Cartesian clauses; the three incompatible pins regression fails 0/1 (expected joint_range_conflict, got installed_pin_conflict). Restoring the implementation returns the test to green. Public main export validation: SDK complete list 160 items, canonical get 1, schema 11 types; 2 components and 2 declarations produce 1 compatible row, 0 incompatible/unknown; JSON 847 bytes, TOON 887 bytes; all read-only source bytes unchanged. Seeded model completed 500 sequences / 3000 operations with SDK read-back of native state and relationships."
@@ -56,4 +63,5 @@ docs[3]{path,scope}:
   docs/compatibility-validation.md,project
   docs/examples/compatibility.json,project
   README.md,project
+close_reason: "Delivered by PR #220 (ae66ec5): Explain package, host and extension conflicts with minimal reason chains"
 body: ""
