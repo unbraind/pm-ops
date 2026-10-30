@@ -2,13 +2,19 @@ id: ops-reverification
 title: Choose the cheapest approved checks to re-verify stale claims
 description: "Compile a caller-declared dependency and integer-cost map against operational evidence expiry; reuse existing diagnostic execution and core assurance without adding a runner, scheduler or store."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-10-29T03:47:46.128Z"
-updated_at: "2026-10-29T04:31:27.637Z"
+updated_at: "2026-10-30T14:28:52.879Z"
+closed_at: "2026-10-30T14:28:42.783Z"
+completed_at: "2026-10-29T04:53:41.000Z"
 author: codex-agent
 acceptance_criteria: "Shared prerequisites occur once per plan; every target has fresh supporting evidence, a selected supporting check, or an explicit gap; bounded fixtures prove exact minimum cost below rerunning every approved check."
+release: 2026.10.29
+resolution: "Delivered by PR #226 (491456c): Choose the cheapest approved checks to re-verify expired claims"
+expected_result: "Shared prerequisites occur once per plan; every target has fresh supporting evidence, a selected supporting check, or an explicit gap; bounded fixtures prove exact minimum cost below rerunning every approved check."
+actual_result: "PR #226 merged at 2026-10-29T04:53:41Z as 491456c; required CI passed on the merged head."
 comments[7]{created_at,author,text}:
   "2026-10-29T03:47:56.066Z",codex-agent,"Overlap recheck: core SDK assurance supplies canonical receipts, expiry validity, complete tracker reads and status roles; no least-cost rerun compiler found. pm-ops evidence-expiry classifies retained health/coverage/recovery evidence, diagnostic-plans owns approved catalog execution and budgets. pm-brief acquires missing evidence, pm-evidence owns source citations, pm-rlm owns decomposition; none compiles expired claims into a minimum-cost dependency closure. Scope: read-only planning, exact integer costs, bounded exhaustive solver, explicit approval/dependency gaps, no tracker writes or journal. No transaction-isolation claim; commitWorkspaceTransaction does not isolate ordinary writers (pm-cli#1620). Freshness is observed, planned checks are conditional until rerun and new receipts are accepted."
   "2026-10-29T03:53:27.732Z",codex-agent,"Implementation boundary: strict version 1 input (32 claims, 16 targets, 18 checks), exhaustive dependency-closed subset search with exact safe-integer costs and deterministic ties. SDK expiry is reused for CLI freshness; pure SDK compilation trusts caller-declared evidence provenance. Shared prerequisites appear once in topological order. Native tracker import/export/sync, recovery journals, idempotency keys, status-name interpretation and mutation leases are absent by design. A 500-sequence BigInt/set reference model caught an unapproved-leaf cache omission during development; regression covers approval, dependency cycles, gaps, replay, CRLF and finite outputs. Native fields and relationships are compared via SDK readback, without custom normalization."
@@ -26,4 +32,5 @@ tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
 docs[2]{path,scope}:
   docs/reverification-plans.md,project
   docs/reverification-validation.md,project
+close_reason: "Delivered by PR #226 (491456c): Choose the cheapest approved checks to re-verify expired claims"
 body: ""
