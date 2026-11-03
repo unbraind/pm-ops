@@ -164,7 +164,7 @@
     "@babel/plugin-syntax-typescript": "8.0.3",
     "@types/node": "26.6.6",
     "@types/semver": "7.8.0",
-    "@unbrained/pm-cli": "2026.10.28",
+    "@unbrained/pm-cli": "2026.10.30",
     "c8": "12.0.0",
     "eslint": "10.13.0",
     "jscpd": "5.4.2",
