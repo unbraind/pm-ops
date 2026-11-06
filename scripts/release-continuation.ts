@@ -7,7 +7,7 @@ import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "./
 import { verifyRegistryProvenance, type ProvenanceIdentity, type verifySigstoreBundle } from "../release-provenance.ts";
 import { pathToFileURL } from "node:url";
 import {
-  cargoPackageVersion, decideReleaseContinuation, ownsContinuationPr, releaseConfigDigest, releaseDigest, validateReleaseCandidate,
+  cargoPackageVersion, decideReleaseContinuation, decideUnpublishedRetirement, ownsContinuationPr, releaseConfigDigest, releaseDigest, validateReleaseCandidate,
   type ContinuationEvidence, type ContinuationPr, type ReleaseCandidate,
 } from "../release-continuation.ts";
 
@@ -59,6 +59,19 @@ async function pages<T>(api: ReleaseApi, path: string): Promise<T[]> {
   throw new Error("Release evidence exceeds the bounded pagination limit");
 }
 
+/** Discover bot-created receipt-bearing PRs through the REST issue index, without scanning all PR history. */
+export async function discoverCandidatePrs(repository: string, base: string, api: ReleaseApi): Promise<RestPr[]> {
+  const issues = await pages<{ number: number; body: string | null; pull_request?: unknown }>(api,
+    `repos/${repository}/issues?state=all&creator=github-actions%5Bbot%5D&sort=created&direction=asc`);
+  const result: RestPr[] = [];
+  for (const issue of issues) {
+    if (!issue.pull_request || !issue.body?.includes(marker)) continue;
+    const pr = await api(`repos/${repository}/pulls/${issue.number}`) as RestPr;
+    if (ownsContinuationPr(identity(pr), repository, base)) result.push(pr);
+  }
+  return result;
+}
+
 /** Parse only an unambiguous versioned durable record; malformed records block preparation. */
 export function parseCandidateReceipt(body: string, retired = false): CandidateReceipt | null {
   const prefix = retired ? retiredMarker : marker;
@@ -79,6 +92,12 @@ export function candidateBody(receipt: CandidateReceipt): string {
 /** Preserve the exact retired candidate for audit without leaving an active discovery marker. */
 export function retiredCandidateBody(receipt: CandidateReceipt, reason: string): string {
   return reason + "\n" + retiredMarker + JSON.stringify(receipt) + "\n-->";
+}
+
+/** Identify a verified unpublished retirement so its closed unmerged branch can receive fresh preparation. */
+function unpublishedRetirementReason(candidate: ReleaseCandidate, operator: boolean): string {
+  return "Retired unpublished release " + candidate.tag + (operator ? " at the operator's explicit request; required protection checks were not bypassed."
+    : " because its source or caller configuration is no longer the verified current-main candidate. Fresh preparation is required.");
 }
 
 /** Retire only a freshly owned intent and confirm persistence before allowing new admission. */
@@ -152,8 +171,8 @@ export function normalizeWorkflowPath(path: string, repository: string, branch: 
 async function preparationConclusion(api: ReleaseApi, repository: string, c: ReleaseCandidate): Promise<string> {
   let expected: number | null = null;
   const jobs = await pages<{ name: string; status: string; conclusion: string | null; run_id: number; head_sha: string }>(async path => {
-    const data = await api(path) as { total_count: number; jobs: unknown[] };
-    if (!Number.isSafeInteger(data.total_count) || data.total_count < 0 || (expected !== null && data.total_count !== expected)) throw new Error("Unreadable preparation job count");
+    const data = await api(path) as { total_count: number; jobs: unknown[] } | null;
+    if (!data || !Number.isSafeInteger(data.total_count) || data.total_count < 0 || (expected !== null && data.total_count !== expected)) throw new Error("Unreadable preparation job count");
     expected = data.total_count;
     return data.jobs;
   }, "repos/" + repository + "/actions/runs/" + c.runId + "/attempts/" + c.runAttempt + "/jobs");
@@ -165,7 +184,7 @@ async function preparationConclusion(api: ReleaseApi, repository: string, c: Rel
 
 /** Re-read all publication proof. No webhook payload, PR artifact or API failure substitutes for it. */
 export async function inspectCandidate(receipt: CandidateReceipt, options: {
-  repository: string; triggerSha: string; workflow: string; configDigest: string; timezone: string; now: string; retireUnpublished?: boolean;
+  repository: string; triggerSha: string; workflow: string; configDigest: string; timezone: string; now: string; retireUnpublished?: boolean; prNumber?: number;
 }, api: ReleaseApi = githubApi, readRegistry = registryJson,
 checks: (number: number, head: string) => { states: string[]; review: string } = requiredProtection,
 verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mainSha: string; toolsSha: string; signerWorkflow: string }> {
@@ -174,24 +193,38 @@ verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mai
   validateReleaseCandidate(c);
   const repo = `repos/${options.repository}`;
   const metadata = await api(repo) as { default_branch: string };
-  const pull = (await pages<RestPr>(api, `${repo}/pulls?state=all&base=${metadata.default_branch}&sort=updated&direction=desc`))
+  if (options.prNumber !== undefined && (!Number.isSafeInteger(options.prNumber) || options.prNumber < 1)) throw new Error("Invalid candidate PR number");
+  const pull = (options.prNumber === undefined ? await discoverCandidatePrs(options.repository, metadata.default_branch, api)
+    : [await api(`${repo}/pulls/${options.prNumber}`) as RestPr])
     .filter(pr => ownsContinuationPr(identity(pr), options.repository, metadata.default_branch) && pr.body && parseCandidateReceipt(pr.body)?.artifactId === receipt.artifactId);
   if (pull.length !== 1) throw new Error("Candidate PR receipt is missing or duplicated");
   const pr = await api(`${repo}/pulls/${pull[0].number}`) as RestPr;
   if (JSON.stringify(parseCandidateReceipt(pr.body ?? "")) !== JSON.stringify(receipt)) throw new Error("Candidate receipt changed during reconciliation");
+  const main = await api(`${repo}/git/ref/heads/${metadata.default_branch}`) as { object: { sha: string } };
+  if (options.retireUnpublished === true) {
+    const tagSha = await tagCommit(api, options.repository, c.tag);
+    const release = await api(`${repo}/releases/tags/${c.tag}`);
+    const registry = c.npmPublish && await readRegistry(`${encodeURIComponent(c.packageName)}/${c.version}`) !== null ? "unverified" : "absent";
+    const comments = await pages<{ user: { login: string }; body: string }>(api, `${repo}/issues/${pr.number}/comments`);
+    const attempted = comments.some(comment => comment.user.login === "github-actions[bot]"
+      && (comment.body.startsWith(attemptMarker) || comment.body.startsWith("<!-- pm-ops-post-hook-v1\n")));
+    const action = decideUnpublishedRetirement(c, { ...options, defaultBranch: metadata.default_branch, pr: identity(pr), registry, attempted, tagSha, releaseSha: release ? tagSha ?? "present" : null });
+    return { action, pr, mainSha: main.object.sha, toolsSha: c.toolsSha ?? c.baseSha, signerWorkflow: "" };
+  }
   const run = await api(`${repo}/actions/runs/${c.runId}/attempts/${c.runAttempt}`) as {
     repository: { full_name: string }; head_branch: string; head_sha: string; path: string; event: string; run_attempt: number; referenced_workflows?: { path: string; sha: string }[];
-  };
+  } | null;
+  if (!run) throw new Error("Untrusted or expired preparation artifact: preparation run is unavailable");
   const referenced = run.referenced_workflows?.filter(item => item.path.startsWith("unbraind/pm-ops/.github/workflows/daily-release.yml@")) ?? [];
   const toolsSha = referenced.length === 1 ? referenced[0].sha : referenced.length === 0 && options.repository === "unbraind/pm-ops" ? c.baseSha : "";
   if (!/^[a-f0-9]{40}$/.test(toolsSha) || (c.toolsSha !== undefined && c.toolsSha !== toolsSha)) throw new Error("Trusted release tools commit is missing or changed");
   const signerWorkflow = referenced.length === 1 ? referenced[0].path.replace(/@main$/, "@refs/heads/main") : "unbraind/pm-ops/.github/workflows/daily-release.yml@refs/heads/main";
-  const tools = await api("repos/unbraind/pm-ops/contents/package.json?ref=" + toolsSha) as { content: string };
+  const tools = await api("repos/unbraind/pm-ops/contents/package.json?ref=" + toolsSha) as { content: string } | null;
+  if (!tools) throw new Error("Trusted release tools package is unavailable");
   const toolsPackage = JSON.parse(Buffer.from(tools.content, "base64").toString("utf8")) as { name: string; version: string };
   if (toolsPackage.name !== "pm-ops" || toolsPackage.version !== c.opsVersion) throw new Error("Trusted release tools version changed");
   const prepared = await preparationConclusion(api, options.repository, c);
-  const artifact = await api(`${repo}/actions/artifacts/${receipt.artifactId}`) as { expired: boolean; workflow_run: { id: number }; name: string };
-  const main = await api(`${repo}/git/ref/heads/${metadata.default_branch}`) as { object: { sha: string } };
+  const artifact = await api(`${repo}/actions/artifacts/${receipt.artifactId}`) as { expired: boolean; workflow_run: { id: number }; name: string } | null;
   const merged = pr.merged ? await api(`${repo}/git/commits/${pr.merge_commit_sha}`) as { tree: { sha: string }; parents: { sha: string }[] } : null;
   const project = requiredProjectPath();
   const rust = process.env.IS_RUST === "true";
@@ -226,7 +259,7 @@ verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mai
   }
   const action = decideReleaseContinuation(c, { ...options, defaultBranch: metadata.default_branch, mainSha: main.object.sha, pr: identity(pr),
     run: { repository: run.repository.full_name, branch: run.head_branch, sha: run.head_sha, workflow: normalizeWorkflowPath(run.path, options.repository, metadata.default_branch, c.baseSha), event: run.event, conclusion: prepared, attempt: run.run_attempt },
-    artifactAvailable: artifact.expired === false && artifact.workflow_run.id === c.runId && artifact.name === `verified-daily-release-${c.headSha}`,
+    artifactAvailable: artifact?.expired === false && artifact.workflow_run?.id === c.runId && artifact.name === `verified-daily-release-${c.headSha}`,
     mergedTree: merged?.tree.sha ?? "", mergedParents: merged?.parents.map(parent => parent.sha) ?? [], requiredChecks: protection.states, reviewDecision: protection.review,
     version, artifactSha256: c.packageSha256, tagSha, releaseSha: release ? tagSha : null, registry, attempted, publishedToday,
   });
@@ -401,7 +434,8 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
     if (matching.length !== 1) throw new Error("Unverified retired release branch");
     const pr = await githubApi("repos/" + repository + "/pulls/" + matching[0].number) as RestPr;
     const receipt = parseCandidateReceipt(pr.body ?? "", true);
-    if (!ownsContinuationPr(identity(pr), repository, "main") || pr.state !== "closed" || !pr.merged || pr.head.ref !== branch || pr.head.sha !== head
+    const cancelled = receipt !== null && [true, false].some(operator => pr.body === retiredCandidateBody(receipt, unpublishedRetirementReason(receipt.candidate, operator)));
+    if (!ownsContinuationPr(identity(pr), repository, "main") || pr.state !== "closed" || (!pr.merged && !cancelled) || pr.head.ref !== branch || pr.head.sha !== head
       || !receipt || receipt.candidate.repository !== repository || receipt.candidate.headSha !== head) throw new Error("Retired release branch identity changed");
     return;
   }
@@ -422,11 +456,12 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
   const options = { repository, triggerSha: required("TRIGGER_SHA"), workflow, configDigest, timezone: required("RELEASE_TIMEZONE"), now: new Date().toISOString(), retireUnpublished: process.env.RETIRE_UNPUBLISHED === "true" };
   let receipt: CandidateReceipt;
   if (mode === "probe") {
-    const prs = await pages<RestPr>(githubApi, `repos/${repository}/pulls?state=all&base=main&sort=updated&direction=desc`);
-    const candidates = prs.filter(pr => ownsContinuationPr(identity(pr), repository, "main") && (pr.state === "open" || typeof pr.merged_at === "string") && pr.body?.includes(marker));
+    const prs = await discoverCandidatePrs(repository, "main", githubApi);
+    const candidates = prs.filter(pr => ownsContinuationPr(identity(pr), repository, "main") && (options.retireUnpublished || pr.state === "open" || typeof pr.merged_at === "string") && pr.body?.includes(marker));
     if (candidates.length > 1) throw new Error("Multiple pending release intents; reconcile explicitly before admitting more work");
     if (!candidates.length) { output("pending", "false"); return; }
     receipt = parseCandidateReceipt(candidates[0].body!)!;
+    Object.assign(options, { prNumber: candidates[0].number });
   } else {
     receipt = JSON.parse(required("CANDIDATE_RECEIPT")) as CandidateReceipt;
     const artifact = readFileSync(join(handoff, "candidate.json"), "utf8");
@@ -439,7 +474,13 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
   if ((result.action === "stranded" || result.action === "retire") && mode === "probe") {
     if (options.triggerSha === result.mainSha) {
       if (result.pr.state === "open" && !result.pr.merged) execFileSync("gh", ["pr", "merge", String(result.pr.number), "--repo", repository, "--disable-auto"], { stdio: "inherit" });
-      await retireReceipt(result.pr, repository, "Retired unpublished release " + receipt.candidate.tag + (result.action === "retire" ? " at the operator's explicit request; required protection checks were not bypassed." : " because its source or caller configuration is no longer the verified current-main candidate. Fresh preparation is required."), githubApi);
+      await retireReceipt(result.pr, repository, unpublishedRetirementReason(receipt.candidate, result.action === "retire"), githubApi);
+      if (result.pr.state === "open") {
+        await githubApi(`repos/${repository}/pulls/${result.pr.number}`, "PATCH", { state: "closed" });
+        const closed = await githubApi(`repos/${repository}/pulls/${result.pr.number}`) as RestPr;
+        if (!ownsContinuationPr(identity(closed), repository, "main") || closed.head.sha !== receipt.candidate.headSha || closed.state !== "closed" || closed.merged
+          || JSON.stringify(parseCandidateReceipt(closed.body ?? "", true)) !== JSON.stringify(receipt)) throw new Error("Operator retirement closure was not confirmed");
+      }
       retired = true;
     }
     process.stdout.write("::warning::Release intent is stranded; " + (retired ? "unpublished receipt retired for fresh daily preparation." : "wait for a run triggered at current main before retirement.") + "\n");

@@ -26,6 +26,18 @@ test("operator retirement unblocks non-green merged intent without granting publ
   assert.equal(releaseConfigDigest({ "retire-unpublished": true }), releaseConfigDigest({}));
 });
 
+test("operator retirement admits only unpublished owned intent even when open, manually closed or expired", () => {
+  for (const state of ["open", "closed"]) {
+    const c = candidateFixture(), e = evidenceFixture(); e.pr.merged = false; e.pr.state = state; e.mainSha = c.baseSha;
+    e.artifactAvailable = false; e.run.conclusion = "";
+    assert.throws(() => decideReleaseContinuation(c, e), /preparation artifact/);
+    e.retireUnpublished = true;
+    assert.equal(decideReleaseContinuation(c, e), "retire");
+    e.attempted = true; assert.throws(() => decideReleaseContinuation(c, e), /retirement refused/); e.attempted = false;
+    e.pr.headRepository = "foreign/package"; assert.throws(() => decideReleaseContinuation(c, e), /identity changed/);
+  }
+});
+
 test("CI pending beyond 30 minutes releases preparation; suppressed bot push is recovered by a later hourly pass exactly once", () => {
   const c = candidateFixture(), e = evidenceFixture();
   let publications = 0;

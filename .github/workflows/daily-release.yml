@@ -124,7 +124,7 @@ on:
         required: false
         default: false
       retire-unpublished:
-        description: Explicit operator recovery of verified untouched unpublished merged intent
+        description: Explicit operator recovery of owned untouched unpublished intent
         type: boolean
         required: false
         default: false
@@ -143,6 +143,7 @@ jobs:
       pull-requests: write
       actions: write
       checks: read
+      issues: read
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_CONFIG: ${{ toJSON(inputs) }}
@@ -949,6 +950,7 @@ jobs:
       pull-requests: write
       actions: read
       checks: read
+      issues: read
       id-token: write
     env:
       RELEASE_TIMEZONE: ${{ inputs.release-timezone }}

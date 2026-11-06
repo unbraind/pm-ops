@@ -61,14 +61,21 @@ export function verifyCertificateSource(certificate, expected) {
         throw new Error("Authenticated certificate source identity disagrees");
     }
 }
+/** Resolve only a local private or development Sigstore installation, with a clear missing-runtime diagnostic. */
+export function sigstoreRuntimePath(root = sourceRoot) {
+    const privateClient = join(root, ".github/release-runtime/node_modules/sigstore");
+    const sigstorePath = [privateClient, join(root, "node_modules/sigstore")].find(existsSync);
+    if (!sigstorePath)
+        throw new Error("Sigstore runtime is not installed; call ensureReleaseRuntime() before provenance verification");
+    return sigstorePath;
+}
 /** Verify Fulcio identity, signature, transparency evidence and authenticated signing time. */
 export async function verifySigstoreBundle(bundle, identity) {
     const uri = "https://github.com/" + (identity.signerWorkflow ?? `${identity.repository}/${identity.workflow}@${identity.ref}`);
     const key = JSON.stringify([uri, identity.repository, identity.commit, identity.ref]);
     let verifier = verifiers.get(key);
     if (!verifier) {
-        const privateClient = join(sourceRoot, ".github/release-runtime/node_modules/sigstore");
-        const sigstore = require([privateClient, join(sourceRoot, "node_modules/sigstore")].find(existsSync));
+        const sigstore = require(sigstoreRuntimePath());
         verifier = sigstore.createVerifier({ certificateIssuer: "https://token.actions.githubusercontent.com",
             certificateIdentityURI: "^" + uri.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$",
             ctLogThreshold: 1, tlogThreshold: 1, tufCachePath: join(tmpdir(), "pm-ops-sigstore"), retry: 0, timeout: 10_000 });

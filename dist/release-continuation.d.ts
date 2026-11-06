@@ -79,6 +79,10 @@ export declare function cargoPackageVersion(text: string): string;
 export declare function ownsContinuationPr(pr: ContinuationPr, repository: string, base: string): boolean;
 /** Refuse malformed durable input before it reaches paths, shell arguments or remote effects. */
 export declare function validateReleaseCandidate(candidate: ReleaseCandidate): void;
+/** Identity evidence shared by publication and explicit non-publishing retirement. */
+export type RetirementEvidence = Pick<ContinuationEvidence, "repository" | "defaultBranch" | "workflow" | "pr" | "registry" | "attempted" | "tagSha" | "releaseSha">;
+/** Cancel owned unpublished intent even when its obsolete preparation evidence is unavailable. */
+export declare function decideUnpublishedRetirement(c: ReleaseCandidate, e: RetirementEvidence): "retire";
 /** Admit only trusted merged bytes; pending checks consume no runner time between invocations. */
 export declare function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEvidence): "pending" | "refresh" | "publish" | "recover" | "complete" | "stranded" | "retire";
 //# sourceMappingURL=release-continuation.d.ts.map

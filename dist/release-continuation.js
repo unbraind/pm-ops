@@ -35,12 +35,25 @@ export function validateReleaseCandidate(candidate) {
         throw new Error("Malformed release candidate");
     }
 }
-/** Admit only trusted merged bytes; pending checks consume no runner time between invocations. */
-export function decideReleaseContinuation(c, e) {
+/** Bind every transition to the freshly read same-repository bot branch and exact candidate head. */
+function assertContinuationIdentity(c, e) {
     validateReleaseCandidate(c);
     if (c.repository !== e.repository || c.defaultBranch !== e.defaultBranch || c.workflow !== e.workflow
         || !ownsContinuationPr(e.pr, e.repository, e.defaultBranch) || e.pr.head !== c.headSha)
         throw new Error("Release identity changed");
+}
+/** Cancel owned unpublished intent even when its obsolete preparation evidence is unavailable. */
+export function decideUnpublishedRetirement(c, e) {
+    assertContinuationIdentity(c, e);
+    if (e.registry === "absent" && !e.attempted && e.tagSha === null && e.releaseSha === null)
+        return "retire";
+    throw new Error("Operator retirement refused: publication evidence or an ambiguous attempt exists");
+}
+/** Admit only trusted merged bytes; pending checks consume no runner time between invocations. */
+export function decideReleaseContinuation(c, e) {
+    assertContinuationIdentity(c, e);
+    if (e.retireUnpublished === true)
+        return decideUnpublishedRetirement(c, e);
     if (e.run.repository !== c.repository || e.run.branch !== c.defaultBranch || e.run.sha !== c.baseSha || e.run.workflow !== c.workflow
         || !["schedule", "workflow_dispatch"].includes(e.run.event) || e.run.conclusion !== "success" || e.run.attempt !== c.runAttempt
         || !e.artifactAvailable)
@@ -55,11 +68,6 @@ export function decideReleaseContinuation(c, e) {
     if (e.pr.state !== "closed" || !e.pr.mergedSha || e.artifactSha256 !== c.packageSha256)
         throw new Error("Merged source or artifact changed");
     const changedSource = e.mergedTree !== c.tree || e.mergedParents.length !== 1 || e.mergedParents[0] !== c.baseSha || e.version !== c.version;
-    if (e.retireUnpublished === true) {
-        if (e.registry === "absent" && !e.attempted && e.tagSha === null && e.releaseSha === null)
-            return "retire";
-        throw new Error("Operator retirement refused: publication evidence or an ambiguous attempt exists");
-    }
     if (e.requiredChecks.length === 0 || e.requiredChecks.some(state => state !== "SUCCESS")
         || !["APPROVED", ""].includes(e.reviewDecision))
         throw new Error("Required protection proof is missing or not green; use reconcile-only with retire-unpublished for verified untouched intent");

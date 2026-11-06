@@ -19,6 +19,8 @@ export declare function verifyCertificateSource(certificate: {
         value: Buffer;
     }[];
 } | undefined, expected: ProvenanceIdentity): void;
+/** Resolve only a local private or development Sigstore installation, with a clear missing-runtime diagnostic. */
+export declare function sigstoreRuntimePath(root?: string): string;
 /** Verify Fulcio identity, signature, transparency evidence and authenticated signing time. */
 export declare function verifySigstoreBundle(bundle: unknown, identity: ProvenanceIdentity): Promise<void>;
 /** Accept only cryptographically verified SLSA from the exact repository, workflow and ref. */

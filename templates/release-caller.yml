@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       retire-unpublished:
-        description: Retire only verified untouched unpublished merged intent
+        description: Retire only owned untouched unpublished intent
         type: boolean
         default: false
 permissions: {}

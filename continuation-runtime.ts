@@ -13,7 +13,11 @@ export function assertContinuationRuntime(version: string): void {
 /** Reject caller selectors that can only select a runtime below the native TypeScript floor. */
 export function assertContinuationSelection(value: unknown): void {
   if (typeof value !== "string") throw new Error("node-version must be a string selecting Node.js 22.18.0 or newer");
-  const match = /^v?(\d+)(?:\.(\d+))?/.exec(value);
+  const selection = value.trim();
+  if (/^lts\/(argon|boron|carbon|dubnium|erbium|fermium|gallium|hydrogen|iron)$/i.test(selection)) {
+    throw new Error("node-version must select Node.js 22.18.0 or newer");
+  }
+  const match = /^v?(\d+)(?:\.(\d+))?/.exec(selection);
   if (match && (Number(match[1]) < 22 || (Number(match[1]) === 22 && match[2] !== undefined && Number(match[2]) < 18)
     || (Number(match[1]) === 23 && match[2] !== undefined && Number(match[2]) < 6))) {
     throw new Error("node-version must select Node.js 22.18.0 or newer");

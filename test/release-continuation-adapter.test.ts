@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import { parse } from "yaml";
 import { candidateFixture, evidenceFixture } from "./release-continuation-fixture.ts";
 import { releaseConfigDigest, releaseDigest } from "../release-continuation.ts";
-import { candidateBody, retiredCandidateBody, parseCandidateReceipt, inspectCandidate as inspectProductionCandidate, closeSuperseded, requiredProtection, approveRequiredWorkflowRuns, githubApi, registryJson, runReleaseContinuation as runProductionContinuation, normalizeWorkflowPath, type ReleaseApi } from "../scripts/release-continuation.ts";
+import { candidateBody, retiredCandidateBody, discoverCandidatePrs, parseCandidateReceipt, inspectCandidate as inspectProductionCandidate, closeSuperseded, requiredProtection, approveRequiredWorkflowRuns, githubApi, registryJson, runReleaseContinuation as runProductionContinuation, normalizeWorkflowPath, type ReleaseApi } from "../scripts/release-continuation.ts";
 
 /** Isolate the cryptographic network boundary in transport fixtures; real signed bundles have separate tests. */
 async function syntheticSignature(): Promise<void> {}
@@ -31,7 +31,7 @@ after(() => { if (previousProject === undefined) delete process.env.NPM_PROJECT_
 /** Stateful remote fixture: no release workflow or registry write escapes this object. */
 function remoteFixture() {
   const c = candidateFixture(), e = evidenceFixture(), receipt = { candidate: c, artifactId: 20 };
-  const pr = { number: 42, body: candidateBody(receipt), state: "closed", merged: true, merged_at: "2026-11-06T04:00:00Z" as string | null, merge_commit_sha: e.pr.mergedSha,
+  const pr = { pull_request: {}, number: 42, body: candidateBody(receipt), state: "closed", merged: true, merged_at: "2026-11-06T04:00:00Z" as string | null, merge_commit_sha: e.pr.mergedSha,
     user: { login: "github-actions[bot]" }, head: { ref: e.pr.branch, sha: c.headSha, repo: { full_name: c.repository } }, base: { ref: "main", repo: { full_name: c.repository } } };
   const run = { repository: { full_name: c.repository }, head_branch: "main", head_sha: c.baseSha, path: c.workflow, event: "schedule", conclusion: "success", run_attempt: 1, referenced_workflows: [{ path: "unbraind/pm-ops/.github/workflows/daily-release.yml@main", sha: c.toolsSha! }] };
   const artifact = { expired: false, workflow_run: { id: c.runId }, name: `verified-daily-release-${c.headSha}` };
@@ -41,8 +41,9 @@ function remoteFixture() {
     calls.push({ path, method, body });
     if (method !== "GET") return {};
     if (path === `repos/${c.repository}`) return { default_branch: "main" };
-    if (path.includes("/pulls?")) return [pr];
+    if (path.includes("/issues?") || path.includes("/pulls?")) return [pr];
     if (path.endsWith("/pulls/42")) return pr;
+    if (path.endsWith("/pulls/43")) return { ...pr, number: 43 };
     if (path.includes("/jobs?")) return { total_count: 1, jobs: [{ name: "release / prepare", status: "completed", conclusion: "success", run_id: c.runId, head_sha: c.baseSha }] };
     if (path.includes("/actions/runs/")) return run;
     if (path.includes("/actions/artifacts/")) return artifact;
@@ -105,7 +106,7 @@ async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { ro
     const url = String(input);
     let data: unknown;
     if (url.startsWith("https://api.github.com/")) {
-      const path = url.slice("https://api.github.com/".length), body = init?.body ? JSON.parse(String(init.body)) as { body?: string } : undefined;
+      const path = url.slice("https://api.github.com/".length), body = init?.body ? JSON.parse(String(init.body)) as { body?: string; state?: string } : undefined;
       if (init?.method !== "GET") {
         control.writes++;
         if (control.write404 || control.writes === control.failWriteAt) return new Response("{}", { status: 404 });
@@ -113,6 +114,7 @@ async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { ro
       data = await f.api(path, init?.method, body);
       if (init?.method === "POST" && path.endsWith("/comments") && body?.body) f.state.comments.push({ user: { login: "github-actions[bot]" }, body: body.body });
       if (init?.method === "PATCH" && body?.body && !control.ignorePersistence) Object.assign(f.pr, { body: body.body });
+      if (init?.method === "PATCH" && body?.state && !control.ignorePersistence) Object.assign(f.pr, { state: body.state });
     } else if (url.startsWith("https://registry.npmjs.org/")) data = await f.registry(url.slice("https://registry.npmjs.org/".length));
     else throw new Error("Unexpected fixture host");
     return new Response(JSON.stringify(data), { status: data === null ? 404 : 200 });
@@ -132,6 +134,107 @@ test("merged package version lookup must not substitute receipt data for a missi
   const api: ReleaseApi = async (path, method, body) => path.includes(`/contents/package.json?ref=${f.pr.merge_commit_sha}`) ? null : f.api(path, method, body);
   await assert.rejects(inspectCandidate(f.receipt, f.options, api, f.registry, () => ({ states: f.state.checks, review: "APPROVED" })), /version proof is unreadable/);
   assertIntentRetained(f);
+});
+
+test("bot receipt discovery narrows history, exhausts pages and hydrates only candidate PRs", async () => {
+  const f = remoteFixture();
+  const api: ReleaseApi = async (path, method, body) => {
+    assert.ok(!path.includes("/pulls?"), "unrelated full PR history must never be requested");
+    if (path.includes("/issues?")) {
+      assert.match(path, /state=all&creator=github-actions%5Bbot%5D/);
+      assert.match(path, /sort=created&direction=asc/, "ordinary updates must not reorder discovery pages");
+      f.calls.push({ path, method: "GET" });
+      return path.endsWith("page=1") ? Array.from({ length: 100 }, (_, number) => ({ number, body: "unrelated bot issue", pull_request: {} }))
+        : [f.pr, { number: 99, body: f.pr.body }];
+    }
+    return f.api(path, method, body);
+  };
+  assert.deepEqual(await discoverCandidatePrs(f.c.repository, "main", api), [f.pr]);
+  assert.equal(f.calls.filter(call => call.path.includes("/issues?")).length, 2);
+  assert.equal(f.calls.filter(call => call.path.includes("/pulls/")).length, 1);
+});
+
+test("probe discovers once and reuses a freshly validated PR number", async () => {
+  await withAdapter(async f => {
+    await runReleaseContinuation("probe");
+    assert.equal(f.calls.filter(call => call.path.includes("/issues?")).length, 1);
+    assert.equal(f.calls.filter(call => call.path.includes("/pulls?")).length, 0);
+  });
+  const f = remoteFixture();
+  for (const prNumber of [0, NaN]) await assert.rejects(inspectCandidate(f.receipt, { ...f.options, prNumber }, f.api, f.registry), /Invalid candidate PR number/);
+});
+
+test("unavailable preparation evidence refuses publication but explicit retirement needs only live absence", async () => {
+  for (const kind of ["run", "jobs", "artifact", "expired", "tools"]) {
+    const f = remoteFixture();
+    const api: ReleaseApi = async (path, method, body) => {
+      if (kind === "run" && path.includes("/actions/runs/") && !path.includes("/jobs?")) return null;
+      if (kind === "jobs" && path.includes("/jobs?")) return null;
+      if (kind === "artifact" && path.includes("/actions/artifacts/")) return null;
+      if (kind === "expired" && path.includes("/actions/artifacts/")) return { ...f.artifact, expired: true };
+      if (kind === "tools" && path.startsWith("repos/unbraind/pm-ops/contents/package.json?")) return null;
+      return f.api(path, method, body);
+    };
+    await assert.rejects(inspectCandidate(f.receipt, f.options, api, f.registry, () => ({ states: ["SUCCESS"], review: "APPROVED" })), /unavailable|artifact|job count/, kind);
+    assertIntentRetained(f);
+    assert.equal((await inspectCandidate(f.receipt, { ...f.options, retireUnpublished: true }, api, f.registry)).action, "retire", kind);
+    Object.assign(f.state, { registry: true });
+    await assert.rejects(inspectCandidate(f.receipt, { ...f.options, retireUnpublished: true }, api, f.registry), /retirement refused/);
+  }
+});
+
+test("operator closes open unpublished intent and retires manually closed intent despite expired artifacts", async () => {
+  for (const state of ["open", "closed"]) await withAdapter(async f => {
+    setMergeState(f, false); f.pr.state = state; f.artifact.expired = true; f.state.main = f.c.baseSha;
+    process.env.TRIGGER_SHA = f.c.baseSha; process.env.RETIRE_UNPUBLISHED = "true";
+    await runReleaseContinuation("probe");
+    assert.equal(f.pr.state, "closed"); assert.equal(parseCandidateReceipt(f.pr.body), null);
+    assert.deepEqual(parseCandidateReceipt(f.pr.body, true), f.receipt);
+    assert.match(readFileSync(join(f.root, "output"), "utf8"), /pending=false\naction=retire/);
+    assert.ok(!existsSync(join(f.root, "hooks")));
+    assert.equal(f.calls.filter(call => call.path.includes("/actions/")).length, 0);
+    await runReleaseContinuation("retired-branch");
+    assert.equal((await freshPreparation(f)).version, f.c.version);
+  });
+});
+
+test("operator retirement confirms closure and refuses a missing close write", async () => {
+  for (const defect of ["missing-close", "missing-body", "head", "owner", "merged"]) await withAdapter(async f => {
+    setMergeState(f, false); f.state.main = f.c.baseSha;
+    process.env.TRIGGER_SHA = f.c.baseSha; process.env.RETIRE_UNPUBLISHED = "true";
+    const transport = globalThis.fetch; let closing = false;
+    globalThis.fetch = async (url, init) => {
+      if (init?.method === "PATCH" && JSON.parse(String(init.body)).state === "closed") {
+        closing = true; if (defect === "missing-close") return new Response("{}");
+      }
+      const response = await transport(url, init);
+      if (!closing || init?.method !== "GET" || !String(url).endsWith("/pulls/42")) return response;
+      const changed = { ...f.pr };
+      if (defect === "missing-body") Object.assign(changed, { body: null });
+      if (defect === "head") changed.head = { ...f.pr.head, sha: "9".repeat(40) };
+      if (defect === "owner") changed.user = { login: "human" };
+      if (defect === "merged") changed.merged = true;
+      return new Response(JSON.stringify(changed));
+    };
+    await assert.rejects(runReleaseContinuation("probe"), /closure was not confirmed/);
+    assert.deepEqual(parseCandidateReceipt(f.pr.body, true), f.receipt);
+    assert.ok(!existsSync(join(f.root, "hooks")));
+  });
+});
+
+test("operator cancellation preserves all publication evidence and supports legacy GitHub-only receipts", async () => {
+  for (const evidence of ["tag", "release", "release-with-tag", "registry", "attempt", "hook"]) {
+    const f = remoteFixture();
+    if (evidence.includes("tag")) Object.assign(f.state, { tag: f.e.pr.mergedSha });
+    if (evidence.startsWith("release")) Object.assign(f.state, { release: true });
+    if (evidence === "registry") Object.assign(f.state, { registry: true });
+    if (["attempt", "hook"].includes(evidence)) f.state.comments.push({ user: { login: "github-actions[bot]" }, body: `<!-- pm-ops-${evidence === "attempt" ? "publication" : "post-hook"}-v1\n{}\n-->` });
+    await assert.rejects(inspectCandidate(f.receipt, { ...f.options, retireUnpublished: true }, f.api, f.registry), /retirement refused/, evidence);
+    assertIntentRetained(f);
+  }
+  const f = remoteFixture(); delete f.c.toolsSha; f.c.npmPublish = false; f.pr.body = candidateBody(f.receipt);
+  const result = await inspectCandidate(f.receipt, { ...f.options, retireUnpublished: true }, f.api, f.registry);
+  assert.equal(result.action, "retire"); assert.equal(result.toolsSha, f.c.baseSha);
 });
 
 test("approval selects exact-head protected workflow runs across pages without a CI name assumption", async () => {
@@ -449,7 +552,7 @@ test("entry point probes empty, pending, stale-base and merged intent without in
   });
   await withAdapter(async f => {
     const fetch = globalThis.fetch;
-    globalThis.fetch = async (input, init) => String(input).includes("/pulls?") ? new Response(JSON.stringify([f.pr, { ...f.pr, number: 43 }])) : fetch(input, init);
+    globalThis.fetch = async (input, init) => String(input).includes("/issues?") ? new Response(JSON.stringify([f.pr, { ...f.pr, number: 43 }])) : fetch(input, init);
     await assert.rejects(runReleaseContinuation("probe"), /Multiple pending/);
   });
 });
@@ -492,10 +595,11 @@ test("native HTTP transport treats only 404 as absence and preserves definitive 
 test("reconciliation refuses incomplete pagination, duplicate receipts and a receipt changed after discovery", async () => {
   const f = remoteFixture();
   for (const response of [null, [], [f.pr, f.pr], Array.from({ length: 100 }, () => f.pr)]) {
-    const api: ReleaseApi = async (path, method, body) => path.includes("/pulls?") ? response : f.api(path, method, body);
+    const api: ReleaseApi = async (path, method, body) => path.includes("/issues?") ? response : f.api(path, method, body);
     await assert.rejects(inspectCandidate(f.receipt, f.options, api, f.registry), /paginated|bounded|missing or duplicated/);
   }
-  const changed: ReleaseApi = async (path, method, body) => path.endsWith("/pulls/42") ? { ...f.pr, body: null } : f.api(path, method, body);
+  let reads = 0;
+  const changed: ReleaseApi = async (path, method, body) => path.endsWith("/pulls/42") && ++reads === 2 ? { ...f.pr, body: null } : f.api(path, method, body);
   await assert.rejects(inspectCandidate(f.receipt, f.options, changed, f.registry), /receipt changed/);
   Object.assign(f.pr.head, { repo: null });
   await assert.rejects(f.inspect(), /missing or duplicated/);
@@ -612,7 +716,7 @@ test("workflow path normalization accepts qualified same-repository main refs an
 test("unrelated malformed candidate bodies cannot block owned release discovery", async () => {
   const f = remoteFixture();
   const foreign = { ...f.pr, number: 99, body: "<!-- pm-ops-candidate-v1\nbroken", user: { login: "human" } };
-  const api: ReleaseApi = (path, method, body) => path.includes("/pulls?") ? Promise.resolve([foreign, f.pr]) : f.api(path, method, body);
+  const api: ReleaseApi = (path, method, body) => path.includes("/issues?") ? Promise.resolve([foreign, f.pr]) : path.endsWith("/pulls/99") ? Promise.resolve(foreign) : f.api(path, method, body);
   assert.equal((await inspectCandidate(f.receipt, f.options, api, f.registry, () => ({ states: ["SUCCESS"], review: "APPROVED" }))).action, "publish");
   foreign.user.login = "github-actions[bot]";
   await assert.rejects(inspectCandidate(f.receipt, f.options, api, f.registry), /Malformed/);
@@ -794,7 +898,7 @@ test("fresh retirement and retired-branch reuse refuse an intent changed after d
     const transport = globalThis.fetch; let reads = 0;
     globalThis.fetch = async (input, init) => {
       const target = String(input).endsWith("/pulls/42") && init?.method === "GET";
-      const patch = target && ++reads === (transition === "probe" ? 2 : 1);
+      const patch = target && ++reads === (transition === "probe" ? 4 : 1);
       const response = await transport(input, init);
       return patch ? new Response(JSON.stringify({ ...f.pr, body: transition === "probe" ? "changed after discovery" : null }), { status: 200 }) : response;
     };
@@ -920,7 +1024,11 @@ test("changed caller config retires open or merged unpublished intent even when 
     assert.match(readFileSync(join(f.root, "output"), "utf8"), /pending=false/);
     assert.equal(parseCandidateReceipt(f.pr.body), null);
     assert.ok(!f.calls.some(call => call.path.includes("contents/new-project")));
-    if (!merged) assert.match(readFileSync(join(f.root, "merge-args"), "utf8"), /--disable-auto/);
+    if (!merged) {
+      assert.match(readFileSync(join(f.root, "merge-args"), "utf8"), /--disable-auto/);
+      assert.equal(f.pr.state, "closed");
+      await runReleaseContinuation("retired-branch");
+    }
     assert.equal((await freshPreparation(f)).configDigest, releaseConfigDigest(JSON.parse(process.env.RELEASE_CONFIG)));
   });
 });

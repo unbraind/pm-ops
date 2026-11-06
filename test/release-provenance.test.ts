@@ -7,7 +7,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "../subprocess.ts";
-import { verifyRegistryProvenance, verifySigstoreBundle, verifyCertificateSource, type ProvenanceIdentity } from "../release-provenance.ts";
+import { verifyRegistryProvenance, verifySigstoreBundle, verifyCertificateSource, sigstoreRuntimePath, type ProvenanceIdentity } from "../release-provenance.ts";
 import { runVerifyRegistryProvenance } from "../scripts/verify-registry-provenance.ts";
 import { verifyRegistryProvenance as verifyCompiledProvenance } from "../dist/release-provenance.js";
 
@@ -29,6 +29,22 @@ function mutateClaim(value: ReturnType<typeof envelope>, change: (claim: { predi
   const entry = slsa(value), claim = JSON.parse(Buffer.from(entry.bundle.dsseEnvelope.payload, "base64").toString("utf8"));
   change(claim); entry.bundle.dsseEnvelope.payload = Buffer.from(JSON.stringify(claim)).toString("base64");
 }
+
+test("missing Sigstore installations produce an explicit precondition diagnostic", () => {
+  const root = mkdtempSync(join(tmpdir(), "missing-sigstore-"));
+  try {
+    assert.throws(() => sigstoreRuntimePath(root), /Sigstore runtime is not installed; call ensureReleaseRuntime/);
+    const development = join(root, "node_modules/sigstore"), privateClient = join(root, ".github/release-runtime/node_modules/sigstore");
+    mkdirSync(development, { recursive: true }); assert.equal(sigstoreRuntimePath(root), development);
+    mkdirSync(privateClient, { recursive: true }); assert.equal(sigstoreRuntimePath(root), privateClient);
+    rmSync(join(root, "node_modules"), { recursive: true }); rmSync(join(root, ".github"), { recursive: true });
+    cpSync(new URL("../release-provenance.ts", import.meta.url), join(root, "release-provenance.ts"));
+    writeFileSync(join(root, "package.json"), '{"type":"module"}');
+    writeFileSync(join(root, "verify.ts"), `import {verifySigstoreBundle} from './release-provenance.ts';\nawait verifySigstoreBundle({},${JSON.stringify(identity)});\n`);
+    const result = spawnSync(process.execPath, [join(root, "verify.ts")], { encoding: "utf8", timeout: 30_000, env: { PATH: process.env.PATH } });
+    assert.equal(result.status, 1); assert.match(result.stderr, /Sigstore runtime is not installed; call ensureReleaseRuntime/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 test("real npm Sigstore bundle verifies once and replay verifies without trusting decoded JSON alone", async () => {
   assert.equal(await verifyRegistryProvenance(envelope(), { ...identity, signerWorkflow: `${identity.repository}/${identity.workflow}@${identity.ref}` }), true);

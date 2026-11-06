@@ -17,6 +17,14 @@ test("continuation runtime and caller selectors enforce the native TypeScript fl
   compiledSelection("24"); assert.throws(() => compiledSelection("20"), /22.18.0/);
 });
 
+test("named LTS selectors reject obsolete runtimes and retain current and future names", () => {
+  for (const name of ["argon", "boron", "carbon", "dubnium", "erbium", "fermium", "gallium", "hydrogen", "iron", "IRON"]) {
+    assert.throws(() => assertContinuationSelection("lts/" + name), /22.18.0/);
+  }
+  for (const value of [" lts/iron ", " 20 "]) assert.throws(() => assertContinuationSelection(value), /22.18.0/);
+  for (const value of ["lts/jod", "lts/krypton", "lts/*", "node", "24", "26"]) assertContinuationSelection(value);
+});
+
 test("committed JavaScript refuses an unsupported runtime before invoking TypeScript", () => {
   const root = mkdtempSync(join(tmpdir(), "continuation-floor-"));
   try {

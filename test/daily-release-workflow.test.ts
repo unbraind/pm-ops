@@ -52,7 +52,7 @@ function writeProvenance(root: string, filename: string, statement: unknown): vo
 test("shared workflow grants permissions per job, pins actions, and gates every privileged run", () => {
   assert.deepEqual(Object.keys(workflow.on), ["workflow_call"]);
   assert.deepEqual(workflow.permissions, {});
-  assert.deepEqual(workflow.jobs.release.permissions, { contents: "write", "pull-requests": "write", actions: "read", checks: "read", "id-token": "write" });
+  assert.deepEqual(workflow.jobs.release.permissions, { contents: "write", "pull-requests": "write", actions: "read", checks: "read", issues: "read", "id-token": "write" });
   assert.deepEqual(workflow.jobs.prepare.permissions, { contents: "read", "pull-requests": "read" });
   assert.deepEqual(workflow.jobs.alert.permissions, { contents: "read", issues: "write" });
   assert.match(workflow.jobs.release.if, /inputs.release-enabled && github.ref == 'refs\/heads\/main'/);
@@ -498,7 +498,7 @@ test("migration gap tracker never marks an inventoried package as unreadable", (
 
 
 test("stranded receipt retirement keeps reconciliation short and branch reuse behind a fresh ownership check", () => {
-  assert.deepEqual(workflow.jobs.reconcile.permissions, { contents: "read", "pull-requests": "write", actions: "write", checks: "read" });
+  assert.deepEqual(workflow.jobs.reconcile.permissions, { contents: "read", "pull-requests": "write", actions: "write", checks: "read", issues: "read" });
   assert.match(workflow.jobs.prepare.if, /needs.reconcile.outputs.pending == 'false'/);
   const request = step("Merge release metadata through protected PR").run!;
   assert.match(request, /node "\$CONTINUATION_SCRIPT" retired-branch/);

@@ -18,7 +18,7 @@ const { releasedSha, canonical, caller, api } = releaseCallerFixture();
 test("caller refuses Node selectors below the native floor while retaining audited legacy callers", () => {
   const sha = "c".repeat(40), tag = "v2026.11.07";
   const current = caller.replace(releasedSha, sha).replace("v2026.10.19", tag);
-  for (const version of ["20", "22.17.0"]) assert.ok(inspectReleaseCaller(current.replace("    with:", `    with:\n      node-version: "${version}"`), () => ({ [tag]: sha })).errors.some(error => error.includes("22.18.0")));
+  for (const version of ["20", "22.17.0", "lts/iron", "lts/hydrogen"]) assert.ok(inspectReleaseCaller(current.replace("    with:", `    with:\n      node-version: "${version}"`), () => ({ [tag]: sha })).errors.some(error => error.includes("22.18.0")));
   assert.deepEqual(inspectReleaseCaller(current.replace("    with:", '    with:\n      node-version: "24"'), () => ({ [tag]: sha })).errors, []);
   assert.deepEqual(checkReleaseCaller(caller.replace("    with:", '    with:\n      node-version: "20"')), []);
 });

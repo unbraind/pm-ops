@@ -33,7 +33,7 @@ on:
   workflow_dispatch:
     inputs:
       retire-unpublished:
-        description: Retire only verified untouched unpublished merged intent
+        description: Retire only owned untouched unpublished intent
         type: boolean
         default: false
 permissions: {}
@@ -103,4 +103,13 @@ The existing fleet owner retains account-wide capacity snapshots/reservations, s
 
 Measure runner-held PR-wait minutes (source objective: zero), queue time, actual execution time and release completion separately. No live timing or core feedback-time improvement is claimed from fixtures.
 
-Rollback the local caller migration through a reviewed revert. Keep candidate artifacts and receipts. During rollback leave `release-enabled: true` and set `reconcile-only: true` on every caller invocation; setting `release-enabled: false` also disables reconciliation and strands pending receipts. For a merged candidate blocked by non-success protection evidence, an operator may additionally request `retire-unpublished: true`; this retires only verified untouched intent with no npm coordinate, tag, Release or publication attempt. Reset the operator input after recovery. Never fall back to publishing from an old PR artifact, force a tag, remove an ambiguous publication journal or bypass the protection checks. If the old workflow must be restored, reconcile its outstanding intent first so two release implementations cannot race.
+Rollback the local caller migration through a reviewed revert. Keep candidate artifacts and receipts. During rollback leave `release-enabled: true` and set `reconcile-only: true` on every caller invocation; setting `release-enabled: false` also disables reconciliation and strands pending receipts. For a candidate blocked by non-success protection evidence, an operator may additionally request `retire-unpublished: true`. This supports owned open PRs, manually closed unmerged PRs and merged PRs, including expired artifacts or deleted preparation runs. It rechecks the exact bot-owned same-repository branch/head and requires live absence of the npm coordinate, tag, Release, publication attempt and post-hook journal. Missing preparation evidence can permit cancellation only; it never permits publication. An open PR has auto-merge disabled, its receipt durably retired, and is then closed with a confirmed read-back. Fresh preparation may reuse that closed unmerged branch only when its exact head and the recorded operator or verified source/configuration retirement still match; the new verified push retains its head lease. Ordinary closed unmerged branches remain refused. Reset the operator input after recovery. Never fall back to publishing from an old PR artifact, force a tag, remove an ambiguous publication journal or bypass the protection checks. If the old workflow must be restored, reconcile its outstanding intent first so two release implementations cannot race.
+
+Before migrating each remaining caller, record its bot-created issue/PR count and active receipt count using the REST creator filter. Discovery uses that direct REST index rather than a search index or all pull-request history; creation order prevents ordinary updates from moving records between pages; only receipt-bearing PRs are hydrated, and the probe passes its freshly read PR number to verification instead of scanning twice. Both paths refuse incomplete pagination at 100 full pages. Repositories approaching that bound require an explicit durable index before migration. On 2026-11-06 the read-only pm-ops pilot preflight returned 58 bot-created records in one page; counts for other packages remain required in their own migration PRs.
+
+```sh
+gh api --paginate 'repos/OWNER/REPO/issues?state=all&creator=github-actions%5Bbot%5D&per_page=100' --jq 'length'
+gh api --paginate 'repos/OWNER/REPO/issues?state=all&creator=github-actions%5Bbot%5D&per_page=100' --jq '.[] | select(.pull_request and ((.body // "") | contains("<!-- pm-ops-candidate-v1"))) | .number'
+```
+
+The [repository issues endpoint](https://docs.github.com/en/rest/issues/issues#list-repository-issues) includes PRs and supports the creator filter. The reconcile and publishing jobs request only issues-read for this discovery operation.
