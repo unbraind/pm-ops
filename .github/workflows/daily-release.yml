@@ -166,6 +166,8 @@ jobs:
       notesSha256: ${{ steps.probe.outputs.notesSha256 }}
       cliVersion: ${{ steps.probe.outputs.cliVersion }}
       opsVersion: ${{ steps.probe.outputs.opsVersion }}
+      tools_sha: ${{ steps.probe.outputs.tools_sha }}
+      signer_workflow: ${{ steps.probe.outputs.signer_workflow }}
       runId: ${{ steps.probe.outputs.runId }}
       runAttempt: ${{ steps.probe.outputs.runAttempt }}
       workflow: ${{ steps.probe.outputs.workflow }}
@@ -189,6 +191,7 @@ jobs:
           set -euo pipefail
           mv "$GITHUB_WORKSPACE/.pm-ops-release-tools" "$RUNNER_TEMP/pm-ops-release-tools"
           printf 'CONTINUATION_SCRIPT=%s/pm-ops-release-tools/scripts/release-continuation.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'PROVENANCE_SCRIPT=%s/pm-ops-release-tools/scripts/verify-registry-provenance.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Reconcile durable release intent
         id: probe
         shell: bash
@@ -306,14 +309,6 @@ jobs:
           printf 'PM_OPS_VERSION=%s\n' "${PM_OPS_VERSION}" >> "$GITHUB_ENV"
           printf 'version=%s\n' "$PM_OPS_VERSION" >> "$GITHUB_OUTPUT"
         id: ops_version
-      - name: Install pinned release tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          tool_dir="$(mktemp -d "${RUNNER_TEMP}/pm-ops.XXXXXX")"
-          npm install --prefix "$tool_dir" --ignore-scripts --legacy-peer-deps --no-package-lock "pm-ops@$PM_OPS_VERSION"
-          printf 'PM_OPS_MODULE=%s/node_modules/pm-ops/dist/daily-release.js\n' "$tool_dir" >> "$GITHUB_ENV"
-          printf 'PM_OPS_TOOLS=%s\n' "$tool_dir" >> "$GITHUB_ENV"
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -334,6 +329,10 @@ jobs:
           set -euo pipefail
           mv "$GITHUB_WORKSPACE/.pm-ops-release-tools" "$RUNNER_TEMP/pm-ops-release-tools"
           printf 'CONTINUATION_SCRIPT=%s/pm-ops-release-tools/scripts/release-continuation.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'PROVENANCE_SCRIPT=%s/pm-ops-release-tools/scripts/verify-registry-provenance.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Install pinned release tools
+        shell: bash
+        run: node "$CONTINUATION_SCRIPT" tools
       - name: Refresh release base
         shell: bash
         run: |
@@ -657,6 +656,7 @@ jobs:
         shell: bash
         env:
           RELEASE_BASE_SHA: ${{ steps.decide.outputs.base_sha }}
+          WORKFLOW_TOOLS_SHA: ${{ job.workflow_sha }}
           VERIFIED_COMMIT: ${{ steps.pack.outputs.commit }}
           VERIFIED_TREE: ${{ steps.pack.outputs.tree }}
           NPM_VERSION: ${{ steps.decide.outputs.npm_version }}
@@ -728,6 +728,7 @@ jobs:
           set -euo pipefail
           mv "$GITHUB_WORKSPACE/.pm-ops-release-tools" "$RUNNER_TEMP/pm-ops-release-tools"
           printf 'CONTINUATION_SCRIPT=%s/pm-ops-release-tools/scripts/release-continuation.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'PROVENANCE_SCRIPT=%s/pm-ops-release-tools/scripts/verify-registry-provenance.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Download verified release
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
@@ -956,6 +957,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_CONFIG: ${{ toJSON(inputs) }}
       CALLER_WORKFLOW: ${{ github.workflow_ref }}
+      PROVENANCE_SIGNER_WORKFLOW: ${{ needs.reconcile.outputs.signer_workflow }}
       TRIGGER_SHA: ${{ github.sha }}
       CANDIDATE_RECEIPT: ${{ needs.reconcile.outputs.receipt }}
     steps:
@@ -963,14 +965,6 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: ${{ inputs.node-version }}
-      - name: Install pinned release tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          tool_dir="$(mktemp -d "${RUNNER_TEMP}/pm-ops.XXXXXX")"
-          npm install --prefix "$tool_dir" --ignore-scripts --legacy-peer-deps --no-package-lock "pm-ops@$PM_OPS_VERSION"
-          printf 'PM_OPS_MODULE=%s/node_modules/pm-ops/dist/daily-release.js\n' "$tool_dir" >> "$GITHUB_ENV"
-          printf 'PM_OPS_TOOLS=%s\n' "$tool_dir" >> "$GITHUB_ENV"
       - name: Checkout publishing base
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -990,6 +984,23 @@ jobs:
           set -euo pipefail
           mv "$GITHUB_WORKSPACE/.pm-ops-release-tools" "$RUNNER_TEMP/pm-ops-release-tools"
           printf 'CONTINUATION_SCRIPT=%s/pm-ops-release-tools/scripts/release-continuation.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'PROVENANCE_SCRIPT=%s/pm-ops-release-tools/scripts/verify-registry-provenance.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Checkout recorded release tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: unbraind/pm-ops
+          ref: ${{ needs.reconcile.outputs.tools_sha }}
+          path: .pm-ops-recorded-tools
+          persist-credentials: false
+      - name: Locate recorded release tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mv "$GITHUB_WORKSPACE/.pm-ops-recorded-tools" "$RUNNER_TEMP/pm-ops-recorded-tools"
+          printf 'RELEASE_TOOLS_ROOT=%s/pm-ops-recorded-tools\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Install pinned release tools
+        shell: bash
+        run: node "$CONTINUATION_SCRIPT" tools
       - name: Download verified release
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
@@ -1006,7 +1017,6 @@ jobs:
         shell: bash
         env:
           MERGED_SHA: ${{ needs.reconcile.outputs.merged_sha }}
-          TRIGGER_SHA: ${{ github.sha }}
           VERIFIED_TREE: ${{ needs.reconcile.outputs.tree }}
         run: |
           set -euo pipefail
@@ -1133,12 +1143,7 @@ jobs:
             [[ "$attest_url" == https://registry.npmjs.org/* ]] || return 1
             curl --fail --silent --show-error --max-time 30 "$attest_url" | \
               EXPECTED_INTEGRITY="$(jq -r '.integrity' <<< "$metadata")" EXPECTED_COMMIT="$(git rev-parse HEAD)" \
-              node --input-type=module -e '
-                import {readFileSync} from "node:fs";
-                import {createRequire} from "node:module";
-                const {verifyPublishedProvenance} = createRequire(import.meta.url)(process.env.PM_OPS_MODULE);
-                if (!verifyPublishedProvenance(JSON.parse(readFileSync(0,"utf8")), process.env.EXPECTED_COMMIT, process.env.EXPECTED_INTEGRITY)) process.exit(1);
-              '
+              node "$PROVENANCE_SCRIPT"
           }
 
           registry_has_version() {
@@ -1394,26 +1399,36 @@ jobs:
       VERSION_POLICY: ${{ inputs.version-policy }}
       RECOVERY_TAG: ${{ needs.prepare.outputs.recovery_tag }}
       EXPECTED_COMMIT: ${{ needs.prepare.outputs.base_sha }}
+      CALLER_WORKFLOW: ${{ github.workflow_ref }}
       PM_OPS_VERSION: ${{ needs.prepare.outputs.ops_version }}
     steps:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: ${{ inputs.node-version }}
-      - name: Install pinned release tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          tool_dir="$(mktemp -d "${RUNNER_TEMP}/pm-ops.XXXXXX")"
-          npm install --prefix "$tool_dir" --ignore-scripts --legacy-peer-deps --no-package-lock "pm-ops@$PM_OPS_VERSION"
-          printf 'PM_OPS_MODULE=%s/node_modules/pm-ops/dist/daily-release.js\n' "$tool_dir" >> "$GITHUB_ENV"
-          printf 'PM_OPS_TOOLS=%s\n' "$tool_dir" >> "$GITHUB_ENV"
       - name: Checkout existing tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ needs.prepare.outputs.recovery_tag }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Checkout trusted continuation tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: unbraind/pm-ops
+          ref: ${{ job.workflow_sha }}
+          path: .pm-ops-release-tools
+          persist-credentials: false
+      - name: Locate trusted continuation tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mv "$GITHUB_WORKSPACE/.pm-ops-release-tools" "$RUNNER_TEMP/pm-ops-release-tools"
+          printf 'CONTINUATION_SCRIPT=%s/pm-ops-release-tools/scripts/release-continuation.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'PROVENANCE_SCRIPT=%s/pm-ops-release-tools/scripts/verify-registry-provenance.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Install pinned release tools
+        shell: bash
+        run: node "$CONTINUATION_SCRIPT" tools
       - name: Validate package inputs
         shell: bash
         run: |
@@ -1455,12 +1470,7 @@ jobs:
             attest_url="$(jq -r '.attestations.url // empty' <<< "$metadata")"
             [[ "$attest_url" == https://registry.npmjs.org/* ]]
             curl --fail --silent --show-error --max-time 30 "$attest_url" | \
-              EXPECTED_INTEGRITY="$(jq -r '.integrity' <<< "$metadata")" node --input-type=module -e '
-                import {readFileSync} from "node:fs";
-                import {createRequire} from "node:module";
-                const {verifyPublishedProvenance} = createRequire(import.meta.url)(process.env.PM_OPS_MODULE);
-                if (!verifyPublishedProvenance(JSON.parse(readFileSync(0,"utf8")), process.env.EXPECTED_COMMIT, process.env.EXPECTED_INTEGRITY)) process.exit(1);
-              '
+              EXPECTED_INTEGRITY="$(jq -r '.integrity' <<< "$metadata")" node "$PROVENANCE_SCRIPT"
           fi
           gh release create "$RECOVERY_TAG" --repo "$GITHUB_REPOSITORY" --title "${GITHUB_REPOSITORY#*/} $RECOVERY_TAG" --notes-file "$RUNNER_TEMP/recovery-notes.md" --verify-tag
   verify_bun:

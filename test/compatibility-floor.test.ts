@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
+import { parse } from "yaml";
 
 import { checkExtensionManifestCompatibility } from "@unbrained/pm-cli/sdk/authoring";
 import { developmentCliVersion } from "./dependency-contract.ts";
@@ -160,7 +161,8 @@ test("every changelog and release-note read disables both host output bounds", (
       `${name} must disable the host row limit before reading the tracker`,
     );
   }
-  const workflowCommands = ["changelog:full", "changelog:check", "release:notes"].filter(name => packageJson.scripts?.[name]);
+  const shared = parse(readFileSync(resolve(repoRoot, ".github/workflows/daily-release.yml"), "utf8")) as { on: { workflow_call: { inputs: Record<string, { default: string }> } } };
+  const workflowCommands = ["changelog-script", "changelog-check-script", "notes-script"].map(key => shared.on.workflow_call.inputs[key].default);
   assert.match(releaseWorkflow, /uses: \.\/\.github\/workflows\/daily-release\.yml/);
   assert.equal(workflowCommands.length, 3, "the release workflow must keep its three changelog and release-note commands");
   assert.deepEqual(workflowCommands,

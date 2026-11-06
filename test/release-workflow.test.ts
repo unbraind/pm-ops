@@ -404,8 +404,13 @@ test("publication is proven possible before anything is mutated", () => {
   // itself has to be gated.
   assert.match(releaseJobSource(), /if: inputs.release-enabled && github.ref == 'refs\/heads\/main'/);
   assert.match(executable(stepSource("Check release ref")), /refs\/heads\/main/);
-  const publish = stepIndex("Publish npm package");
-  assert.ok(preflight < publish, "OIDC identity is checked before publication");
+  const publishing = releaseJobSource();
+  const releasePreflight = publishing.indexOf("- name: Verify npm will accept this workflow's OIDC identity");
+  const releasePublish = publishing.indexOf("- name: Publish npm package");
+  assert.ok(releasePreflight >= 0 && releasePreflight < releasePublish, "the publishing job checks OIDC before publication");
+  const releasePreflightEnd = publishing.indexOf("\n      - name:", releasePreflight);
+  assert.ok(releasePreflightEnd > releasePreflight);
+  assert.match(publishing.slice(releasePreflight, releasePreflightEnd), /^ *if: steps\.continue\.outputs\.action == 'publish' && inputs\.npm-publish$/m);
   const requestAt = stepIndex("Merge release metadata through protected PR");
   assert.ok(preflight < requestAt, "OIDC identity is checked before any remote release branch write");
 

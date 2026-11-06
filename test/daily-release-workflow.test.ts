@@ -32,7 +32,7 @@ const workflow = parse(source) as {
   on: { workflow_call: { inputs: Record<string, { type: string; default: unknown }> } };
   permissions: Record<string, string>;
   concurrency: { group: string; "cancel-in-progress": boolean };
-  jobs: Record<string, { if: string; needs: string[]; permissions: Record<string, string>; steps: Step[] }>;
+  jobs: Record<string, { if: string; needs: string[]; env: Record<string, string>; permissions: Record<string, string>; steps: Step[] }>;
 };
 const steps = Object.values(workflow.jobs).flatMap(job => job.steps);
 
@@ -70,7 +70,7 @@ test("shared workflow grants permissions per job, pins actions, and gates every 
   assert.equal(step("Resolve pm-ops release version").env?.WORKFLOW_SHA, "${{ job.workflow_sha }}");
   assert.match(step("Resolve pm-ops release version").run, /peeled_commits/);
   assert.match(step("Resolve pm-ops release version").run, /Multiple release versions/);
-  assert.match(step("Install pinned release tools").run, /pm-ops@\$PM_OPS_VERSION/);
+  assert.match(step("Install pinned release tools").run, /node "\$CONTINUATION_SCRIPT" tools/);
 });
 
 test("planning calls the measured TypeScript module and keeps PR payloads in files", () => {
@@ -108,7 +108,7 @@ test("caller template and migration examples cover the union of every nested job
 test("publication continues only when trigger, merged main, package version, provenance and tag agree", () => {
   assert.match(step("Revalidate trusted merged candidate").run, /node "\$CONTINUATION_SCRIPT" verify/);
   for (const name of ["Publish npm package", "Publish extra targets", "Push release tag"]) assert.match(step(name).if!, /steps.continue.outputs.action != 'complete'/);
-  assert.match(step("Verify merged release").env!.TRIGGER_SHA, /github.sha/);
+  assert.equal(workflow.jobs.release.env.TRIGGER_SHA, "${{ github.sha }}");
   assert.deepEqual(workflow.jobs.verify_bun.permissions, { contents: "read" });
   assert.deepEqual(workflow.jobs.recover.permissions, { contents: "write" });
   assert.match(workflow.jobs.verify_bun.if, /needs.release.outputs.published == 'success'/);
@@ -116,7 +116,7 @@ test("publication continues only when trigger, merged main, package version, pro
   assert.equal(step("Pack verified release").env?.BUN_VERIFY, "${{ inputs.npm-publish && inputs.bun-verify }}");
   assert.match(step("Verify bun install of published package").run, /bunx --bun --no-install pm health --strict-exit/);
   assert.match(step("Publish npm package").run, /npm publish \.\/release-artifact\/package\.tgz --access public --provenance --ignore-scripts/);
-  assert.match(step("Publish npm package").run, /verifyPublishedProvenance/);
+  assert.match(step("Publish npm package").run, /node "\$PROVENANCE_SCRIPT"/);
   assert.match(step("Pack verified release").run, /git diff --exit-code -- \./);
   assert.match(step("Pack verified release").run, /git status --porcelain=v1 --untracked-files=all/);
   assert.match(step("Publish npm package").run, /EXPECTED_COMMIT="\$\(git rev-parse HEAD\)"/);
@@ -181,6 +181,7 @@ test("publish retries bind the local artifact and poll delayed attestations thro
   const root = mkdtempSync(join(tmpdir(), "release-publish-poll-"));
   try {
     mkdirSync(join(root, "release-artifact"));
+    writeFileSync(join(root, "provenance-boundary.ts"), "process.stdin.resume();\n");
     writeFileSync(join(root, "attempt.ts"), "// Synthetic publication-attempt journal boundary.\n");
     const artifact = Buffer.from("synthetic verified artifact");
     writeFileSync(join(root, "release-artifact/package.tgz"), artifact);
@@ -228,7 +229,7 @@ esac
       const result = runBashFixture(step("Publish npm package").run, { cwd: root, encoding: "utf8", env: {
         ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: root, HOME: root, CONTINUATION_SCRIPT: join(root, "attempt.ts"), NPM_CONFIG_USERCONFIG: join(root, "absent-config"),
         NPM_VERSION: "2026.10.20", REGISTRY_METADATA: JSON.stringify({ integrity: fixture.integrity, attestations: { url: "https://registry.npmjs.org/synthetic" } }), METADATA_MODE: fixture.mode,
-        VISIBLE_READ: String(fixture.visible), PUBLISH_STATUS: String(fixture.publish), PM_OPS_MODULE: new URL("../dist/daily-release.js", import.meta.url).pathname,
+        VISIBLE_READ: String(fixture.visible), PUBLISH_STATUS: String(fixture.publish), PROVENANCE_SCRIPT: join(root, "provenance-boundary.ts"), PM_OPS_MODULE: new URL("../dist/daily-release.js", import.meta.url).pathname,
       } });
       assert.equal(result.status, fixture.status, result.stdout + result.stderr);
       assert.equal(Number(readFileSync(join(root, "reads"), "utf8")), fixture.reads);
@@ -436,6 +437,7 @@ test("recovery queries the exact npm coordinate while preserving the original Gi
     const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
     const statement = { subject: [{ digest: { sha512: "abcd" } }], predicate: { buildDefinition: { resolvedDependencies: [{ digest: { gitCommit: commit } }] } } };
     writeProvenance(root, "attestation.json", statement);
+    writeFileSync(join(root, "provenance-boundary.ts"), "process.stdin.resume();\n");
     const tools = {
       gh: `#!/bin/sh\nprintf '%s\\n' "$*" >> "$RUNNER_TEMP/gh-calls"\n[ "$2" != view ]\n`,
       npm: `#!/bin/sh\nprintf '%s\\n' "$*" >> "$RUNNER_TEMP/npm-calls"\nprintf '%s\\n' '{"integrity":"sha512-q80=","attestations":{"url":"https://registry.npmjs.org/synthetic"}}'\n`,
@@ -450,7 +452,7 @@ test("recovery queries the exact npm coordinate while preserving the original Gi
       writeFileSync(join(root, "gh-calls"), "");
       const result = runBashFixture(step("Repair missing GitHub Release").run, {
         cwd: root, encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: root,
-          EXPECTED_COMMIT: commit, RECOVERY_TAG: tag, NPM_PUBLISH: "true", GITHUB_REPOSITORY: "example/package",
+          PROVENANCE_SCRIPT: join(root, "provenance-boundary.ts"), EXPECTED_COMMIT: commit, RECOVERY_TAG: tag, NPM_PUBLISH: "true", GITHUB_REPOSITORY: "example/package",
           PM_OPS_MODULE: new URL("../dist/daily-release.js", import.meta.url).pathname },
       });
       assert.equal(result.status, 0, result.stdout + result.stderr);
@@ -516,4 +518,20 @@ test("stranded receipt retirement keeps reconciliation short and branch reuse be
   assert.match(request, /node "\$CONTINUATION_SCRIPT" retired-branch/);
   assert.ok(request.indexOf('retired-branch') < request.indexOf('--force-with-lease='));
   assert.ok(workflow.jobs.reconcile.steps.every(current => !/npm (?:ci|install)/.test(current.run ?? "")));
+});
+
+test("all tool bootstraps use trusted source, and publication replays the recorded workflow SHA", () => {
+  for (const name of ["prepare", "release", "recover"]) {
+    const job = workflow.jobs[name], locate = job.steps.findIndex(s => s.name === "Locate trusted continuation tools"), install = job.steps.findIndex(s => s.name === "Install pinned release tools");
+    assert.ok(locate >= 0 && install > locate, name);
+    assert.equal(job.steps[install].run?.trim(), 'node "$CONTINUATION_SCRIPT" tools');
+  }
+  assert.equal(workflow.jobs.request.steps.some(s => s.name === "Install pinned release tools"), false);
+  const recorded = workflow.jobs.release.steps.find(s => s.name === "Checkout recorded release tools") as Step & { with: Record<string, string> };
+  assert.equal(recorded.with.repository, "unbraind/pm-ops");
+  assert.equal(recorded.with.ref, "${{ needs.reconcile.outputs.tools_sha }}");
+  assert.equal(workflow.jobs.prepare.steps.find(s => s.run?.trim() === 'node "$CONTINUATION_SCRIPT" manifest')!.env?.WORKFLOW_TOOLS_SHA, "${{ job.workflow_sha }}");
+  assert.match(step("Publish npm package").run, /node "\$PROVENANCE_SCRIPT"/);
+  assert.match(step("Repair missing GitHub Release").run, /node "\$PROVENANCE_SCRIPT"/);
+  assert.doesNotMatch(source, /npm install .*pm-ops@/);
 });

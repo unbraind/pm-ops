@@ -14,6 +14,8 @@ export interface ReleaseCandidate {
     notesSha256: string;
     cliVersion: string;
     opsVersion: string;
+    /** Exact trusted tool commit; absent only on legacy receipts. */
+    toolsSha?: string;
     runId: number;
     runAttempt: number;
     workflow: string;

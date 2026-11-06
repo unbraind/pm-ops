@@ -1,6 +1,7 @@
 /** State-machine fixtures for durable intent, late CI and hostile continuation inputs. */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { spawnSync } from "../subprocess.ts";
 import { decideReleaseContinuation, ownsContinuationPr, releaseConfigDigest, releaseDigest, validateReleaseCandidate,
   type ReleaseCandidate, type ContinuationEvidence } from "../release-continuation.ts";
 
@@ -46,9 +47,8 @@ for (const [name, change] of [
 test("continuation revalidates repository, default branch, workflow, config, ownership and prepared source", () => {
   const changes: ((e: ContinuationEvidence) => void)[] = [
     e => { e.repository = "other/package"; }, e => { e.defaultBranch = "develop"; }, e => { e.workflow = ".github/workflows/other.yml"; },
-    e => { e.configDigest = "0".repeat(64); }, e => { e.pr.author = "human"; }, e => { e.pr.repository = "other/package"; }, e => { e.pr.base = "other"; },
-    e => { e.pr.state = "open"; }, e => { e.pr.mergedSha = null; }, e => { e.mergedTree = "0".repeat(40); },
-    e => { e.mergedParents = []; }, e => { e.mergedParents = ["0".repeat(40)]; }, e => { e.version = "2026.11.7"; },
+    e => { e.pr.author = "human"; }, e => { e.pr.repository = "other/package"; }, e => { e.pr.base = "other"; },
+    e => { e.pr.state = "open"; }, e => { e.pr.mergedSha = null; },
   ];
   for (const change of changes) { const e = evidenceFixture(); change(e); assert.throws(() => decideReleaseContinuation(candidateFixture(), e)); }
   assert.equal(ownsContinuationPr(evidenceFixture().pr, "example/package", "main"), true);
@@ -101,7 +101,7 @@ test("candidate validation refuses malformed persisted intent before effects and
     { schema: 2 as 1 }, { repository: "../package" }, { defaultBranch: "other" }, { headSha: "wrong" }, { version: "latest" }, { tag: "v2026.11.07" },
     { packageName: "../" }, { packageSha256: "wrong" }, { notesSha256: "wrong" }, { configDigest: "wrong" }, { packageIntegrity: "sha256-wrong" },
     { runId: 0 }, { runId: 1.5 }, { runAttempt: 0 }, { runAttempt: 1.5 }, { workflow: "../other.yml" },
-    { npmPublish: "yes" as unknown as boolean }, { cliVersion: 1 as unknown as string }, { cliVersion: "latest" }, { opsVersion: "latest" },
+    { npmPublish: "yes" as unknown as boolean }, { cliVersion: 1 as unknown as string }, { cliVersion: "latest" }, { opsVersion: "latest" }, { toolsSha: "wrong" },
   ];
   for (const change of changes) assert.throws(() => validateReleaseCandidate({ ...candidateFixture(), ...change }), /Malformed/);
   assert.throws(() => validateReleaseCandidate({ ...candidateFixture(), unexpected: "output\ninjection" } as ReleaseCandidate), /Malformed/);
@@ -123,4 +123,40 @@ test("advanced main strands unpublished bytes but permits already-attested repai
   assert.throws(() => decideReleaseContinuation(c, e), /operator reconciliation/);
   e.tagSha = null; e.attempted = true;
   assert.throws(() => decideReleaseContinuation(c, e), /ambiguous/);
+});
+
+test("behind-base squash merges retire only untouched unpublished receipts, including when main is the merge", () => {
+  for (const change of [(e: ContinuationEvidence) => { e.mergedTree = "9".repeat(40); }, (e: ContinuationEvidence) => { e.mergedParents = []; },
+    (e: ContinuationEvidence) => { e.mergedParents = ["9".repeat(40)]; }, (e: ContinuationEvidence) => { e.version = "2026.11.7"; }]) {
+    const e = evidenceFixture(); change(e);
+    assert.equal(decideReleaseContinuation(candidateFixture(), e), "stranded");
+    for (const evidence of [{ attempted: true }, { registry: "verified" as const }, { tagSha: e.pr.mergedSha }, { releaseSha: e.pr.mergedSha }]) {
+      assert.throws(() => decideReleaseContinuation(candidateFixture(), { ...e, ...evidence }), /operator reconciliation|identity disagrees/);
+    }
+  }
+  const legacy = candidateFixture(); delete legacy.toolsSha; validateReleaseCandidate(legacy);
+});
+
+
+test("schema-one caller digests preserve English receipts and agree across process locales", () => {
+  const inputs = { "npm-publish": true, "node-version": "22", "npm-project-dir": ".", "release-files": "package.json", postgres: false, "post-release-script": "" };
+  const legacy = releaseDigest(JSON.stringify(Object.entries(inputs).sort(([a], [b]) => a.localeCompare(b, "en"))));
+  assert.equal(releaseConfigDigest(inputs), legacy);
+  for (const locale of ["en_US.UTF-8", "th_TH.UTF-8", "sv_SE.UTF-8"]) {
+    const result = spawnSync(process.execPath, ["--input-type=module", "-e", 'import{releaseConfigDigest}from"./release-continuation.ts";process.stdout.write(releaseConfigDigest(JSON.parse(process.argv[1])));', JSON.stringify(inputs)], {
+      cwd: new URL("..", import.meta.url), encoding: "utf8", env: { PATH: process.env.PATH, LANG: locale, LC_ALL: locale },
+    });
+    assert.equal(result.status, 0, result.stderr); assert.equal(result.stdout, legacy, locale);
+  }
+});
+
+test("caller configuration changes retire open and merged unpublished intent but never publication evidence", () => {
+  for (const merged of [false, true]) {
+    const c = candidateFixture(), e = evidenceFixture(); e.configDigest = "9".repeat(64); e.pr.merged = merged;
+    e.pr.state = merged ? "closed" : "open";
+    assert.equal(decideReleaseContinuation(c, e), "stranded");
+    for (const evidence of [{ attempted: true }, { registry: "verified" as const }, { registry: "unverified" as const }, { tagSha: e.pr.mergedSha }, { releaseSha: e.pr.mergedSha }]) {
+      assert.throws(() => decideReleaseContinuation(c, { ...e, ...evidence }), /configuration changed.*operator reconciliation/);
+    }
+  }
 });

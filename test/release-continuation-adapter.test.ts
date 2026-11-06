@@ -1,4 +1,5 @@
 /** Execute the workflow adapter against synthetic, authoritative REST and registry boundaries. */
+import "./provenance-trust-fixture.ts";
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -9,7 +10,19 @@ import { createHash } from "node:crypto";
 import { parse } from "yaml";
 import { candidateFixture, evidenceFixture } from "./release-continuation-fixture.ts";
 import { releaseConfigDigest, releaseDigest } from "../release-continuation.ts";
-import { candidateBody, retiredCandidateBody, parseCandidateReceipt, inspectCandidate, closeSuperseded, requiredProtection, githubApi, registryJson, runReleaseContinuation, normalizeWorkflowPath, type ReleaseApi } from "../scripts/release-continuation.ts";
+import { candidateBody, retiredCandidateBody, parseCandidateReceipt, inspectCandidate as inspectProductionCandidate, closeSuperseded, requiredProtection, githubApi, registryJson, runReleaseContinuation as runProductionContinuation, normalizeWorkflowPath, type ReleaseApi } from "../scripts/release-continuation.ts";
+
+/** Isolate the cryptographic network boundary in transport fixtures; real signed bundles have separate tests. */
+async function syntheticSignature(): Promise<void> {}
+
+/** Exercise the production adapter with native HTTP data and an explicit signature boundary. */
+function inspectCandidate(...args: Parameters<typeof inspectProductionCandidate>) {
+  args[5] ??= syntheticSignature;
+  return inspectProductionCandidate(...args);
+}
+
+/** Exercise the production entry point without treating unsigned transport fixtures as real signatures. */
+function runReleaseContinuation(mode: string | undefined) { return runProductionContinuation(mode, syntheticSignature); }
 
 const previousProject = process.env.NPM_PROJECT_DIR;
 process.env.NPM_PROJECT_DIR = ".";
@@ -20,10 +33,10 @@ function remoteFixture() {
   const c = candidateFixture(), e = evidenceFixture(), receipt = { candidate: c, artifactId: 20 };
   const pr = { number: 42, body: candidateBody(receipt), state: "closed", merged: true, merged_at: "2026-11-06T04:00:00Z" as string | null, merge_commit_sha: e.pr.mergedSha,
     user: { login: "github-actions[bot]" }, head: { ref: e.pr.branch, sha: c.headSha, repo: { full_name: c.repository } }, base: { ref: "main", repo: { full_name: c.repository } } };
-  const run = { repository: { full_name: c.repository }, head_branch: "main", head_sha: c.baseSha, path: c.workflow, event: "schedule", conclusion: "success", run_attempt: 1 };
+  const run = { repository: { full_name: c.repository }, head_branch: "main", head_sha: c.baseSha, path: c.workflow, event: "schedule", conclusion: "success", run_attempt: 1, referenced_workflows: [{ path: "unbraind/pm-ops/.github/workflows/daily-release.yml@main", sha: c.toolsSha! }] };
   const artifact = { expired: false, workflow_run: { id: c.runId }, name: `verified-daily-release-${c.headSha}` };
   const calls: { path: string; method: string; body?: unknown }[] = [];
-  const state = { tag: null as string | null, release: false, registry: false, registryUnavailable: false, checks: ["SUCCESS"], comments: [] as { user: { login: string }; body: string }[], publishedAt: "", npmPublishedAt: "2026-11-05T12:00:00Z", main: e.mainSha, pkgVersion: c.version, pkgName: c.packageName };
+  const state = { tag: null as string | null, release: false, registry: false, registryUnavailable: false, checks: ["SUCCESS"], comments: [] as { user: { login: string }; body: string }[], publishedAt: "", npmPublishedAt: "2026-11-05T12:00:00Z", main: e.mainSha, tree: c.tree, parents: [c.baseSha], pkgVersion: c.version, pkgName: c.packageName };
   const api: ReleaseApi = async (path, method = "GET", body) => {
     calls.push({ path, method, body });
     if (method !== "GET") return {};
@@ -34,7 +47,8 @@ function remoteFixture() {
     if (path.includes("/actions/runs/")) return run;
     if (path.includes("/actions/artifacts/")) return artifact;
     if (path.includes("/git/ref/heads/")) return { object: { sha: state.main } };
-    if (path.includes("/git/commits/")) return { tree: { sha: c.tree }, parents: [{ sha: c.baseSha }] };
+    if (path.includes("/git/commits/")) return { tree: { sha: state.tree }, parents: state.parents.map(sha => ({ sha })) };
+    if (path.startsWith("repos/unbraind/pm-ops/contents/package.json?")) return { content: Buffer.from(JSON.stringify({ name: "pm-ops", version: c.opsVersion })).toString("base64") };
     if (path.includes("/contents/package.json?")) return { content: Buffer.from(JSON.stringify({ name: state.pkgName, version: state.pkgVersion })).toString("base64") };
     if (path.includes("/git/ref/tags/")) return state.tag ? { object: { type: "commit", sha: state.tag } } : null;
     if (path.includes("/releases/tags/")) return state.release ? { tag_name: c.tag, draft: false } : null;
@@ -46,7 +60,7 @@ function remoteFixture() {
     if (state.registryUnavailable) throw new Error("Synthetic registry outage");
     if (path === c.packageName) return { time: { "2026.11.5": state.npmPublishedAt } };
     if (path === `${c.packageName}/${c.version}`) return state.registry ? { dist: { integrity: c.packageIntegrity, attestations: { url: "https://registry.npmjs.org/-/fixture-proof" } } } : null;
-    const payload = Buffer.from(JSON.stringify({ subject: [{ digest: { sha512: Buffer.from(c.packageIntegrity.slice(7), "base64").toString("hex") } }], predicate: { buildDefinition: { resolvedDependencies: [{ digest: { gitCommit: e.pr.mergedSha } }] } } })).toString("base64");
+    const payload = Buffer.from(JSON.stringify({ subject: [{ digest: { sha512: Buffer.from(c.packageIntegrity.slice(7), "base64").toString("hex") } }], predicate: { buildDefinition: { externalParameters: { workflow: { repository: "https://github.com/" + c.repository, path: c.workflow, ref: "refs/heads/main" } }, resolvedDependencies: [{ digest: { gitCommit: e.pr.mergedSha } }] } } })).toString("base64");
     return { attestations: [{ predicateType: "https://slsa.dev/provenance/v1", bundle: { dsseEnvelope: { payload } } }] };
   };
   const options = { repository: c.repository, triggerSha: e.triggerSha, workflow: c.workflow, configDigest: c.configDigest, timezone: "Europe/Vienna", now: "2026-11-06T05:00:00Z" };
@@ -66,7 +80,7 @@ async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { ro
   const values: Record<string, string> = { GITHUB_REPOSITORY: f.c.repository, GH_TOKEN: "synthetic-token", RELEASE_CONFIG: "{}", CALLER_WORKFLOW: `${f.c.repository}/${f.c.workflow}@refs/heads/main`,
     RUNNER_TEMP: root, GITHUB_WORKSPACE: root, GITHUB_OUTPUT: join(root, "output"), NPM_PROJECT_DIR: ".", TRIGGER_SHA: f.e.triggerSha, RELEASE_TIMEZONE: "Europe/Vienna", RELEASE_PR_NUMBER: "42", RELEASE_BRANCH: f.pr.head.ref,
     REMOTE_BRANCH_SHA: f.c.headSha, ARTIFACT_ID: "20", RELEASE_BASE_SHA: f.c.baseSha, VERIFIED_COMMIT: f.c.headSha, VERIFIED_TREE: f.c.tree, NPM_VERSION: f.c.version, RELEASE_TAG: f.c.tag,
-    PACKAGE_NAME: f.c.packageName, CLI_VERSION: f.c.cliVersion, PM_OPS_VERSION: f.c.opsVersion, GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", NPM_PUBLISH: "true", IS_RUST: "false", RELEASE_FIXTURE: root,
+    PACKAGE_NAME: f.c.packageName, CLI_VERSION: f.c.cliVersion, PM_OPS_VERSION: f.c.opsVersion, WORKFLOW_TOOLS_SHA: f.c.toolsSha!, GITHUB_ENV: join(root, "env"), GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", NPM_PUBLISH: "true", IS_RUST: "false", RELEASE_FIXTURE: root,
     PATH: `${root}:${process.env.PATH}` };
   const saved = new Map([...Object.keys(values), "CANDIDATE_RECEIPT", "SUPERSEDED_PR_NUMBERS", "POST_RELEASE_SCRIPT", "NPM_PROJECT_PATH"].map(key => [key, process.env[key]]));
   Object.assign(process.env, values);
@@ -76,7 +90,8 @@ async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { ro
     f.pr.body = candidateBody(f.receipt); process.env.CANDIDATE_RECEIPT = JSON.stringify(f.receipt);
     writeFileSync(join(handoff, "candidate.json"), JSON.stringify(f.c)); writeFileSync(join(handoff, "package.tgz"), "verified bytes"); writeFileSync(join(handoff, "RELEASE_NOTES.md"), "verified notes");
     writeFileSync(join(root, "output"), "");
-    writeFileSync(join(root, "protection.json"), JSON.stringify({ data: { repository: { pullRequest: { headRefOid: f.c.headSha, reviewDecision: "APPROVED",
+    writeFileSync(join(root, "branch-policy.json"), JSON.stringify({ name: "main", protected: true, protection: { enabled: true, required_status_checks: { enforcement_level: "everyone", contexts: ["CI"], checks: [{ context: "CI", app_id: null }] } } }));
+    writeFileSync(join(root, "protection.json"), JSON.stringify({ data: { repository: { pullRequest: { headRefOid: f.c.headSha, baseRefName: "main", reviewDecision: "APPROVED",
       baseRef: { branchProtectionRule: { requiresApprovingReviews: true, requiredStatusChecks: [{ context: "CI", app: null }] } },
       commits: { nodes: [{ commit: { oid: f.c.headSha, statusCheckRollup: { contexts: { totalCount: 1, pageInfo: { hasNextPage: false }, nodes: [{ __typename: "CheckRun", name: "CI", status: "COMPLETED", conclusion: "SUCCESS", isRequired: true }] } } } }] },
     } } } }));
@@ -85,7 +100,7 @@ async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { ro
   const control = { ignorePersistence: false, write404: false, writes: 0, failWriteAt: 0 };
   delete process.env.POST_RELEASE_SCRIPT;
   writeFileSync(join(root, "npm"), '#!/bin/sh\necho "$*" >> "$RELEASE_FIXTURE/hooks"\n'); chmodSync(join(root, "npm"), 0o755);
-  writeFileSync(join(root, "gh"), '#!/bin/sh\ncase "$1 $2" in\n"api graphql") cat "$RELEASE_FIXTURE/protection.json" ;;\n"pr merge") echo merge >> "$RELEASE_FIXTURE/merges" ;;\n*) exit 9 ;;\nesac\n'); chmodSync(join(root, "gh"), 0o755);
+  writeFileSync(join(root, "gh"), '#!/bin/sh\ncase "$1 $2" in\n"api graphql") cat "$RELEASE_FIXTURE/protection.json" ;;\napi\\ repos/*/rules/branches/main) printf "[]" ;;\napi\\ repos/*/branches/main) cat "$RELEASE_FIXTURE/branch-policy.json" ;;\n"pr merge") echo merge >> "$RELEASE_FIXTURE/merges"; echo "$*" >> "$RELEASE_FIXTURE/merge-args" ;;\n*) exit 9 ;;\nesac\n'); chmodSync(join(root, "gh"), 0o755);
   globalThis.fetch = async (input, init) => {
     const url = String(input);
     let data: unknown;
@@ -104,6 +119,27 @@ async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { ro
   };
   try { await callback({ ...f, root, handoff, refresh, control }); }
   finally { Object.assign(globalThis, { fetch: originalFetch }); for (const [key, value] of saved) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } rmSync(root, { recursive: true, force: true }); }
+}
+
+/** Assert that a refusal retained the exact durable receipt without a remote mutation. */
+function assertIntentRetained(f: ReturnType<typeof remoteFixture>): void {
+  assert.deepEqual(parseCandidateReceipt(f.pr.body), f.receipt);
+  assert.equal(f.calls.filter(call => call.method !== "GET").length, 0);
+}
+
+/** Configure authoritative open or squash-merged PR metadata consistently. */
+function setMergeState(f: ReturnType<typeof remoteFixture>, merged: boolean): void {
+  f.pr.merged = merged; f.pr.state = merged ? "closed" : "open";
+  f.pr.merged_at = merged ? "2026-11-06T04:00:00Z" : null;
+  f.pr.merge_commit_sha = merged ? f.e.pr.mergedSha : null;
+}
+
+/** Prove a retired receipt stays absent and permits a fresh verified-run stamp. */
+async function freshPreparation(f: ReturnType<typeof remoteFixture> & { root: string }): Promise<{ version: string; configDigest: string }> {
+  writeFileSync(join(f.root, "output"), ""); await runReleaseContinuation("probe");
+  assert.equal(readFileSync(join(f.root, "output"), "utf8"), "pending=false\n");
+  await runReleaseContinuation("stamp");
+  return JSON.parse(readFileSync(join(f.root, ".github/pm-release-candidate.json"), "utf8")) as { version: string; configDigest: string };
 }
 
 test("trusted API fixture holds a pending PR past the old deadline, then recovers a token-suppressed merge and one publication", async () => {
@@ -133,7 +169,6 @@ test("adapter refuses forks, foreign branches, changed heads, stale run artifact
     (f: ReturnType<typeof remoteFixture>) => { f.run.event = "pull_request"; },
     (f: ReturnType<typeof remoteFixture>) => { f.state.registryUnavailable = true; },
     (f: ReturnType<typeof remoteFixture>) => { f.state.checks = ["SKIPPED"]; },
-    (f: ReturnType<typeof remoteFixture>) => { f.state.pkgVersion = "2026.11.7"; },
     (f: ReturnType<typeof remoteFixture>) => { f.state.pkgName = "foreign-package"; },
   ]) { const f = remoteFixture(); mutate(f); await assert.rejects(f.inspect()); assert.ok(f.calls.every(call => call.method === "GET")); }
 });
@@ -145,30 +180,43 @@ test("receipt parser binds one valid artifact and refuses malformed, ambiguous o
   for (const body of [candidateBody(f.receipt) + "extra", candidateBody(f.receipt) + candidateBody(f.receipt), candidateBody({ ...f.receipt, artifactId: 0 })]) assert.throws(() => parseCandidateReceipt(body));
 });
 
+/** Native contents-read policy and GraphQL rollup fixture, with no administration endpoint available. */
+function protectionFixture() {
+  const head = "b".repeat(40);
+  const branch = { name: "main", protected: true, protection: { enabled: true, required_status_checks: {
+    enforcement_level: "everyone", contexts: ["CI", "legacy"], checks: [{ context: "CI", app_id: 7 as number | null }, { context: "legacy", app_id: null as number | null }],
+  } } };
+  const nodes: { __typename: string; name?: string; context?: string; status?: string; conclusion?: string | null; state?: string | null; isRequired: boolean; checkSuite?: { app: { databaseId: number } | null } }[] = [
+    { __typename: "CheckRun", name: "CI", status: "COMPLETED", conclusion: "SUCCESS", isRequired: true, checkSuite: { app: { databaseId: 7 } } },
+    { __typename: "StatusContext", context: "legacy", state: "SUCCESS", isRequired: true },
+  ];
+  const pr = { headRefOid: head, baseRefName: "main", reviewDecision: "APPROVED" as string | null, commits: { nodes: [{ commit: { oid: head, statusCheckRollup: { contexts: { totalCount: 2, pageInfo: { hasNextPage: false }, nodes } } } }] } };
+  const response = { errors: undefined as unknown[] | undefined, data: { repository: { pullRequest: pr } } };
+  const state = { rules: [] as unknown }, calls: string[][] = [];
+  const run = (args: string[]) => {
+    calls.push(args);
+    if (args[1] === "repos/example/package/branches/main") return JSON.stringify(branch);
+    if (args[1] === "repos/example/package/rules/branches/main") return JSON.stringify(state.rules);
+    assert.equal(args[1], "graphql"); assert.ok(!args.some(arg => /branchProtectionRule|requiredStatusChecks/.test(arg)));
+    assert.ok(args.some(arg => arg.includes("databaseId"))); return JSON.stringify(response);
+  };
+  return { head, branch, nodes, pr, response, state, calls, run, read: () => requiredProtection(42, head, run) };
+}
+
 test("native protection reader requires every context and issuer at the exact head and refuses truncated policy evidence", () => {
   const previous = process.env.GITHUB_REPOSITORY; process.env.GITHUB_REPOSITORY = "example/package";
   try {
-    const head = "b".repeat(40);
-    const rule = { requiresApprovingReviews: true, requiredStatusChecks: [{ context: "CI", app: { id: "trusted-app" } }, { context: "legacy", app: null }] };
-    const nodes = [
-      { __typename: "CheckRun", name: "CI", status: "COMPLETED", conclusion: "SUCCESS", isRequired: true, checkSuite: { app: { id: "trusted-app" } } },
-      { __typename: "StatusContext", context: "legacy", state: "SUCCESS", isRequired: true },
-    ];
-    const pr = { headRefOid: head, reviewDecision: "APPROVED", baseRef: { branchProtectionRule: rule }, commits: { nodes: [{ commit: { oid: head, statusCheckRollup: { contexts: { totalCount: 2, pageInfo: { hasNextPage: false }, nodes } } } }] } };
-    const read = () => requiredProtection(42, head, args => {
-      assert.ok(args.includes("graphql")); assert.ok(args.some(arg => arg.includes("requiredStatusChecks")));
-      return JSON.stringify({ data: { repository: { pullRequest: pr } } });
-    });
-    assert.deepEqual(read(), { states: ["SUCCESS", "SUCCESS"], review: "APPROVED" });
-    nodes[0].checkSuite!.app.id = "foreign-app"; assert.deepEqual(read().states, ["MISSING", "SUCCESS"]);
-    nodes[0].checkSuite!.app.id = "trusted-app"; nodes[0].status = "QUEUED"; assert.equal(read().states[0], "PENDING");
-    nodes[0].status = "COMPLETED"; nodes[0].conclusion = "SKIPPED"; assert.equal(read().states[0], "SKIPPED");
-    pr.reviewDecision = ""; assert.equal(read().review, "REVIEW_REQUIRED");
-    rule.requiresApprovingReviews = false; assert.equal(read().review, "");
-    const contexts = pr.commits.nodes[0].commit.statusCheckRollup.contexts;
-    contexts.pageInfo.hasNextPage = true; assert.throws(read, /incomplete/);
-    contexts.pageInfo.hasNextPage = false; contexts.totalCount = 3; assert.throws(read, /incomplete/);
-    contexts.totalCount = 2; pr.headRefOid = "0".repeat(40); assert.throws(read, /incomplete/);
+    const f = protectionFixture();
+    assert.deepEqual(f.read(), { states: ["SUCCESS", "SUCCESS"], review: "APPROVED" });
+    f.nodes[0].checkSuite!.app!.databaseId = 99; assert.deepEqual(f.read().states, ["MISSING", "SUCCESS"]);
+    f.nodes[0].checkSuite!.app!.databaseId = 7; f.nodes[0].status = "QUEUED"; assert.equal(f.read().states[0], "PENDING");
+    f.nodes[0].status = "COMPLETED"; f.nodes[0].conclusion = "SKIPPED"; assert.equal(f.read().states[0], "SKIPPED");
+    f.pr.reviewDecision = "REVIEW_REQUIRED"; assert.equal(f.read().review, "REVIEW_REQUIRED");
+    f.pr.reviewDecision = null; assert.equal(f.read().review, "");
+    const contexts = f.pr.commits.nodes[0].commit.statusCheckRollup.contexts;
+    contexts.pageInfo.hasNextPage = true; assert.throws(f.read, /incomplete/);
+    contexts.pageInfo.hasNextPage = false; contexts.totalCount = 3; assert.throws(f.read, /incomplete/);
+    contexts.totalCount = 2; f.pr.headRefOid = "0".repeat(40); assert.throws(f.read, /incomplete/);
   } finally { if (previous === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = previous; }
 });
 
@@ -447,7 +495,7 @@ test("GitHub-only recovery retains Cargo identity and the daily cap until the Re
     f.state.tag = f.e.pr.mergedSha; assert.equal((await inspectCandidate(f.receipt, f.options, api, f.registry, check)).action, "recover");
     f.state.publishedAt = f.options.now; await assert.rejects(inspectCandidate(f.receipt, f.options, api, f.registry, check), /Daily/);
     Object.assign(f.state, { release: true }); assert.equal((await inspectCandidate(f.receipt, f.options, api, f.registry, check)).action, "complete");
-    cargo = "[package]\n"; await assert.rejects(inspectCandidate(f.receipt, f.options, api, f.registry, check), /source or artifact/);
+    cargo = "[package]\n"; await assert.rejects(inspectCandidate(f.receipt, f.options, api, f.registry, check), /Merged source/);
   } finally { delete process.env.IS_RUST; }
 });
 
@@ -465,18 +513,14 @@ test("inconsistent GitHub Releases and cleanup failures retain intent without to
 
 test("native protection refuses API errors and absent policy while nullable states stay missing", () => {
   const previous = process.env.GITHUB_REPOSITORY; process.env.GITHUB_REPOSITORY = "example/package";
-  const head = "b".repeat(40);
-  const pr = { headRefOid: head, reviewDecision: null, baseRef: { branchProtectionRule: { requiresApprovingReviews: false, requiredStatusChecks: [{ context: "CI", app: null }, { context: "legacy", app: null }] } },
-    commits: { nodes: [{ commit: { oid: head, statusCheckRollup: { contexts: { totalCount: 2, pageInfo: { hasNextPage: false }, nodes: [
-      { __typename: "CheckRun", name: "CI", status: "COMPLETED", conclusion: null, isRequired: true }, { __typename: "StatusContext", context: "legacy", state: null, isRequired: true },
-    ] } } } }] } };
   try {
-    const valid = { data: { repository: { pullRequest: pr } } };
-    assert.deepEqual(requiredProtection(42, head, () => JSON.stringify(valid)), { states: ["MISSING", "MISSING"], review: "" });
-    assert.throws(() => requiredProtection(42, head, () => JSON.stringify({ ...valid, errors: [{}] })), /incomplete/);
-    const commit = pr.commits.nodes[0].commit;
-    commit.oid = "wrong"; assert.throws(() => requiredProtection(42, head, () => JSON.stringify(valid)), /incomplete/); commit.oid = head;
-    Object.assign(pr.baseRef, { branchProtectionRule: null }); assert.throws(() => requiredProtection(42, head, () => JSON.stringify(valid)), /incomplete/);
+    const f = protectionFixture(); f.pr.reviewDecision = null;
+    f.nodes[0].conclusion = null; f.nodes[1].state = null;
+    assert.deepEqual(f.read(), { states: ["MISSING", "MISSING"], review: "" });
+    f.response.errors = [{}]; assert.throws(f.read, /incomplete/); f.response.errors = undefined;
+    const commit = f.pr.commits.nodes[0].commit;
+    commit.oid = "wrong"; assert.throws(f.read, /incomplete/); commit.oid = f.head;
+    Object.assign(f.branch, { protection: null }); assert.throws(f.read, /incomplete/);
   } finally { if (previous === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = previous; }
 });
 
@@ -724,4 +768,168 @@ test("preparation job proof refuses missing, duplicate, truncated or changing pa
     if (changing) await assert.rejects(inspect(), /job count/);
     else assert.equal((await inspect()).action, "publish");
   }
+});
+
+test("a changed squash parent or tree retires on current main, allowing the next preparation without publication", async () => {
+  for (const changed of ["parent", "tree", "version"]) await withAdapter(async f => {
+    if (changed === "parent") f.state.parents = ["9".repeat(40)];
+    if (changed === "tree") f.state.tree = "9".repeat(40);
+    if (changed === "version") f.state.pkgVersion = "2026.11.7";
+    assert.equal(f.state.main, f.e.pr.mergedSha);
+    await assert.rejects(runReleaseContinuation("verify"), /current-source identity/);
+    await runReleaseContinuation("probe");
+    assert.match(readFileSync(join(f.root, "output"), "utf8"), /pending=false/);
+    assert.equal(parseCandidateReceipt(f.pr.body), null);
+    assert.ok(f.state.comments.some(comment => comment.body.includes("Fresh preparation is required")));
+    assert.equal(f.calls.some(call => call.method !== "GET" && /releases|git\/refs/.test(call.path)), false);
+    assert.equal((await freshPreparation(f)).version, f.c.version);
+  });
+});
+
+test("the verify adapter refuses a stale trigger even when every current merged identity agrees", async () => {
+  await withAdapter(async f => {
+    assert.equal(f.state.main, f.e.pr.mergedSha);
+    process.env.TRIGGER_SHA = "9".repeat(40);
+    await assert.rejects(runReleaseContinuation("verify"), /current-source identity/);
+    assert.equal(f.calls.filter(call => call.method !== "GET").length, 0);
+    assert.deepEqual(parseCandidateReceipt(f.pr.body), f.receipt);
+  });
+});
+
+test("trusted tool source is bound to the original run and preserves legacy receipts", async () => {
+  const f = remoteFixture();
+  assert.equal((await f.inspect()).toolsSha, f.c.toolsSha);
+  assert.equal((await f.inspect()).signerWorkflow, "unbraind/pm-ops/.github/workflows/daily-release.yml@refs/heads/main");
+  delete f.c.toolsSha; f.pr.body = candidateBody(f.receipt);
+  assert.equal((await f.inspect()).toolsSha, "f".repeat(40));
+  for (const referenced of [[], [{ path: "foreign/workflow@main", sha: "f".repeat(40) }],
+    [{ path: "unbraind/pm-ops/.github/workflows/daily-release.yml@main", sha: "bad" }], [...f.run.referenced_workflows, ...f.run.referenced_workflows]]) {
+    f.run.referenced_workflows = referenced; await assert.rejects(f.inspect(), /tools commit/);
+  }
+  const fresh = remoteFixture(); fresh.run.referenced_workflows[0].sha = "9".repeat(40);
+  await assert.rejects(fresh.inspect(), /tools commit/);
+  const version = remoteFixture();
+  const api: ReleaseApi = async (path, method, body) => path.startsWith("repos/unbraind/pm-ops/contents/") ? { content: Buffer.from('{"name":"pm-ops","version":"9999.1.1"}').toString("base64") } : version.api(path, method, body);
+  await assert.rejects(inspectCandidate(version.receipt, version.options, api, version.registry), /tools version/);
+});
+
+test("a forged registry signature preserves active intent instead of repairing or clearing it", async () => {
+  await withAdapter(async f => {
+    f.state.registry = true;
+    await assert.rejects(runProductionContinuation("probe", async () => { throw new Error("Invalid Sigstore signature"); }), /Invalid Sigstore signature/);
+    assertIntentRetained(f);
+  });
+});
+
+test("legacy self-caller derives its exact source tools from main when referenced workflows are absent", async () => {
+  const f = remoteFixture();
+  f.c.repository = "unbraind/pm-ops"; delete f.c.toolsSha;
+  f.options.repository = f.c.repository; f.run.repository.full_name = f.c.repository;
+  f.pr.head.repo.full_name = f.c.repository; f.pr.base.repo.full_name = f.c.repository;
+  f.c.packageName = "pm-ops"; f.state.pkgName = "pm-ops";
+  Reflect.deleteProperty(f.run, "referenced_workflows"); f.pr.body = candidateBody(f.receipt);
+  assert.equal((await f.inspect()).toolsSha, f.c.baseSha);
+  f.options.repository = "other/package";
+  await assert.rejects(f.inspect());
+});
+
+test("production adapter cryptographically refuses unsigned registry JSON without an injected verifier", async () => {
+  const f = remoteFixture(); f.state.registry = true;
+  await assert.rejects(inspectProductionCandidate(f.receipt, f.options, f.api, f.registry, () => ({ states: ["SUCCESS"], review: "APPROVED" })));
+  assert.equal(f.calls.filter(call => call.method !== "GET").length, 0);
+});
+
+
+test("registry proof separates the authenticated reusable signer from signed caller source identity", async () => {
+  const f = remoteFixture(); f.state.registry = true; let verified = false;
+  await inspectProductionCandidate(f.receipt, f.options, f.api, f.registry, () => ({ states: ["SUCCESS"], review: "APPROVED" }), async (_bundle, identity) => {
+    assert.equal(identity.repository, f.c.repository); assert.equal(identity.workflow, f.c.workflow);
+    assert.equal(identity.signerWorkflow, "unbraind/pm-ops/.github/workflows/daily-release.yml@refs/heads/main"); verified = true;
+  });
+  assert.equal(verified, true);
+});
+
+test("changed caller config retires open or merged unpublished intent even when the project path changes", async () => {
+  for (const merged of [false, true]) await withAdapter(async f => {
+    setMergeState(f, merged);
+    process.env.RELEASE_CONFIG = '{"node-version":"26","npm-project-dir":"new-project"}';
+    process.env.NPM_PROJECT_DIR = "new-project";
+    await runReleaseContinuation("probe");
+    assert.match(readFileSync(join(f.root, "output"), "utf8"), /pending=false/);
+    assert.equal(parseCandidateReceipt(f.pr.body), null);
+    assert.ok(!f.calls.some(call => call.path.includes("contents/new-project")));
+    if (!merged) assert.match(readFileSync(join(f.root, "merge-args"), "utf8"), /--disable-auto/);
+    assert.equal((await freshPreparation(f)).configDigest, releaseConfigDigest(JSON.parse(process.env.RELEASE_CONFIG)));
+  });
+});
+
+test("config-change recovery retains attempted, published or unavailable intent and old deliveries cannot retire it", async () => {
+  for (const merged of [false, true]) for (const evidence of ["attempt", "registry", "tag", "release", "outage"]) await withAdapter(async f => {
+    setMergeState(f, merged);
+    process.env.RELEASE_CONFIG = '{"node-version":"26"}';
+    if (evidence === "attempt") f.state.comments.push({ user: { login: "github-actions[bot]" }, body: `<!-- pm-ops-publication-v1\n${JSON.stringify({ candidate: releaseDigest(JSON.stringify(f.c)) })}\n-->` });
+    if (evidence === "registry") f.state.registry = true;
+    if (evidence === "tag" || evidence === "release") f.state.tag = f.e.pr.mergedSha;
+    if (evidence === "release") f.state.release = true;
+    if (evidence === "outage") f.state.registryUnavailable = true;
+    await assert.rejects(runReleaseContinuation("probe"));
+    assertIntentRetained(f);
+  });
+  await withAdapter(async f => {
+    process.env.RELEASE_CONFIG = '{"node-version":"26"}'; process.env.TRIGGER_SHA = "9".repeat(40);
+    await runReleaseContinuation("probe");
+    assert.match(readFileSync(join(f.root, "output"), "utf8"), /pending=true/);
+    assertIntentRetained(f);
+  });
+});
+
+test("open config retirement refuses a failed auto-merge disable before changing durable intent", async () => {
+  await withAdapter(async f => {
+    setMergeState(f, false);
+    process.env.RELEASE_CONFIG = '{"node-version":"26"}';
+    writeFileSync(join(f.root, "gh"), "#!/bin/sh\nexit 7\n");
+    await assert.rejects(runReleaseContinuation("probe"));
+    assertIntentRetained(f);
+  });
+});
+
+test("contents-read policy exposes all required apps without administration and refuses missing or ruleset evidence", () => {
+  const previous = process.env.GITHUB_REPOSITORY; process.env.GITHUB_REPOSITORY = "example/package";
+  try {
+    const valid = protectionFixture(); assert.deepEqual(valid.read().states, ["SUCCESS", "SUCCESS"]);
+    assert.ok(valid.calls.some(args => args[1].endsWith("/branches/main")));
+    assert.ok(valid.calls.every(args => !args.some(arg => /branchProtectionRule|\/protection/.test(arg))));
+    for (const app of [null, -1, 7]) { valid.branch.protection.required_status_checks.checks[0].app_id = app; assert.equal(valid.read().states[0], "SUCCESS"); }
+    for (const change of [
+      (f: ReturnType<typeof protectionFixture>) => { f.branch.name = "foreign"; },
+      (f: ReturnType<typeof protectionFixture>) => { f.branch.protected = false; },
+      (f: ReturnType<typeof protectionFixture>) => { f.branch.protection.enabled = false; },
+      (f: ReturnType<typeof protectionFixture>) => { f.branch.protection.required_status_checks.enforcement_level = "off"; },
+      (f: ReturnType<typeof protectionFixture>) => { Reflect.deleteProperty(f.branch.protection, "required_status_checks"); },
+      (f: ReturnType<typeof protectionFixture>) => { Object.assign(f.branch.protection.required_status_checks, { contexts: null }); },
+      (f: ReturnType<typeof protectionFixture>) => { Object.assign(f.branch.protection.required_status_checks, { checks: null }); },
+      (f: ReturnType<typeof protectionFixture>) => { f.branch.protection.required_status_checks.checks = []; },
+      (f: ReturnType<typeof protectionFixture>) => { f.branch.protection.required_status_checks.checks[0].context = ""; },
+      (f: ReturnType<typeof protectionFixture>) => { f.branch.protection.required_status_checks.checks[0].app_id = -2; },
+      (f: ReturnType<typeof protectionFixture>) => { f.branch.protection.required_status_checks.contexts.push("missing"); },
+      (f: ReturnType<typeof protectionFixture>) => { f.branch.protection.required_status_checks.contexts = ["CI"]; },
+      (f: ReturnType<typeof protectionFixture>) => { f.state.rules = {}; },
+      (f: ReturnType<typeof protectionFixture>) => { f.state.rules = [{ type: "required_status_checks" }]; },
+      (f: ReturnType<typeof protectionFixture>) => { f.pr.baseRefName = "foreign"; },
+      (f: ReturnType<typeof protectionFixture>) => { f.pr.reviewDecision = "unknown"; },
+      (f: ReturnType<typeof protectionFixture>) => { f.nodes[0].name = "unrepresented"; },
+      (f: ReturnType<typeof protectionFixture>) => { f.pr.commits.nodes = []; },
+    ]) { const f = protectionFixture(); change(f); assert.throws(f.read, /incomplete/); }
+  } finally { if (previous === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = previous; }
+});
+
+test("a changed receipt cannot hide an earlier bot publication attempt during config retirement", async () => {
+  await withAdapter(async f => {
+    const original = releaseDigest(JSON.stringify(f.c));
+    f.state.comments.push({ user: { login: "github-actions[bot]" }, body: `<!-- pm-ops-publication-v1\n${JSON.stringify({ candidate: original })}\n-->` });
+    f.c.configDigest = "9".repeat(64); f.pr.body = candidateBody(f.receipt);
+    await assert.rejects(runReleaseContinuation("probe"), /attempt identity disagrees/);
+    assertIntentRetained(f);
+    assert.equal(f.state.comments.length, 1);
+  });
 });

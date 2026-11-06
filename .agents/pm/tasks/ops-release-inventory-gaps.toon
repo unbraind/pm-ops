@@ -6,12 +6,16 @@ status: open
 priority: 2
 tags: []
 created_at: "2026-10-19T14:35:30.174Z"
-updated_at: "2026-11-06T09:07:32.378Z"
+updated_at: "2026-11-06T11:57:42.452Z"
 author: codex-agent
-comments[3]{created_at,author,text}:
+comments[4]{created_at,author,text}:
   "2026-11-06T04:54:11.196Z",codex-sol,"Refreshed read-only inventory is in docs/release-migration.md: 34 package copies at recorded checkout heads, including pm-memory. Remaining migration prerequisites include the missing pm-context release:notes script, preserved approval/manual-only guards, package-specific workflow-shape tests, pm-vcs binary bundle disposition and representative Rust/Postgres callers. The release-continuation implementation only pilots pm-ops; live trusted-publisher/event acceptance, account-wide admission fixtures and the post-window measurements remain with the fleet rollout owner."
   "2026-11-06T07:24:55.482Z",codex-agent,"Additional rollout evidence: canonical tags through v2026.10.19 predate daily-release.yml, so the legacy checker compatibility exception certifies the tag pin, not existence of a reusable workflow at those old commits. The migration docs already require checking workflow existence at the selected released SHA. Preserve that prerequisite in the wave tooling; a later checker enhancement can add explicit missing-workflow refusal without conflating it with this review round permission fix."
   "2026-11-06T09:07:32.378Z",codex-agent,"Round 2 adds a validated .github/pm-release-candidate.json preparation stamp so fresh protected release PRs remain possible when version/changelog metadata is already on main. In the remaining fleet wave, verify that required CI also runs for a metadata-only replacement PR and that package file/staging policies accept the stamp. The shared request path reuses an old branch only through its freshly verified retired merged bot PR and existing force-with-lease. This is a migration prerequisite; no other package repository was edited."
+  "2026-11-06T11:57:34.705Z",codex-agent,"Read-only migration prerequisite: a local npm 11.17.0 fixture packed a synthetic Git package and read its manifest through the same pacote fullReadJson path used by tarball publication. Directory metadata had gitHead; the exact tarball metadata did not. No publish was attempted. The independent completeness-repair adapter in release-repair.ts currently requires metadata.gitHead, so repair after a candidate receipt was retired or lost can refuse these publications. Complete tag/npm/Release triples skip that path, and active-candidate continuation already uses its own exact source/artifact proof. Before the fleet wave, add a verified source-and-byte fallback for missing gitHead with legacy must-allow and mismatch must-refuse regressions. This is a separate audit-repair compatibility follow-up, not permission to publish or alter existing releases."
+files[2]{path,scope}:
+  release-repair.ts,project
+  test/release-repair.test.ts,project
 docs[2]{path,scope}:
   docs/release-migration.md,project
   docs/reusable-release.md,project
