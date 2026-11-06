@@ -6,8 +6,11 @@ status: open
 priority: 2
 tags: []
 created_at: "2026-10-19T14:35:30.174Z"
-updated_at: "2026-10-19T14:35:42.456Z"
+updated_at: "2026-11-06T04:54:15.981Z"
 author: codex-agent
-docs[1]{path,scope}:
+comments[1]{created_at,author,text}:
+  "2026-11-06T04:54:11.196Z",codex-sol,"Refreshed read-only inventory is in docs/release-migration.md: 34 package copies at recorded checkout heads, including pm-memory. Remaining migration prerequisites include the missing pm-context release:notes script, preserved approval/manual-only guards, package-specific workflow-shape tests, pm-vcs binary bundle disposition and representative Rust/Postgres callers. The release-continuation implementation only pilots pm-ops; live trusted-publisher/event acceptance, account-wide admission fixtures and the post-window measurements remain with the fleet rollout owner."
+docs[2]{path,scope}:
+  docs/release-migration.md,project
   docs/reusable-release.md,project
 body: ""

@@ -32,6 +32,12 @@ test("caller requires the alert job issues-write permission even without an aler
   }
 });
 
+test("caller permits checks-read for continuation and refuses checks-write while retaining older caller compatibility", () => {
+  assert.deepEqual(checkReleaseCaller(caller), []);
+  assert.ok(checkReleaseCaller(caller.replace("checks: read", "checks: write")).some(error => error.includes("permissions")));
+  assert.deepEqual(checkReleaseCaller(caller.replace("      checks: read\n", "")), []);
+});
+
 test("online provenance paginates canonical refs, peels nested annotated tags and refuses malformed or cyclic objects", () => {
   const tag = "b".repeat(40), nested = "c".repeat(40), sha = "d".repeat(40);
   const calls: string[][] = [];

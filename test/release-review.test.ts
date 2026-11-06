@@ -51,7 +51,7 @@ esac
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("both release selectors resolve only complete threads from explicitly trusted Bot accounts", () => {
+test("the shared release selector resolves only complete threads from explicitly trusted Bot accounts", () => {
   const trusted = ["sourcery-ai", "cubic-dev-ai", "coderabbitai"];
   /** Build one fetched comment, including unavailable author identities. */
   const comment = (login: string | null, type = "Bot") => ({ author: login === null ? null : { login, __typename: type } });
@@ -71,7 +71,7 @@ test("both release selectors resolve only complete threads from explicitly trust
   const input = JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: cases.map(fixture => ({
     id: fixture.id, isResolved: fixture.isResolved, comments: { totalCount: fixture.count, nodes: fixture.authors },
   })) } } } } });
-  for (const file of ["daily-release.yml", "release.yml"]) {
+  for (const file of ["daily-release.yml"]) {
     const filter = /--jq '(\.data\.repository\.pullRequest\.reviewThreads[\s\S]*?)'/.exec(read(`.github/workflows/${file}`))?.[1];
     assert.ok(filter, `missing review selector in ${file}`);
     const result = spawnSync("jq", ["-r", filter], { input, encoding: "utf8" });

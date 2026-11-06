@@ -130,7 +130,8 @@
     "verify:release-completeness": "node scripts/verify-release-completeness.ts",
     "verify:lifecycle-policy": "node scripts/verify-lifecycle-policy.ts",
     "accept:packed": "node test/packed-consumer.acceptance.ts",
-    "release-caller": "node scripts/release-caller.ts"
+    "release-caller": "node scripts/release-caller.ts",
+    "release:audit": "npm run verify:release-completeness -- --repair"
   },
   "dependencies": {
     "@toon-format/toon": "^4.1.0",

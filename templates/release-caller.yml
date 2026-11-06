@@ -3,6 +3,7 @@ name: Daily Release
 on:
   schedule:
     - cron: "23 3 * * *"
+    - cron: "41 * * * *"
   workflow_dispatch:
 permissions: {}
 jobs:
@@ -11,6 +12,9 @@ jobs:
       contents: write
       pull-requests: write
       actions: write
+      checks: read
       id-token: write
       issues: write
     uses: unbraind/pm-ops/.github/workflows/daily-release.yml@0000000000000000000000000000000000000000 # v2026.10.19
+    with:
+      reconcile-only: ${{ github.event_name == 'schedule' && github.event.schedule == '41 * * * *' }}

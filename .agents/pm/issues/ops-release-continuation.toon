@@ -1,0 +1,33 @@
+id: ops-release-continuation
+title: Release continuation frees the runner while protected PR checks run
+description: "Implement pm-ops#249: durable candidate intent, hourly reconciliation and daily catch-up, protected auto-merge, owned supersession and the local caller pilot."
+type: Issue
+status: in_progress
+priority: 1
+tags[2]: "area:release","gh:unbraind/pm-ops#249"
+created_at: "2026-11-06T04:32:10.197Z"
+updated_at: "2026-11-06T05:14:26.857Z"
+assignee: codex-sol
+claim_principal: codex-sol
+author: codex-sol
+comments[5]{created_at,author,text}:
+  "2026-11-06T04:32:12.566Z",codex-sol,"Plan: persist the verified candidate before requesting protected squash auto-merge, then exit. An hourly caller and daily catch-up inspect intent without installing dependencies; only a trusted merged candidate enters publication. Serialize all caller events, bind candidate/artifact/run/config identities, and refuse ambiguous registry or provenance results. Full live pilot and account-wide admission evidence remain outside this task authorization; PR will use Refs #249. Run targeted tests, lint and typecheck locally; CI owns the full gate."
+  "2026-11-06T04:43:41.909Z",codex-sol,"Implementation now has a dependency-free TypeScript probe, versioned candidate receipt in the bot PR, immutable run artifact retained for 90 days, exact source/digest/config checks and a publication-attempt journal. The hourly path skips installs when no intent exists. Sixteen new focused state/adapter tests pass, including late CI, suppressed bot push, hostile identity, crash recovery and authoritative supersession. Migrating legacy workflow-shape tests to the shared implementation and documenting the read-only fleet inventory."
+  "2026-11-06T05:00:39.230Z",codex-sol,"Behavioral revert proofs ran in disposable copies only. Twenty paired regressions each failed with its relevant guard/transition reverted: runner-held merge loop, late CI, stale-base refresh, fork/foreign-branch/exact-head/artifact ownership, merged identity, trusted preparation, required protection, ambiguous publication attempt, live daily cap, downloaded bytes, receipt parsing/schema, authoritative supersession and hourly pilot wiring. Restoring the fixed implementation passed all 20 tests (11 decision + 9 adapter). Targeted package set passed 512 tests with zero failures/skips; lint, typecheck, build:test and docstrings passed; duplication is 0% across 125 sources. Focused release-continuation coverage is 100/100/100/100. Full npm/Bun release gates are delegated to PR CI as requested; no publication, merge, other-repository edit or hosted change was performed."
+  "2026-11-06T05:05:45.702Z",codex-sol,"Tightened native protection evidence: enumerate every required context and issuing app from the branch policy, bind the rollup to the exact PR head, and refuse missing/truncated policy evidence. The read-only native reader also succeeded against the existing release PR using the installed gh API transport, without newer checks JSON flags. Focused decision/adapter suite now passes 21/21; its added native-policy regression has a paired behavioral revert. Missing classic policy, moved main, expired artifacts and ambiguous registry absence remain explicit refusals; live publishing identity and fleet-wide capacity admission remain rollout work."
+  "2026-11-06T05:14:24.339Z",codex-sol,"Final local targeted command passed 513 tests with no failures or skips. The additional self-pilot resolver fixture passed and failed when its untagged-bootstrap behavior was reverted, bringing the behavioral proof set to 22. The 21 continuation regressions pass after restoration; focused decision coverage remains 100/100/100/100. Pinned pm linked tests (continuation, lint, typecheck) all passed. Canonical publish-attestation audit passed with the shared workflow as the single publisher. Ambient tracker health detects an existing globally discovered extension/CLI version skew; the isolated CI identity passed strict health with required merge drivers. The dependency pin is unchanged. Full npm/Bun gates await PR CI."
+files[6]{path,scope}:
+  .github/workflows/daily-release.yml,project
+  .github/workflows/release.yml,project
+  release-continuation.ts,project
+  scripts/release-continuation.ts,project
+  test/release-continuation-adapter.test.ts,project
+  test/release-continuation.test.ts,project
+tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/release-continuation.test.ts test/release-continuation-adapter.test.ts,project,codex-sol,"2026-11-06T04:54:32.726Z",local_mutation,release-continuation-without-runner-wait
+  npm run lint,project,codex-sol,"2026-11-06T05:00:42.538Z",local_mutation,release-continuation-without-runner-wait
+  npm run typecheck,project,codex-sol,"2026-11-06T05:00:47.039Z",local_mutation,release-continuation-without-runner-wait
+  node --test --test-concurrency=2 test/daily-release.test.ts test/daily-release-workflow.test.ts test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/release-review.test.ts test/release-workflow.test.ts test/compatibility-floor.test.ts test/third-party-publish-wrappers.test.ts test/release-caller.test.ts test/release-caller-attestation.test.ts,project,codex-sol,"2026-11-06T05:14:26.748Z",local_mutation,release-continuation-without-runner-wait
+docs[1]{path,scope}:
+  docs/release-migration.md,project
+body: ""

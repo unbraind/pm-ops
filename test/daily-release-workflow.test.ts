@@ -51,7 +51,7 @@ function writeProvenance(root: string, filename: string, statement: unknown): vo
 test("shared workflow grants permissions per job, pins actions, and gates every privileged run", () => {
   assert.deepEqual(Object.keys(workflow.on), ["workflow_call"]);
   assert.deepEqual(workflow.permissions, {});
-  assert.deepEqual(workflow.jobs.release.permissions, { contents: "write", "pull-requests": "write", actions: "write", "id-token": "write" });
+  assert.deepEqual(workflow.jobs.release.permissions, { contents: "write", "pull-requests": "write", actions: "read", checks: "read", "id-token": "write" });
   assert.deepEqual(workflow.jobs.prepare.permissions, { contents: "read", "pull-requests": "read" });
   assert.deepEqual(workflow.jobs.alert.permissions, { contents: "read", issues: "write" });
   assert.match(workflow.jobs.release.if, /inputs.release-enabled && github.ref == 'refs\/heads\/main'/);
@@ -105,17 +105,16 @@ test("caller template and migration examples cover the union of every nested job
 });
 
 test("publication continues only when trigger, merged main, package version, provenance and tag agree", () => {
-  assert.match(step("Continue at the published commit").run, /\$MERGED_SHA" != "\$TRIGGER_SHA/);
-  assert.match(step("Continue at the published commit").run, /gh workflow run/);
-  for (const name of ["Verify merged release", "Publish npm package", "Publish extra targets", "Push release tag"]) assert.match(step(name).if!, /steps.continue.outputs.ready == 'true'/);
-  assert.match(step("Verify merged release").run, /\$MERGED_SHA" == "\$TRIGGER_SHA/);
+  assert.match(step("Revalidate trusted merged candidate").run, /node "\$CONTINUATION_SCRIPT" verify/);
+  for (const name of ["Publish npm package", "Publish extra targets", "Push release tag"]) assert.match(step(name).if!, /steps.continue.outputs.action != 'complete'/);
+  assert.match(step("Verify merged release").env!.TRIGGER_SHA, /github.sha/);
   assert.deepEqual(workflow.jobs.verify_bun.permissions, { contents: "read" });
   assert.deepEqual(workflow.jobs.recover.permissions, { contents: "write" });
   assert.match(workflow.jobs.verify_bun.if, /needs.release.outputs.published == 'success'/);
   assert.match(workflow.jobs.verify_bun.if, /inputs.npm-publish && inputs.bun-verify/);
   assert.equal(step("Pack verified release").env?.BUN_VERIFY, "${{ inputs.npm-publish && inputs.bun-verify }}");
   assert.match(step("Verify bun install of published package").run, /bunx --bun --no-install pm health --strict-exit/);
-  assert.match(step("Publish npm package").run, /npm publish \.\/package\.tgz --access public --provenance --ignore-scripts/);
+  assert.match(step("Publish npm package").run, /npm publish \.\/release-artifact\/package\.tgz --access public --provenance --ignore-scripts/);
   assert.match(step("Publish npm package").run, /verifyPublishedProvenance/);
   assert.match(step("Pack verified release").run, /git diff --exit-code -- \./);
   assert.match(step("Pack verified release").run, /git status --porcelain=v1 --untracked-files=all/);
@@ -128,34 +127,19 @@ test("publication continues only when trigger, merged main, package version, pro
   assert.ok(steps.indexOf(step("Verify merged release")) < steps.indexOf(step("Publish npm package")));
 });
 
-test("superseded cleanup failure cannot block the release, and branch cleanup keeps its lease", () => {
-  const root = mkdtempSync(join(tmpdir(), "release-cleanup-"));
-  try {
-    const gh = join(root, "gh");
-    writeFileSync(gh, "#!/bin/sh\nprintf '%s\\n' 'synthetic close refusal' >&2\nexit 1\n");
-    chmodSync(gh, 0o755);
-    const result = runBashFixture(step("Close superseded release PRs").run, { env: { ...process.env, PATH: `${root}:${process.env.PATH}`, SUPERSEDED_PR_NUMBERS: "12 13", RELEASE_PR_NUMBER: "14", GITHUB_REPOSITORY: "example/package" }, encoding: "utf8" }, ["-e", "-o", "pipefail"]);
-    assert.equal(result.status, 0, result.stdout + result.stderr);
-    assert.match(result.stdout, /warning::Could not close superseded release PR #12/);
-    assert.match(result.stdout, /warning::Could not close superseded release PR #13/);
-    assert.match(step("Clean up merged release branch").run, /--force-with-lease=.*expected_sha/);
-    assert.match(step("Clean up merged release branch").run, /expected_sha="\$\(git rev-parse HEAD/);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+test("superseded cleanup delegates to authoritative ownership checks and merged branch deletion retains its lease", () => {
+  assert.match(step("Close superseded release PRs").run, /node "\$CONTINUATION_SCRIPT" supersede/);
+  assert.match(step("Clean up merged release branch").run, /--force-with-lease=.*expected_sha/);
+  assert.equal(step("Clean up merged release branch").env?.EXPECTED_HEAD, "${{ needs.reconcile.outputs.headSha }}");
 });
 
-test("release approval retries select only waiting CI runs on the prepared head", () => {
-  const merge = step("Merge release metadata through protected PR").run;
-  assert.match(merge, /actions\/runs\?head_sha=\$\{release_commit\}/);
-  const filter = /--jq '(\.workflow_runs\[\]\?[\s\S]*?)'/.exec(merge)?.[1];
-  assert.ok(filter);
-  const result = spawnSync("jq", ["-r", filter], { encoding: "utf8", input: JSON.stringify({ workflow_runs: [
-    { id: 1, name: "CI", conclusion: "action_required" },
-    { id: 2, name: "CI", status: "waiting" },
-    { id: 3, name: "Release", conclusion: "action_required" },
-    { id: 4, name: "CI", conclusion: "success" },
-  ] }) });
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout, "1\n2\n");
+test("release approval reads waiting CI once at the prepared head without a timeout diagnosis", () => {
+  const approve = step("Approve currently waiting release CI once").run;
+  assert.match(approve, /actions\/runs\?head_sha=\$\{RELEASE_COMMIT\}/);
+  assert.match(approve, /select\(\.name == "CI"\)/);
+  assert.match(approve, /conclusion=="action_required"/);
+  assert.doesNotMatch(approve, /sleep|deadline|30 minutes/);
+  assert.doesNotMatch(step("Merge release metadata through protected PR").run, /sleep|deadline|awaiting_approval/);
 });
 
 test("actual publication dates cap daily resumption as well as reviewed package versions", () => {
@@ -180,7 +164,7 @@ test("actual publication dates cap daily resumption as well as reviewed package 
 
 test("completeness audit follows release and recovery even on no-change days and exposes failures to alerting", () => {
   const audit = workflow.jobs.audit;
-  assert.deepEqual(audit.needs, ["prepare", "release", "recover", "verify_bun"]);
+  assert.deepEqual(audit.needs, ["prepare", "release", "recover", "verify_bun", "reconcile", "request"]);
   assert.match(audit.if, /^!cancelled\(\)/);
   assert.doesNotMatch(audit.if, /should_release|success\(\)|outcome/);
   assert.ok(workflow.jobs.alert.needs.includes("audit"));
@@ -195,9 +179,10 @@ test("completeness audit follows release and recovery even on no-change days and
 test("publish retries bind the local artifact and poll delayed attestations through the final read without republishing success", () => {
   const root = mkdtempSync(join(tmpdir(), "release-publish-poll-"));
   try {
-    mkdirSync(join(root, "release-handoff"));
+    mkdirSync(join(root, "release-artifact"));
+    writeFileSync(join(root, "attempt.ts"), "// Synthetic publication-attempt journal boundary.\n");
     const artifact = Buffer.from("synthetic verified artifact");
-    writeFileSync(join(root, "release-handoff/package.tgz"), artifact);
+    writeFileSync(join(root, "release-artifact/package.tgz"), artifact);
     writeFileSync(join(root, "package.json"), '{"name":"synthetic-package"}\n');
     const digest = createHash("sha512").update(artifact).digest();
     const integrity = `sha512-${digest.toString("base64")}`;
@@ -239,7 +224,7 @@ esac
       for (const file of ["publishes", "sleeps"]) writeFileSync(join(root, file), "");
       writeFileSync(join(root, "reads"), "0");
       const result = runBashFixture(step("Publish npm package").run, { cwd: root, encoding: "utf8", env: {
-        ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: root, HOME: root, NPM_CONFIG_USERCONFIG: join(root, "absent-config"),
+        ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: root, HOME: root, CONTINUATION_SCRIPT: join(root, "attempt.ts"), NPM_CONFIG_USERCONFIG: join(root, "absent-config"),
         NPM_VERSION: "2026.10.20", REGISTRY_METADATA: JSON.stringify({ integrity: fixture.integrity, attestations: { url: "https://registry.npmjs.org/synthetic" } }), METADATA_MODE: fixture.mode,
         VISIBLE_READ: String(fixture.visible), PUBLISH_STATUS: String(fixture.publish), PM_OPS_MODULE: new URL("../dist/daily-release.js", import.meta.url).pathname,
       } });
@@ -296,6 +281,17 @@ test("workflow version resolution peels annotated tags, normalizes dates and rej
         assert.equal(readFileSync(output, "utf8"), `PM_OPS_VERSION=${fixture.expected}\n`);
       } else assert.notEqual(result.status, 0, fixture.tags);
     }
+    // The self-pilot must release the first workflow version without a circular tag prerequisite.
+    const curl = join(root, "curl");
+    writeFileSync(curl, '#!/bin/sh\ncase "$*" in\n*"raw.githubusercontent.com/unbraind/pm-ops/$WORKFLOW_SHA/package.json") echo \'{"version":"2026.11.5"}\' ;;\n*) exit 9 ;;\nesac\n');
+    chmodSync(curl, 0o755);
+    writeFileSync(remote, ""); writeFileSync(output, "");
+    const self = runBashFixture(step("Resolve pm-ops release version").run, { encoding: "utf8", env: { ...process.env,
+      PATH: `${root}:${process.env.PATH}`, GITHUB_REPOSITORY: "unbraind/pm-ops", TAG_FIXTURE: remote, WORKFLOW_SHA: sha,
+      GITHUB_ENV: output, GITHUB_OUTPUT: join(root, "step-output"),
+    } });
+    assert.equal(self.status, 0, self.stdout + self.stderr);
+    assert.equal(readFileSync(output, "utf8"), "PM_OPS_VERSION=2026.11.5\n");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -344,7 +340,7 @@ test("pack guard refuses leftover untracked outputs anywhere in the package befo
     writeFileSync(join(root, "package.json"), '{"name":"example"}\n');
     execFileSync("git", ["add", "package.json"], { cwd: root });
     execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "Initial"], { cwd: root });
-    const guard = step("Pack verified release").run.split('handoff="$(mktemp')[0];
+    const guard = step("Pack verified release").run.split('handoff=')[0];
     /** Run exactly the workflow pre-pack guards without any pack/publication effects. */
     const check = () => runBashFixture(guard, { cwd: root, encoding: "utf8", env: { ...process.env, NPM_PROJECT_PATH: root } });
     assert.equal(check().status, 0);

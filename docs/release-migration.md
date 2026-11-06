@@ -1,0 +1,96 @@
+# Release continuation and fleet migration
+
+The pm-ops pilot is .github/workflows/release.yml: a local call to the shared workflow at the same trusted commit, daily at 03:23 UTC and reconciliation-only at minute 41 hourly. No other package is modified. The existing npm trusted-publisher caller filename remains release.yml. Live publication is deliberately not exercised by this implementation PR.
+
+## Event and state contract
+
+Preparation verifies npm/Bun and package-owned changelog hooks, captures one package tarball and notes, uploads an immutable Actions artifact for 90 days, and writes a versioned pm-ops-candidate-v1 receipt into the verified bot PR BEFORE requesting protected squash auto-merge. The receipt records repository/default branch, exact base/head/tree, version/tag/package, SHA-256 and SHA-512 tarball digests, notes digest, caller configuration digest, source run/attempt and immutable artifact ID. Bot PR body ownership is insufficient by itself: publication compares the receipt byte-for-byte with candidate.json from the trusted main preparation run.
+
+The hourly schedule and daily catch-up discover that receipt even if GITHUB_TOKEN suppresses the merge push event. An empty hourly run executes one short job with a five-minute upper bound and no npm install. Open PRs retain their receipt without waiting. A stale base permits daily refresh; the workflow disables existing auto-merge before refreshing the leased head and records the successor candidate before re-enabling it. Duplicate schedules/manual retries are serialized by the reusable daily-release concurrency group, with at most one pending candidate admitted per repository. Multiple pending receipts are refused explicitly. This is repository admission; account-wide capacity reservation/staggering remains with the existing fleet owner.
+
+Every merged continuation re-reads repository/default branch, same-repository bot PR and release date branch, exact head and squash-merge parents/tree, successful main preparation run and artifact identity, the complete required-context/app policy and exact-head checks/reviews, caller inputs, package coordinate, remote tag/Release and live registry provenance. Missing, skipped, failed, truncated or unreadable proof refuses publication. A missing classic branch-protection policy is an explicit refusal; packages using a different ruleset model need a reviewed adapter before migration. The publisher downloads by immutable artifact ID and verifies candidate, tarball and notes bytes before using any package hook. Workflow trigger SHA must equal the merged default-branch commit for npm provenance. If main advances again, publication explicitly refuses; reconcile the approved source/coordinate with a maintainer instead of relabeling provenance.
+
+The publisher records a bot attempt comment before npm publish, publishes ./release-artifact/package.tgz with OIDC/provenance and disabled lifecycle scripts, and verifies registry-served source/digest agreement before completing tag/Release creation. Verified npm publication resumes tag/Release repair without publishing again. A recorded attempt followed by registry absence is ambiguous: later hourly reads can reconcile visibility, but must not automatically repeat publication. A pre-request crash can therefore need a maintainer to inspect and authorize recovery. A completed npm/tag/Release triplet clears the pending receipt only after fresh verification. Expired artifacts, failed source runs, changed inputs or inconsistent publication evidence produce an explicit refusal and preserve the receipt. Optional extra publication/post-release hooks remain package-owned and need their own retry safety when a fleet package uses them.
+
+Daily cap checks use live GitHub Release timestamps and npm publication timestamps in the configured timezone, including releases that resume an older version. Recovery of an already verified publication does not consume another npm publication. The old runner-held 30-minute merge deadline and stale workflow-approval timeout diagnosis are gone. A single current-head CI approval attempt may run on each hourly pass; an actual approval refusal remains visible without a timeout claim.
+
+GitHub documents [GITHUB_TOKEN event suppression](https://docs.github.com/en/actions/concepts/security/github_token#when-github_token-triggers-workflow-runs) and [default-branch scheduled workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule). npm documents that [reusable trusted publishing validates the caller workflow identity](https://docs.npmjs.com/trusted-publishers/). Keep the existing caller filename and obtain the normal explicit approval for any publisher identity/permission changes.
+
+## Exact caller template
+
+After the orchestrator releases this change, replace BOTH the zero SHA and tag comment below with that canonical tag's peeled commit and exact tag spelling. No released SHA containing this implementation exists during this PR. Dependabot's github-actions ecosystem owns later SHA updates. Preserve each package's existing daily slot and approval expression; stagger new hourly slots during the controlled fleet wave. Do not add a caller-level daily-release concurrency group.
+
+```yaml
+name: Daily Release
+on:
+  schedule:
+    - cron: "23 3 * * *"
+    - cron: "41 * * * *"
+  workflow_dispatch:
+permissions: {}
+jobs:
+  release:
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+      checks: read
+      id-token: write
+      issues: write
+    uses: unbraind/pm-ops/.github/workflows/daily-release.yml@0000000000000000000000000000000000000000 # REPLACE_WITH_CANONICAL_TAG
+    with:
+      reconcile-only: ${{ github.event_name == 'schedule' && github.event.schedule == '41 * * * *' }}
+```
+
+Keep defaults npm-project-dir: '.', node-version: 22.18.0, release-timezone: Europe/Vienna, build-script: build, verify-script: release:check, changelog-script: changelog:full, changelog-check-script: changelog:check, notes-script: release:notes, npm-publish: true and bun-verify: true unless the inventory below names an exception. Existing scripts retain pm-changelog as the generator; no shared changelog implementation replaces them. Add missing named hooks inside each future package migration, then replace its local workflow-shape tests with caller/input assertions while retaining its gate names. Upgrade its pm-ops dependency through Dependabot before using the new caller checker. Checks-read is the additional permission needed to inspect protected-check evidence; the reusable jobs reduce the caller ceiling individually.
+
+## Read-only copy inventory
+
+Read every fleet package release copy and package script declaration at the following checkout heads on 2026-11-06. These are source receipts, not live release or default-branch certification. Unlisted inputs use the defaults above. The upstream CLI is outside this package migration.
+
+| Package and source head | Package inputs and migration prerequisites |
+| --- | --- |
+| [pm-ado](https://github.com/unbraind/pm-ado/blob/cd9435e9ca3a83e898af8ee99ee4e17a5dc6f758/.github/workflows/release.yml) `cd9435e9ca3a` | Keep `release-enabled: ${{ vars.PM_RELEASE_APPROVED == 'true' }}`. Keep existing repository identity and `release-enabled: ${{ vars.PM_RELEASE_APPROVED == 'true' }}` guard. |
+| [pm-beads](https://github.com/unbraind/pm-beads/blob/f692241f4c2e7a50f70934d4b017ad3ff485d7d5/.github/workflows/release.yml) `f692241f4c2e` | Default npm inputs. Add package script `release:alert` for the existing alert adapter and set `alert-script: release:alert`. |
+| [pm-brand](https://github.com/unbraind/pm-brand/blob/aec809cdf57a1abb62532005abb0b1885e1720e3/.github/workflows/release.yml) `aec809cdf57a` | Keep repository identity and approval guard; `version-policy: package`; reviewed-version changelog semantics need a dedicated fixture before rollout. |
+| [pm-brief](https://github.com/unbraind/pm-brief/blob/a4f119790afdff49640529bf548f287cc60ec145/.github/workflows/release.yml) `a4f119790afd` | Default npm inputs. Add package script `release:alert` for the existing alert adapter and set `alert-script: release:alert`. |
+| [pm-changelog](https://github.com/unbraind/pm-changelog/blob/5990495f971225318e7b2cab7f3ef6faef61c8ca/.github/workflows/release.yml) `5990495f9712` | `node-version: "22.18.0"`; retain self-hosted `changelog:full`, `changelog:check` and `release:notes`; preserve the existing `17 3 * * *` daily slot. |
+| [pm-context](https://github.com/unbraind/pm-context/blob/800b5af548ec1e7f765c4a441316c147eca2a8f7/.github/workflows/release.yml) `800b5af548ec` | Default npm inputs. Add package script `release:alert` for the existing alert adapter and set `alert-script: release:alert`. Add missing package-owned script(s): `release:notes`. |
+| [pm-csv](https://github.com/unbraind/pm-csv/blob/43eb095062f0f25aa25302af6b39a94972c63c31/.github/workflows/release.yml) `43eb095062f0` | Default npm inputs. Add package script `release:alert` for the existing alert adapter and set `alert-script: release:alert`. |
+| [pm-evidence](https://github.com/unbraind/pm-evidence/blob/1435931270505fb81cbafa84141269a43285dfc6/.github/workflows/release.yml) `143593127050` | Default npm inputs. Keep existing repository identity and `release-enabled: ${{ vars.PM_RELEASE_APPROVED == 'true' }}` guard. |
+| [pm-gantt-chart](https://github.com/unbraind/pm-gantt-chart/blob/3a7dedc16883c8d31a0627277b1b45e973a3c652/.github/workflows/release.yml) `3a7dedc16883` | Default npm inputs. Add package script `release:alert` for the existing alert adapter and set `alert-script: release:alert`. |
+| [pm-github](https://github.com/unbraind/pm-github/blob/459677e1dce6d0461ccfb66c8c3fc7bc383c7fb6/.github/workflows/release.yml) `459677e1dce6` | Default npm inputs. |
+| [pm-glossary](https://github.com/unbraind/pm-glossary/blob/a2edd34d706ff8eedff834fa6ae800dcfb0670c7/.github/workflows/release.yml) `a2edd34d706f` | Default npm inputs. Keep existing repository identity and `release-enabled: ${{ vars.PM_RELEASE_APPROVED == 'true' }}` guard. Preserve daily slot `37 5 * * *`. |
+| [pm-graph](https://github.com/unbraind/pm-graph/blob/6b19bc2b111f285cf79bb2c96e9fe4f8ddbd6ef5/.github/workflows/release.yml) `6b19bc2b111f` | Default npm inputs. |
+| [pm-http](https://github.com/unbraind/pm-http/blob/1dc6a4d7c8252d61eeb59478051ca040b9bfd13a/.github/workflows/release.yml) `1dc6a4d7c825` | No automatic schedule at inspection; keep `release-enabled: ${{ vars.PM_HTTP_RELEASE_ENABLED == 'true' }}` and manual-only admission until separately approved. |
+| [pm-hypothesis](https://github.com/unbraind/pm-hypothesis/blob/8f7e0642beba62c6627547bf278265032845bc5d/.github/workflows/release.yml) `8f7e0642beba` | No automatic schedule at inspection; keep `release-enabled: ${{ vars.PM_HYPOTHESIS_RELEASE_ENABLED == 'true' }}` and manual-only admission until separately approved. |
+| [pm-jev](https://github.com/unbraind/pm-jev/blob/7e34379ee2bc37dc2b6930cc3ed7cd04270941b7/.github/workflows/release.yml) `7e34379ee2bc` | Default npm inputs. Keep existing repository identity and `release-enabled: ${{ vars.PM_RELEASE_APPROVED == 'true' }}` guard. |
+| [pm-jira](https://github.com/unbraind/pm-jira/blob/c620edd63ec36857956ef69ecb923a751c39226c/.github/workflows/release.yml) `c620edd63ec3` | `prepare-script: release:update-version`. |
+| [pm-linear](https://github.com/unbraind/pm-linear/blob/c86c66927d36d4625395f69076e85bf7d7f2dd51/.github/workflows/release.yml) `c86c66927d36` | Default npm inputs. |
+| [pm-lint](https://github.com/unbraind/pm-lint/blob/14edfa7ab829f70a814c83bae6b43bd6b980a38b/.github/workflows/release.yml) `14edfa7ab829` | Default npm inputs. Keep existing repository identity and `release-enabled: ${{ vars.PM_RELEASE_APPROVED == 'true' }}` guard. |
+| [pm-memory](https://github.com/unbraind/pm-memory/blob/e5a55dc352fed05cb86d649c78ba7f43eaa10495/.github/workflows/release.yml) `e5a55dc352fe` | Default npm inputs. Keep existing repository identity and `release-enabled: ${{ vars.PM_RELEASE_APPROVED == 'true' }}` guard. |
+| [pm-ops](https://github.com/unbraind/pm-ops/blob/c282fa9d8297d431dc6366081bad59efb668b2be/.github/workflows/release.yml) `c282fa9d8297` | Local self-call pilot; `audit-script: release:audit` (the existing verifier with explicit `--repair`). |
+| [pm-presets](https://github.com/unbraind/pm-presets/blob/ad929b576e88d869305e969ac8d05ff8f0b63ff0/.github/workflows/release.yml) `ad929b576e88` | Default npm inputs. |
+| [pm-review](https://github.com/unbraind/pm-review/blob/c1d3e7ad042cfda51a0e05266b9865d667b4f846/.github/workflows/release.yml) `c1d3e7ad042c` | Default npm inputs. Keep existing repository identity and `release-enabled: ${{ vars.PM_RELEASE_APPROVED == 'true' }}` guard. |
+| [pm-rl](https://github.com/unbraind/pm-rl/blob/962ac059ab8f6f8382dc93b1bc814cdc84b46fa8/.github/workflows/release.yml) `962ac059ab8f` | Default npm inputs. Keep existing repository identity and `release-enabled: ${{ vars.PM_RELEASE_APPROVED == 'true' }}` guard. |
+| [pm-rlm](https://github.com/unbraind/pm-rlm/blob/b1fe01e2271abbbea9f8be554d4e4b135063cd7a/.github/workflows/release.yml) `b1fe01e2271a` | Default npm inputs. Keep existing repository identity and `release-enabled: ${{ vars.PM_RELEASE_APPROVED == 'true' }}` guard. |
+| [pm-rust](https://github.com/unbraind/pm-rust/blob/a4e9e18ea2aec4aab08a662252c5f664ea95d720/.github/workflows/release.yml) `a4e9e18ea2ae` | Keep approval guard; `rust: true`, `rust-toolchain: "1.90.0"`, `rust-nightly: nightly-2026-08-06`, `node-version: "26"`, `npm-publish: false`, `bun-verify: false`; preserve the just recipes and crate-specific tests. |
+| [pm-slack](https://github.com/unbraind/pm-slack/blob/edc837f2a283adc023a282769dc9e3d808604cf8/.github/workflows/release.yml) `edc837f2a283` | Default npm inputs. |
+| [pm-slack-standup](https://github.com/unbraind/pm-slack-standup/blob/789149e30cf9ce532cbea481d2d85edf84a5ffe0/.github/workflows/release.yml) `789149e30cf9` | Default npm inputs. |
+| [pm-starter](https://github.com/unbraind/pm-starter/blob/59fd7b56eb25cd5feb3b37f803c41560c98d1c09/.github/workflows/release.yml) `59fd7b56eb25` | Default npm inputs. |
+| [pm-swarm](https://github.com/unbraind/pm-swarm/blob/669600439e580bca7335869d4bc8de8bafae8d80/.github/workflows/release.yml) `669600439e58` | Default npm inputs. Keep existing repository identity and `release-enabled: ${{ vars.PM_RELEASE_APPROVED == 'true' }}` guard. |
+| [pm-todos](https://github.com/unbraind/pm-todos/blob/14b545e8212088d0962e8315ea6d2054272295a8/.github/workflows/release.yml) `14b545e82120` | `prepare-script: release:update-version`. |
+| [pm-ts-starter](https://github.com/unbraind/pm-ts-starter/blob/d843eab56cd4255bd1f7dfae8639960325aa09a9/.github/workflows/release.yml) `d843eab56cd4` | Default npm inputs. |
+| [pm-unit](https://github.com/unbraind/pm-unit/blob/7b4ae62576b8ec1bd394d05ccd6fd87aee2bbe5d/.github/workflows/release.yml) `7b4ae62576b8` | Default npm inputs. Keep existing repository identity and `release-enabled: ${{ vars.PM_RELEASE_APPROVED == 'true' }}` guard. Preserve daily slot `37 5 * * *`. |
+| [pm-vcs](https://github.com/unbraind/pm-vcs/blob/131dc3a6ff15ab3d127611f041b5385e5d54257e/.github/workflows/release.yml) `131dc3a6ff15` | Keep repository identity and approval guard. Existing `self-host:write` commits a bundle: agree a package-owned text-provenance/asset hook before migration; do not copy binary commits. Retain self-host acceptance in `release:check`. |
+| [pm-web](https://github.com/unbraind/pm-web/blob/8d25431b49aba243c55ac8bf82f22c63b49e9ab5/.github/workflows/release.yml) `8d25431b49ab` | `postgres: true`; preserve the existing `41 3 * * *` daily slot. The gate owns synthetic DB setup; no hosted services are involved. |
+
+## Rollout, rollback and evidence still required
+
+This PR uses Refs #249. Before a wider rollout the orchestrator must complete a real normal-npm pilot's event route, protected auto-merge and npm trusted-publisher identity checks, then the representative Rust/Postgres/self-host cases. This task does not authorize publication, new credentials, publisher setting changes, merges or edits to other repositories.
+
+The existing fleet owner retains account-wide capacity snapshots/reservations, simultaneous-dispatcher and stale/partial-snapshot admission tests, bounded cross-repository pending work, staggered waves, preservation of current-head CI/push/schedule/release runs, and the account recheck one hour after the release window. Do not call repository serialization an account-wide admission policy.
+
+Measure runner-held PR-wait minutes (source objective: zero), queue time, actual execution time and release completion separately. No live timing or core feedback-time improvement is claimed from fixtures.
+
+Rollback the local caller migration through a reviewed revert. Keep candidate artifacts and receipts; disable fresh admission while reconciling pending work. Never fall back to publishing from an old PR artifact, force a tag, remove an ambiguous publication journal or bypass the protection checks. If the old workflow must be restored, reconcile its outstanding intent first so two release implementations cannot race.

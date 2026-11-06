@@ -92,7 +92,8 @@ export function inspectReleaseCaller(source, resolveTags = defaultCanonicalTagRe
         }
         const permissions = mapping(job.permissions);
         if (["contents", "pull-requests", "actions", "id-token", "issues"].some(key => permissions[key] !== "write")
-            || Object.keys(permissions).some(key => !["contents", "pull-requests", "actions", "id-token", "issues"].includes(key))) {
+            || Object.keys(permissions).some(key => !["contents", "pull-requests", "actions", "id-token", "issues", "checks"].includes(key))
+            || ("checks" in permissions && permissions.checks !== "read")) {
             errors.push("caller must grant only the reusable workflow permissions at job level");
         }
         const inputs = mapping(job.with);

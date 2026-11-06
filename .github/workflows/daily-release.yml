@@ -1,5 +1,4 @@
-# Derived from pm-github PR #152 at 14b533a3dc944b245af6787628883e475446800b.
-# Read-only preparation hands verified artifacts to protected publication.
+# Durable release intent frees its runner before protected PR checks complete.
 name: Reusable daily release
 on:
   workflow_call:
@@ -119,13 +118,95 @@ on:
         type: string
         required: false
         default: daily
+      reconcile-only:
+        description: "Hourly recovery only: inspect durable intent without admitting a new release"
+        type: boolean
+        required: false
+        default: false
 permissions: {}
 concurrency:
   group: daily-release
   cancel-in-progress: false
 jobs:
-  prepare:
+  reconcile:
     if: inputs.release-enabled && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: write
+      checks: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_CONFIG: ${{ toJSON(inputs) }}
+      CALLER_WORKFLOW: ${{ github.workflow_ref }}
+      TRIGGER_SHA: ${{ github.sha }}
+      RELEASE_TIMEZONE: ${{ inputs.release-timezone }}
+      NPM_PROJECT_DIR: ${{ inputs.npm-project-dir }}
+      IS_RUST: ${{ inputs.rust }}
+    outputs:
+      action: ${{ steps.probe.outputs.action }}
+      pending: ${{ steps.probe.outputs.pending }}
+      receipt: ${{ steps.probe.outputs.receipt }}
+      pr_number: ${{ steps.probe.outputs.pr_number }}
+      merged_sha: ${{ steps.probe.outputs.merged_sha }}
+      artifact_id: ${{ steps.probe.outputs.artifact_id }}
+      schema: ${{ steps.probe.outputs.schema }}
+      repository: ${{ steps.probe.outputs.repository }}
+      defaultBranch: ${{ steps.probe.outputs.defaultBranch }}
+      baseSha: ${{ steps.probe.outputs.baseSha }}
+      headSha: ${{ steps.probe.outputs.headSha }}
+      tree: ${{ steps.probe.outputs.tree }}
+      version: ${{ steps.probe.outputs.version }}
+      tag: ${{ steps.probe.outputs.tag }}
+      packageName: ${{ steps.probe.outputs.packageName }}
+      packageSha256: ${{ steps.probe.outputs.packageSha256 }}
+      packageIntegrity: ${{ steps.probe.outputs.packageIntegrity }}
+      notesSha256: ${{ steps.probe.outputs.notesSha256 }}
+      cliVersion: ${{ steps.probe.outputs.cliVersion }}
+      opsVersion: ${{ steps.probe.outputs.opsVersion }}
+      runId: ${{ steps.probe.outputs.runId }}
+      runAttempt: ${{ steps.probe.outputs.runAttempt }}
+      workflow: ${{ steps.probe.outputs.workflow }}
+      configDigest: ${{ steps.probe.outputs.configDigest }}
+      npmPublish: ${{ steps.probe.outputs.npmPublish }}
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: ${{ inputs.node-version }}
+      - name: Checkout trusted continuation tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: unbraind/pm-ops
+          ref: ${{ job.workflow_sha }}
+          path: .pm-ops-release-tools
+          persist-credentials: false
+      - name: Locate trusted continuation tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mv "$GITHUB_WORKSPACE/.pm-ops-release-tools" "$RUNNER_TEMP/pm-ops-release-tools"
+          printf 'CONTINUATION_SCRIPT=%s/pm-ops-release-tools/scripts/release-continuation.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Reconcile durable release intent
+        id: probe
+        shell: bash
+        run: node "$CONTINUATION_SCRIPT" probe
+      - name: Approve currently waiting release CI once
+        if: steps.probe.outputs.action == 'pending'
+        shell: bash
+        env:
+          RELEASE_COMMIT: ${{ steps.probe.outputs.headSha }}
+        run: |
+          set -euo pipefail
+          pending_runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${RELEASE_COMMIT}&per_page=100" --jq '.workflow_runs[]? | select(.head_sha == "'"$RELEASE_COMMIT"'") | select(.conclusion=="action_required" or .status=="waiting") | select(.name == "CI") | .id')"
+          while IFS= read -r run_id; do
+            [[ -z "$run_id" ]] && continue
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/approve" >/dev/null || echo "::warning::Current CI approval was refused; inspect the linked PR."
+          done <<< "$pending_runs"
+  prepare:
+    if: inputs.release-enabled && github.ref == 'refs/heads/main' && !inputs.reconcile-only && needs.reconcile.outputs.pending == 'false'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -156,6 +237,10 @@ jobs:
       DATABASE_URL: ${{ inputs.postgres && 'postgres://postgres:test@127.0.0.1:55433/pmwebtest' || '' }}
       JWT_SECRET: ${{ inputs.postgres && 'pm-web-test-jwt-secret-at-least-32-bytes' || '' }}
       VERSION_POLICY: ${{ inputs.version-policy }}
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_CONFIG: ${{ toJSON(inputs) }}
+      CALLER_WORKFLOW: ${{ github.workflow_ref }}
+      TRIGGER_SHA: ${{ github.sha }}
     outputs:
       should_release: ${{ steps.decide.outputs.should_release }}
       tag: ${{ steps.decide.outputs.tag }}
@@ -171,6 +256,7 @@ jobs:
       package_name: ${{ steps.pack.outputs.package_name }}
       cli_version: ${{ steps.pack.outputs.cli_version }}
       ops_version: ${{ steps.ops_version.outputs.version }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
     steps:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
@@ -183,6 +269,14 @@ jobs:
         run: |
           set -euo pipefail
           [[ "${WORKFLOW_SHA}" =~ ^[a-f0-9]{40}$ ]] || { echo "::error::Cannot identify the reusable workflow commit from job.workflow_sha."; exit 1; }
+          # The self-caller bootstraps the first release of this workflow from trusted main.
+          if [[ "${GITHUB_REPOSITORY:-}" == unbraind/pm-ops ]]; then
+            PM_OPS_VERSION="$(curl --fail --silent --show-error --max-time 30 "https://raw.githubusercontent.com/unbraind/pm-ops/$WORKFLOW_SHA/package.json" | node -p 'JSON.parse(require("node:fs").readFileSync(0,"utf8")).version')"
+            [[ "$PM_OPS_VERSION" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+(-[0-9]+)?$ ]]
+            printf 'PM_OPS_VERSION=%s\n' "$PM_OPS_VERSION" >> "$GITHUB_ENV"
+            printf 'version=%s\n' "$PM_OPS_VERSION" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           remote_tags="$(git ls-remote --tags https://github.com/unbraind/pm-ops 'refs/tags/v*')" || { echo "::error::Cannot read pm-ops release tags; refusing an unverified install."; exit 1; }
           declare -A tag_commits=() peeled_commits=()
           while read -r sha ref; do
@@ -227,12 +321,28 @@ jobs:
           fetch-tags: true
           ref: main
           persist-credentials: false
+      - name: Checkout trusted continuation tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: unbraind/pm-ops
+          ref: ${{ job.workflow_sha }}
+          path: .pm-ops-release-tools
+          persist-credentials: false
+      - name: Locate trusted continuation tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mv "$GITHUB_WORKSPACE/.pm-ops-release-tools" "$RUNNER_TEMP/pm-ops-release-tools"
+          printf 'CONTINUATION_SCRIPT=%s/pm-ops-release-tools/scripts/release-continuation.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Refresh release base
         shell: bash
         run: |
           set -euo pipefail
           git fetch origin main --force
           git checkout --detach origin/main
+          [[ "$(git rev-parse HEAD)" == "$TRIGGER_SHA" ]] || { echo "::error::Default branch advanced; retry at its current head."; exit 1; }
+        env:
+          TRIGGER_SHA: ${{ github.sha }}
       - name: Validate package inputs
         shell: bash
         run: |
@@ -509,7 +619,8 @@ jobs:
           fi
           git diff --exit-code -- .
           [[ -z "$(git status --porcelain=v1 --untracked-files=all -- "$NPM_PROJECT_PATH")" ]]
-          handoff="$(mktemp -d "$RUNNER_TEMP/release-handoff.XXXXXX")"
+          handoff="$RUNNER_TEMP/release-artifact"
+          mkdir -p "$handoff"
           if [[ "$IS_RUST" != true ]]; then
             cd "$NPM_PROJECT_PATH"
             if git ls-files --error-unmatch 'dist/' >/dev/null 2>&1; then
@@ -534,21 +645,35 @@ jobs:
           printf 'commit=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           printf 'tree=%s\n' "$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
           printf 'handoff=%s\n' "$handoff" >> "$GITHUB_OUTPUT"
+      - name: Record immutable release candidate
+        if: steps.decide.outputs.should_release == 'true'
+        shell: bash
+        env:
+          RELEASE_BASE_SHA: ${{ steps.decide.outputs.base_sha }}
+          VERIFIED_COMMIT: ${{ steps.pack.outputs.commit }}
+          VERIFIED_TREE: ${{ steps.pack.outputs.tree }}
+          NPM_VERSION: ${{ steps.decide.outputs.npm_version }}
+          RELEASE_TAG: ${{ steps.decide.outputs.tag }}
+          PACKAGE_NAME: ${{ steps.pack.outputs.package_name }}
+          CLI_VERSION: ${{ steps.pack.outputs.cli_version }}
+          NPM_PUBLISH: ${{ inputs.npm-publish }}
+        run: node "$CONTINUATION_SCRIPT" manifest
       - name: Upload verified release
         if: steps.decide.outputs.should_release == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: verified-daily-release
+          name: verified-daily-release-${{ steps.pack.outputs.commit }}
           path: ${{ steps.pack.outputs.handoff }}/
           if-no-files-found: error
-          retention-days: 1
-  release:
+          retention-days: 90
+        id: upload
+    needs: reconcile
+  request:
     if: inputs.release-enabled && github.ref == 'refs/heads/main' && needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
-      actions: write
       id-token: write
     env:
       RELEASE_TIMEZONE: ${{ inputs.release-timezone }}
@@ -568,30 +693,39 @@ jobs:
       JWT_SECRET: ${{ inputs.postgres && 'pm-web-test-jwt-secret-at-least-32-bytes' || '' }}
       VERSION_POLICY: ${{ inputs.version-policy }}
       PM_OPS_VERSION: ${{ needs.prepare.outputs.ops_version }}
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_CONFIG: ${{ toJSON(inputs) }}
+      CALLER_WORKFLOW: ${{ github.workflow_ref }}
+      TRIGGER_SHA: ${{ github.sha }}
     steps:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: ${{ inputs.node-version }}
-      - name: Install pinned release tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          tool_dir="$(mktemp -d "${RUNNER_TEMP}/pm-ops.XXXXXX")"
-          npm install --prefix "$tool_dir" --ignore-scripts --legacy-peer-deps --no-package-lock "pm-ops@$PM_OPS_VERSION"
-          printf 'PM_OPS_MODULE=%s/node_modules/pm-ops/dist/daily-release.js\n' "$tool_dir" >> "$GITHUB_ENV"
-          printf 'PM_OPS_TOOLS=%s\n' "$tool_dir" >> "$GITHUB_ENV"
       - name: Checkout publishing base
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           fetch-tags: true
           ref: main
+      - name: Checkout trusted continuation tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: unbraind/pm-ops
+          ref: ${{ job.workflow_sha }}
+          path: .pm-ops-release-tools
+          persist-credentials: false
+      - name: Locate trusted continuation tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mv "$GITHUB_WORKSPACE/.pm-ops-release-tools" "$RUNNER_TEMP/pm-ops-release-tools"
+          printf 'CONTINUATION_SCRIPT=%s/pm-ops-release-tools/scripts/release-continuation.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Download verified release
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          name: verified-daily-release
-          path: ${{ runner.temp }}/release-handoff
+          name: verified-daily-release-${{ needs.prepare.outputs.commit }}
+          path: ${{ runner.temp }}/release-artifact
       - name: Verify artifact handoff
         shell: bash
         env:
@@ -600,12 +734,12 @@ jobs:
           PACKAGE_SHA256: ${{ needs.prepare.outputs.package_sha256 }}
         run: |
           set -euo pipefail
-          git bundle verify "$RUNNER_TEMP/release-handoff/metadata.bundle"
-          git fetch "$RUNNER_TEMP/release-handoff/metadata.bundle" verified-release
+          git bundle verify "$RUNNER_TEMP/release-artifact/metadata.bundle"
+          git fetch "$RUNNER_TEMP/release-artifact/metadata.bundle" verified-release
           git checkout --detach FETCH_HEAD
           [[ "$(git rev-parse HEAD)" == "$VERIFIED_COMMIT" ]]
           [[ "$(git rev-parse 'HEAD^{tree}')" == "$VERIFIED_TREE" ]]
-          if [[ "$IS_RUST" != true ]]; then [[ "$(sha256sum "$RUNNER_TEMP/release-handoff/package.tgz" | cut -d' ' -f1)" == "$PACKAGE_SHA256" ]]; fi
+          if [[ "$IS_RUST" != true ]]; then [[ "$(sha256sum "$RUNNER_TEMP/release-artifact/package.tgz" | cut -d' ' -f1)" == "$PACKAGE_SHA256" ]]; fi
       - name: Validate package inputs
         shell: bash
         run: |
@@ -702,6 +836,7 @@ jobs:
           RELEASE_BRANCH: ${{ needs.prepare.outputs.release_branch }}
           RELEASE_PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
           REPO_NAME: ${{ github.event.repository.name }}
+          ARTIFACT_ID: ${{ needs.prepare.outputs.artifact_id }}
         run: |
           set -euo pipefail
           git fetch origin main --force
@@ -712,14 +847,7 @@ jobs:
           fi
 
           release_commit="$(git rev-parse HEAD)"
-          if [[ "$release_commit" == "$current_main_sha" ]]; then
-            echo "Release metadata is already present on main; resuming the publish/tag transaction."
-            {
-              echo "merged_sha=$current_main_sha"
-              echo "pr_number="
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          [[ "$release_commit" != "$current_main_sha" ]] || { echo "::error::Release metadata has no durable PR candidate; refusing implicit publication."; exit 1; }
 
           release_branch="$RELEASE_BRANCH"
           pr_number="$RELEASE_PR_NUMBER"
@@ -729,6 +857,11 @@ jobs:
             exit 1
           fi
 
+          if [[ -n "$pr_number" ]]; then
+            RELEASE_PR_NUMBER="$pr_number" REMOTE_BRANCH_SHA="$remote_branch_sha" node "$CONTINUATION_SCRIPT" ownership
+            gh pr merge "$pr_number" --repo "$GITHUB_REPOSITORY" --disable-auto
+            RELEASE_PR_NUMBER="$pr_number" REMOTE_BRANCH_SHA="$remote_branch_sha" node "$CONTINUATION_SCRIPT" ownership
+          fi
           git push \
             --force-with-lease="refs/heads/${release_branch}:${remote_branch_sha}" \
             origin "HEAD:refs/heads/${release_branch}"
@@ -751,52 +884,11 @@ jobs:
             fi
           fi
 
+          set -euo pipefail
           owner="${GITHUB_REPOSITORY%/*}"
           repo="${GITHUB_REPOSITORY#*/}"
-          deadline=$(( SECONDS + 1800 ))
-          awaiting_approval=0
-          merge_err="$(mktemp)"
-          pr_view_err="$(mktemp)"
-          merged_sha=""
-          while :; do
-            pr_state="$(gh pr view "$pr_number" \
-              --repo "$GITHUB_REPOSITORY" \
-              --json mergeStateStatus,statusCheckRollup \
-              --jq '{merge_state: (.mergeStateStatus // "UNKNOWN"),
-                     unsettled: [.statusCheckRollup[]?
-                                 | {name: (.name // .context),
-                                    state: (.conclusion // .state // .status // "PENDING")}
-                                 | select((.state | IN("SUCCESS", "NEUTRAL", "SKIPPED",
-                                                       "FAILURE", "ERROR", "TIMED_OUT",
-                                                       "CANCELLED", "ACTION_REQUIRED",
-                                                       "STARTUP_FAILURE", "STALE")) | not)
-                                 | .name],
-                     failing: [.statusCheckRollup[]?
-                               | {name: (.name // .context),
-                                  state: (.conclusion // .state // .status // "PENDING")}
-                               | select(.state | IN("FAILURE", "ERROR", "TIMED_OUT",
-                                                    "CANCELLED", "ACTION_REQUIRED",
-                                                    "STARTUP_FAILURE", "STALE"))
-                               | .name]}' 2>"$pr_view_err")" || pr_state=""
-            if [[ -z "$pr_state" ]]; then
-              echo "Could not read PR #${pr_number} (retrying): $(tr '\n' ' ' < "$pr_view_err")"
-              merge_state="UNKNOWN"
-              unsettled="github api unavailable"
-              failing=""
-            else
-              merge_state="$(jq -r '.merge_state' <<< "$pr_state")"
-              unsettled="$(jq -r '.unsettled | join(", ")' <<< "$pr_state")"
-              failing="$(jq -r '.failing | join(", ")' <<< "$pr_state")"
-            fi
-
-            case "$merge_state" in
-              DIRTY | BEHIND)
-                echo "::error::Release PR #${pr_number} is ${merge_state}; it conflicts with main or its base moved. Retry the release from the new main head."
-                exit 1
-                ;;
-            esac
-
-            unresolved="$(gh api graphql \
+          pr_number="$pr_number"
+          unresolved="$(gh api graphql \
               -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved comments(first:100){totalCount nodes{author{login __typename}}}}}}}}' \
               -F o="$owner" -F r="$repo" -F n="$pr_number" \
               --jq '.data.repository.pullRequest.reviewThreads.nodes[]?
@@ -817,74 +909,8 @@ jobs:
               done <<< "$unresolved"
             fi
 
-            merge_out="$(gh api --method PUT \
-              "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/merge" \
-              -f merge_method=rebase \
-              -f sha="$release_commit" \
-              2>"$merge_err")" && merge_rc=0 || merge_rc=$?
-            if (( merge_rc == 0 )); then
-              merged_sha="$(jq -r '.sha // empty' <<< "$merge_out" 2>/dev/null || true)"
-              if [[ -n "$merged_sha" && "$merged_sha" != "null" ]]; then
-                echo "Merged release PR #${pr_number} via merge API (state was ${merge_state})."
-                break
-              fi
-              echo "Merge returned no sha; retrying: $(tr '\n' ' ' < "$merge_err")"
-              merged_sha=""
-            else
-              echo "Merge attempt refused (state: ${merge_state}; settling: ${unsettled:-none}; failing: ${failing:-none}): $(tr '\n' ' ' < "$merge_err")"
-
-              awaiting_approval=unknown
-              if pending_runs="$(gh api \
-                "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${release_commit}&per_page=100" \
-                --jq '.workflow_runs[]? | select(.conclusion=="action_required" or .status=="waiting") | select(.name == "CI") | .id' \
-                2>/dev/null)"; then
-                awaiting_approval=0
-              else
-                pending_runs=""
-                echo "::warning::Could not read current workflow approval state; retrying without assuming approval is required."
-              fi
-              if [[ -n "$pending_runs" ]]; then
-                while IFS= read -r run_id; do
-                  [[ -z "$run_id" ]] && continue
-                  echo "::warning::CI run ${run_id} for this release PR is awaiting workflow approval: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
-                  gh api --method POST \
-                    "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/approve" \
-                    >/dev/null 2>&1 \
-                    && echo "Approved workflow run ${run_id}; its checks can now report." \
-                    || echo "Could not approve run ${run_id} with this token; a maintainer must approve it once."
-                done <<< "$pending_runs"
-                awaiting_approval=1
-              fi
-            fi
-
-            if (( SECONDS >= deadline )); then
-              if [[ "$awaiting_approval" == 1 ]]; then
-                echo "::error::Release PR #${pr_number} did not merge within 30 minutes because its CI run is awaiting workflow approval (last state: ${merge_state}). Approve the run linked above once; this repository requires approval for a contributor that has no merged PR yet. Nothing was published or tagged."
-              elif [[ "$awaiting_approval" == unknown ]]; then
-                echo "::error::Release PR #${pr_number} did not merge within 30 minutes; current workflow approval state is unavailable (last state: ${merge_state}; still settling: ${unsettled:-none}; failing: ${failing:-none}). Inspect workflow runs and required checks; nothing was published or tagged."
-              else
-                echo "::error::Release PR #${pr_number} did not merge within 30 minutes (last state: ${merge_state}; still settling: ${unsettled:-none}; failing: ${failing:-none}). A required check failed or never reported, or a required review is missing; not merging or publishing."
-              fi
-              exit 1
-            fi
-            sleep 20
-          done
-          if ! cleanup_error="$(rm -f "$merge_err" "$pr_view_err" 2>&1)"; then
-            cleanup_error="${cleanup_error//$'\n'/ }"
-            cleanup_error="${cleanup_error//$'\r'/ }"
-            cleanup_error="${cleanup_error//%/%25}"
-            echo "::warning::Could not remove release merge diagnostic files: ${cleanup_error}"
-          fi
-
-          if [[ -z "$merged_sha" || "$merged_sha" == "null" ]]; then
-            echo "::error::GitHub did not return the merged main SHA for release PR #${pr_number}."
-            exit 1
-          fi
-
-          {
-            echo "merged_sha=$merged_sha"
-            echo "pr_number=$pr_number"
-          } >> "$GITHUB_OUTPUT"
+          RELEASE_PR_NUMBER="$pr_number" node "$CONTINUATION_SCRIPT" request
+          printf 'pr_number=%s\n' "$pr_number" >> "$GITHUB_OUTPUT"
       - name: Close superseded release PRs
         if: needs.prepare.outputs.should_release == 'true'
         shell: bash
@@ -892,83 +918,185 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_PR_NUMBER: ${{ steps.release_pr.outputs.pr_number }}
           SUPERSEDED_PR_NUMBERS: ${{ needs.prepare.outputs.superseded_pr_numbers }}
-        run: |
-          set -euo pipefail
-          for pr_number in $SUPERSEDED_PR_NUMBERS; do
-            if close_output="$(gh pr close "$pr_number" --repo "$GITHUB_REPOSITORY" \
-              --comment "Superseded by release PR #${RELEASE_PR_NUMBER}." 2>&1)"; then
-              printf '%s\n' "$close_output"
-            else
-              close_output="${close_output//$'\n'/ }"
-              close_output="${close_output//$'\r'/ }"
-              close_output="${close_output//%/%25}"
-              echo "::warning::Could not close superseded release PR #${pr_number}: ${close_output}"
-            fi
-          done
-      - name: Clean up merged release branch
-        if: needs.prepare.outputs.should_release == 'true'
+        run: node "$CONTINUATION_SCRIPT" supersede
+    needs: prepare
+  release:
+    if: inputs.release-enabled && github.ref == 'refs/heads/main' && contains(fromJSON('["publish","recover","complete"]'), needs.reconcile.outputs.action)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+      checks: read
+      id-token: write
+    env:
+      RELEASE_TIMEZONE: ${{ inputs.release-timezone }}
+      NPM_PROJECT_DIR: ${{ inputs.npm-project-dir }}
+      PREPARE_SCRIPT: ${{ inputs.prepare-script }}
+      BUILD_SCRIPT: ${{ inputs.build-script }}
+      VERIFY_SCRIPT: ${{ inputs.verify-script }}
+      CHANGELOG_SCRIPT: ${{ inputs.changelog-script }}
+      CHANGELOG_CHECK_SCRIPT: ${{ inputs.changelog-check-script }}
+      NOTES_SCRIPT: ${{ inputs.notes-script }}
+      PUBLISH_SCRIPT: ${{ inputs.publish-script }}
+      POST_RELEASE_SCRIPT: ${{ inputs.post-release-script }}
+      RELEASE_FILES: ${{ inputs.release-files }}
+      BUNX_SCRIPT: ${{ inputs.bunx-script }}
+      IS_RUST: ${{ inputs.rust }}
+      DATABASE_URL: ${{ inputs.postgres && 'postgres://postgres:test@127.0.0.1:55433/pmwebtest' || '' }}
+      JWT_SECRET: ${{ inputs.postgres && 'pm-web-test-jwt-secret-at-least-32-bytes' || '' }}
+      VERSION_POLICY: ${{ inputs.version-policy }}
+      PM_OPS_VERSION: ${{ needs.reconcile.outputs.opsVersion }}
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_CONFIG: ${{ toJSON(inputs) }}
+      CALLER_WORKFLOW: ${{ github.workflow_ref }}
+      TRIGGER_SHA: ${{ github.sha }}
+      CANDIDATE_RECEIPT: ${{ needs.reconcile.outputs.receipt }}
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: ${{ inputs.node-version }}
+      - name: Install pinned release tools
         shell: bash
-        env:
-          RELEASE_BRANCH: ${{ needs.prepare.outputs.release_branch }}
-          RELEASE_PR_NUMBER: ${{ steps.release_pr.outputs.pr_number }}
         run: |
           set -euo pipefail
-          if [[ -n "${RELEASE_PR_NUMBER:-}" ]]; then
-            if expected_sha="$(git rev-parse HEAD 2>&1)"; then
-              if ! cleanup_error="$(git push --force-with-lease="refs/heads/${RELEASE_BRANCH}:${expected_sha}" \
-                origin ":refs/heads/${RELEASE_BRANCH}" 2>&1)"; then
-                cleanup_error="${cleanup_error//$'\n'/ }"
-                cleanup_error="${cleanup_error//$'\r'/ }"
-                cleanup_error="${cleanup_error//%/%25}"
-                echo "::warning::Could not delete merged release branch ${RELEASE_BRANCH}: ${cleanup_error}"
-              fi
-            else
-              expected_sha="${expected_sha//$'\n'/ }"
-              expected_sha="${expected_sha//$'\r'/ }"
-              expected_sha="${expected_sha//%/%25}"
-              echo "::warning::Could not inspect prepared commit for cleanup of ${RELEASE_BRANCH}: ${expected_sha}"
-            fi
-          fi
-      - name: Continue at the published commit
+          tool_dir="$(mktemp -d "${RUNNER_TEMP}/pm-ops.XXXXXX")"
+          npm install --prefix "$tool_dir" --ignore-scripts --legacy-peer-deps --no-package-lock "pm-ops@$PM_OPS_VERSION"
+          printf 'PM_OPS_MODULE=%s/node_modules/pm-ops/dist/daily-release.js\n' "$tool_dir" >> "$GITHUB_ENV"
+          printf 'PM_OPS_TOOLS=%s\n' "$tool_dir" >> "$GITHUB_ENV"
+      - name: Checkout publishing base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: main
+      - name: Checkout trusted continuation tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: unbraind/pm-ops
+          ref: ${{ job.workflow_sha }}
+          path: .pm-ops-release-tools
+          persist-credentials: false
+      - name: Locate trusted continuation tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mv "$GITHUB_WORKSPACE/.pm-ops-release-tools" "$RUNNER_TEMP/pm-ops-release-tools"
+          printf 'CONTINUATION_SCRIPT=%s/pm-ops-release-tools/scripts/release-continuation.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Download verified release
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.reconcile.outputs.artifact_id }}
+          run-id: ${{ needs.reconcile.outputs.runId }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/release-artifact
+          merge-multiple: true
+      - name: Revalidate trusted merged candidate
         id: continue
-        if: needs.prepare.outputs.should_release == 'true'
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          MERGED_SHA: ${{ steps.release_pr.outputs.merged_sha }}
-          TRIGGER_SHA: ${{ github.sha }}
-          CALLER_WORKFLOW: ${{ github.workflow_ref }}
-        run: |
-          set -euo pipefail
-          if [[ "$MERGED_SHA" != "$TRIGGER_SHA" ]]; then
-            workflow="${CALLER_WORKFLOW#*/.github/workflows/}"
-            workflow="${workflow%@*}"
-            [[ "$workflow" =~ ^[a-zA-Z0-9_.-]+\.ya?ml$ ]]
-            gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref main
-            echo 'ready=false' >> "$GITHUB_OUTPUT"
-            echo 'Release metadata merged. Publication continues in a run triggered at that commit.' >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'ready=true' >> "$GITHUB_OUTPUT"
-          fi
+        run: node "$CONTINUATION_SCRIPT" verify
       - name: Verify merged release
-        if: steps.continue.outputs.ready == 'true'
         shell: bash
         env:
-          MERGED_SHA: ${{ steps.release_pr.outputs.merged_sha }}
+          MERGED_SHA: ${{ needs.reconcile.outputs.merged_sha }}
           TRIGGER_SHA: ${{ github.sha }}
-          VERIFIED_TREE: ${{ needs.prepare.outputs.tree }}
+          VERIFIED_TREE: ${{ needs.reconcile.outputs.tree }}
         run: |
           set -euo pipefail
           git fetch origin main --force
-          [[ "$(git rev-parse origin/main)" == "$MERGED_SHA" && "$MERGED_SHA" == "$TRIGGER_SHA" ]]
           git checkout --detach "$MERGED_SHA"
           [[ "$(git rev-parse 'HEAD^{tree}')" == "$VERIFIED_TREE" ]]
-      - name: Publish npm package
-        id: publish
-        if: steps.continue.outputs.ready == 'true' && inputs.npm-publish
+      - name: Validate package inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$NPM_PROJECT_DIR" && "$NPM_PROJECT_DIR" != /* && "$NPM_PROJECT_DIR" != *[$'\r\n:']* ]] || exit 1
+          case "/$NPM_PROJECT_DIR/" in */../*) exit 1 ;; esac
+          project="$(realpath -e -- "$GITHUB_WORKSPACE/$NPM_PROJECT_DIR")"
+          [[ "$project" == "$GITHUB_WORKSPACE" || "$project" == "$GITHUB_WORKSPACE/"* ]] || exit 1
+          [[ "$project" != *[$'\r\n:']* ]] || exit 1
+          if [[ "$IS_RUST" == true ]]; then
+            [[ -f "$project/Cargo.toml" ]]
+          else
+            [[ -f "$project/package.json" ]]
+            [[ -n "$VERIFY_SCRIPT" && -n "$CHANGELOG_SCRIPT" && -n "$CHANGELOG_CHECK_SCRIPT" && -n "$NOTES_SCRIPT" ]]
+          fi
+          for script in "$PREPARE_SCRIPT" "$BUILD_SCRIPT" "$VERIFY_SCRIPT" "$CHANGELOG_SCRIPT" "$CHANGELOG_CHECK_SCRIPT" "$NOTES_SCRIPT" "$PUBLISH_SCRIPT" "$POST_RELEASE_SCRIPT" "$BUNX_SCRIPT"; do
+            [[ -z "$script" || "$script" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$ ]] || { echo '::error::Hooks must be npm script names.'; exit 1; }
+          done
+          printf 'NPM_PROJECT_PATH=%s\n' "$project" >> "$GITHUB_ENV"
+      - name: Use an npm that supports trusted publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g npm@11.19.0
+          active="$(npm --version)"
+          required="11.5.1"
+          if [ "$(printf '%s\n%s\n' "$active" "$required" | sort -V | head -n 1)" != "$required" ]; then
+            echo "::error::npm $active cannot exchange an OIDC token; $required or newer is required."
+            exit 1
+          fi
+          echo "npm $active can exchange an OIDC token for a registry credential."
+      - name: Verify npm will accept this workflow's OIDC identity
+        if: steps.continue.outputs.action == 'publish' && inputs.npm-publish
         shell: bash
         env:
-          NPM_VERSION: ${{ needs.prepare.outputs.npm_version }}
+          CALLER_WORKFLOW: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          pkg_name="$(node -p "require('./package.json').name")"
+          pkg_path="$(PKG="${pkg_name}" node -p "process.env.PKG.replace('/', '%2f')")"
+          request_url="${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
+          request_token="${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
+          if [ -z "${request_url}" ] || [ -z "${request_token}" ]; then
+            echo "::error::GitHub exposed no OIDC token endpoint to this job. The release job needs 'id-token: write'."
+            exit 1
+          fi
+          if ! id_token_body="$(curl -sS --max-time 30 -H "Authorization: bearer ${request_token}" \
+            "${request_url}&audience=npm:registry.npmjs.org")"; then
+            echo "::error::Could not reach GitHub's OIDC token endpoint. Nothing was bumped, committed or tagged; re-run when it is reachable."
+            exit 1
+          fi
+          id_token="$(printf '%s' "${id_token_body}" | node -p "JSON.parse(require('node:fs').readFileSync(0,'utf8')).value" 2>/dev/null)" || id_token=""
+          if [ -z "${id_token}" ] || [ "${id_token}" = "undefined" ]; then
+            echo "::error::GitHub would not mint an OIDC id-token. The release job needs 'id-token: write'."
+            exit 1
+          fi
+          response="$(mktemp)"
+          trap 'rm -f "${response}"' EXIT
+          if ! status="$(curl -sS --max-time 30 -o "${response}" -w '%{http_code}' \
+            -X POST "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/${pkg_path}" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${id_token}")"; then
+            status="000"
+          fi
+          [ -n "${status}" ] || status="000"
+          if [ "${status}" -ge 200 ] && [ "${status}" -lt 300 ]; then
+            echo "npm accepted this workflow's identity for ${pkg_name}."
+            echo "Note: this verifies identity, not the allowed action. The trusted publisher must have 'npm publish' selected."
+            exit 0
+          fi
+          reason="$(RESPONSE_FILE="${response}" node -p "try{JSON.parse(require('node:fs').readFileSync(process.env.RESPONSE_FILE,'utf8')).message||''}catch(e){''}")"
+          if [ "${status}" = "000" ] || [ "${status}" = "429" ] || [ "${status}" -ge 500 ]; then
+            echo "::error::Could not reach npm to verify this workflow's identity for ${pkg_name} (HTTP ${status}${reason:+: ${reason}})."
+            echo "::error::This is a registry or network failure, NOT a trusted-publisher problem. Nothing was bumped, committed or tagged; re-run when the registry is reachable."
+            exit 1
+          fi
+          echo "::error::npm refused this workflow's OIDC identity for ${pkg_name} (HTTP ${status}${reason:+: ${reason}})."
+          echo "::error::Nothing has been bumped, committed or tagged - this run stopped before mutating anything."
+          echo "::error::Configure a trusted publisher on npmjs.com for ${pkg_name}: Settings -> Trusted Publisher -> GitHub Actions,"
+          caller_workflow="${CALLER_WORKFLOW#*/.github/workflows/}"
+          caller_workflow="${caller_workflow%@*}"
+          echo "::error::organization '${GITHUB_REPOSITORY%/*}', repository '${GITHUB_REPOSITORY#*/}', workflow '${caller_workflow}', no environment."
+          exit 1
+        working-directory: ${{ env.NPM_PROJECT_PATH }}
+      - name: Publish npm package
+        id: publish
+        if: steps.continue.outputs.action != 'complete' && inputs.npm-publish
+        shell: bash
+        env:
+          NPM_VERSION: ${{ needs.reconcile.outputs.version }}
         run: |
           set -euo pipefail
           globalconfig="$(npm config get globalconfig 2>/dev/null || true)"
@@ -990,7 +1118,7 @@ jobs:
             exit 1
           fi
           pkg_name="$(node -p "require('./package.json').name")"
-          expected_integrity="sha512-$(openssl dgst -sha512 -binary "$RUNNER_TEMP/release-handoff/package.tgz" | base64 -w0)"
+          expected_integrity="sha512-$(openssl dgst -sha512 -binary "$RUNNER_TEMP/release-artifact/package.tgz" | base64 -w0)"
           registry_version_is_attested() {
             local metadata attest_url
             metadata="$(npm view "${pkg_name}@${NPM_VERSION}" dist --prefer-online --json 2>/dev/null)" || return 2
@@ -1035,10 +1163,11 @@ jobs:
           fi
           publish_with_provenance() {
             (
-              cd "$RUNNER_TEMP/release-handoff"
-              npm publish ./package.tgz --access public --provenance --ignore-scripts --registry=https://registry.npmjs.org
+              cd "$RUNNER_TEMP"
+              npm publish ./release-artifact/package.tgz --access public --provenance --ignore-scripts --registry=https://registry.npmjs.org
             )
           }
+          node "$CONTINUATION_SCRIPT" attempt
           attempt=0
           while (( attempt < max_attempts )); do
             attempt=$(( attempt + 1 ))
@@ -1071,12 +1200,12 @@ jobs:
           refuse_unattested_or_fail
         working-directory: ${{ env.NPM_PROJECT_PATH }}
       - name: Install optional hook dependencies
-        if: steps.continue.outputs.ready == 'true' && (inputs.publish-script != '' || inputs.post-release-script != '')
+        if: steps.continue.outputs.action != 'complete' && (inputs.publish-script != '' || inputs.post-release-script != '')
         working-directory: ${{ env.NPM_PROJECT_PATH }}
         run: npm ci --ignore-scripts
       - name: Publish extra targets
         id: extra_publish
-        if: steps.continue.outputs.ready == 'true' && (!inputs.npm-publish || steps.publish.outcome == 'success')
+        if: steps.continue.outputs.action != 'complete' && (!inputs.npm-publish || steps.publish.outcome == 'success')
         working-directory: ${{ env.NPM_PROJECT_PATH }}
         shell: bash
         run: |
@@ -1084,10 +1213,10 @@ jobs:
           if [[ -n "$PUBLISH_SCRIPT" ]]; then npm run "$PUBLISH_SCRIPT"; fi
       - name: Push release tag
         id: push_tag
-        if: steps.continue.outputs.ready == 'true' && steps.extra_publish.outcome == 'success'
+        if: steps.continue.outputs.action != 'complete' && steps.extra_publish.outcome == 'success'
         shell: bash
         env:
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_TAG: ${{ needs.reconcile.outputs.tag }}
         run: |
           set -euo pipefail
           release_tag="$RELEASE_TAG"
@@ -1118,12 +1247,12 @@ jobs:
         if: "!cancelled() && steps.push_tag.outcome == 'success' && steps.extra_publish.outcome == 'success'"
         env:
           REPO_NAME: ${{ github.event.repository.name }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_TAG: ${{ needs.reconcile.outputs.tag }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "$REPO_NAME $RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-handoff/RELEASE_NOTES.md" --verify-tag
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "$REPO_NAME $RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-artifact/RELEASE_NOTES.md" --verify-tag
           fi
         id: github_release
         shell: bash
@@ -1132,18 +1261,41 @@ jobs:
         working-directory: ${{ env.NPM_PROJECT_PATH }}
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_TAG: ${{ needs.reconcile.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
           npm run "$POST_RELEASE_SCRIPT"
-    needs: prepare
+      - name: Clean up merged release branch
+        if: "!cancelled() && steps.github_release.outcome == 'success'"
+        shell: bash
+        env:
+          RELEASE_PR_NUMBER: ${{ needs.reconcile.outputs.pr_number }}
+          EXPECTED_HEAD: ${{ needs.reconcile.outputs.headSha }}
+        run: |
+          set -euo pipefail
+          node "$CONTINUATION_SCRIPT" verify >/dev/null
+          release_branch="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$RELEASE_PR_NUMBER" --jq .head.ref)"
+          [[ "$release_branch" =~ ^release/[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(-[0-9]+)?$ ]] || exit 1
+          expected_sha="$EXPECTED_HEAD"
+          git push --force-with-lease="refs/heads/${release_branch}:${expected_sha}" origin ":refs/heads/${release_branch}" || echo "::warning::Could not delete the verified merged release branch."
+      - name: Complete durable release intent
+        if: "!cancelled() && (steps.github_release.outcome == 'success' || steps.continue.outputs.action == 'complete')"
+        shell: bash
+        run: node "$CONTINUATION_SCRIPT" complete
+    needs: reconcile
     outputs:
-      commit: ${{ steps.release_pr.outputs.merged_sha }}
+      commit: ${{ needs.reconcile.outputs.merged_sha }}
       published: ${{ steps.push_tag.outcome }}
   audit:
-    needs: [prepare, release, recover, verify_bun]
-    if: "!cancelled() && inputs.audit-script != '' && inputs.release-enabled && github.ref == 'refs/heads/main'"
+    needs:
+      - prepare
+      - release
+      - recover
+      - verify_bun
+      - reconcile
+      - request
+    if: "!cancelled() && inputs.audit-script != '' && inputs.release-enabled && github.ref == 'refs/heads/main' && (!inputs.reconcile-only || needs.release.result == 'success')"
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -1179,6 +1331,8 @@ jobs:
       - recover
       - verify_bun
       - audit
+      - reconcile
+      - request
     if: failure() && inputs.alert-script != '' && inputs.release-enabled && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -1304,9 +1458,9 @@ jobs:
           gh release create "$RECOVERY_TAG" --repo "$GITHUB_REPOSITORY" --title "${GITHUB_REPOSITORY#*/} $RECOVERY_TAG" --notes-file "$RUNNER_TEMP/recovery-notes.md" --verify-tag
   verify_bun:
     needs:
-      - prepare
+      - reconcile
       - release
-    if: inputs.release-enabled && github.ref == 'refs/heads/main' && needs.prepare.outputs.should_release == 'true' && inputs.npm-publish && inputs.bun-verify && needs.release.outputs.published == 'success'
+    if: inputs.release-enabled && github.ref == 'refs/heads/main' && inputs.npm-publish && inputs.bun-verify && needs.release.outputs.published == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1324,9 +1478,9 @@ jobs:
       - name: Verify bun install of published package
         id: verify_bun
         env:
-          NPM_VERSION: ${{ needs.prepare.outputs.npm_version }}
-          PKG_NAME: ${{ needs.prepare.outputs.package_name }}
-          CLI_VERSION: ${{ needs.prepare.outputs.cli_version }}
+          NPM_VERSION: ${{ needs.reconcile.outputs.version }}
+          PKG_NAME: ${{ needs.reconcile.outputs.packageName }}
+          CLI_VERSION: ${{ needs.reconcile.outputs.cliVersion }}
           BUNX_SCRIPT: ${{ inputs.bunx-script }}
           NPM_PROJECT_DIR: ${{ inputs.npm-project-dir }}
         shell: bash
@@ -1339,6 +1493,7 @@ jobs:
           cd "$verify_dir"
           bun init -y > /dev/null
           bun_attempts=21
+          verified=false
           for attempt in $(seq 1 "${bun_attempts}"); do
             # Bun caches a negative manifest on a miss; reusing that cache made every retry vacuous
             # and once left tagged releases without a GitHub Release for 14 days (see release.yml).
@@ -1358,13 +1513,15 @@ jobs:
                 npm run "$BUNX_SCRIPT"
               fi
               echo "bun add succeeded on attempt $attempt"
-              exit 0
+              verified=true
+              break
             fi
             if (( attempt < bun_attempts )); then
               echo "bun add failed on attempt $attempt, sleeping 30s..."
               sleep 30
             fi
           done
+          [[ "$verified" == true ]] && exit 0
           echo "::error::bun could not resolve ${pkg_name}@${pkg_version} after ${bun_attempts} attempts across a 10-minute window. npm accepted the publish and the GitHub release is created regardless of this step; this failure keeps the bun mirror problem visible instead of silent."
           exit 1
       - name: Fail the job on bun verification failure

@@ -129,7 +129,7 @@ test("source locations ignore metadata and comments and retain repeated invocati
 });
 
 test("sanctioned repository workflow retains its attested publish path", /** Scan the actual tracked release source as a compatibility control. */ () => {
-  const text = readFileSync(".github/workflows/release.yml", "utf8");
+  const text = readFileSync(".github/workflows/daily-release.yml", "utf8");
   const result = auditPublishAttestation([{ file: ".github/workflows/release.yml", text }]);
   assert.deepEqual(result.failures, []);
   assert.equal(result.recognition.kind, "recognized");

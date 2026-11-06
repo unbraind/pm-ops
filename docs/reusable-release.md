@@ -56,15 +56,15 @@ The inventory main snapshot predates #152; the implementation uses its audited P
    Both first-run and resumed coordinates use the existing `npmVersionToTag` formatter: `2026.8.9-2` produces `v2026.08.09-2` and a new `release/2026.08.09-2` branch. PR titles, release commits and GitHub Releases consume that same planned tag. Refreshes retain the verified existing PR branch name, including legacy unpadded names.
 3. Version stamping uses the existing TypeScript lexer for extension descriptors, not a regex matching the first arbitrary `version` property. npm projects update package/lock/manifest metadata, run the optional prepare hook, rebuild dist cleanly, generate/check CHANGELOG.md with package-owned pm-changelog scripts, and generate notes with the notes script. Rust updates Cargo and the committed justfile date, then uses the package's pinned just recipes. This preserves its changelog SDK pairing and locked parity oracle.
 4. npm and Bun run the configured verification gate before preparation is accepted. A fixed-argv TypeScript adapter validates the Bun script name and propagates real execution failures; the canonical attestation auditor remains unchanged. Rust runs `just release-check`. A read-only job commits local metadata and packs the verified npm artifact with lifecycle scripts disabled. When `npm-publish` and `bun-verify` are both enabled, the caller's `@unbrained/pm-cli` devDependency (or the release tools' fallback) must be an exact `YYYY.M.D` version with an optional numeric `-N` suffix before packing, matching the later Bun installation check; in that configuration ranges and tags stop preparation before publication. GitHub-only (`npm-publish: false`) and Bun-disabled callers skip this check and need no exact pin. A Git bundle, tree/commit identities, SHA-256 of the package, and notes cross the artifact boundary.
-5. The `release` job verifies that handoff, checks npm OIDC identity before mutating a branch, verifies the base has not moved, and leases all branch writes. An existing unverified branch is refused. Only GitHub's protected merge API can land metadata. Before each merge attempt, the workflow may resolve an unresolved review thread only when its complete, nonempty comment set is authored by Bot accounts whose GraphQL logins are explicitly allowlisted: `sourcery-ai`, `cubic-dev-ai`, and `coderabbitai`. Human replies, unknown bots, missing authors and truncated comment sets remain blocking; GitHub still enforces branch protection. Superseded PR closure, metadata edits and branch cleanup failures are warnings, with deletion leased to the prepared commit.
-6. If the workflow trigger SHA differs from the merged SHA, the job dispatches the caller workflow on main and stops before publishing. The continuation prepares and checks main again. Publication requires trigger SHA = merged main SHA and prepared tree = merged tree. This makes the npm provenance source commit and release tag agree. Dispatch uses `actions: write`; the caller must keep `workflow_dispatch` and must not add another `daily-release` concurrency group.
-7. npm trusted publishing uses OIDC and `--provenance --ignore-scripts`. No stored npm token is accepted. The packed artifact is published; package scripts do not run in the privileged job by default. If a coordinate already exists, registry-served SLSA provenance must bind its SHA-512 artifact digest and source commit before it can be reconciled. This checks the registry's provenance statement; it does not replace independent Sigstore signature verification. Failed reads retry within the inherited visibility window. A successful npm response alone does not bypass the provenance readback.
+5. The `request` job verifies that handoff, checks npm OIDC identity before mutating a branch, verifies the base has not moved, and leases all branch writes. An existing unverified branch is refused. It persists the exact candidate receipt, then requests protected squash auto-merge with `--match-head-commit` and exits. There is no runner-held PR-check wait or timeout diagnosis. Once per request, the workflow may resolve an unresolved review thread only when its complete, nonempty comment set is authored by Bot accounts whose GraphQL logins are explicitly allowlisted: `sourcery-ai`, `cubic-dev-ai`, and `coderabbitai`. Human replies, unknown bots, missing authors and truncated comment sets remain blocking; GitHub still enforces branch protection. Superseded PR closure and cosmetic metadata edits are best-effort; durable candidate persistence is mandatory before auto-merge. Merged branch deletion retains its prepared-head lease.
+6. The caller runs an hourly reconciliation-only schedule and catches up before daily preparation. The dependency-free `reconcile` job loads tools at `job.workflow_sha`, reads the durable PR receipt and live GitHub/npm evidence, and exits without installing npm packages when no candidate is pending. Open PRs stay pending; a changed base permits a fresh preparation on the next daily run. A merged candidate enters `release` only after exact head/tree/run/artifact/configuration/protection checks. Publication requires workflow trigger SHA = merged default-branch SHA, preserving provenance source identity. No push or PR-closed notification is needed. The same `daily-release` concurrency group serializes schedules and manual retries; do not add a caller group with the same name. See [the migration and recovery contract](release-migration.md).
+7. npm trusted publishing uses OIDC and `--provenance --ignore-scripts`. No stored npm token is accepted. The packed artifact is published; package scripts do not run in the privileged job by default. If a coordinate already exists, registry-served SLSA provenance must bind its SHA-512 artifact digest and source commit before it can be reconciled. This checks the registry's provenance statement; it does not replace independent Sigstore signature verification. Before the first publish request, a bot comment records the attempt identity. A later absent registry coordinate with an existing attempt is an explicit ambiguous-outcome refusal, never permission to republish. The publisher retains its bounded provenance visibility readback. A successful npm response alone does not bypass the provenance readback.
 8. Extra publish hooks run before tagging. The remote tag must name the verified commit. A separate read-only job verifies Bun installation and bunx activation in a disposable tracker. Every Bun install attempt binds a fresh cache under runner temp and clears the configured cache before querying the registry. Bun failure stays visible; the GitHub Release is already created after publication and tagging. Post-release hooks can upload self-host bundles. Set `audit-script` for package-owned completeness checks: its separate job runs after release, recovery and Bun verification, including days with no new release, and passes `GH_TOKEN` for explicit repair opt-in. Its failures feed the isolated alert job. Hooks are npm script names, passed through environment values, never interpolated shell source.
 9. A tagged unchanged head may repair a missing GitHub Release using the read-only job's notes. The `recover` job has only `contents: write`; it neither republishes npm nor changes a tag, and checks matching npm provenance first when npm publication is enabled. The optional `alert` job alone receives `issues: write`.
 
 The audit job uses an explicit `!cancelled()` status check so skipped or failed release/recovery dependencies do not impose the default success guard. GitHub documents both the [dependency skip rule](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds) and the [recommended status-check expression](https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#status-check-functions).
 
-All actions use full commit SHA pins. Workflow-wide permissions are empty. Privileged jobs require the caller's main ref and release approval. Input paths are constrained to the workspace, including symlink resolution. The reusable workflow requests no secrets. npm hooks are optional, explicit package code; when configured, their dependencies are installed with lifecycle scripts disabled.
+The self-pilot bootstraps its existing planner tools from the exact package version declared at its trusted workflow commit; external callers resolve the reusable workflow release tag. The new continuation code always comes from the immutable workflow commit and imports only Node built-ins. All actions use full commit SHA pins. Workflow-wide permissions are empty. Privileged jobs require the caller's main ref and release approval. Input paths are constrained to the workspace, including symlink resolution. The reusable workflow requests no secrets. npm hooks are optional, explicit package code; when configured, their dependencies are installed with lifecycle scripts disabled.
 
 GitHub documents that [`job.workflow_sha`](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#job-context) identifies the workflow defining the current job. The resolver matches that commit against public release tags, peels annotated tags, normalizes padded versions, rejects ambiguity and refuses an untagged commit. Caller context remains the calling repository. GitHub also documents that [reusable workflow permissions can only be maintained or reduced](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations).
 
@@ -72,6 +72,7 @@ GitHub documents that [`job.workflow_sha`](https://docs.github.com/en/actions/re
 
 | Input | Type | Default | Meaning |
 | --- | --- | --- | --- |
+| `reconcile-only` | boolean | `false` | Hourly recovery without admitting a fresh release |
 | `release-enabled` | boolean | `true` | Approval gate; pass the existing repository variable comparison for unapproved packages |
 | `npm-project-dir` | string | `.` | Relative npm project directory; Rust uses the crate root |
 | `node-version` | string | `22.18.0` | Node runtime for release tools |
@@ -118,11 +119,11 @@ The same check is available as an opt-in pm-ops policy check:
 {"checks":[{"id":"release-caller","severity":"error"}]}
 ```
 
-Run `npx pm ops policy --policy release-policy.json --repos . --strict`. It is opt-in until the fleet migration occurs: pm-ops' own existing release workflow must continue releasing the first version that contains the reusable workflow. Self-gating here means the new implementation/tests are part of the unchanged 100/100/100/100 release gate; it does not require pointing production at an unreleased workflow.
+Run `npx pm ops policy --policy release-policy.json --repos . --strict`. It is opt-in until the fleet migration occurs: the pm-ops self-pilot uses a local call to release the first continuation version. Public fleet callers still require an immutable canonical tag SHA. Self-gating here means the new implementation/tests are part of the unchanged 100/100/100/100 release gate; it does not require pointing production at an unreleased workflow.
 
 ## Migration
 
-**No consumer is changed by this PR.** The zero SHA in the template and examples is an explicit substitution marker and is rejected by the check. A real released SHA containing `daily-release.yml` does not exist until this PR is reviewed, merged and released by the orchestrator. Do not pin today's old release, the feature branch, or a nonexistent guessed future release.
+**The pm-ops self-pilot calls the local workflow at the same trusted commit; other repositories remain unchanged.** The zero SHA in the template and examples is an explicit substitution marker and is rejected by the check. Resolve a real release SHA containing the continuation implementation after it is reviewed, merged and released by the orchestrator. Do not pin today's old release, the feature branch, or a nonexistent guessed future release.
 
 First merge the automated Dependabot upgrade of the package's pm-ops dependency to the release introducing caller-delegation recognition (or newer). This is a one-time migration prerequisite for existing attestation shims; older versions correctly reject a caller with no local publisher. Do not hand-bump consumer dependencies in this PR. Future workflow fixes require only the GitHub Actions SHA update, not a second pm-ops version input.
 
@@ -135,6 +136,7 @@ name: Daily Release
 on:
   schedule:
     - cron: "23 3 * * *"
+    - cron: "41 * * * *"
   workflow_dispatch:
 permissions: {}
 jobs:
@@ -143,10 +145,12 @@ jobs:
       contents: write
       pull-requests: write
       actions: write
+      checks: read
       id-token: write
       issues: write
     uses: unbraind/pm-ops/.github/workflows/daily-release.yml@0000000000000000000000000000000000000000 # v2026.10.19
     with:
+      reconcile-only: ${{ github.event_name == 'schedule' && github.event.schedule == '41 * * * *' }}
       alert-script: release:alert
 ```
 
@@ -167,6 +171,7 @@ name: Daily Release
 on:
   schedule:
     - cron: "23 3 * * *"
+    - cron: "41 * * * *"
   workflow_dispatch:
 permissions: {}
 jobs:
@@ -175,10 +180,12 @@ jobs:
       contents: write
       pull-requests: write
       actions: write
+      checks: read
       id-token: write
       issues: write
     uses: unbraind/pm-ops/.github/workflows/daily-release.yml@0000000000000000000000000000000000000000 # v2026.10.19
     with:
+      reconcile-only: ${{ github.event_name == 'schedule' && github.event.schedule == '41 * * * *' }}
       release-enabled: ${{ vars.PM_RELEASE_APPROVED == 'true' }}
       rust: true
       rust-toolchain: "1.90.0"
