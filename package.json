@@ -134,7 +134,7 @@
   },
   "dependencies": {
     "@toon-format/toon": "^4.1.0",
-    "semver": "7.8.5",
+    "semver": "7.8.6",
     "typescript": "7.0.2",
     "yaml": "2.9.1"
   },
