@@ -31,6 +31,11 @@ on:
     - cron: "23 3 * * *"
     - cron: "41 * * * *"
   workflow_dispatch:
+    inputs:
+      retire-unpublished:
+        description: Retire only verified untouched unpublished merged intent
+        type: boolean
+        default: false
 permissions: {}
 jobs:
   release:
@@ -43,7 +48,8 @@ jobs:
       issues: write
     uses: unbraind/pm-ops/.github/workflows/daily-release.yml@0000000000000000000000000000000000000000 # REPLACE_WITH_CANONICAL_TAG
     with:
-      reconcile-only: ${{ github.event_name == 'schedule' && github.event.schedule == '41 * * * *' }}
+      reconcile-only: ${{ (github.event_name == 'schedule' && github.event.schedule == '41 * * * *') || inputs.retire-unpublished == true }}
+      retire-unpublished: ${{ github.event_name == 'workflow_dispatch' && inputs.retire-unpublished == true }}
 ```
 
 Keep defaults npm-project-dir: '.', node-version: 22.18.0, release-timezone: Europe/Vienna, build-script: build, verify-script: release:check, changelog-script: changelog:full, changelog-check-script: changelog:check, notes-script: release:notes, npm-publish: true and bun-verify: true unless the inventory below names an exception. Existing scripts retain pm-changelog as the generator; no shared changelog implementation replaces them. Add missing named hooks inside each future package migration, then replace its local workflow-shape tests with caller/input assertions while retaining its gate names. Upgrade its pm-ops dependency through Dependabot before using the new caller checker. Checks-read is the additional permission needed to inspect protected-check evidence; the reusable jobs reduce the caller ceiling individually.
@@ -97,4 +103,4 @@ The existing fleet owner retains account-wide capacity snapshots/reservations, s
 
 Measure runner-held PR-wait minutes (source objective: zero), queue time, actual execution time and release completion separately. No live timing or core feedback-time improvement is claimed from fixtures.
 
-Rollback the local caller migration through a reviewed revert. Keep candidate artifacts and receipts; disable fresh admission while reconciling pending work. Never fall back to publishing from an old PR artifact, force a tag, remove an ambiguous publication journal or bypass the protection checks. If the old workflow must be restored, reconcile its outstanding intent first so two release implementations cannot race.
+Rollback the local caller migration through a reviewed revert. Keep candidate artifacts and receipts. During rollback leave `release-enabled: true` and set `reconcile-only: true` on every caller invocation; setting `release-enabled: false` also disables reconciliation and strands pending receipts. For a merged candidate blocked by non-success protection evidence, an operator may additionally request `retire-unpublished: true`; this retires only verified untouched intent with no npm coordinate, tag, Release or publication attempt. Reset the operator input after recovery. Never fall back to publishing from an old PR artifact, force a tag, remove an ambiguous publication journal or bypass the protection checks. If the old workflow must be restored, reconcile its outstanding intent first so two release implementations cannot race.

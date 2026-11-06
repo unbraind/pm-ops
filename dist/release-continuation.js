@@ -6,7 +6,11 @@ export function releaseDigest(value) {
 }
 /** Bind every caller input except the scheduling-only mode; key order is immaterial. */
 export function releaseConfigDigest(inputs) {
-    return releaseDigest(JSON.stringify(Object.entries(inputs).filter(([key]) => key !== "reconcile-only").sort(([a], [b]) => a < b ? -1 : 1)));
+    return releaseDigest(JSON.stringify(Object.entries(inputs).filter(([key]) => !["reconcile-only", "retire-unpublished"].includes(key)).sort(([a], [b]) => a < b ? -1 : 1)));
+}
+/** Read an explicit Cargo package version without crossing into a dependency or workspace table. */
+export function cargoPackageVersion(text) {
+    return /^[ \t]*\[package\][^\r\n]*\r?\n(?:(?!^[ \t]*\[)[\s\S])*?^[ \t]*version[ \t]*=[ \t]*"([^"\r\n]+)"/m.exec(text)?.[1] ?? "";
 }
 /** Prove ownership before refreshing or closing a PR; use the same predicate on both paths. */
 export function ownsContinuationPr(pr, repository, base) {
@@ -51,9 +55,14 @@ export function decideReleaseContinuation(c, e) {
     if (e.pr.state !== "closed" || !e.pr.mergedSha || e.artifactSha256 !== c.packageSha256)
         throw new Error("Merged source or artifact changed");
     const changedSource = e.mergedTree !== c.tree || e.mergedParents.length !== 1 || e.mergedParents[0] !== c.baseSha || e.version !== c.version;
+    if (e.retireUnpublished === true) {
+        if (e.registry === "absent" && !e.attempted && e.tagSha === null && e.releaseSha === null)
+            return "retire";
+        throw new Error("Operator retirement refused: publication evidence or an ambiguous attempt exists");
+    }
     if (e.requiredChecks.length === 0 || e.requiredChecks.some(state => state !== "SUCCESS")
         || !["APPROVED", ""].includes(e.reviewDecision))
-        throw new Error("Required protection proof is missing or not green");
+        throw new Error("Required protection proof is missing or not green; use reconcile-only with retire-unpublished for verified untouched intent");
     if ((e.tagSha !== null && e.tagSha !== e.pr.mergedSha) || (e.releaseSha !== null && (e.releaseSha !== e.pr.mergedSha || e.tagSha === null))
         || e.registry === "unverified")
         throw new Error("Live publication identity disagrees");

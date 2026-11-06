@@ -5,6 +5,11 @@ on:
     - cron: "23 3 * * *"
     - cron: "41 * * * *"
   workflow_dispatch:
+    inputs:
+      retire-unpublished:
+        description: Retire only verified untouched unpublished merged intent
+        type: boolean
+        default: false
 permissions: {}
 jobs:
   release:
@@ -17,4 +22,5 @@ jobs:
       issues: write
     uses: unbraind/pm-ops/.github/workflows/daily-release.yml@0000000000000000000000000000000000000000 # v2026.10.19
     with:
-      reconcile-only: ${{ github.event_name == 'schedule' && github.event.schedule == '41 * * * *' }}
+      reconcile-only: ${{ (github.event_name == 'schedule' && github.event.schedule == '41 * * * *') || inputs.retire-unpublished == true }}
+      retire-unpublished: ${{ github.event_name == 'workflow_dispatch' && inputs.retire-unpublished == true }}

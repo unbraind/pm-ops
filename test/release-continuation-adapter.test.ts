@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import { parse } from "yaml";
 import { candidateFixture, evidenceFixture } from "./release-continuation-fixture.ts";
 import { releaseConfigDigest, releaseDigest } from "../release-continuation.ts";
-import { candidateBody, retiredCandidateBody, parseCandidateReceipt, inspectCandidate as inspectProductionCandidate, closeSuperseded, requiredProtection, githubApi, registryJson, runReleaseContinuation as runProductionContinuation, normalizeWorkflowPath, type ReleaseApi } from "../scripts/release-continuation.ts";
+import { candidateBody, retiredCandidateBody, parseCandidateReceipt, inspectCandidate as inspectProductionCandidate, closeSuperseded, requiredProtection, approveRequiredWorkflowRuns, githubApi, registryJson, runReleaseContinuation as runProductionContinuation, normalizeWorkflowPath, type ReleaseApi } from "../scripts/release-continuation.ts";
 
 /** Isolate the cryptographic network boundary in transport fixtures; real signed bundles have separate tests. */
 async function syntheticSignature(): Promise<void> {}
@@ -82,7 +82,7 @@ async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { ro
     REMOTE_BRANCH_SHA: f.c.headSha, ARTIFACT_ID: "20", RELEASE_BASE_SHA: f.c.baseSha, VERIFIED_COMMIT: f.c.headSha, VERIFIED_TREE: f.c.tree, NPM_VERSION: f.c.version, RELEASE_TAG: f.c.tag,
     PACKAGE_NAME: f.c.packageName, CLI_VERSION: f.c.cliVersion, PM_OPS_VERSION: f.c.opsVersion, WORKFLOW_TOOLS_SHA: f.c.toolsSha!, GITHUB_ENV: join(root, "env"), GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", NPM_PUBLISH: "true", IS_RUST: "false", RELEASE_FIXTURE: root,
     PATH: `${root}:${process.env.PATH}` };
-  const saved = new Map([...Object.keys(values), "CANDIDATE_RECEIPT", "SUPERSEDED_PR_NUMBERS", "POST_RELEASE_SCRIPT", "NPM_PROJECT_PATH"].map(key => [key, process.env[key]]));
+  const saved = new Map([...Object.keys(values), "CANDIDATE_RECEIPT", "SUPERSEDED_PR_NUMBERS", "POST_RELEASE_SCRIPT", "NPM_PROJECT_PATH", "RETIRE_UNPUBLISHED", "RELEASE_COMMIT"].map(key => [key, process.env[key]]));
   Object.assign(process.env, values);
   const refresh = () => {
     f.c.configDigest = releaseConfigDigest({}); f.c.packageSha256 = releaseDigest("verified bytes"); f.c.notesSha256 = releaseDigest("verified notes");
@@ -126,6 +126,61 @@ function assertIntentRetained(f: ReturnType<typeof remoteFixture>): void {
   assert.deepEqual(parseCandidateReceipt(f.pr.body), f.receipt);
   assert.equal(f.calls.filter(call => call.method !== "GET").length, 0);
 }
+
+test("approval selects exact-head protected workflow runs across pages without a CI name assumption", async () => {
+  const f = remoteFixture(); f.pr.state = "open"; f.pr.merged = false;
+  const approved: string[] = [];
+  const data = [Array.from({ length: 100 }, (_, id) => ({ id, name: "Different name", head_sha: f.c.headSha, event: "pull_request", status: "completed", conclusion: "success" })),
+    [{ id: 201, name: "Build package", head_sha: f.c.headSha, event: "pull_request", status: "waiting", conclusion: null },
+      { id: 202, name: "Build package", head_sha: "foreign", event: "pull_request", status: "waiting", conclusion: null },
+      { id: 203, name: "CI", head_sha: f.c.headSha, event: "pull_request", status: "waiting", conclusion: null },
+      { id: 204, name: "Build package", head_sha: f.c.headSha, event: "workflow_dispatch", status: "waiting", conclusion: null },
+      { id: 205, name: "Build package", head_sha: f.c.headSha, event: "pull_request", status: "completed", conclusion: "success" },
+      { id: 206, name: "Build package", head_sha: f.c.headSha, event: "pull_request", status: "completed", conclusion: "action_required" }]];
+  const api: ReleaseApi = async (path, method) => {
+    if (method === "POST") { approved.push(path); return {}; }
+    if (path.includes("/actions/runs?")) return { workflow_runs: data[path.endsWith("page=1") ? 0 : 1] };
+    return f.pr;
+  };
+  await approveRequiredWorkflowRuns(42, f.c.headSha, f.c.repository, api, () => ({ runs: ["201", "202", "204", "205", "206"] }));
+  assert.deepEqual(approved, [201, 206].map(id => `repos/${f.c.repository}/actions/runs/${id}/approve`));
+  Object.assign(f.pr.user, { login: "human" }); await assert.rejects(approveRequiredWorkflowRuns(42, f.c.headSha, f.c.repository, api), /Untrusted approval/);
+});
+
+test("required workflow URLs are bound to the exact repository and required issuer", () => {
+  const saved = process.env.GITHUB_REPOSITORY; process.env.GITHUB_REPOSITORY = "example/package";
+  try {
+    const f = protectionFixture();
+    f.nodes[0].checkSuite!.workflowRun = { url: "https://github.com/example/package/actions/runs/42223979312" };
+    assert.deepEqual(requiredProtection(42, f.head, f.run, true).runs, ["42223979312"]);
+    f.nodes[0].checkSuite!.app!.databaseId = 99; assert.deepEqual(requiredProtection(42, f.head, f.run, true).runs, []);
+    f.nodes[0].checkSuite!.app!.databaseId = 7;
+    for (const url of ["https://github.com/other/package/actions/runs/1", "https://github.com/example/package/actions/runs/NaN", "https://github.com/example/package/actions/runs/99999999999999999999999"]) {
+      f.nodes[0].checkSuite!.workflowRun.url = url; assert.throws(() => requiredProtection(42, f.head, f.run, true), /Untrusted required workflow/);
+    }
+  } finally { if (saved === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = saved; }
+});
+
+test("native operator retirement preserves evidence and approval mode uses protected run discovery", async () => {
+  await withAdapter(async f => {
+    process.env.RETIRE_UNPUBLISHED = "true";
+    const data = JSON.parse(readFileSync(join(f.root, "protection.json"), "utf8"));
+    data.data.repository.pullRequest.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[0].conclusion = "SKIPPED";
+    writeFileSync(join(f.root, "protection.json"), JSON.stringify(data));
+    await assert.rejects(runReleaseContinuation("verify"), /Publication requires/);
+    f.state.comments.push({ user: { login: "github-actions[bot]" }, body: '<!-- pm-ops-post-hook-v1\n{}\n-->' });
+    await assert.rejects(runReleaseContinuation("probe"), /retirement refused/);
+    f.state.comments.splice(0);
+    await runReleaseContinuation("probe");
+    assert.equal(parseCandidateReceipt(f.pr.body), null);
+    assert.match(readFileSync(join(f.root, "output"), "utf8"), /pending=false\naction=retire/);
+    f.refresh(); delete process.env.RETIRE_UNPUBLISHED; f.pr.state = "open"; f.pr.merged = false;
+    process.env.RELEASE_COMMIT = f.c.headSha;
+    const transport = globalThis.fetch;
+    globalThis.fetch = async (url, init) => String(url).includes("/actions/runs?head_sha=") ? new Response('{"workflow_runs":[]}') : transport(url, init);
+    await runReleaseContinuation("approve");
+  });
+});
 
 /** Configure authoritative open or squash-merged PR metadata consistently. */
 function setMergeState(f: ReturnType<typeof remoteFixture>, merged: boolean): void {
@@ -186,7 +241,7 @@ function protectionFixture() {
   const branch = { name: "main", protected: true, protection: { enabled: true, required_status_checks: {
     enforcement_level: "everyone", contexts: ["CI", "legacy"], checks: [{ context: "CI", app_id: 7 as number | null }, { context: "legacy", app_id: null as number | null }],
   } } };
-  const nodes: { __typename: string; name?: string; context?: string; status?: string; conclusion?: string | null; state?: string | null; isRequired: boolean; checkSuite?: { app: { databaseId: number } | null } }[] = [
+  const nodes: { __typename: string; name?: string; context?: string; status?: string; conclusion?: string | null; state?: string | null; isRequired: boolean; checkSuite?: { app: { databaseId: number } | null; workflowRun?: { url: string } | null } }[] = [
     { __typename: "CheckRun", name: "CI", status: "COMPLETED", conclusion: "SUCCESS", isRequired: true, checkSuite: { app: { databaseId: 7 } } },
     { __typename: "StatusContext", context: "legacy", state: "SUCCESS", isRequired: true },
   ];

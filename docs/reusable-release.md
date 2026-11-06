@@ -76,6 +76,7 @@ GitHub documents that [`job.workflow_sha`](https://docs.github.com/en/actions/re
 | `release-enabled` | boolean | `true` | Approval gate; pass the existing repository variable comparison for unapproved packages |
 | `npm-project-dir` | string | `.` | Relative npm project directory; Rust uses the crate root |
 | `node-version` | string | `22.18.0` | Node runtime for release tools |
+| `retire-unpublished` | boolean | `false` | Explicit operator recovery, with reconcile-only enabled; retires only verified unpublished intent without an attempt, npm coordinate, tag or Release |
 | `release-timezone` | string | `Europe/Vienna` | Calendar timezone for the single daily release |
 | `rust` | boolean | `false` | Use Cargo versioning and just release-check instead of npm project hooks |
 | `rust-toolchain` | string | `1.90.0` | Rust stable toolchain including clippy and rustfmt |
@@ -138,6 +139,11 @@ on:
     - cron: "23 3 * * *"
     - cron: "41 * * * *"
   workflow_dispatch:
+    inputs:
+      retire-unpublished:
+        description: Retire only verified untouched unpublished merged intent
+        type: boolean
+        default: false
 permissions: {}
 jobs:
   release:
@@ -150,7 +156,8 @@ jobs:
       issues: write
     uses: unbraind/pm-ops/.github/workflows/daily-release.yml@0000000000000000000000000000000000000000 # v2026.10.19
     with:
-      reconcile-only: ${{ github.event_name == 'schedule' && github.event.schedule == '41 * * * *' }}
+      reconcile-only: ${{ (github.event_name == 'schedule' && github.event.schedule == '41 * * * *') || inputs.retire-unpublished == true }}
+      retire-unpublished: ${{ github.event_name == 'workflow_dispatch' && inputs.retire-unpublished == true }}
       alert-script: release:alert
 ```
 
@@ -173,6 +180,11 @@ on:
     - cron: "23 3 * * *"
     - cron: "41 * * * *"
   workflow_dispatch:
+    inputs:
+      retire-unpublished:
+        description: Retire only verified untouched unpublished merged intent
+        type: boolean
+        default: false
 permissions: {}
 jobs:
   release:
@@ -185,7 +197,8 @@ jobs:
       issues: write
     uses: unbraind/pm-ops/.github/workflows/daily-release.yml@0000000000000000000000000000000000000000 # v2026.10.19
     with:
-      reconcile-only: ${{ github.event_name == 'schedule' && github.event.schedule == '41 * * * *' }}
+      reconcile-only: ${{ (github.event_name == 'schedule' && github.event.schedule == '41 * * * *') || inputs.retire-unpublished == true }}
+      retire-unpublished: ${{ github.event_name == 'workflow_dispatch' && inputs.retire-unpublished == true }}
       release-enabled: ${{ vars.PM_RELEASE_APPROVED == 'true' }}
       rust: true
       rust-toolchain: "1.90.0"

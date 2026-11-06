@@ -1,5 +1,6 @@
 /** Structural and canonical tag provenance checks for shared release workflow callers. */
 import { isScalar, parseDocument } from "yaml";
+import { assertContinuationSelection } from "./continuation-runtime.js";
 import { CaptureRefusal, execFileSync } from "./subprocess.js";
 import metadata from "./release-metadata.json" with { type: "json" };
 /** Resolve canonical release tags, or only one exact tag, including annotated tag peeling. */
@@ -99,6 +100,15 @@ export function inspectReleaseCaller(source, resolveTags = defaultCanonicalTagRe
             errors.push("caller must grant only the reusable workflow permissions at job level");
         }
         const inputs = mapping(job.with);
+        // Audited legacy tools predate native continuation; retain their existing caller contract.
+        if (!metadata.legacyWorkflowShas.includes(String(job.uses).split("@")[1])) {
+            try {
+                assertContinuationSelection(inputs["node-version"] ?? "22.18.0");
+            }
+            catch (error) {
+                errors.push(error.message);
+            }
+        }
         if ("pm-ops-version" in inputs)
             errors.push("pm-ops version must be derived from the workflow release tag");
     }

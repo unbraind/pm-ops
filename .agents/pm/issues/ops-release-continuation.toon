@@ -6,9 +6,9 @@ status: in_progress
 priority: 1
 tags[2]: "area:release","gh:unbraind/pm-ops#249"
 created_at: "2026-11-06T04:32:10.197Z"
-updated_at: "2026-11-06T13:11:56.534Z"
+updated_at: "2026-11-06T16:05:36.432Z"
 author: codex-sol
-comments[27]{created_at,author,text}:
+comments[30]{created_at,author,text}:
   "2026-11-06T04:32:12.566Z",codex-sol,"Plan: persist the verified candidate before requesting protected squash auto-merge, then exit. An hourly caller and daily catch-up inspect intent without installing dependencies; only a trusted merged candidate enters publication. Serialize all caller events, bind candidate/artifact/run/config identities, and refuse ambiguous registry or provenance results. Full live pilot and account-wide admission evidence remain outside this task authorization; PR will use Refs #249. Run targeted tests, lint and typecheck locally; CI owns the full gate."
   "2026-11-06T04:43:41.909Z",codex-sol,"Implementation now has a dependency-free TypeScript probe, versioned candidate receipt in the bot PR, immutable run artifact retained for 90 days, exact source/digest/config checks and a publication-attempt journal. The hourly path skips installs when no intent exists. Sixteen new focused state/adapter tests pass, including late CI, suppressed bot push, hostile identity, crash recovery and authoritative supersession. Migrating legacy workflow-shape tests to the shared implementation and documenting the read-only fleet inventory."
   "2026-11-06T05:00:39.230Z",codex-sol,"Behavioral revert proofs ran in disposable copies only. Twenty paired regressions each failed with its relevant guard/transition reverted: runner-held merge loop, late CI, stale-base refresh, fork/foreign-branch/exact-head/artifact ownership, merged identity, trusted preparation, required protection, ambiguous publication attempt, live daily cap, downloaded bytes, receipt parsing/schema, authoritative supersession and hourly pilot wiring. Restoring the fixed implementation passed all 20 tests (11 decision + 9 adapter). Targeted package set passed 512 tests with zero failures/skips; lint, typecheck, build:test and docstrings passed; duplication is 0% across 125 sources. Focused release-continuation coverage is 100/100/100/100. Full npm/Bun release gates are delegated to PR CI as requested; no publication, merge, other-repository edit or hosted change was performed."
@@ -36,12 +36,17 @@ comments[27]{created_at,author,text}:
   "2026-11-06T12:17:54.861Z",codex-agent,"The bounded npm full run exercised 1585 tests: 1580 passed, two optional real-data cases skipped, and three failed. Two were real fixture contracts exposed by this change: dependency-contract now copies the shared workflow it evaluates, and the packed runtime inventory includes Sigstore. The third was the unchanged five-second artifact-reader subprocess timeout under host load; it caused the two unchanged-source coverage gaps in assurance.ts/index.ts. After the fixture updates, all three selected tests passed serially with no timeout increase. The full run is not reported as passing. Every changed release source measured 100/100/100/100 in that full run. Fresh PR CI will certify both npm/Bun full gates after the fix push."
   "2026-11-06T13:02:57.100Z",codex-agent,"Review-loop hardening: all nine findings from the two completed reviews of 2b0c8a9 are valid and fixed. The verifier now authenticates Sigstore signatures, reusable-workflow identity and certificate source OIDs; trusted source tools are bound to the original run; config-change retirement preserves every ambiguous publication attempt; required-check policy uses contents-read REST. The verifier has a separate private locked runtime, with Dependabot and an audit gate. This replaces the temporary production-dependency approach: the earlier Sigstore runtime-manifest proof describes an intermediate revision and is superseded by the private-runtime execution proof. Current receipts contain 36 paired behavioral reverts, each one failing when reverted and passing when restored. A separate private-lock audit revert reports seven moderate vulnerabilities without the security override and zero with it. Empty probes still invoke no npm command. The default linked-test harness timed out without assertion failure under host load; a 600-second retry is running at the same test and coverage thresholds."
   "2026-11-06T13:11:53.897Z",codex-agent,"Final pre-push validation after merging the main release bump: tracker-linked targeted command passed 114 tests, zero failures/skips, on the 600-second retry (the initial 120-second harness timeout had no assertion failure). Focused coverage passed 89 tests with all five changed release sources at 100/100/100/100. The packed CLI and dependency-contract regression command passed two tests; the earlier regular-input timeout also passed its serial retry. There are now 37 paired behavioral revert receipts, each one failing when reverted and passing when restored, plus the private dependency audit revert (seven vulnerabilities to zero). Lint, typecheck, build, test compilation, zero-duplication policy, all 360 docstrings, isolated strict tracker health, production/private audits and dry-run packaging passed. The earlier full npm gate reported 1585 tests, 1580 pass, three failures and two existing optional skips; both fixture defects were corrected and the load timeout passed on retry. No final full-local-pass claim is made; PR CI will certify npm and Bun at unchanged thresholds. Both completed bot reviews were on 2b0c8a9; the fix head still requires fresh CI and queued review. The independent missing-gitHead repair compatibility issue is tracked by ops-release-inventory-gaps. No merge, release or publication action was performed."
-files[30]{path,scope}:
+  "2026-11-06T15:26:36.535Z",codex-agent,"The queued current-head review completed on ee225b8 with nine further findings. All prior nine threads were answered and resolved; ee225b8 CI passed npm and Bun on Node 22/26 (1585 tests each: 1583 pass, zero fail, two existing optional skips; 47 sources at unchanged 100/100/100/100), both Windows jobs and CodeQL. Evidence: https://github.com/unbraind/pm-ops/actions/runs/42223979312 and https://github.com/unbraind/pm-ops/actions/runs/42223979473 . This next fix batch covers private-lock runtime CI, pre-TypeScript Node-floor checks, protected-context workflow approval, retained concurrency queues, rollback/operator-retirement guidance, fail-closed recovery for non-success checks, bounded Cargo package-table parsing, isolated runtime tests and the workflow audit source label. Third completed full review; two rounds remain in the five-round bound."
+  "2026-11-06T15:59:08.933Z",codex-agent,"All nine current review findings are implemented. Fourteen additional paired behavioral revert proofs each failed once under the mutation and passed once after restoration, including actual private-runtime CI installation, runtime/caller/preamble floors, protected-run approval eligibility, retained pending queues, rollback recovery, retirement/publication/hook evidence guards, bounded Cargo parsing, audit source identity and a dependency-free default-test sandbox. The caller-floor proof was repeated after adding the required must-allow corpus for audited legacy callers. This loop now has 51 paired behavioral proofs plus the private dependency audit proof. Targeted tests passed 531 through pinned pm, followed by 17 runtime/caller compatibility tests and 90 focused coverage tests at unchanged 100/100/100/100. Read-only live protection evidence resolved both required checks to workflow run 42223979312 without an Administration credential. Lint, typecheck, zero duplication over 133 sources, all 363 documented declarations, production/private audits and safe package dry-run passed. Final caller/UI wiring checks and changelog/health verification are completing. The next fix push will be queued for bot review immediately, independently of CI, as the updated orchestrator rule requires."
+  "2026-11-06T16:05:36.432Z",codex-agent,"Final caller/UI wiring and attestation checks passed 29 tests with zero failures/skips after updating the operator input in the self-pilot, template and migration examples. Final focused coverage passed 90 tests at 100/100/100/100 after preserving audited legacy caller versions; all 14 new revert receipts remain passing. Changelog regeneration/check, release section/date, publish-attestation and lifecycle checks passed at unchanged thresholds. No pm CLI or SDK defect was discovered; no tracker item was closed. The claim is released; fresh bot review is queued immediately after the fix push, and CI will certify the full npm/Bun gates."
+files[34]{path,scope}:
   .github/dependabot.yml,project
   .github/release-runtime/package-lock.json,project
   .github/release-runtime/package.json,project
+  .github/workflows/ci.yml,project
   .github/workflows/daily-release.yml,project
   .github/workflows/release.yml,project
+  continuation-runtime.ts,project
   daily-release.ts,project
   package-lock.json,project
   package.json,project
@@ -54,6 +59,7 @@ files[30]{path,scope}:
   scripts/release-runtime.ts,project
   scripts/verify-registry-provenance.ts,project
   test/compatibility-floor.test.ts,project
+  test/continuation-runtime.test.ts,project
   test/daily-release-workflow.test.ts,project
   test/dependency-contract.test.ts,project
   test/fixtures/provenance/sigstore-4.1.1.json,project
@@ -67,18 +73,93 @@ files[30]{path,scope}:
   test/release-provenance.test.ts,project
   test/release-runtime.test.ts,project
   test/release-workflow.test.ts,project
-tests[11]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
-  node --test --test-concurrency=2 test/release-continuation.test.ts test/release-continuation-adapter.test.ts,project,codex-sol,"2026-11-06T04:54:32.726Z",local_mutation,release-continuation-without-runner-wait
-  npm run lint,project,codex-sol,"2026-11-06T05:00:42.538Z",local_mutation,release-continuation-without-runner-wait
-  npm run typecheck,project,codex-sol,"2026-11-06T05:00:47.039Z",local_mutation,release-continuation-without-runner-wait
-  node --test --test-concurrency=2 test/daily-release.test.ts test/daily-release-workflow.test.ts test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/release-review.test.ts test/release-workflow.test.ts test/compatibility-floor.test.ts test/third-party-publish-wrappers.test.ts test/release-caller.test.ts test/release-caller-attestation.test.ts test/changelog-sections.test.ts test/verify-release-changelog-sections.test.ts test/subprocess.test.ts,project,codex-sol,"2026-11-06T05:48:08.160Z",local_mutation,release-continuation-without-runner-wait
-  node --test --test-concurrency=2 test/release-continuation-adapter.test.ts test/release-caller.test.ts test/daily-release-workflow.test.ts,project,codex-agent,"2026-11-06T07:08:58.188Z",local_mutation,release-continuation-without-runner-wait
-  "npm run release:check",project,codex-agent,"2026-11-06T07:15:35.500Z",local_mutation,release-continuation-without-runner-wait
-  "bun run release:check",project,codex-agent,"2026-11-06T07:15:37.211Z",local_mutation,release-continuation-without-runner-wait
-  node --test --test-concurrency=2 test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/daily-release-workflow.test.ts,project,codex-agent,"2026-11-06T08:56:53.168Z",local_mutation,release-continuation-without-runner-wait
-  node --test --test-concurrency=2 test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/daily-release-workflow.test.ts test/release-provenance.test.ts test/release-runtime.test.ts test/compatibility-floor.test.ts test/release-workflow.test.ts,project,codex-agent,"2026-11-06T10:32:51.461Z",local_mutation,release-continuation-without-runner-wait
-  node --test --test-concurrency=1 --test-name-pattern='^(dependency contract accepts|installed pm CLI routes|all artifact readers refuse)' test/dependency-contract.test.ts test/ops.test.ts test/regular-input.test.ts,project,codex-agent,"2026-11-06T12:17:34.284Z",local_mutation,release-continuation-without-runner-wait
-  "node_modules/.bin/c8 --include=\"**/release-continuation.*\" --include=\"**/release-provenance.*\" --include=\"**/release-runtime.*\" --include=\"**/verify-registry-provenance.*\" --exclude=\"test/**\" --exclude=\"dist-test/**\" --reporter=text --check-coverage --lines=100 --branches=100 --functions=100 --statements=100 node --test --test-concurrency=2 test/daily-release.test.ts test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/release-provenance.test.ts test/release-runtime.test.ts",project,codex-agent,"2026-11-06T13:10:22.539Z",local_mutation,release-continuation-without-runner-wait
+  test/third-party-publish-wrappers.test.ts,project
+tests[12]:
+  - command: node --test --test-concurrency=2 test/release-continuation.test.ts test/release-continuation-adapter.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-06T04:54:32.726Z"
+      source_kind: local_mutation
+      source_ref: release-continuation-without-runner-wait
+  - command: npm run lint
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-06T05:00:42.538Z"
+      source_kind: local_mutation
+      source_ref: release-continuation-without-runner-wait
+  - command: npm run typecheck
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-06T05:00:47.039Z"
+      source_kind: local_mutation
+      source_ref: release-continuation-without-runner-wait
+  - command: node --test --test-concurrency=2 test/daily-release.test.ts test/daily-release-workflow.test.ts test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/release-review.test.ts test/release-workflow.test.ts test/compatibility-floor.test.ts test/third-party-publish-wrappers.test.ts test/release-caller.test.ts test/release-caller-attestation.test.ts test/changelog-sections.test.ts test/verify-release-changelog-sections.test.ts test/subprocess.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-06T05:48:08.160Z"
+      source_kind: local_mutation
+      source_ref: release-continuation-without-runner-wait
+  - command: node --test --test-concurrency=2 test/release-continuation-adapter.test.ts test/release-caller.test.ts test/daily-release-workflow.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-06T07:08:58.188Z"
+      source_kind: local_mutation
+      source_ref: release-continuation-without-runner-wait
+  - command: "npm run release:check"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-06T07:15:35.500Z"
+      source_kind: local_mutation
+      source_ref: release-continuation-without-runner-wait
+  - command: "bun run release:check"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-06T07:15:37.211Z"
+      source_kind: local_mutation
+      source_ref: release-continuation-without-runner-wait
+  - command: node --test --test-concurrency=2 test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/daily-release-workflow.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-06T08:56:53.168Z"
+      source_kind: local_mutation
+      source_ref: release-continuation-without-runner-wait
+  - command: node --test --test-concurrency=2 test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/daily-release-workflow.test.ts test/release-provenance.test.ts test/release-runtime.test.ts test/compatibility-floor.test.ts test/release-workflow.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-06T10:32:51.461Z"
+      source_kind: local_mutation
+      source_ref: release-continuation-without-runner-wait
+  - command: node --test --test-concurrency=1 --test-name-pattern='^(dependency contract accepts|installed pm CLI routes|all artifact readers refuse)' test/dependency-contract.test.ts test/ops.test.ts test/regular-input.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-06T12:17:34.284Z"
+      source_kind: local_mutation
+      source_ref: release-continuation-without-runner-wait
+  - command: "node_modules/.bin/c8 --include=\"**/release-continuation.*\" --include=\"**/release-provenance.*\" --include=\"**/release-runtime.*\" --include=\"**/verify-registry-provenance.*\" --exclude=\"test/**\" --exclude=\"dist-test/**\" --reporter=text --check-coverage --lines=100 --branches=100 --functions=100 --statements=100 node --test --test-concurrency=2 test/daily-release.test.ts test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/release-provenance.test.ts test/release-runtime.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-06T13:10:22.539Z"
+      source_kind: local_mutation
+      source_ref: release-continuation-without-runner-wait
+  - command: node --test --test-concurrency=2 test/continuation-runtime.test.ts test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/release-caller.test.ts test/daily-release-workflow.test.ts test/release-runtime.test.ts test/third-party-publish-wrappers.test.ts
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-06T15:36:06.294Z"
+      source_kind: local_mutation
+      source_ref: release-continuation-without-runner-wait
 docs[4]{path,scope}:
   .github/release-runtime/README.md,project
   docs/release-migration.md,project

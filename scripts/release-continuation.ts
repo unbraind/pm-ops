@@ -7,7 +7,7 @@ import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "./
 import { verifyRegistryProvenance, type ProvenanceIdentity, type verifySigstoreBundle } from "../release-provenance.ts";
 import { pathToFileURL } from "node:url";
 import {
-  decideReleaseContinuation, ownsContinuationPr, releaseConfigDigest, releaseDigest, validateReleaseCandidate,
+  cargoPackageVersion, decideReleaseContinuation, ownsContinuationPr, releaseConfigDigest, releaseDigest, validateReleaseCandidate,
   type ContinuationEvidence, type ContinuationPr, type ReleaseCandidate,
 } from "../release-continuation.ts";
 
@@ -165,7 +165,7 @@ async function preparationConclusion(api: ReleaseApi, repository: string, c: Rel
 
 /** Re-read all publication proof. No webhook payload, PR artifact or API failure substitutes for it. */
 export async function inspectCandidate(receipt: CandidateReceipt, options: {
-  repository: string; triggerSha: string; workflow: string; configDigest: string; timezone: string; now: string;
+  repository: string; triggerSha: string; workflow: string; configDigest: string; timezone: string; now: string; retireUnpublished?: boolean;
 }, api: ReleaseApi = githubApi, readRegistry = registryJson,
 checks: (number: number, head: string) => { states: string[]; review: string } = requiredProtection,
 verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mainSha: string; toolsSha: string; signerWorkflow: string }> {
@@ -199,7 +199,7 @@ verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mai
   const text = source ? Buffer.from(source.content, "base64").toString("utf8") : "";
   const pkg = text && !rust ? JSON.parse(text) as { version: string; name: string } : null;
   if (pkg && pkg.name !== c.packageName) throw new Error("Merged package name changed");
-  const version = source ? rust ? /^\[package\][^]*?^version\s*=\s*"([^"]+)"/m.exec(text)?.[1] ?? "" : pkg!.version : c.version;
+  const version = source ? rust ? cargoPackageVersion(text) : pkg!.version : c.version;
   const protection = pr.merged && !configChanged ? checks(pr.number, c.headSha) : { states: [], review: "" };
   const tagSha = pr.merged || configChanged ? await tagCommit(api, options.repository, c.tag) : null;
   const release = pr.merged || configChanged ? await api(`${repo}/releases/tags/${c.tag}`) as { tag_name: string; draft: boolean } | null : null;
@@ -211,7 +211,7 @@ verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mai
   const attempts = comments.filter(comment => comment.user.login === "github-actions[bot]" && comment.body.startsWith(attemptMarker))
     .map(comment => JSON.parse(comment.body.slice(attemptMarker.length, -4)) as { candidate: string });
   if (attempts.some(attempt => attempt.candidate !== releaseDigest(JSON.stringify(c)))) throw new Error("Publication attempt identity disagrees; operator reconciliation is required");
-  const attempted = attempts.length !== 0;
+  const attempted = attempts.length !== 0 || comments.some(comment => comment.user.login === "github-actions[bot]" && comment.body.startsWith("<!-- pm-ops-post-hook-v1\n"));
   let publishedToday = false;
   if (pr.merged && !configChanged && (registry === "absent" || (!c.npmPublish && !release))) {
     const today = day(options.now, options.timezone);
@@ -241,7 +241,7 @@ function requiredProjectPath(): string {
 
 /** Read complete classic check policy with contents-read access and bind every context to the PR head. */
 export function requiredProtection(number: number, expectedHead: string,
-  run: (args: string[]) => string = args => execFileSync("gh", args, { encoding: "utf8", timeout: 30_000 })): { states: string[]; review: string } {
+  run: (args: string[]) => string = args => execFileSync("gh", args, { encoding: "utf8", timeout: 30_000 }), withRuns = false): { states: string[]; review: string; runs?: string[] } {
   const [owner, repository] = required("GITHUB_REPOSITORY").split("/");
   const branch = JSON.parse(run(["api", `repos/${owner}/${repository}/branches/main`])) as {
     name: string; protected: boolean; protection?: { enabled: boolean; required_status_checks?: {
@@ -255,12 +255,12 @@ export function requiredProtection(number: number, expectedHead: string,
     || rule.checks.some(check => typeof check.context !== "string" || !check.context || (check.app_id !== null && check.app_id !== -1 && (!Number.isSafeInteger(check.app_id) || check.app_id < 1)))
     || rule.contexts.some(context => !rule.checks.some(check => check.context === context)) || rule.checks.some(check => !rule.contexts.includes(check.context))
     || !Array.isArray(rules) || rules.length !== 0) throw new Error("Required protection policy is unreadable, incomplete or includes unsupported active rulesets");
-  const query = `query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){headRefOid baseRefName reviewDecision commits(last:1){nodes{commit{oid statusCheckRollup{contexts(first:100){totalCount pageInfo{hasNextPage} nodes{__typename ... on CheckRun{name status conclusion isRequired(pullRequestNumber:$n) checkSuite{app{databaseId}}} ... on StatusContext{context state isRequired(pullRequestNumber:$n)}}}}}}}}}}`;
+  const query = `query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){headRefOid baseRefName reviewDecision commits(last:1){nodes{commit{oid statusCheckRollup{contexts(first:100){totalCount pageInfo{hasNextPage} nodes{__typename ... on CheckRun{name status conclusion isRequired(pullRequestNumber:$n) checkSuite{app{databaseId} workflowRun{url}}} ... on StatusContext{context state isRequired(pullRequestNumber:$n)}}}}}}}}}}`;
   const response = JSON.parse(run(["api", "graphql", "-f", `query=${query}`, "-F", `o=${owner}`, "-F", `r=${repository}`, "-F", `n=${number}`])) as {
     errors?: unknown[]; data: { repository: { pullRequest: {
       headRefOid: string; baseRefName: string; reviewDecision: string | null;
       commits: { nodes: { commit: { oid: string; statusCheckRollup: { contexts: { totalCount: number; pageInfo: { hasNextPage: boolean }; nodes: {
-        __typename: string; name?: string; context?: string; state?: string; status?: string; conclusion?: string; isRequired: boolean; checkSuite?: { app: { databaseId: number } | null };
+        __typename: string; name?: string; context?: string; state?: string; status?: string; conclusion?: string; isRequired: boolean; checkSuite?: { app: { databaseId: number } | null; workflowRun?: { url: string } | null };
       }[] } } } }[] };
     } } };
   };
@@ -271,12 +271,37 @@ export function requiredProtection(number: number, expectedHead: string,
     || (pr.reviewDecision !== null && !["APPROVED", "REVIEW_REQUIRED", "CHANGES_REQUESTED"].includes(pr.reviewDecision))
     || !contexts || contexts.pageInfo.hasNextPage || contexts.totalCount !== contexts.nodes.length
     || contexts.nodes.some(node => node.isRequired && !rule.checks.some(check => check.context === (node.name ?? node.context)))) throw new Error("Required protection policy or exact-head evidence is unreadable or incomplete");
+  const runs = new Set<string>();
   const states = rule.checks.flatMap(check => {
     const matching = contexts.nodes.filter(node => (node.name ?? node.context) === check.context && node.isRequired === true
       && (check.app_id === null || check.app_id === -1 || node.checkSuite?.app?.databaseId === check.app_id));
+    if (withRuns) for (const node of matching) {
+      const url = node.checkSuite?.workflowRun?.url;
+      if (url === undefined) continue;
+      const prefix = `https://github.com/${owner}/${repository}/actions/runs/`;
+      const id = url.startsWith(prefix) ? url.slice(prefix.length) : "";
+      if (!/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id))) throw new Error("Untrusted required workflow run URL");
+      runs.add(id);
+    }
     return matching.length ? matching.map(node => node.__typename === "CheckRun" ? node.status === "COMPLETED" ? node.conclusion ?? "MISSING" : "PENDING" : node.state ?? "MISSING") : ["MISSING"];
   });
-  return { states, review: pr.reviewDecision ?? "" };
+  return { states, review: pr.reviewDecision ?? "", ...(withRuns ? { runs: [...runs] } : {}) };
+}
+
+/** Approve only waiting PR runs proven by exact-head required checks, independent of workflow names. */
+export async function approveRequiredWorkflowRuns(number: number, head: string, repository: string, api: ReleaseApi = githubApi,
+  proof: () => { runs?: string[] } = () => requiredProtection(number, head, undefined, true)): Promise<void> {
+  const pr = await api(`repos/${repository}/pulls/${number}`) as RestPr;
+  if (!ownsContinuationPr(identity(pr), repository, "main") || pr.head.sha !== head || pr.state !== "open") throw new Error("Untrusted approval candidate");
+  const eligible = new Set(proof().runs);
+  const runs = await pages<{ id: number; head_sha: string; event: string; status: string; conclusion: string | null }>(async path => {
+    const data = await api(path) as { workflow_runs: unknown[] };
+    return data.workflow_runs;
+  }, `repos/${repository}/actions/runs?head_sha=${head}`);
+  for (const run of runs) if (eligible.has(String(run.id)) && run.head_sha === head && run.event === "pull_request"
+    && (run.status === "waiting" || run.conclusion === "action_required")) {
+    await api(`repos/${repository}/actions/runs/${run.id}/approve`, "POST");
+  }
 }
 
 /** Retire owned superseded receipts before closing; every failed mutation remains visible. */
@@ -359,6 +384,10 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
     await closeSuperseded((process.env.SUPERSEDED_PR_NUMBERS ?? "").split(" ").filter(Boolean).map(Number), Number(required("RELEASE_PR_NUMBER")), repository);
     return;
   }
+  if (mode === "approve") {
+    await approveRequiredWorkflowRuns(Number(required("RELEASE_PR_NUMBER")), required("RELEASE_COMMIT"), repository);
+    return;
+  }
   if (mode === "ownership") {
     const pr = await githubApi(`repos/${repository}/pulls/${required("RELEASE_PR_NUMBER")}`) as RestPr;
     if (!ownsContinuationPr(identity(pr), repository, "main") || pr.state !== "open" || pr.head.ref !== required("RELEASE_BRANCH") || pr.head.sha !== required("REMOTE_BRANCH_SHA")) throw new Error("Release PR ownership or head changed");
@@ -389,7 +418,7 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
     execFileSync("gh", ["pr", "merge", number, "--repo", repository, "--auto", "--squash", "--match-head-commit", candidate.headSha], { stdio: "inherit" });
     return;
   }
-  const options = { repository, triggerSha: required("TRIGGER_SHA"), workflow, configDigest, timezone: required("RELEASE_TIMEZONE"), now: new Date().toISOString() };
+  const options = { repository, triggerSha: required("TRIGGER_SHA"), workflow, configDigest, timezone: required("RELEASE_TIMEZONE"), now: new Date().toISOString(), retireUnpublished: process.env.RETIRE_UNPUBLISHED === "true" };
   let receipt: CandidateReceipt;
   if (mode === "probe") {
     const prs = await pages<RestPr>(githubApi, `repos/${repository}/pulls?state=all&base=main&sort=updated&direction=desc`);
@@ -406,10 +435,10 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
   }
   const result = await inspectCandidate(receipt, options, githubApi, registryJson, requiredProtection, verifyProvenance);
   let retired = false;
-  if (result.action === "stranded" && mode === "probe") {
+  if ((result.action === "stranded" || result.action === "retire") && mode === "probe") {
     if (options.triggerSha === result.mainSha) {
       if (result.pr.state === "open" && !result.pr.merged) execFileSync("gh", ["pr", "merge", String(result.pr.number), "--repo", repository, "--disable-auto"], { stdio: "inherit" });
-      await retireReceipt(result.pr, repository, "Retired unpublished release " + receipt.candidate.tag + " because its source or caller configuration is no longer the verified current-main candidate. Fresh preparation is required.", githubApi);
+      await retireReceipt(result.pr, repository, "Retired unpublished release " + receipt.candidate.tag + (result.action === "retire" ? " at the operator's explicit request; required protection checks were not bypassed." : " because its source or caller configuration is no longer the verified current-main candidate. Fresh preparation is required."), githubApi);
       retired = true;
     }
     process.stdout.write("::warning::Release intent is stranded; " + (retired ? "unpublished receipt retired for fresh daily preparation." : "wait for a run triggered at current main before retirement.") + "\n");

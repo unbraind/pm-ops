@@ -123,10 +123,16 @@ on:
         type: boolean
         required: false
         default: false
+      retire-unpublished:
+        description: Explicit operator recovery of verified untouched unpublished merged intent
+        type: boolean
+        required: false
+        default: false
 permissions: {}
 concurrency:
   group: daily-release
   cancel-in-progress: false
+  queue: max
 jobs:
   reconcile:
     if: inputs.release-enabled && github.ref == 'refs/heads/main'
@@ -143,6 +149,7 @@ jobs:
       CALLER_WORKFLOW: ${{ github.workflow_ref }}
       TRIGGER_SHA: ${{ github.sha }}
       RELEASE_TIMEZONE: ${{ inputs.release-timezone }}
+      RETIRE_UNPUBLISHED: ${{ inputs.retire-unpublished }}
       NPM_PROJECT_DIR: ${{ inputs.npm-project-dir }}
       IS_RUST: ${{ inputs.rust }}
     outputs:
@@ -192,6 +199,9 @@ jobs:
           mv "$GITHUB_WORKSPACE/.pm-ops-release-tools" "$RUNNER_TEMP/pm-ops-release-tools"
           printf 'CONTINUATION_SCRIPT=%s/pm-ops-release-tools/scripts/release-continuation.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           printf 'PROVENANCE_SCRIPT=%s/pm-ops-release-tools/scripts/verify-registry-provenance.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Enforce continuation runtime floor
+        shell: bash
+        run: node "${CONTINUATION_SCRIPT%/scripts/*}/dist/continuation-runtime.js"
       - name: Reconcile durable release intent
         id: probe
         shell: bash
@@ -201,13 +211,11 @@ jobs:
         shell: bash
         env:
           RELEASE_COMMIT: ${{ steps.probe.outputs.headSha }}
+          RELEASE_PR_NUMBER: ${{ steps.probe.outputs.pr_number }}
         run: |
           set -euo pipefail
-          pending_runs="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${RELEASE_COMMIT}&per_page=100" --jq '.workflow_runs[]? | select(.head_sha == "'"$RELEASE_COMMIT"'") | select(.conclusion=="action_required" or .status=="waiting") | select(.name == "CI") | .id')"
-          while IFS= read -r run_id; do
-            [[ -z "$run_id" ]] && continue
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/approve" >/dev/null || echo "::warning::Current CI approval was refused; inspect the linked PR."
-          done <<< "$pending_runs"
+          node "$CONTINUATION_SCRIPT" approve
+
   prepare:
     if: inputs.release-enabled && github.ref == 'refs/heads/main' && !inputs.reconcile-only && needs.reconcile.outputs.pending == 'false'
     runs-on: ubuntu-latest
@@ -330,6 +338,9 @@ jobs:
           mv "$GITHUB_WORKSPACE/.pm-ops-release-tools" "$RUNNER_TEMP/pm-ops-release-tools"
           printf 'CONTINUATION_SCRIPT=%s/pm-ops-release-tools/scripts/release-continuation.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           printf 'PROVENANCE_SCRIPT=%s/pm-ops-release-tools/scripts/verify-registry-provenance.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Enforce continuation runtime floor
+        shell: bash
+        run: node "${CONTINUATION_SCRIPT%/scripts/*}/dist/continuation-runtime.js"
       - name: Install pinned release tools
         shell: bash
         run: node "$CONTINUATION_SCRIPT" tools
@@ -729,6 +740,9 @@ jobs:
           mv "$GITHUB_WORKSPACE/.pm-ops-release-tools" "$RUNNER_TEMP/pm-ops-release-tools"
           printf 'CONTINUATION_SCRIPT=%s/pm-ops-release-tools/scripts/release-continuation.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           printf 'PROVENANCE_SCRIPT=%s/pm-ops-release-tools/scripts/verify-registry-provenance.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Enforce continuation runtime floor
+        shell: bash
+        run: node "${CONTINUATION_SCRIPT%/scripts/*}/dist/continuation-runtime.js"
       - name: Download verified release
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
@@ -985,6 +999,9 @@ jobs:
           mv "$GITHUB_WORKSPACE/.pm-ops-release-tools" "$RUNNER_TEMP/pm-ops-release-tools"
           printf 'CONTINUATION_SCRIPT=%s/pm-ops-release-tools/scripts/release-continuation.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           printf 'PROVENANCE_SCRIPT=%s/pm-ops-release-tools/scripts/verify-registry-provenance.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Enforce continuation runtime floor
+        shell: bash
+        run: node "${CONTINUATION_SCRIPT%/scripts/*}/dist/continuation-runtime.js"
       - name: Checkout recorded release tools
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -1426,6 +1443,9 @@ jobs:
           mv "$GITHUB_WORKSPACE/.pm-ops-release-tools" "$RUNNER_TEMP/pm-ops-release-tools"
           printf 'CONTINUATION_SCRIPT=%s/pm-ops-release-tools/scripts/release-continuation.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           printf 'PROVENANCE_SCRIPT=%s/pm-ops-release-tools/scripts/verify-registry-provenance.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Enforce continuation runtime floor
+        shell: bash
+        run: node "${CONTINUATION_SCRIPT%/scripts/*}/dist/continuation-runtime.js"
       - name: Install pinned release tools
         shell: bash
         run: node "$CONTINUATION_SCRIPT" tools

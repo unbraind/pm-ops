@@ -2,10 +2,29 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "../subprocess.ts";
-import { decideReleaseContinuation, ownsContinuationPr, releaseConfigDigest, releaseDigest, validateReleaseCandidate,
+import { cargoPackageVersion, decideReleaseContinuation, ownsContinuationPr, releaseConfigDigest, releaseDigest, validateReleaseCandidate,
   type ReleaseCandidate, type ContinuationEvidence } from "../release-continuation.ts";
 
 import { candidateFixture, evidenceFixture } from "./release-continuation-fixture.ts";
+
+test("Cargo version discovery stays inside the package table and accepts indentation", () => {
+  assert.equal(cargoPackageVersion('[package]\n  version = "2026.11.6"\n[dependencies]\nversion="9"'), "2026.11.6");
+  assert.equal(cargoPackageVersion('[package]\nname="x"\n[dependencies]\nversion="9"'), "");
+  assert.equal(cargoPackageVersion('[dependencies]\nversion="9"'), "");
+});
+
+test("operator retirement unblocks non-green merged intent without granting publication or losing evidence", () => {
+  for (const state of ["SKIPPED", "NEUTRAL", "FAILURE"]) {
+    const c = candidateFixture(), e = evidenceFixture(); e.requiredChecks = [state];
+    assert.throws(() => decideReleaseContinuation(c, e), /protection proof/);
+    e.retireUnpublished = true; assert.equal(decideReleaseContinuation(c, e), "retire");
+    for (const change of [(value: ContinuationEvidence) => { value.attempted = true; }, (value: ContinuationEvidence) => { value.registry = "verified"; },
+      (value: ContinuationEvidence) => { value.tagSha = value.pr.mergedSha; }, (value: ContinuationEvidence) => { value.releaseSha = value.pr.mergedSha; }]) {
+      const blocked = structuredClone(e); change(blocked); assert.throws(() => decideReleaseContinuation(c, blocked), /retirement refused/);
+    }
+  }
+  assert.equal(releaseConfigDigest({ "retire-unpublished": true }), releaseConfigDigest({}));
+});
 
 test("CI pending beyond 30 minutes releases preparation; suppressed bot push is recovered by a later hourly pass exactly once", () => {
   const c = candidateFixture(), e = evidenceFixture();

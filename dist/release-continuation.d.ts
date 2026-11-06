@@ -66,15 +66,19 @@ export interface ContinuationEvidence {
     registry: "absent" | "verified" | "unverified";
     attempted: boolean;
     publishedToday: boolean;
+    /** Explicit operator-only recovery; never grants publication permission. */
+    retireUnpublished?: boolean;
 }
 /** Hash exact bytes for the artifact, notes, candidate and caller-configuration bindings. */
 export declare function releaseDigest(value: string | Uint8Array): string;
 /** Bind every caller input except the scheduling-only mode; key order is immaterial. */
 export declare function releaseConfigDigest(inputs: Record<string, unknown>): string;
+/** Read an explicit Cargo package version without crossing into a dependency or workspace table. */
+export declare function cargoPackageVersion(text: string): string;
 /** Prove ownership before refreshing or closing a PR; use the same predicate on both paths. */
 export declare function ownsContinuationPr(pr: ContinuationPr, repository: string, base: string): boolean;
 /** Refuse malformed durable input before it reaches paths, shell arguments or remote effects. */
 export declare function validateReleaseCandidate(candidate: ReleaseCandidate): void;
 /** Admit only trusted merged bytes; pending checks consume no runner time between invocations. */
-export declare function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEvidence): "pending" | "refresh" | "publish" | "recover" | "complete" | "stranded";
+export declare function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEvidence): "pending" | "refresh" | "publish" | "recover" | "complete" | "stranded" | "retire";
 //# sourceMappingURL=release-continuation.d.ts.map

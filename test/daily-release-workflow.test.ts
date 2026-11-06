@@ -31,7 +31,7 @@ const source = readFileSync(new URL("../.github/workflows/daily-release.yml", im
 const workflow = parse(source) as {
   on: { workflow_call: { inputs: Record<string, { type: string; default: unknown }> } };
   permissions: Record<string, string>;
-  concurrency: { group: string; "cancel-in-progress": boolean };
+  concurrency: { group: string; "cancel-in-progress": boolean; queue: string };
   jobs: Record<string, { if: string; needs: string[]; env: Record<string, string>; permissions: Record<string, string>; steps: Step[] }>;
 };
 const steps = Object.values(workflow.jobs).flatMap(job => job.steps);
@@ -58,6 +58,7 @@ test("shared workflow grants permissions per job, pins actions, and gates every 
   assert.match(workflow.jobs.release.if, /inputs.release-enabled && github.ref == 'refs\/heads\/main'/);
   assert.equal(workflow.concurrency.group, "daily-release");
   assert.equal(workflow.concurrency["cancel-in-progress"], false);
+  assert.equal(workflow.concurrency.queue, "max");
   for (const job of Object.values(workflow.jobs)) for (const current of job.steps) {
     if (current.uses) assert.match(current.uses, /@[a-f0-9]{40}$/);
     if (current.run) {
@@ -136,9 +137,8 @@ test("superseded cleanup delegates to authoritative ownership checks and merged 
 
 test("release approval reads waiting CI once at the prepared head without a timeout diagnosis", () => {
   const approve = step("Approve currently waiting release CI once").run;
-  assert.match(approve, /actions\/runs\?head_sha=\$\{RELEASE_COMMIT\}/);
-  assert.match(approve, /select\(\.name == "CI"\)/);
-  assert.match(approve, /conclusion=="action_required"/);
+  assert.equal(approve.trim(), 'set -euo pipefail\nnode "$CONTINUATION_SCRIPT" approve');
+  assert.equal(step("Approve currently waiting release CI once").env?.RELEASE_PR_NUMBER, "${{ steps.probe.outputs.pr_number }}");
   assert.doesNotMatch(approve, /sleep|deadline|30 minutes/);
   assert.doesNotMatch(step("Merge release metadata through protected PR").run, /sleep|deadline|awaiting_approval/);
 });
@@ -465,20 +465,6 @@ test("recovery queries the exact npm coordinate while preserving the original Gi
 });
 
 
-test("approval discovery includes later pages and still selects only exact-head waiting CI", () => {
-  const root = mkdtempSync(join(tmpdir(), "release-approval-"));
-  try {
-    const head = "b".repeat(40);
-    const pages = [Array.from({ length: 100 }, (_, id) => ({ id, name: "CI", head_sha: head, status: "completed", conclusion: "success" })),
-      [{ id: 201, name: "CI", head_sha: head, status: "waiting" }, { id: 202, name: "CI", head_sha: "foreign", status: "waiting" }, { id: 203, name: "Other", head_sha: head, status: "waiting" }]];
-    pages.forEach((runs, index) => writeFileSync(join(root, "page" + index + ".json"), JSON.stringify({ workflow_runs: runs })));
-    writeFileSync(join(root, "gh"), '#!/bin/sh\nif [ "$2" = "--method" ]; then echo "$4" >> "$RUNNER_TEMP/approvals"; exit 0; fi\nif [ "$2" = "--paginate" ]; then jq -r "$5" "$RUNNER_TEMP/page0.json" "$RUNNER_TEMP/page1.json"; else jq -r "$4" "$RUNNER_TEMP/page0.json"; fi\n');
-    chmodSync(join(root, "gh"), 0o755);
-    const result = runBashFixture(step("Approve currently waiting release CI once").run!, { encoding: "utf8", env: { ...process.env, PATH: root + ":" + process.env.PATH, RUNNER_TEMP: root, GITHUB_REPOSITORY: "example/package", RELEASE_COMMIT: head } });
-    assert.equal(result.status, 0, result.stdout + result.stderr);
-    assert.equal(readFileSync(join(root, "approvals"), "utf8"), "repos/example/package/actions/runs/201/approve\n");
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
 
 test("completed release recovery executes the journaled hook before retiring intent", () => {
   assert.match(step("Post release hook").if!, /^success\(\)/);
@@ -534,4 +520,30 @@ test("all tool bootstraps use trusted source, and publication replays the record
   assert.match(step("Publish npm package").run, /node "\$PROVENANCE_SCRIPT"/);
   assert.match(step("Repair missing GitHub Release").run, /node "\$PROVENANCE_SCRIPT"/);
   assert.doesNotMatch(source, /npm install .*pm-ops@/);
+});
+
+test("every continuation job enforces its runtime floor before executing TypeScript", () => {
+  for (const job of Object.values(workflow.jobs)) {
+    const locate = job.steps.findIndex(s => s.name === "Locate trusted continuation tools");
+    if (locate < 0) continue;
+    const guard = job.steps.findIndex(s => s.name === "Enforce continuation runtime floor");
+    const first = job.steps.findIndex(s => s.run?.includes('node "$CONTINUATION_SCRIPT"'));
+    assert.ok(guard > locate && guard < first);
+    assert.match(job.steps[guard].run!, /dist\/continuation-runtime.js/);
+  }
+});
+
+test("private runtime CI installs and executes its own lockfile after root-installation gates", () => {
+  const ci = parse(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")) as { jobs: Record<string, { steps: Step[] }> };
+  const steps = ci.jobs.test.steps, index = steps.findIndex(s => s.name === "Verify private provenance runtime");
+  assert.ok(index > steps.findIndex(s => s.name === "Bun release gate"));
+  assert.match(steps[index].run!, /npm ci --prefix \.github\/release-runtime .*--ignore-scripts --engine-strict/);
+  assert.match(steps[index].run!, /node --test --test-concurrency=2 test\/release-provenance.test.ts/);
+});
+
+test("rollback guidance preserves reconciliation and documents explicit operator retirement", () => {
+  const docs = readFileSync(new URL("../docs/release-migration.md", import.meta.url), "utf8");
+  assert.match(docs, /release-enabled: true/); assert.match(docs, /reconcile-only: true/);
+  assert.match(docs, /release-enabled: false.*disables reconciliation/);
+  assert.match(docs, /retire-unpublished: true/);
 });

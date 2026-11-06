@@ -130,9 +130,10 @@ test("source locations ignore metadata and comments and retain repeated invocati
 
 test("sanctioned repository workflow retains its attested publish path", /** Scan the actual tracked release source as a compatibility control. */ () => {
   const text = readFileSync(".github/workflows/daily-release.yml", "utf8");
-  const result = auditPublishAttestation([{ file: ".github/workflows/release.yml", text }]);
+  const result = auditPublishAttestation([{ file: ".github/workflows/daily-release.yml", text }]);
   assert.deepEqual(result.failures, []);
   assert.equal(result.recognition.kind, "recognized");
+  assert.match(result.notes[0], /^ok - \.github\/workflows\/daily-release\.yml: [1-9]\d* publish invocation/);
 });
 
 test("workflow aliases with no traversable scalar extent refuse certification", /** An attested sibling cannot conceal structured commands whose location cannot be resolved. */ () => {

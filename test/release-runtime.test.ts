@@ -61,7 +61,7 @@ test("runtime installs only locked production dependencies without lifecycle scr
     const privateRoot = join(root, ".github/release-runtime"); mkdirSync(privateRoot, { recursive: true });
     ensureReleaseRuntime(root, (args, cwd) => { calls++; assert.equal(cwd, privateRoot); assert.deepEqual(args, ["ci", "--omit=dev", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund"]); });
     assert.equal(calls, 1);
-    ensureReleaseRuntime();
+    ensureReleaseRuntime(undefined, () => {});
     const bin = join(root, "bin"); mkdirSync(bin);
     writeFileSync(join(bin, "npm"), '#!/bin/sh\nprintf "%s\\n" "$*" > "$PWD/install-args"\n'); chmodSync(join(bin, "npm"), 0o755);
     process.env.PATH = bin + ":" + savedPath;

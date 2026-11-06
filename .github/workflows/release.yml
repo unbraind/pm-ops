@@ -4,7 +4,12 @@ on:
   schedule:
     - cron: 23 3 * * *
     - cron: 41 * * * *
-  workflow_dispatch: null
+  workflow_dispatch:
+    inputs:
+      retire-unpublished:
+        description: Retire only verified untouched unpublished merged intent
+        type: boolean
+        default: false
 permissions: {}
 jobs:
   release:
@@ -17,5 +22,6 @@ jobs:
       issues: write
     uses: ./.github/workflows/daily-release.yml
     with:
-      reconcile-only: ${{ github.event_name == 'schedule' && github.event.schedule == '41 * * * *' }}
+      reconcile-only: ${{ (github.event_name == 'schedule' && github.event.schedule == '41 * * * *') || inputs.retire-unpublished == true }}
+      retire-unpublished: ${{ github.event_name == 'workflow_dispatch' && inputs.retire-unpublished == true }}
       audit-script: release:audit

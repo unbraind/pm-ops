@@ -63,6 +63,8 @@ export interface ContinuationEvidence {
   registry: "absent" | "verified" | "unverified";
   attempted: boolean;
   publishedToday: boolean;
+  /** Explicit operator-only recovery; never grants publication permission. */
+  retireUnpublished?: boolean;
 }
 
 /** Hash exact bytes for the artifact, notes, candidate and caller-configuration bindings. */
@@ -72,7 +74,12 @@ export function releaseDigest(value: string | Uint8Array): string {
 
 /** Bind every caller input except the scheduling-only mode; key order is immaterial. */
 export function releaseConfigDigest(inputs: Record<string, unknown>): string {
-  return releaseDigest(JSON.stringify(Object.entries(inputs).filter(([key]) => key !== "reconcile-only").sort(([a], [b]) => a < b ? -1 : 1)));
+  return releaseDigest(JSON.stringify(Object.entries(inputs).filter(([key]) => !["reconcile-only", "retire-unpublished"].includes(key)).sort(([a], [b]) => a < b ? -1 : 1)));
+}
+
+/** Read an explicit Cargo package version without crossing into a dependency or workspace table. */
+export function cargoPackageVersion(text: string): string {
+  return /^[ \t]*\[package\][^\r\n]*\r?\n(?:(?!^[ \t]*\[)[\s\S])*?^[ \t]*version[ \t]*=[ \t]*"([^"\r\n]+)"/m.exec(text)?.[1] ?? "";
 }
 
 /** Prove ownership before refreshing or closing a PR; use the same predicate on both paths. */
@@ -101,7 +108,7 @@ export function validateReleaseCandidate(candidate: ReleaseCandidate): void {
 }
 
 /** Admit only trusted merged bytes; pending checks consume no runner time between invocations. */
-export function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEvidence): "pending" | "refresh" | "publish" | "recover" | "complete" | "stranded" {
+export function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEvidence): "pending" | "refresh" | "publish" | "recover" | "complete" | "stranded" | "retire" {
   validateReleaseCandidate(c);
   if (c.repository !== e.repository || c.defaultBranch !== e.defaultBranch || c.workflow !== e.workflow
     || !ownsContinuationPr(e.pr, e.repository, e.defaultBranch) || e.pr.head !== c.headSha) throw new Error("Release identity changed");
@@ -115,8 +122,12 @@ export function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEv
   if (!e.pr.merged) return e.mainSha === c.baseSha ? "pending" : "refresh";
   if (e.pr.state !== "closed" || !e.pr.mergedSha || e.artifactSha256 !== c.packageSha256) throw new Error("Merged source or artifact changed");
   const changedSource = e.mergedTree !== c.tree || e.mergedParents.length !== 1 || e.mergedParents[0] !== c.baseSha || e.version !== c.version;
+  if (e.retireUnpublished === true) {
+    if (e.registry === "absent" && !e.attempted && e.tagSha === null && e.releaseSha === null) return "retire";
+    throw new Error("Operator retirement refused: publication evidence or an ambiguous attempt exists");
+  }
   if (e.requiredChecks.length === 0 || e.requiredChecks.some(state => state !== "SUCCESS")
-    || !["APPROVED", ""].includes(e.reviewDecision)) throw new Error("Required protection proof is missing or not green");
+    || !["APPROVED", ""].includes(e.reviewDecision)) throw new Error("Required protection proof is missing or not green; use reconcile-only with retire-unpublished for verified untouched intent");
   if ((e.tagSha !== null && e.tagSha !== e.pr.mergedSha) || (e.releaseSha !== null && (e.releaseSha !== e.pr.mergedSha || e.tagSha === null))
     || e.registry === "unverified") throw new Error("Live publication identity disagrees");
   if (changedSource) {
