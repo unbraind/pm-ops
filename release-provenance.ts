@@ -2,7 +2,7 @@
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type * as Sigstore from "sigstore";
 
@@ -19,8 +19,7 @@ export interface ProvenanceIdentity {
 
 const require = createRequire(import.meta.url);
 const verifiers = new Map<string, ReturnType<typeof Sigstore.createVerifier>>();
-const moduleDirectory = dirname(fileURLToPath(import.meta.url));
-const sourceRoot = basename(moduleDirectory) === "dist" ? dirname(moduleDirectory) : moduleDirectory;
+const sourceRoot = dirname(fileURLToPath(import.meta.url)).replace(/[/\\]dist$/, "");
 
 /** Narrow remote JSON without treating arrays or missing values as records. */
 function record(value: unknown): Record<string, unknown> {
@@ -79,7 +78,7 @@ export async function verifySigstoreBundle(bundle: unknown, identity: Provenance
   let verifier = verifiers.get(key);
   if (!verifier) {
     const privateClient = join(sourceRoot, ".github/release-runtime/node_modules/sigstore");
-    const sigstore = require(existsSync(privateClient) ? privateClient : join(sourceRoot, "node_modules/sigstore")) as typeof Sigstore;
+    const sigstore = require([privateClient, join(sourceRoot, "node_modules/sigstore")].find(existsSync)!) as typeof Sigstore;
     verifier = sigstore.createVerifier({ certificateIssuer: "https://token.actions.githubusercontent.com",
       certificateIdentityURI: "^" + uri.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$",
       ctLogThreshold: 1, tlogThreshold: 1, tufCachePath: join(tmpdir(), "pm-ops-sigstore"), retry: 0, timeout: 10_000 });
