@@ -95,18 +95,47 @@ export async function verifySigstoreBundle(bundle: unknown, identity: Provenance
   verifyCertificateSource(signer.identity, identity);
 }
 
+/** Select matching signed claims identically for signer discovery and cryptographic verification. */
+function matchingProvenance(bundle: unknown, identity: ProvenanceIdentity): unknown[] {
+  const attestations = record(bundle).attestations;
+  if (!Array.isArray(attestations)) return [];
+  return attestations.filter(entry => {
+    if (!verifyPublishedProvenance({ attestations: [entry] }, identity.commit, identity.integrity)) return false;
+    const workflow = record(record(record(statement(entry).predicate).buildDefinition).externalParameters).workflow;
+    const source = record(workflow);
+    return source.repository === `https://github.com/${identity.repository}` && source.path === identity.workflow && source.ref === identity.ref;
+  });
+}
+
+/** Resolve a reusable signer from the original publication run; decoded claims are only a read-only lookup hint. */
+export async function originalPublicationSigner(bundle: unknown, identity: ProvenanceIdentity,
+  readRun: (path: string) => Promise<unknown>): Promise<string> {
+  const invocations = matchingProvenance(bundle, identity).map(entry => record(record(record(statement(entry).predicate).runDetails).metadata).invocationId);
+  if (invocations.length === 0 || invocations.some(value => typeof value !== "string") || new Set(invocations).size !== 1) throw new Error("Missing or ambiguous publication invocation");
+  const prefix = `https://github.com/${identity.repository}/actions/runs/`, invocation = invocations[0] as string;
+  const match = invocation.startsWith(prefix) ? /^([1-9]\d*)(?:\/attempts\/([1-9]\d*))?$/.exec(invocation.slice(prefix.length)) : null;
+  if (!match || !Number.isSafeInteger(Number(match[1])) || (match[2] !== undefined && !Number.isSafeInteger(Number(match[2])))) throw new Error("Untrusted publication invocation");
+  const run = record(await readRun(`repos/${identity.repository}/actions/runs/${match[1]}${match[2] === undefined ? "" : "/attempts/" + match[2]}`));
+  const paths = [identity.workflow, ...["main", identity.ref, identity.commit].map(ref => identity.workflow + "@" + ref)];
+  if (record(run.repository).full_name !== identity.repository || run.head_branch !== "main" || run.head_sha !== identity.commit
+    || !["schedule", "workflow_dispatch"].includes(String(run.event)) || ![...paths, ...paths.map(path => identity.repository + "/" + path)].includes(String(run.path))
+    || (match[2] !== undefined && run.run_attempt !== Number(match[2]))) throw new Error("Untrusted original publication run");
+  if (run.referenced_workflows !== undefined && !Array.isArray(run.referenced_workflows)) throw new Error("Unreadable original reusable workflow proof");
+  const canonical = "unbraind/pm-ops/.github/workflows/daily-release.yml@";
+  const references = (run.referenced_workflows ?? []).map(record).filter(ref => typeof ref.path === "string" && ref.path.startsWith(canonical));
+  if (references.length === 0 && identity.repository === "unbraind/pm-ops") return canonical + "refs/heads/main";
+  if (references.length !== 1) throw new Error("Missing or ambiguous original reusable signer");
+  const reference = references[0], ref = String(reference.path).slice(canonical.length).replace(/^main$/, "refs/heads/main");
+  if (!/^[a-f0-9]{40}$/.test(String(reference.sha)) || !/^(?:refs\/heads\/main|refs\/tags\/v\d{4}\.\d+\.\d+(?:-\d+)?|[a-f0-9]{40})$/.test(ref)
+    || (/^[a-f0-9]{40}$/.test(ref) && ref !== reference.sha)) throw new Error("Untrusted original reusable signer");
+  return canonical + ref;
+}
+
 /** Accept only cryptographically verified SLSA from the exact repository, workflow and ref. */
 export async function verifyRegistryProvenance(bundle: unknown, identity: ProvenanceIdentity,
   verify: typeof verifySigstoreBundle = verifySigstoreBundle): Promise<boolean> {
-  const attestations = record(bundle).attestations;
-  if (!Array.isArray(attestations)) return false;
-  for (const entry of attestations) {
-    if (!verifyPublishedProvenance({ attestations: [entry] }, identity.commit, identity.integrity)) continue;
-    const workflow = record(record(record(statement(entry).predicate).buildDefinition).externalParameters).workflow;
-    const source = record(workflow);
-    if (source.repository !== `https://github.com/${identity.repository}` || source.path !== identity.workflow || source.ref !== identity.ref) continue;
-    await verify(record(entry).bundle, identity);
-    return true;
-  }
-  return false;
+  const [entry] = matchingProvenance(bundle, identity);
+  if (entry === undefined) return false;
+  await verify(record(entry).bundle, identity);
+  return true;
 }

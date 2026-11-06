@@ -111,7 +111,7 @@ test("publication continues only when trigger, merged main, package version, pro
   for (const name of ["Publish npm package", "Publish extra targets", "Push release tag"]) assert.match(step(name).if!, /steps.continue.outputs.action != 'complete'/);
   assert.equal(workflow.jobs.release.env.TRIGGER_SHA, "${{ github.sha }}");
   assert.deepEqual(workflow.jobs.verify_bun.permissions, { contents: "read" });
-  assert.deepEqual(workflow.jobs.recover.permissions, { contents: "write" });
+  assert.deepEqual(workflow.jobs.recover.permissions, { contents: "write", actions: "read" });
   assert.match(workflow.jobs.verify_bun.if, /needs.release.outputs.published == 'success'/);
   assert.match(workflow.jobs.verify_bun.if, /inputs.npm-publish && inputs.bun-verify/);
   assert.equal(step("Pack verified release").env?.BUN_VERIFY, "${{ inputs.npm-publish && inputs.bun-verify }}");
@@ -426,6 +426,7 @@ test("pack validates CLI pins only when npm publication and Bun verification are
 
 
 test("recovery queries the exact npm coordinate while preserving the original GitHub tag", () => {
+  assert.equal(step("Repair missing GitHub Release").env?.PROVENANCE_RECOVERY, "true");
   const root = mkdtempSync(join(tmpdir(), "release-recovery-coordinate-"));
   try {
     const bin = join(root, "bin");
@@ -437,7 +438,7 @@ test("recovery queries the exact npm coordinate while preserving the original Gi
     const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
     const statement = { subject: [{ digest: { sha512: "abcd" } }], predicate: { buildDefinition: { resolvedDependencies: [{ digest: { gitCommit: commit } }] } } };
     writeProvenance(root, "attestation.json", statement);
-    writeFileSync(join(root, "provenance-boundary.ts"), "process.stdin.resume();\n");
+    writeFileSync(join(root, "provenance-boundary.ts"), "if(process.env.PROVENANCE_RECOVERY!=='true')process.exitCode=1;process.stdin.resume();\n");
     const tools = {
       gh: `#!/bin/sh\nprintf '%s\\n' "$*" >> "$RUNNER_TEMP/gh-calls"\n[ "$2" != view ]\n`,
       npm: `#!/bin/sh\nprintf '%s\\n' "$*" >> "$RUNNER_TEMP/npm-calls"\nprintf '%s\\n' '{"integrity":"sha512-q80=","attestations":{"url":"https://registry.npmjs.org/synthetic"}}'\n`,
@@ -453,6 +454,7 @@ test("recovery queries the exact npm coordinate while preserving the original Gi
       const result = runBashFixture(step("Repair missing GitHub Release").run, {
         cwd: root, encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: root,
           PROVENANCE_SCRIPT: join(root, "provenance-boundary.ts"), EXPECTED_COMMIT: commit, RECOVERY_TAG: tag, NPM_PUBLISH: "true", GITHUB_REPOSITORY: "example/package",
+          PROVENANCE_RECOVERY: String(step("Repair missing GitHub Release").env?.PROVENANCE_RECOVERY),
           PM_OPS_MODULE: new URL("../dist/daily-release.js", import.meta.url).pathname },
       });
       assert.equal(result.status, 0, result.stdout + result.stderr);

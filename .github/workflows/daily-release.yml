@@ -1399,6 +1399,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     env:
       RELEASE_TIMEZONE: ${{ inputs.release-timezone }}
       NPM_PROJECT_DIR: ${{ inputs.npm-project-dir }}
@@ -1481,6 +1482,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NPM_PUBLISH: ${{ inputs.npm-publish }}
+          PROVENANCE_RECOVERY: 'true'
         run: |
           set -euo pipefail
           [[ "$(git rev-parse HEAD)" == "$EXPECTED_COMMIT" ]]

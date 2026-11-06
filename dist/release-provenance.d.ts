@@ -23,6 +23,8 @@ export declare function verifyCertificateSource(certificate: {
 export declare function sigstoreRuntimePath(root?: string): string;
 /** Verify Fulcio identity, signature, transparency evidence and authenticated signing time. */
 export declare function verifySigstoreBundle(bundle: unknown, identity: ProvenanceIdentity): Promise<void>;
+/** Resolve a reusable signer from the original publication run; decoded claims are only a read-only lookup hint. */
+export declare function originalPublicationSigner(bundle: unknown, identity: ProvenanceIdentity, readRun: (path: string) => Promise<unknown>): Promise<string>;
 /** Accept only cryptographically verified SLSA from the exact repository, workflow and ref. */
 export declare function verifyRegistryProvenance(bundle: unknown, identity: ProvenanceIdentity, verify?: typeof verifySigstoreBundle): Promise<boolean>;
 //# sourceMappingURL=release-provenance.d.ts.map
