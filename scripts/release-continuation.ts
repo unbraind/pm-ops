@@ -196,6 +196,7 @@ verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mai
   const project = requiredProjectPath();
   const rust = process.env.IS_RUST === "true";
   const source = pr.merged && !configChanged ? await api(`${repo}/contents/${project ? project + "/" : ""}${rust ? "Cargo.toml" : "package.json"}?ref=${pr.merge_commit_sha}`) as { content: string } : null;
+  if (pr.merged && !configChanged && !source) throw new Error("Merged package version proof is unreadable");
   const text = source ? Buffer.from(source.content, "base64").toString("utf8") : "";
   const pkg = text && !rust ? JSON.parse(text) as { version: string; name: string } : null;
   if (pkg && pkg.name !== c.packageName) throw new Error("Merged package name changed");

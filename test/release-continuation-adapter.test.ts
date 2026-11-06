@@ -127,6 +127,13 @@ function assertIntentRetained(f: ReturnType<typeof remoteFixture>): void {
   assert.equal(f.calls.filter(call => call.method !== "GET").length, 0);
 }
 
+test("merged package version lookup must not substitute receipt data for a missing live file", async () => {
+  const f = remoteFixture();
+  const api: ReleaseApi = async (path, method, body) => path.includes(`/contents/package.json?ref=${f.pr.merge_commit_sha}`) ? null : f.api(path, method, body);
+  await assert.rejects(inspectCandidate(f.receipt, f.options, api, f.registry, () => ({ states: f.state.checks, review: "APPROVED" })), /version proof is unreadable/);
+  assertIntentRetained(f);
+});
+
 test("approval selects exact-head protected workflow runs across pages without a CI name assumption", async () => {
   const f = remoteFixture(); f.pr.state = "open"; f.pr.merged = false;
   const approved: string[] = [];
