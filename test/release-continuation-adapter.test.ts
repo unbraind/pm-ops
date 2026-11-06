@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { parse } from "yaml";
 import { candidateFixture, evidenceFixture } from "./release-continuation-fixture.ts";
 import { releaseConfigDigest, releaseDigest } from "../release-continuation.ts";
-import { candidateBody, parseCandidateReceipt, inspectCandidate, closeSuperseded, requiredProtection, githubApi, registryJson, runReleaseContinuation, type ReleaseApi } from "../scripts/release-continuation.ts";
+import { candidateBody, parseCandidateReceipt, inspectCandidate, closeSuperseded, requiredProtection, githubApi, registryJson, runReleaseContinuation, normalizeWorkflowPath, type ReleaseApi } from "../scripts/release-continuation.ts";
 
 const previousProject = process.env.NPM_PROJECT_DIR;
 process.env.NPM_PROJECT_DIR = ".";
@@ -53,7 +53,7 @@ function remoteFixture() {
 }
 
 /** Execute the production entry point with isolated artifacts, native transport fixtures and no real credentials. */
-async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { root: string; handoff: string; refresh: () => void; control: { ignorePersistence: boolean } }) => Promise<void>): Promise<void> {
+async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { root: string; handoff: string; refresh: () => void; control: { ignorePersistence: boolean; write404: boolean; writes: number; failWriteAt: number } }) => Promise<void>): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "release-adapter-")), handoff = join(root, "release-artifact"); mkdirSync(handoff);
   const f = remoteFixture(), originalFetch = globalThis.fetch;
   const values: Record<string, string> = { GITHUB_REPOSITORY: f.c.repository, GH_TOKEN: "synthetic-token", RELEASE_CONFIG: "{}", CALLER_WORKFLOW: `${f.c.repository}/${f.c.workflow}@refs/heads/main`,
@@ -61,7 +61,7 @@ async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { ro
     REMOTE_BRANCH_SHA: f.c.headSha, ARTIFACT_ID: "20", RELEASE_BASE_SHA: f.c.baseSha, VERIFIED_COMMIT: f.c.headSha, VERIFIED_TREE: f.c.tree, NPM_VERSION: f.c.version, RELEASE_TAG: f.c.tag,
     PACKAGE_NAME: f.c.packageName, CLI_VERSION: f.c.cliVersion, PM_OPS_VERSION: f.c.opsVersion, GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", NPM_PUBLISH: "true", IS_RUST: "false", RELEASE_FIXTURE: root,
     PATH: `${root}:${process.env.PATH}` };
-  const saved = new Map([...Object.keys(values), "CANDIDATE_RECEIPT", "SUPERSEDED_PR_NUMBERS"].map(key => [key, process.env[key]]));
+  const saved = new Map([...Object.keys(values), "CANDIDATE_RECEIPT", "SUPERSEDED_PR_NUMBERS", "POST_RELEASE_SCRIPT", "NPM_PROJECT_PATH"].map(key => [key, process.env[key]]));
   Object.assign(process.env, values);
   const refresh = () => {
     f.c.configDigest = releaseConfigDigest({}); f.c.packageSha256 = releaseDigest("verified bytes"); f.c.notesSha256 = releaseDigest("verified notes");
@@ -75,14 +75,21 @@ async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { ro
     } } } }));
   };
   refresh();
-  const control = { ignorePersistence: false };
+  const control = { ignorePersistence: false, write404: false, writes: 0, failWriteAt: 0 };
+  delete process.env.POST_RELEASE_SCRIPT;
+  writeFileSync(join(root, "npm"), '#!/bin/sh\necho "$*" >> "$RELEASE_FIXTURE/hooks"\n'); chmodSync(join(root, "npm"), 0o755);
   writeFileSync(join(root, "gh"), '#!/bin/sh\ncase "$1 $2" in\n"api graphql") cat "$RELEASE_FIXTURE/protection.json" ;;\n"pr merge") echo merge >> "$RELEASE_FIXTURE/merges" ;;\n*) exit 9 ;;\nesac\n'); chmodSync(join(root, "gh"), 0o755);
   globalThis.fetch = async (input, init) => {
     const url = String(input);
     let data: unknown;
     if (url.startsWith("https://api.github.com/")) {
       const path = url.slice("https://api.github.com/".length), body = init?.body ? JSON.parse(String(init.body)) as { body?: string } : undefined;
+      if (init?.method !== "GET") {
+        control.writes++;
+        if (control.write404 || control.writes === control.failWriteAt) return new Response("{}", { status: 404 });
+      }
       data = await f.api(path, init?.method, body);
+      if (init?.method === "POST" && path.endsWith("/comments") && body?.body) f.state.comments.push({ user: { login: "github-actions[bot]" }, body: body.body });
       if (init?.method === "PATCH" && body?.body && !control.ignorePersistence) Object.assign(f.pr, { body: body.body });
     } else if (url.startsWith("https://registry.npmjs.org/")) data = await f.registry(url.slice("https://registry.npmjs.org/".length));
     else throw new Error("Unexpected fixture host");
@@ -317,10 +324,12 @@ test("entry point probes empty, pending, stale-base and merged intent without in
 
 test("entry point journals an admitted attempt and clears intent only after complete live reconciliation", async () => {
   await withAdapter(async f => {
-    await runReleaseContinuation("verify"); await runReleaseContinuation("attempt");
+    await runReleaseContinuation("verify");
+    await assert.rejects(runReleaseContinuation("complete"), /not completely/);
+    await runReleaseContinuation("attempt");
     const journal = f.calls.find(call => call.method === "POST")?.body as { body: string };
     assert.ok(journal.body.includes(releaseDigest(JSON.stringify(f.c))));
-    await assert.rejects(runReleaseContinuation("complete"), /not completely/);
+    await assert.rejects(runReleaseContinuation("complete"), /not completely|ambiguous/);
     Object.assign(f.state, { registry: true });
     await assert.rejects(runReleaseContinuation("attempt"), /not admitted/);
     Object.assign(f.state, { tag: f.e.pr.mergedSha, release: true });
@@ -340,7 +349,8 @@ test("native HTTP transport treats only 404 as absence and preserves definitive 
       };
       if (status >= 400 && status !== 404) { await assert.rejects(githubApi("fixture"), /refused/); await assert.rejects(registryJson("fixture"), /unavailable/); }
       else {
-        assert.deepEqual(await githubApi("fixture", "POST", { intent: true }), status === 404 ? null : status === 204 ? {} : { proof: true });
+        if (status === 404) { assert.equal(await githubApi("fixture"), null); await assert.rejects(githubApi("fixture", "POST", { intent: true }), /refused/); }
+        else assert.deepEqual(await githubApi("fixture", "POST", { intent: true }), status === 204 ? {} : { proof: true });
         if (status !== 204) assert.deepEqual(await registryJson("fixture"), status === 404 ? null : { proof: true });
       }
     }
@@ -356,7 +366,7 @@ test("reconciliation refuses incomplete pagination, duplicate receipts and a rec
   const changed: ReleaseApi = async (path, method, body) => path.endsWith("/pulls/42") ? { ...f.pr, body: null } : f.api(path, method, body);
   await assert.rejects(inspectCandidate(f.receipt, f.options, changed, f.registry), /receipt changed/);
   Object.assign(f.pr.head, { repo: null });
-  await assert.rejects(f.inspect(), /identity changed/);
+  await assert.rejects(f.inspect(), /missing or duplicated/);
 });
 
 test("tag proof peels annotated refs and refuses missing, cyclic and non-commit targets", async () => {
@@ -453,4 +463,91 @@ test("importing the adapter without a main argv never starts a release transitio
     encoding: "utf8", env: { ...(process.env.NODE_V8_COVERAGE ? { NODE_V8_COVERAGE: process.env.NODE_V8_COVERAGE } : {}) },
   });
   assert.equal(result.status, 0, result.stderr);
+});
+
+
+test("workflow path normalization accepts qualified same-repository main refs and refuses foreign identities", async () => {
+  const f = remoteFixture();
+  for (const prefix of ["", f.c.repository + "/"]) {
+    for (const suffix of ["", "@main", "@refs/heads/main", "@" + f.c.baseSha]) {
+      f.run.path = prefix + f.c.workflow + suffix;
+      assert.equal((await f.inspect()).action, "publish");
+    }
+  }
+  for (const path of ["foreign/package/" + f.c.workflow + "@main", f.c.workflow + "@feature", f.c.workflow + "@main@main", ".github/workflows/other.yml@main"]) {
+    f.run.path = path;
+    await assert.rejects(f.inspect());
+  }
+  assert.throws(() => normalizeWorkflowPath("invalid", f.c.repository, "main", f.c.baseSha));
+});
+
+test("unrelated malformed candidate bodies cannot block owned release discovery", async () => {
+  const f = remoteFixture();
+  const foreign = { ...f.pr, number: 99, body: "<!-- pm-ops-candidate-v1\nbroken", user: { login: "human" } };
+  const api: ReleaseApi = (path, method, body) => path.includes("/pulls?") ? Promise.resolve([foreign, f.pr]) : f.api(path, method, body);
+  assert.equal((await inspectCandidate(f.receipt, f.options, api, f.registry, () => ({ states: ["SUCCESS"], review: "APPROVED" }))).action, "publish");
+  foreign.user.login = "github-actions[bot]";
+  await assert.rejects(inspectCandidate(f.receipt, f.options, api, f.registry), /Malformed/);
+});
+
+test("GitHub write 404 refuses publication and receipt completion while GET 404 remains absence", async () => {
+  await withAdapter(async f => {
+    Object.assign(f.control, { write404: true });
+    await assert.rejects(runReleaseContinuation("attempt"), /GitHub API refused POST.*404/);
+    assert.ok(f.pr.body.includes("pm-ops-candidate-v1"));
+    Object.assign(f.state, { registry: true, tag: f.e.pr.mergedSha, release: true });
+    await assert.rejects(runReleaseContinuation("complete"), /GitHub API refused PATCH.*404/);
+    assert.ok(f.pr.body.includes("pm-ops-candidate-v1"));
+  });
+});
+
+test("post-release recovery journals one hook and retains intent until durable completion", async () => {
+  await withAdapter(async f => {
+    Object.assign(f.state, { registry: true, tag: f.e.pr.mergedSha, release: true });
+    process.env.POST_RELEASE_SCRIPT = "release:bundle.v1";
+    process.env.NPM_PROJECT_PATH = f.root;
+    await assert.rejects(runReleaseContinuation("complete"), /Post-release hook/);
+    assert.ok(f.pr.body.includes("pm-ops-candidate-v1"));
+    f.state.comments.push({ user: { login: "human" }, body: "<!-- pm-ops-post-hook-v1\nbroken" }, { user: { login: "github-actions[bot]" }, body: "unrelated bot comment" }, { user: { login: "github-actions[bot]" }, body: '<!-- pm-ops-post-hook-v1\n{"fingerprint":"foreign","state":"complete"}\n-->' });
+    await runReleaseContinuation("post-hook");
+    await runReleaseContinuation("post-hook");
+    assert.equal(readFileSync(join(f.root, "hooks"), "utf8"), "run release:bundle.v1\n");
+    await runReleaseContinuation("complete");
+    assert.ok(!f.pr.body.includes("pm-ops-candidate-v1"));
+  });
+});
+
+test("post-release recovery refuses failed journal writes and ambiguous hook attempts without replay", async () => {
+  await withAdapter(async f => {
+    process.env.POST_RELEASE_SCRIPT = "release:bundle";
+    await assert.rejects(runReleaseContinuation("post-hook"), /requires reconciled/);
+    Object.assign(f.state, { registry: true, tag: f.e.pr.mergedSha, release: true });
+    process.env.POST_RELEASE_SCRIPT = "unsafe script";
+    await assert.rejects(runReleaseContinuation("post-hook"), /Unsafe/);
+    process.env.POST_RELEASE_SCRIPT = "release:bundle";
+    Object.assign(f.control, { write404: true });
+    await assert.rejects(runReleaseContinuation("post-hook"), /GitHub API refused POST/);
+    assert.equal(existsSync(join(f.root, "hooks")), false);
+    Object.assign(f.control, { write404: false });
+    writeFileSync(join(f.root, "npm"), "#!/bin/sh\nexit 1\n");
+    await assert.rejects(runReleaseContinuation("post-hook"));
+    await assert.rejects(runReleaseContinuation("post-hook"), /incomplete or ambiguous/);
+    await assert.rejects(runReleaseContinuation("complete"), /incomplete or ambiguous/);
+    assert.ok(f.pr.body.includes("pm-ops-candidate-v1"));
+  });
+});
+
+
+test("crash after hook success but before completion journal refuses automatic replay", async () => {
+  await withAdapter(async f => {
+    Object.assign(f.state, { registry: true, tag: f.e.pr.mergedSha, release: true });
+    process.env.POST_RELEASE_SCRIPT = "release:bundle";
+    f.control.failWriteAt = 2;
+    await assert.rejects(runReleaseContinuation("post-hook"), /GitHub API refused POST/);
+    assert.equal(readFileSync(join(f.root, "hooks"), "utf8"), "run release:bundle\n");
+    await assert.rejects(runReleaseContinuation("post-hook"), /incomplete or ambiguous/);
+    await assert.rejects(runReleaseContinuation("complete"), /incomplete or ambiguous/);
+    assert.equal(readFileSync(join(f.root, "hooks"), "utf8"), "run release:bundle\n");
+    assert.ok(f.pr.body.includes("pm-ops-candidate-v1"));
+  });
 });

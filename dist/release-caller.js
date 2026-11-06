@@ -72,6 +72,7 @@ export function inspectReleaseCaller(source, resolveTags = defaultCanonicalTagRe
     const jobs = Object.entries(mapping(workflow.jobs));
     const errors = [];
     let pin;
+    let checksRead = false;
     if (jobs.length !== 1)
         errors.push("release.yml must contain exactly one reusable release job");
     for (const [id, value] of jobs) {
@@ -91,6 +92,7 @@ export function inspectReleaseCaller(source, resolveTags = defaultCanonicalTagRe
             errors.push("release job contains private logic or secrets");
         }
         const permissions = mapping(job.permissions);
+        checksRead = permissions.checks === "read";
         if (["contents", "pull-requests", "actions", "id-token", "issues"].some(key => permissions[key] !== "write")
             || Object.keys(permissions).some(key => !["contents", "pull-requests", "actions", "id-token", "issues", "checks"].includes(key))
             || ("checks" in permissions && permissions.checks !== "read")) {
@@ -122,6 +124,9 @@ export function inspectReleaseCaller(source, resolveTags = defaultCanonicalTagRe
         tags = metadata.tags;
         if (!(pin.tag in tags))
             return { status: "unverified-offline", errors: ["unverified-offline: canonical release tag is absent from the bundled snapshot; retry online to verify SHA provenance"] };
+    }
+    if (tags[pin.tag] === pin.sha && !checksRead && !metadata.legacyWorkflowShas.includes(pin.sha)) {
+        return { status: "refused", errors: ["caller permissions must grant checks: read for continuation workflow pins; only audited legacy workflow SHAs may omit it"] };
     }
     return tags[pin.tag] === pin.sha
         ? { status: "verified", errors: [] }

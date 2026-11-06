@@ -33,13 +33,13 @@ function required(name: string): string {
   return value;
 }
 
-/** Execute authenticated GitHub REST calls, preserving non-404 failures as refusals. */
+/** Read GET absence explicitly and refuse every failed authenticated GitHub mutation. */
 export async function githubApi(path: string, method = "GET", body?: unknown): Promise<unknown> {
   const response = await fetch(`https://api.github.com/${path}`, {
     method, headers: { Authorization: `Bearer ${required("GH_TOKEN")}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(30_000),
   });
-  if (response.status === 404) return null;
+  if (response.status === 404 && method === "GET") return null;
   if (!response.ok) throw new Error(`GitHub API refused ${method} ${path}: ${response.status}`);
   return response.status === 204 ? {} : response.json();
 }
@@ -123,6 +123,15 @@ async function registryProof(c: ReleaseCandidate, merged: string, readRegistry: 
   }) ? "verified" : "unverified";
 }
 
+/** Normalize documented workflow identities without accepting a foreign repository or ref. */
+export function normalizeWorkflowPath(path: string, repository: string, branch: string, sha: string): string {
+  const [location, ref, extra] = path.split("@");
+  const local = location.startsWith(repository + "/") ? location.slice(repository.length + 1) : location;
+  if (extra !== undefined || !/^\.github\/workflows\/[\w.-]+\.ya?ml$/.test(local)
+    || (ref !== undefined && ![branch, "refs/heads/" + branch, sha].includes(ref))) throw new Error("Untrusted preparation workflow path or ref");
+  return local;
+}
+
 /** Re-read all publication proof. No webhook payload, PR artifact or API failure substitutes for it. */
 export async function inspectCandidate(receipt: CandidateReceipt, options: {
   repository: string; triggerSha: string; workflow: string; configDigest: string; timezone: string; now: string;
@@ -133,7 +142,7 @@ checks: (number: number, head: string) => { states: string[]; review: string } =
   const repo = `repos/${options.repository}`;
   const metadata = await api(repo) as { default_branch: string };
   const pull = (await pages<RestPr>(api, `${repo}/pulls?state=all&base=${metadata.default_branch}&sort=updated&direction=desc`))
-    .filter(pr => pr.body && parseCandidateReceipt(pr.body)?.artifactId === receipt.artifactId);
+    .filter(pr => ownsContinuationPr(identity(pr), options.repository, metadata.default_branch) && pr.body && parseCandidateReceipt(pr.body)?.artifactId === receipt.artifactId);
   if (pull.length !== 1) throw new Error("Candidate PR receipt is missing or duplicated");
   const pr = await api(`${repo}/pulls/${pull[0].number}`) as RestPr;
   if (JSON.stringify(parseCandidateReceipt(pr.body ?? "")) !== JSON.stringify(receipt)) throw new Error("Candidate receipt changed during reconciliation");
@@ -170,7 +179,7 @@ checks: (number: number, head: string) => { states: string[]; review: string } =
     }
   }
   const action = decideReleaseContinuation(c, { ...options, defaultBranch: metadata.default_branch, mainSha: main.object.sha, pr: identity(pr),
-    run: { repository: run.repository.full_name, branch: run.head_branch, sha: run.head_sha, workflow: run.path, event: run.event, conclusion: run.conclusion, attempt: run.run_attempt },
+    run: { repository: run.repository.full_name, branch: run.head_branch, sha: run.head_sha, workflow: normalizeWorkflowPath(run.path, options.repository, metadata.default_branch, c.baseSha), event: run.event, conclusion: run.conclusion, attempt: run.run_attempt },
     artifactAvailable: artifact.expired === false && artifact.workflow_run.id === c.runId && artifact.name === `verified-daily-release-${c.headSha}`,
     mergedTree: merged?.tree.sha ?? "", mergedParents: merged?.parents.map(parent => parent.sha) ?? [], requiredChecks: protection.states, reviewDecision: protection.review,
     version, artifactSha256: c.packageSha256, tagSha, releaseSha: release ? tagSha : null, registry, attempted, publishedToday,
@@ -227,6 +236,27 @@ export async function closeSuperseded(numbers: number[], successor: number, repo
       await api(`repos/${repository}/pulls/${number}`, "PATCH", { state: "closed" });
     } catch { process.stdout.write(`::warning::Could not close superseded release PR #${number}\n`); }
   }
+}
+
+/** Journal a configured hook before execution and retain intent until its success is durable.
+ * An interrupted attempt is ambiguous and requires operator verification; never replay it blindly.
+ */
+async function reconcilePostHook(receipt: CandidateReceipt, pr: RestPr, repository: string, completionOnly = false): Promise<void> {
+  const script = process.env.POST_RELEASE_SCRIPT;
+  if (!script) return;
+  if (!/^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$/.test(script)) throw new Error("Unsafe post-release script");
+  const marker = "<!-- pm-ops-post-hook-v1\n";
+  const fingerprint = releaseDigest(JSON.stringify({ candidate: receipt.candidate, commit: pr.merge_commit_sha, script }));
+  const endpoint = "repos/" + repository + "/issues/" + pr.number + "/comments";
+  const comments = await pages<{ user: { login: string }; body: string }>(githubApi, endpoint);
+  const records = comments.filter(comment => comment.user.login === "github-actions[bot]" && comment.body.startsWith(marker))
+    .map(comment => JSON.parse(comment.body.slice(marker.length, -4)) as { fingerprint: string; state: string }).filter(record => record.fingerprint === fingerprint);
+  if (records.some(record => record.state === "complete")) return;
+  if (completionOnly || records.length) throw new Error("Post-release hook is incomplete or ambiguous; preserve intent for operator verification");
+  const record = async (state: string) => githubApi(endpoint, "POST", { body: marker + JSON.stringify({ fingerprint, state }) + "\n-->" });
+  await record("attempt");
+  execFileSync("npm", ["run", script], { cwd: process.env.NPM_PROJECT_PATH ?? ".", stdio: "inherit" });
+  await record("complete");
 }
 
 /** Invoke one bounded workflow transition; every schedule starts with discovery, never preparation. */
@@ -299,8 +329,12 @@ export async function runReleaseContinuation(mode: string | undefined): Promise<
   if (mode === "attempt") {
     if (result.action !== "publish") throw new Error("Publish is not admitted by fresh evidence");
     await githubApi(`repos/${repository}/issues/${result.pr.number}/comments`, "POST", { body: `${attemptMarker}${JSON.stringify({ candidate: releaseDigest(JSON.stringify(receipt.candidate)), commit: result.pr.merge_commit_sha, attemptedAt: options.now })}\n-->` });
+  } else if (mode === "post-hook") {
+    if (result.action !== "complete") throw new Error("Post-release hook requires reconciled publication");
+    await reconcilePostHook(receipt, result.pr, repository);
   } else if (mode === "complete") {
     if (result.action !== "complete") throw new Error("Publication is not completely reconciled");
+    await reconcilePostHook(receipt, result.pr, repository, true);
     await githubApi(`repos/${repository}/pulls/${result.pr.number}`, "PATCH", { body: `Daily release ${receipt.candidate.tag} published and reconciled at ${result.pr.merge_commit_sha}.` });
   } else if (!["probe", "verify"].includes(mode ?? "")) throw new Error("Unknown continuation transition");
 }

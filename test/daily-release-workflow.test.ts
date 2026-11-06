@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { parse } from "yaml";
 import { auditPublishAttestation } from "../attestation.ts";
@@ -212,6 +213,7 @@ esac
     };
     for (const [name, body] of Object.entries(binaries)) { writeFileSync(join(bin, name), body); chmodSync(join(bin, name), 0o755); }
     const fixtures = [
+      { mode: "visible", integrity, visible: 1, publish: 0, status: 0, reads: 1, publishes: 0, sleeps: 0 },
       { mode: "visible", integrity, visible: 22, publish: 0, status: 0, reads: 22, publishes: 1, sleeps: 20 },
       { mode: "visible", integrity, visible: 25, publish: 1, status: 0, reads: 25, publishes: 3, sleeps: 22 },
       { mode: "visible", integrity: `sha512-${createHash("sha512").update("different artifact").digest("base64")}`, visible: 1, publish: 1, status: 1, reads: 26, publishes: 3, sleeps: 22 },
@@ -246,7 +248,7 @@ test("every declared package input is typed and wired into executable jobs", () 
     assert.equal(typeof input.default, input.type);
     assert.ok(jobSource.includes(`inputs.${name}`), `unwired input ${name}`);
   }
-  for (const hook of ["PREPARE_SCRIPT", "VERIFY_SCRIPT", "PUBLISH_SCRIPT", "POST_RELEASE_SCRIPT", "BUNX_SCRIPT"]) assert.ok(steps.some(s => s.run?.includes(`$${hook}`)), hook);
+  for (const hook of ["PREPARE_SCRIPT", "VERIFY_SCRIPT", "PUBLISH_SCRIPT", "BUNX_SCRIPT"]) assert.ok(steps.some(s => s.run?.includes(`$${hook}`)), hook);
   assert.match(step("Run release checks").run, /npm run "\$VERIFY_SCRIPT"/);
   assert.match(step("Run release checks").run, /verifyBunScript\(process.env.VERIFY_SCRIPT\)/);
 });
@@ -450,5 +452,51 @@ test("recovery queries the exact npm coordinate while preserving the original Gi
       assert.equal(calls.length, 2);
       assert.match(calls[1], new RegExp(`^release create ${tag} --repo `));
     }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("approval discovery includes later pages and still selects only exact-head waiting CI", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-approval-"));
+  try {
+    const head = "b".repeat(40);
+    const pages = [Array.from({ length: 100 }, (_, id) => ({ id, name: "CI", head_sha: head, status: "completed", conclusion: "success" })),
+      [{ id: 201, name: "CI", head_sha: head, status: "waiting" }, { id: 202, name: "CI", head_sha: "foreign", status: "waiting" }, { id: 203, name: "Other", head_sha: head, status: "waiting" }]];
+    pages.forEach((runs, index) => writeFileSync(join(root, "page" + index + ".json"), JSON.stringify({ workflow_runs: runs })));
+    writeFileSync(join(root, "gh"), '#!/bin/sh\nif [ "$2" = "--method" ]; then echo "$4" >> "$RUNNER_TEMP/approvals"; exit 0; fi\nif [ "$2" = "--paginate" ]; then jq -r "$5" "$RUNNER_TEMP/page0.json" "$RUNNER_TEMP/page1.json"; else jq -r "$4" "$RUNNER_TEMP/page0.json"; fi\n');
+    chmodSync(join(root, "gh"), 0o755);
+    const result = runBashFixture(step("Approve currently waiting release CI once").run!, { encoding: "utf8", env: { ...process.env, PATH: root + ":" + process.env.PATH, RUNNER_TEMP: root, GITHUB_REPOSITORY: "example/package", RELEASE_COMMIT: head } });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(readFileSync(join(root, "approvals"), "utf8"), "repos/example/package/actions/runs/201/approve\n");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("completed release recovery executes the journaled hook before retiring intent", () => {
+  assert.match(step("Post release hook").if!, /^success\(\)/);
+  assert.match(step("Post release hook").if!, /steps.continue.outputs.action == 'complete'/);
+  assert.match(step("Post release hook").run!, /node "\$CONTINUATION_SCRIPT" post-hook/);
+  assert.match(step("Complete durable release intent").if!, /steps.post_hook.outcome == 'success'/);
+  assert.match(step("Install optional hook dependencies").if!, /\|\| inputs.post-release-script != ''/);
+});
+
+test("OIDC migration guidance scopes trusted publisher requirements to npm callers", () => {
+  const docs = readFileSync(new URL("../docs/reusable-release.md", import.meta.url), "utf8");
+  assert.match(docs, /checks npm OIDC identity before mutating a branch when \x60npm-publish: true\x60/);
+  assert.match(docs, /For \x60npm-publish: true\x60, configure npm trusted publishing/);
+  assert.match(docs, /GitHub-only callers need no npm trusted publisher/);
+});
+
+test("migration gap tracker never marks an inventoried package as unreadable", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-inventory-consistency-"));
+  try {
+    const docs = readFileSync(new URL("../docs/release-migration.md", import.meta.url), "utf8");
+    const inventoried = new Set(Array.from(docs.matchAll(/^\| \[(pm-[\w-]+)\]/gm), match => match[1]));
+    assert.ok(inventoried.size > 0);
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL("../node_modules/@unbrained/pm-cli/dist/cli.js", import.meta.url)), "show", "ops-release-inventory-gaps", "--json"], {
+      encoding: "utf8", env: { ...process.env, PM_PATH: fileURLToPath(new URL("../.agents/pm", import.meta.url)), PM_GLOBAL_PATH: join(root, "global") },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const item = JSON.parse(result.stdout) as { item: { description: string } };
+    for (const claim of item.item.description.matchAll(/cannot inspect (pm-[\w-]+)/g)) assert.ok(!inventoried.has(claim[1]), `Inventory already covers ${claim[1]}`);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

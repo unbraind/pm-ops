@@ -9,6 +9,7 @@ import extension from "../index.ts";
 import { checkReleaseCaller, fetchCanonicalReleaseTags, inspectReleaseCaller } from "../release-caller.ts";
 import { runReleaseCaller, releaseCallerMain } from "../scripts/release-caller.ts";
 import { releaseCallerFixture } from "./canonical-tags-fixture.ts";
+import metadata from "../release-metadata.json" with { type: "json" };
 import { CAPTURE_LIMIT, CaptureRefusal } from "../subprocess.ts";
 import { runCmd } from "./command-test-helpers.ts";
 
@@ -119,7 +120,7 @@ test("online CLI checks and metadata refresh use canonical API results and fall 
     const moduleUrl = new URL("../scripts/release-caller.ts", import.meta.url).href;
     releaseCallerMain([process.execPath, new URL(moduleUrl).pathname, path], moduleUrl);
     releaseCallerMain([process.execPath, new URL(moduleUrl).pathname, "--write-metadata", output], moduleUrl);
-    assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), { repository: "unbraind/pm-ops", tags: { "v2026.10.19": releasedSha } });
+    assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), { repository: "unbraind/pm-ops", tags: { "v2026.10.19": releasedSha }, legacyWorkflowShas: metadata.legacyWorkflowShas });
     writeFileSync(gh, "#!/bin/sh\nexit 7\n");
     assert.equal(runReleaseCaller(path, () => {}), true);
   } finally {
@@ -292,4 +293,17 @@ test("canonical API capture overflow refuses without curl or bundled-metadata ap
     assert.equal(result.status, "refused"); assert.match(result.errors[0], /output_limit:.*Reduce or paginate/);
     assert.doesNotMatch(result.errors[0], /ENOBUFS/);
   } finally { process.env.PATH = beforePath; rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("new canonical workflow pins require checks-read while audited legacy pins may omit it", () => {
+  const sha = "e".repeat(40), tag = "v2099.01.01";
+  const source = caller.replace(releasedSha, sha).replace("v2026.10.19", tag);
+  const resolve = () => ({ [tag]: sha });
+  assert.equal(inspectReleaseCaller(source, resolve).status, "verified");
+  assert.match(inspectReleaseCaller(source.replace("      checks: read\n", ""), resolve).errors.join(" "), /checks: read/);
+  assert.equal(inspectReleaseCaller(caller.replace("      checks: read\n", "")).status, "verified");
+  const legacySha = "c282fa9d8297d431dc6366081bad59efb668b2be";
+  const legacy = caller.replace(releasedSha, legacySha).replace("v2026.10.19", "v2026.11.05").replace("      checks: read\n", "");
+  assert.equal(inspectReleaseCaller(legacy, () => ({ "v2026.11.05": legacySha })).status, "verified");
 });

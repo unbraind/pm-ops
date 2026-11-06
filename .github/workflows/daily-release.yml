@@ -200,7 +200,7 @@ jobs:
           RELEASE_COMMIT: ${{ steps.probe.outputs.headSha }}
         run: |
           set -euo pipefail
-          pending_runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${RELEASE_COMMIT}&per_page=100" --jq '.workflow_runs[]? | select(.head_sha == "'"$RELEASE_COMMIT"'") | select(.conclusion=="action_required" or .status=="waiting") | select(.name == "CI") | .id')"
+          pending_runs="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${RELEASE_COMMIT}&per_page=100" --jq '.workflow_runs[]? | select(.head_sha == "'"$RELEASE_COMMIT"'") | select(.conclusion=="action_required" or .status=="waiting") | select(.name == "CI") | .id')"
           while IFS= read -r run_id; do
             [[ -z "$run_id" ]] && continue
             gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/approve" >/dev/null || echo "::warning::Current CI approval was refused; inspect the linked PR."
@@ -1200,7 +1200,7 @@ jobs:
           refuse_unattested_or_fail
         working-directory: ${{ env.NPM_PROJECT_PATH }}
       - name: Install optional hook dependencies
-        if: steps.continue.outputs.action != 'complete' && (inputs.publish-script != '' || inputs.post-release-script != '')
+        if: (steps.continue.outputs.action != 'complete' && inputs.publish-script != '') || inputs.post-release-script != ''
         working-directory: ${{ env.NPM_PROJECT_PATH }}
         run: npm ci --ignore-scripts
       - name: Publish extra targets
@@ -1257,7 +1257,8 @@ jobs:
         id: github_release
         shell: bash
       - name: Post release hook
-        if: "!cancelled() && steps.github_release.outcome == 'success' && inputs.post-release-script != ''"
+        id: post_hook
+        if: "success() && (steps.github_release.outcome == 'success' || steps.continue.outputs.action == 'complete') && inputs.post-release-script != ''"
         working-directory: ${{ env.NPM_PROJECT_PATH }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1265,7 +1266,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm run "$POST_RELEASE_SCRIPT"
+          node "$CONTINUATION_SCRIPT" post-hook
       - name: Clean up merged release branch
         if: "!cancelled() && steps.github_release.outcome == 'success'"
         shell: bash
@@ -1280,7 +1281,7 @@ jobs:
           expected_sha="$EXPECTED_HEAD"
           git push --force-with-lease="refs/heads/${release_branch}:${expected_sha}" origin ":refs/heads/${release_branch}" || echo "::warning::Could not delete the verified merged release branch."
       - name: Complete durable release intent
-        if: "!cancelled() && (steps.github_release.outcome == 'success' || steps.continue.outputs.action == 'complete')"
+        if: "!cancelled() && (steps.github_release.outcome == 'success' || steps.continue.outputs.action == 'complete') && (inputs.post-release-script == '' || steps.post_hook.outcome == 'success')"
         shell: bash
         run: node "$CONTINUATION_SCRIPT" complete
     needs: reconcile

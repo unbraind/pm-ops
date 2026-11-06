@@ -1,6 +1,7 @@
 /** Command-line entry for checking a consumer release.yml without running it. */
 import { readRegularText } from "../regular-input.ts";
 import { writeFileSync } from "node:fs";
+import metadata from "../release-metadata.json" with { type: "json" };
 import { resolve } from "node:path";
 import { inspectReleaseCaller, fetchCanonicalReleaseTags } from "../release-caller.ts";
 import { isMainInvocation } from "./main-invocation.ts";
@@ -19,7 +20,7 @@ export function runReleaseCaller(path: string, write: (message: string) => void)
 export function releaseCallerMain(argv: string[], moduleUrl: string): void {
   if (!isMainInvocation(argv, moduleUrl)) return;
   if (argv[2] === "--write-metadata") {
-    writeFileSync(resolve(argv[3]), JSON.stringify({ repository: "unbraind/pm-ops", tags: fetchCanonicalReleaseTags() }, null, 2) + "\n");
+    writeFileSync(resolve(argv[3]), JSON.stringify({ repository: "unbraind/pm-ops", tags: fetchCanonicalReleaseTags(), legacyWorkflowShas: metadata.legacyWorkflowShas }, null, 2) + "\n");
     return;
   }
   const path = resolve(argv[2] ?? ".github/workflows/release.yml");
