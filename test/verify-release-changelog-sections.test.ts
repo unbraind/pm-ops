@@ -176,9 +176,10 @@ test("the release gate chain runs the section check before a release starts", ()
   assert.match(scripts["release:check"]!, /verify:release-changelog-sections/);
   assert.match(scripts["verify:release-changelog-sections"]!, /verify-release-changelog-sections\.ts/);
   assert.equal(scripts["prepublishOnly"], "npm run release:check");
-  const workflow = readFileSync(resolve(".github/workflows/release.yml"), "utf8");
+  const workflow = readFileSync(resolve(".github/workflows/daily-release.yml"), "utf8");
   const gate = workflow.slice(workflow.indexOf("- name: Run release checks"), workflow.indexOf("- name: Commit release files"));
-  assert.match(gate, /npm run release:check/);
+  assert.match(gate, /npm run "\$VERIFY_SCRIPT"/);
+  assert.match(workflow, /verify-script:[^]*?default: release:check/);
 });
 
 test("report prints notes then failures and requests exit codes only on failures", () => {

@@ -1,5 +1,5 @@
 /** Trusted workflow adapter. The probe uses only Node built-ins and performs no installation. */
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "../subprocess.ts";
 import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -230,8 +230,7 @@ export async function closeSuperseded(numbers: number[], successor: number, repo
 }
 
 /** Invoke one bounded workflow transition; every schedule starts with discovery, never preparation. */
-async function main(): Promise<void> {
-  const mode = process.argv[2];
+export async function runReleaseContinuation(mode: string | undefined): Promise<void> {
   const repository = required("GITHUB_REPOSITORY");
   const output = (key: string, value: string | number) => appendFileSync(required("GITHUB_OUTPUT"), `${key}=${value}\n`);
   const configDigest = releaseConfigDigest(JSON.parse(required("RELEASE_CONFIG")) as Record<string, unknown>);
@@ -307,5 +306,5 @@ async function main(): Promise<void> {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error: unknown) => { process.stderr.write(`${error instanceof Error ? error.message : "Release continuation failed"}\n`); process.exitCode = 1; });
+  runReleaseContinuation(process.argv[2]).catch((error: unknown) => { process.stderr.write(`${String(error)}\n`); process.exitCode = 1; });
 }

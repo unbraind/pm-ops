@@ -36,6 +36,7 @@ test("caller permits checks-read for continuation and refuses checks-write while
   assert.deepEqual(checkReleaseCaller(caller), []);
   assert.ok(checkReleaseCaller(caller.replace("checks: read", "checks: write")).some(error => error.includes("permissions")));
   assert.deepEqual(checkReleaseCaller(caller.replace("      checks: read\n", "")), []);
+  assert.ok(checkReleaseCaller(caller.replace("    with:", "    with:\n      pm-ops-version: 2026.10.19")).some(error => error.includes("must be derived")));
 });
 
 test("online provenance paginates canonical refs, peels nested annotated tags and refuses malformed or cyclic objects", () => {

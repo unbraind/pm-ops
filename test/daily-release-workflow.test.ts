@@ -275,7 +275,7 @@ test("workflow version resolution peels annotated tags, normalizes dates and rej
     for (const fixture of cases) {
       writeFileSync(remote, fixture.tags);
       writeFileSync(output, "");
-      const result = runBashFixture(step("Resolve pm-ops release version").run, { encoding: "utf8", env: { ...process.env, PATH: `${root}:${process.env.PATH}`, TAG_FIXTURE: remote, WORKFLOW_SHA: sha, GITHUB_ENV: output, GITHUB_OUTPUT: join(root, "step-output") } });
+      const result = runBashFixture(step("Resolve pm-ops release version").run, { encoding: "utf8", env: { ...process.env, GITHUB_REPOSITORY: "example/package", PATH: `${root}:${process.env.PATH}`, TAG_FIXTURE: remote, WORKFLOW_SHA: sha, GITHUB_ENV: output, GITHUB_OUTPUT: join(root, "step-output") } });
       if (fixture.expected) {
         assert.equal(result.status, 0, result.stdout + result.stderr);
         assert.equal(readFileSync(output, "utf8"), `PM_OPS_VERSION=${fixture.expected}\n`);
