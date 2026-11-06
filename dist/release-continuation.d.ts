@@ -42,6 +42,7 @@ export interface ContinuationEvidence {
     workflow: string;
     configDigest: string;
     pr: ContinuationPr;
+    /** Source run identity and successful prepare-job conclusion from its exact attempt. */
     run: {
         repository: string;
         branch: string;
@@ -73,5 +74,5 @@ export declare function ownsContinuationPr(pr: ContinuationPr, repository: strin
 /** Refuse malformed durable input before it reaches paths, shell arguments or remote effects. */
 export declare function validateReleaseCandidate(candidate: ReleaseCandidate): void;
 /** Admit only trusted merged bytes; pending checks consume no runner time between invocations. */
-export declare function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEvidence): "pending" | "refresh" | "publish" | "recover" | "complete";
+export declare function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEvidence): "pending" | "refresh" | "publish" | "recover" | "complete" | "stranded";
 //# sourceMappingURL=release-continuation.d.ts.map

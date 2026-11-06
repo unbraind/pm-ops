@@ -47,6 +47,7 @@ export interface ContinuationEvidence {
   workflow: string;
   configDigest: string;
   pr: ContinuationPr;
+  /** Source run identity and successful prepare-job conclusion from its exact attempt. */
   run: { repository: string; branch: string; sha: string; workflow: string; event: string; conclusion: string; attempt: number };
   artifactAvailable: boolean;
   mergedTree: string;
@@ -97,7 +98,7 @@ export function validateReleaseCandidate(candidate: ReleaseCandidate): void {
 }
 
 /** Admit only trusted merged bytes; pending checks consume no runner time between invocations. */
-export function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEvidence): "pending" | "refresh" | "publish" | "recover" | "complete" {
+export function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEvidence): "pending" | "refresh" | "publish" | "recover" | "complete" | "stranded" {
   validateReleaseCandidate(c);
   if (c.repository !== e.repository || c.defaultBranch !== e.defaultBranch || c.workflow !== e.workflow || c.configDigest !== e.configDigest
     || !ownsContinuationPr(e.pr, e.repository, e.defaultBranch) || e.pr.head !== c.headSha) throw new Error("Release identity changed");
@@ -115,6 +116,10 @@ export function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEv
   // A recorded attempt is not evidence of failure: a registry 404 may be delayed visibility.
   if (e.attempted && e.registry === "absent") throw new Error("Publication outcome is ambiguous; reconcile registry visibility before retry");
   if (e.publishedToday && (e.registry === "absent" || !c.npmPublish)) throw new Error("Daily automatic publication cap reached");
-  if (e.mainSha !== e.pr.mergedSha || e.triggerSha !== e.pr.mergedSha) throw new Error("Publication requires a workflow triggered at the exact merged default-branch SHA");
-  return e.registry === "verified" ? "recover" : "publish";
+  if (e.registry === "verified") return "recover";
+  if (e.mainSha !== e.pr.mergedSha || e.triggerSha !== e.pr.mergedSha) {
+    if (e.tagSha !== null) throw new Error("Stranded publication has a tag; operator reconciliation is required");
+    return "stranded";
+  }
+  return "publish";
 }

@@ -58,8 +58,13 @@ export function decideReleaseContinuation(c, e) {
         throw new Error("Publication outcome is ambiguous; reconcile registry visibility before retry");
     if (e.publishedToday && (e.registry === "absent" || !c.npmPublish))
         throw new Error("Daily automatic publication cap reached");
-    if (e.mainSha !== e.pr.mergedSha || e.triggerSha !== e.pr.mergedSha)
-        throw new Error("Publication requires a workflow triggered at the exact merged default-branch SHA");
-    return e.registry === "verified" ? "recover" : "publish";
+    if (e.registry === "verified")
+        return "recover";
+    if (e.mainSha !== e.pr.mergedSha || e.triggerSha !== e.pr.mergedSha) {
+        if (e.tagSha !== null)
+            throw new Error("Stranded publication has a tag; operator reconciliation is required");
+        return "stranded";
+    }
+    return "publish";
 }
 //# sourceMappingURL=release-continuation.js.map

@@ -322,15 +322,22 @@ test("release staging commits first-time outputs, declared release files and del
       writeFileSync(join(root, "release-manifest.json"), '{"release":true}\n');
       mkdirSync(join(project, "cache"));
       writeFileSync(join(project, "cache/ignored"), "cache\n");
-      const result = runBashFixture(step("Commit release files").run, {
-        cwd: root, encoding: "utf8", env: { ...process.env, GITHUB_WORKSPACE: root, NPM_PROJECT_PATH: project, NPM_PROJECT_DIR: directory, RELEASE_FILES: "release-manifest.json", REPO_NAME: "example", RELEASE_TAG: "v2099.1.1" },
-      });
+      const bin = join(root, "cache/bin"); mkdirSync(bin, { recursive: true });
+      writeFileSync(join(bin, "just"), '#!/bin/sh\n[ "$1" = release-check ] && [ -f "$GITHUB_WORKSPACE/.github/pm-release-candidate.json" ]\n'); chmodSync(join(bin, "just"), 0o755);
+      const transaction = "set -euo pipefail\n" + workflow.jobs.prepare.steps.filter(current => ["Record preparation stamp", "Run release checks", "Commit release files"].includes(current.name ?? "")).map(current => current.run).join("\n");
+      const stageEnv = { ...process.env, GITHUB_WORKSPACE: root, NPM_PROJECT_PATH: project, NPM_PROJECT_DIR: directory, RELEASE_FILES: "release-manifest.json", REPO_NAME: "example", RELEASE_TAG: "v2099.1.1", CONTINUATION_SCRIPT: new URL("../scripts/release-continuation.ts", import.meta.url).pathname, RELEASE_CONFIG: "{}", CALLER_WORKFLOW: "example/package/.github/workflows/release.yml@refs/heads/main", GITHUB_REPOSITORY: "example/package", RELEASE_BASE_SHA: initial, NPM_VERSION: "2099.1.1", GITHUB_RUN_ID: "1", GITHUB_RUN_ATTEMPT: "1", RUNNER_TEMP: root, IS_RUST: "true", PATH: `${bin}:${process.env.PATH}` };
+      const result = runBashFixture(transaction, { cwd: root, encoding: "utf8", env: stageEnv });
       assert.equal(result.status, 0, result.stdout + result.stderr);
       const prefix = directory === "." ? "" : directory + "/";
       const changed = execFileSync("git", ["diff", "--name-only", "-z", initial, "HEAD"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean).sort();
-      assert.deepEqual(changed, [prefix + "CHANGELOG.md", prefix + "src/generated output.ts", prefix + "src/old.ts", "release-manifest.json"].sort());
+      assert.deepEqual(changed, [".github/pm-release-candidate.json", prefix + "CHANGELOG.md", prefix + "src/generated output.ts", prefix + "src/old.ts", "release-manifest.json"].sort());
       assert.equal(execFileSync("git", ["show", `HEAD:${prefix}CHANGELOG.md`], { cwd: root, encoding: "utf8" }), "First changelog\n");
       assert.equal(execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: root, encoding: "utf8" }), "");
+      const previous = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+      const resumed = runBashFixture(transaction, { cwd: root, encoding: "utf8", env: { ...stageEnv, GITHUB_RUN_ID: "2", RELEASE_BASE_SHA: previous } });
+      assert.equal(resumed.status, 0, resumed.stdout + resumed.stderr);
+      assert.equal(execFileSync("git", ["diff", "--name-only", previous, "HEAD"], { cwd: root, encoding: "utf8" }).trim(), ".github/pm-release-candidate.json");
+
     } finally { rmSync(root, { recursive: true, force: true }); }
   }
 });
@@ -499,4 +506,14 @@ test("migration gap tracker never marks an inventoried package as unreadable", (
     const item = JSON.parse(result.stdout) as { item: { description: string } };
     for (const claim of item.item.description.matchAll(/cannot inspect (pm-[\w-]+)/g)) assert.ok(!inventoried.has(claim[1]), `Inventory already covers ${claim[1]}`);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("stranded receipt retirement keeps reconciliation short and branch reuse behind a fresh ownership check", () => {
+  assert.deepEqual(workflow.jobs.reconcile.permissions, { contents: "read", "pull-requests": "write", actions: "write", checks: "read" });
+  assert.match(workflow.jobs.prepare.if, /needs.reconcile.outputs.pending == 'false'/);
+  const request = step("Merge release metadata through protected PR").run!;
+  assert.match(request, /node "\$CONTINUATION_SCRIPT" retired-branch/);
+  assert.ok(request.indexOf('retired-branch') < request.indexOf('--force-with-lease='));
+  assert.ok(workflow.jobs.reconcile.steps.every(current => !/npm (?:ci|install)/.test(current.run ?? "")));
 });

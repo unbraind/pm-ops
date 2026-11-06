@@ -49,7 +49,6 @@ test("continuation revalidates repository, default branch, workflow, config, own
     e => { e.configDigest = "0".repeat(64); }, e => { e.pr.author = "human"; }, e => { e.pr.repository = "other/package"; }, e => { e.pr.base = "other"; },
     e => { e.pr.state = "open"; }, e => { e.pr.mergedSha = null; }, e => { e.mergedTree = "0".repeat(40); },
     e => { e.mergedParents = []; }, e => { e.mergedParents = ["0".repeat(40)]; }, e => { e.version = "2026.11.7"; },
-    e => { e.mainSha = "0".repeat(40); }, e => { e.triggerSha = "0".repeat(40); },
   ];
   for (const change of changes) { const e = evidenceFixture(); change(e); assert.throws(() => decideReleaseContinuation(candidateFixture(), e)); }
   assert.equal(ownsContinuationPr(evidenceFixture().pr, "example/package", "main"), true);
@@ -111,4 +110,17 @@ test("candidate validation refuses malformed persisted intent before effects and
   assert.notEqual(releaseDigest("changed ignored shipped bytes"), c.packageSha256);
   assert.equal(releaseConfigDigest({ b: 2, a: 1, "reconcile-only": true }), releaseConfigDigest({ a: 1, b: 2, "reconcile-only": false }));
   assert.notEqual(releaseConfigDigest({ a: 2 }), releaseConfigDigest({ a: 1 }));
+});
+
+
+test("advanced main strands unpublished bytes but permits already-attested repair without republishing", () => {
+  const c = candidateFixture(), e = evidenceFixture();
+  for (const change of [(e: ContinuationEvidence) => { e.mainSha = "9".repeat(40); }, (e: ContinuationEvidence) => { e.triggerSha = "9".repeat(40); }]) {
+    change(e); assert.equal(decideReleaseContinuation(c, e), "stranded");
+  }
+  e.registry = "verified"; assert.equal(decideReleaseContinuation(c, e), "recover");
+  e.registry = "absent"; e.tagSha = e.pr.mergedSha;
+  assert.throws(() => decideReleaseContinuation(c, e), /operator reconciliation/);
+  e.tagSha = null; e.attempted = true;
+  assert.throws(() => decideReleaseContinuation(c, e), /ambiguous/);
 });

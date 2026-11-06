@@ -134,7 +134,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
       actions: write
       checks: read
     env:
@@ -563,6 +563,13 @@ jobs:
             npm run --silent "$NOTES_SCRIPT" > "$RUNNER_TEMP/RELEASE_NOTES.md"
           fi
           [[ -s "$RUNNER_TEMP/RELEASE_NOTES.md" ]]
+      - name: Record preparation stamp
+        if: steps.decide.outputs.should_release == 'true'
+        env:
+          RELEASE_BASE_SHA: ${{ steps.decide.outputs.base_sha }}
+          NPM_VERSION: ${{ steps.decide.outputs.npm_version }}
+        shell: bash
+        run: node "$CONTINUATION_SCRIPT" stamp
       - name: Run release checks
         if: steps.decide.outputs.should_release == 'true'
         working-directory: ${{ env.NPM_PROJECT_PATH }}
@@ -589,7 +596,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          paths=()
+          paths=(.github/pm-release-candidate.json)
           project_prefix="$(realpath --relative-to="$GITHUB_WORKSPACE" "$NPM_PROJECT_PATH")"
           [[ "$project_prefix" == . ]] && project_prefix='' || project_prefix="$project_prefix/"
           while IFS= read -r -d '' path; do
@@ -853,8 +860,7 @@ jobs:
           pr_number="$RELEASE_PR_NUMBER"
           remote_branch_sha="$(git ls-remote --heads origin "refs/heads/${release_branch}" | cut -f1)"
           if [[ -z "$pr_number" && -n "$remote_branch_sha" ]]; then
-            echo "::error::Refusing to overwrite a release branch without a verified workflow PR."
-            exit 1
+            RELEASE_BRANCH="$release_branch" REMOTE_BRANCH_SHA="$remote_branch_sha" node "$CONTINUATION_SCRIPT" retired-branch
           fi
 
           if [[ -n "$pr_number" ]]; then

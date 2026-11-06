@@ -6,11 +6,12 @@ status: open
 priority: 2
 tags: []
 created_at: "2026-10-19T14:35:30.174Z"
-updated_at: "2026-11-06T07:24:55.483Z"
+updated_at: "2026-11-06T09:07:32.378Z"
 author: codex-agent
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-11-06T04:54:11.196Z",codex-sol,"Refreshed read-only inventory is in docs/release-migration.md: 34 package copies at recorded checkout heads, including pm-memory. Remaining migration prerequisites include the missing pm-context release:notes script, preserved approval/manual-only guards, package-specific workflow-shape tests, pm-vcs binary bundle disposition and representative Rust/Postgres callers. The release-continuation implementation only pilots pm-ops; live trusted-publisher/event acceptance, account-wide admission fixtures and the post-window measurements remain with the fleet rollout owner."
   "2026-11-06T07:24:55.482Z",codex-agent,"Additional rollout evidence: canonical tags through v2026.10.19 predate daily-release.yml, so the legacy checker compatibility exception certifies the tag pin, not existence of a reusable workflow at those old commits. The migration docs already require checking workflow existence at the selected released SHA. Preserve that prerequisite in the wave tooling; a later checker enhancement can add explicit missing-workflow refusal without conflating it with this review round permission fix."
+  "2026-11-06T09:07:32.378Z",codex-agent,"Round 2 adds a validated .github/pm-release-candidate.json preparation stamp so fresh protected release PRs remain possible when version/changelog metadata is already on main. In the remaining fleet wave, verify that required CI also runs for a metadata-only replacement PR and that package file/staging policies accept the stamp. The shared request path reuses an old branch only through its freshly verified retired merged bot PR and existing force-with-lease. This is a migration prerequisite; no other package repository was edited."
 docs[2]{path,scope}:
   docs/release-migration.md,project
   docs/reusable-release.md,project

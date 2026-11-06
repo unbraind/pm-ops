@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { parse } from "yaml";
 import { candidateFixture, evidenceFixture } from "./release-continuation-fixture.ts";
 import { releaseConfigDigest, releaseDigest } from "../release-continuation.ts";
-import { candidateBody, parseCandidateReceipt, inspectCandidate, closeSuperseded, requiredProtection, githubApi, registryJson, runReleaseContinuation, normalizeWorkflowPath, type ReleaseApi } from "../scripts/release-continuation.ts";
+import { candidateBody, retiredCandidateBody, parseCandidateReceipt, inspectCandidate, closeSuperseded, requiredProtection, githubApi, registryJson, runReleaseContinuation, normalizeWorkflowPath, type ReleaseApi } from "../scripts/release-continuation.ts";
 
 const previousProject = process.env.NPM_PROJECT_DIR;
 process.env.NPM_PROJECT_DIR = ".";
@@ -30,6 +30,7 @@ function remoteFixture() {
     if (path === `repos/${c.repository}`) return { default_branch: "main" };
     if (path.includes("/pulls?")) return [pr];
     if (path.endsWith("/pulls/42")) return pr;
+    if (path.includes("/jobs?")) return { total_count: 1, jobs: [{ name: "release / prepare", status: "completed", conclusion: "success", run_id: c.runId, head_sha: c.baseSha }] };
     if (path.includes("/actions/runs/")) return run;
     if (path.includes("/actions/artifacts/")) return artifact;
     if (path.includes("/git/ref/heads/")) return { object: { sha: state.main } };
@@ -52,12 +53,18 @@ function remoteFixture() {
   return { c, e, receipt, pr, run, artifact, calls, state, api, options, registry, inspect: () => inspectCandidate(receipt, options, api, registry, () => ({ states: state.checks, review: "APPROVED" })) };
 }
 
+/** Job response variants retain native adapter and exact-head protection checks. */
+function inspectJobProof(f: ReturnType<typeof remoteFixture>, response: { total_count: number; jobs: unknown } | ((path: string) => { total_count: number; jobs: unknown })) {
+  const api: ReleaseApi = async (path, method, body) => path.includes("/jobs?") ? typeof response === "function" ? response(path) : response : f.api(path, method, body);
+  return inspectCandidate(f.receipt, f.options, api, f.registry, () => ({ states: f.state.checks, review: "APPROVED" }));
+}
+
 /** Execute the production entry point with isolated artifacts, native transport fixtures and no real credentials. */
 async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { root: string; handoff: string; refresh: () => void; control: { ignorePersistence: boolean; write404: boolean; writes: number; failWriteAt: number } }) => Promise<void>): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "release-adapter-")), handoff = join(root, "release-artifact"); mkdirSync(handoff);
   const f = remoteFixture(), originalFetch = globalThis.fetch;
   const values: Record<string, string> = { GITHUB_REPOSITORY: f.c.repository, GH_TOKEN: "synthetic-token", RELEASE_CONFIG: "{}", CALLER_WORKFLOW: `${f.c.repository}/${f.c.workflow}@refs/heads/main`,
-    RUNNER_TEMP: root, GITHUB_OUTPUT: join(root, "output"), NPM_PROJECT_DIR: ".", TRIGGER_SHA: f.e.triggerSha, RELEASE_TIMEZONE: "Europe/Vienna", RELEASE_PR_NUMBER: "42", RELEASE_BRANCH: f.pr.head.ref,
+    RUNNER_TEMP: root, GITHUB_WORKSPACE: root, GITHUB_OUTPUT: join(root, "output"), NPM_PROJECT_DIR: ".", TRIGGER_SHA: f.e.triggerSha, RELEASE_TIMEZONE: "Europe/Vienna", RELEASE_PR_NUMBER: "42", RELEASE_BRANCH: f.pr.head.ref,
     REMOTE_BRANCH_SHA: f.c.headSha, ARTIFACT_ID: "20", RELEASE_BASE_SHA: f.c.baseSha, VERIFIED_COMMIT: f.c.headSha, VERIFIED_TREE: f.c.tree, NPM_VERSION: f.c.version, RELEASE_TAG: f.c.tag,
     PACKAGE_NAME: f.c.packageName, CLI_VERSION: f.c.cliVersion, PM_OPS_VERSION: f.c.opsVersion, GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", NPM_PUBLISH: "true", IS_RUST: "false", RELEASE_FIXTURE: root,
     PATH: `${root}:${process.env.PATH}` };
@@ -188,9 +195,9 @@ test("actual protected-PR request shell exits while CI is pending and never read
   try {
     const c = candidateFixture();
     const scripts = {
-      git: `#!/bin/sh\ncase "$1" in\nrev-parse) if [ "$2" = HEAD ]; then echo '${c.headSha}'; else echo '${c.baseSha}'; fi ;;\npush) echo pushed >> "$REQUEST_FIXTURE/pushes" ;;\nesac\n`,
+      git: `#!/bin/sh\ncase "$1" in\nrev-parse) if [ "$2" = HEAD ]; then echo '${c.headSha}'; else echo '${c.baseSha}'; fi ;;\nls-remote) [ -z "\${REMOTE_BRANCH_HEAD:-}" ] || printf '%s\\trefs/heads/release/2026.11.06\\n' "$REMOTE_BRANCH_HEAD" ;;\n      push) echo pushed >> "$REQUEST_FIXTURE/pushes" ;;\nesac\n`,
       gh: '#!/bin/sh\nif [ "$1 $2" = "pr create" ]; then echo https://example.invalid/pull/42; fi\nif [ "$1 $2" = "pr view" ] || [ "$1 $2" = "pr checks" ]; then echo pending >> "$REQUEST_FIXTURE/check-reads"; exit 1; fi\n',
-      node: '#!/bin/sh\necho "$*" >> "$REQUEST_FIXTURE/transitions"\n',
+      node: '#!/bin/sh\necho "$*" >> "$REQUEST_FIXTURE/transitions"\nif [ "$2" = retired-branch ] && [ "$RETIRED_BRANCH_VALID" != true ]; then exit 7; fi\n',
       sleep: '#!/bin/sh\necho sleep >> "$REQUEST_FIXTURE/sleeps"\nexit 9\n',
     };
     for (const [name, source] of Object.entries(scripts)) { writeFileSync(join(root, name), source); chmodSync(join(root, name), 0o755); }
@@ -199,14 +206,23 @@ test("actual protected-PR request shell exits while CI is pending and never read
     };
     const request = (shared.jobs.request ?? shared.jobs.release).steps.find(step => step.name === "Merge release metadata through protected PR")!.run;
     const requestFile = join(root, "request.sh"); writeFileSync(requestFile, request);
-    const result = spawnSync("bash", ["--noprofile", "--norc", requestFile], { encoding: "utf8", timeout: 2000, env: {
+    const requestEnv = {
       PATH: `${root}:/usr/bin:/bin`, REQUEST_FIXTURE: root, RELEASE_BASE_SHA: c.baseSha, RELEASE_BRANCH: "release/2026.11.06", RELEASE_PR_NUMBER: "",
       RELEASE_TAG: c.tag, REPO_NAME: "package", GITHUB_REPOSITORY: c.repository, GITHUB_OUTPUT: join(root, "output"), CONTINUATION_SCRIPT: "continuation.ts",
-    } });
+    };
+    const result = spawnSync("bash", ["--noprofile", "--norc", requestFile], { encoding: "utf8", timeout: 2000, env: requestEnv });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.match(readFileSync(join(root, "transitions"), "utf8"), /continuation.ts request/);
     assert.match(readFileSync(join(root, "output"), "utf8"), /pr_number=42/);
     for (const path of ["check-reads", "sleeps"]) assert.equal(existsSync(join(root, path)), false);
+    for (const trusted of [true, false]) {
+      writeFileSync(join(root, "pushes"), "");
+      const retry = spawnSync("bash", ["--noprofile", "--norc", requestFile], { encoding: "utf8", timeout: 2000, env: { ...requestEnv, REMOTE_BRANCH_HEAD: c.headSha, RETIRED_BRANCH_VALID: String(trusted) } });
+      assert.equal(retry.status, trusted ? 0 : 7, retry.stdout + retry.stderr);
+      assert.equal(readFileSync(join(root, "pushes"), "utf8"), trusted ? "pushed\n" : "");
+      assert.match(readFileSync(join(root, "transitions"), "utf8"), /retired-branch/);
+    }
+
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -236,14 +252,20 @@ test("superseded closure re-reads both PR identities and names the successor whi
   const old = structuredClone(f.pr); old.number = 41; old.head.ref = "release/2026.11.05";
   const effects: { path: string; method: string; body: unknown }[] = [];
   const api: ReleaseApi = async (path, method = "GET", body) => {
-    if (method !== "GET") { effects.push({ path, method, body }); return {}; }
+    if (method !== "GET") { effects.push({ path, method, body }); if (method === "PATCH") Object.assign(old, body); return {}; }
     return path.endsWith("/42") ? f.pr : old;
   };
   await closeSuperseded([42, 41], 42, f.c.repository, api);
-  assert.deepEqual(effects.map(effect => effect.body), [{ body: "Superseded by release PR #42." }, { state: "closed" }]);
+  assert.deepEqual(effects.map(effect => effect.body), [{ body: "Superseded by release PR #42." }, { body: retiredCandidateBody(f.receipt, "Superseded by release PR #42.") }, { state: "closed" }]);
   for (const mutate of [() => { old.head.repo.full_name = "foreign/package"; }, () => { old.head.ref = "feature/old"; }, () => { old.user.login = "human"; }]) {
     mutate(); effects.length = 0; await closeSuperseded([41], 42, f.c.repository, api); assert.equal(effects.length, 0);
   }
+  const currentBody = f.pr.body;
+  for (const body of ["owned but unverified", null]) {
+    Object.assign(f.pr, { body });
+    await assert.rejects(closeSuperseded([41], 42, f.c.repository, api), /successor receipt/);
+  }
+  Object.assign(f.pr, { body: currentBody });
   const untrustedApi: ReleaseApi = async () => ({ ...f.pr, user: { login: "human" } });
   await assert.rejects(closeSuperseded([41], 42, f.c.repository, untrustedApi), /successor/);
 });
@@ -437,7 +459,7 @@ test("inconsistent GitHub Releases and cleanup failures retain intent without to
     await assert.rejects(inspectCandidate(f.receipt, f.options, api, f.registry, check), /Release identity/);
   }
   const api: ReleaseApi = async path => { if (path.endsWith("/42")) return f.pr; throw new Error("synthetic cleanup failure"); };
-  await closeSuperseded([41], 42, f.c.repository, api);
+  await assert.rejects(closeSuperseded([41], 42, f.c.repository, api), /Could not retire or close/);
   Object.assign(f.pr, { merged: false }); await assert.rejects(closeSuperseded([41], 42, f.c.repository, api), /successor/);
 });
 
@@ -550,4 +572,156 @@ test("crash after hook success but before completion journal refuses automatic r
     assert.equal(readFileSync(join(f.root, "hooks"), "utf8"), "run release:bundle\n");
     assert.ok(f.pr.body.includes("pm-ops-candidate-v1"));
   });
+});
+
+
+test("fresh daily probe retires stranded unpublished intent and admits later preparation with leased branch reuse", async () => {
+  await withAdapter(async f => {
+    f.state.main = "9".repeat(40); process.env.TRIGGER_SHA = f.state.main;
+    await assert.rejects(runReleaseContinuation("verify"), /current-source identity/);
+    await assert.rejects(runReleaseContinuation("attempt"), /not admitted/);
+    await runReleaseContinuation("probe");
+    assert.match(readFileSync(join(f.root, "output"), "utf8"), /action=stranded/);
+    assert.match(readFileSync(join(f.root, "output"), "utf8"), /pending=false/);
+    assert.equal(parseCandidateReceipt(f.pr.body), null);
+    assert.deepEqual(parseCandidateReceipt(f.pr.body, true), f.receipt);
+    assert.ok(f.state.comments.some(comment => comment.body.includes("Retired unpublished release")));
+    assert.ok(!f.calls.some(call => /releases|git\/refs/.test(call.path) && call.method !== "GET"));
+    writeFileSync(join(f.root, "output"), "");
+    await runReleaseContinuation("probe");
+    assert.equal(readFileSync(join(f.root, "output"), "utf8"), "pending=false\n");
+    await runReleaseContinuation("retired-branch");
+  });
+});
+
+test("old delivery cannot retire a stranded receipt and attested repair survives advanced main", async () => {
+  await withAdapter(async f => {
+    f.state.main = "9".repeat(40);
+    await runReleaseContinuation("probe");
+    assert.match(readFileSync(join(f.root, "output"), "utf8"), /pending=true/);
+    assert.equal(f.calls.filter(call => call.method !== "GET").length, 0);
+    assert.deepEqual(parseCandidateReceipt(f.pr.body), f.receipt);
+    Object.assign(f.state, { registry: true });
+    await runReleaseContinuation("verify");
+    assert.match(readFileSync(join(f.root, "output"), "utf8"), /action=recover/);
+    await assert.rejects(runReleaseContinuation("attempt"), /not admitted/);
+    assert.equal(f.calls.filter(call => call.method !== "GET").length, 0);
+  });
+});
+
+test("stranded retirement refuses failed or unconfirmed writes and retains exact intent", async () => {
+  await withAdapter(async f => {
+    f.state.main = "9".repeat(40); process.env.TRIGGER_SHA = f.state.main;
+    f.control.write404 = true;
+    await assert.rejects(runReleaseContinuation("probe"), /GitHub API refused POST/);
+    Object.assign(f.control, { write404: false, ignorePersistence: true });
+    await assert.rejects(runReleaseContinuation("probe"), /retirement was not confirmed/);
+    assert.deepEqual(parseCandidateReceipt(f.pr.body), f.receipt);
+    assert.doesNotMatch(readFileSync(join(f.root, "output"), "utf8"), /pending=false/);
+  });
+});
+
+test("retired branch reuse refuses unowned, unmerged, changed or unreceipted remote heads", async () => {
+  for (const defect of ["active", "fork", "open", "unmerged", "head", "receipt-head", "receipt-repo", "body"]) await withAdapter(async f => {
+    f.pr.body = retiredCandidateBody(f.receipt, "Retired");
+    if (defect === "active") f.pr.body = candidateBody(f.receipt);
+    if (defect === "fork") f.pr.head.repo.full_name = "foreign/package";
+    if (defect === "open") f.pr.state = "open";
+    if (defect === "unmerged") f.pr.merged = false;
+    if (defect === "head") f.pr.head.sha = "9".repeat(40);
+    if (defect === "receipt-head") f.pr.body = retiredCandidateBody({ ...f.receipt, candidate: { ...f.c, headSha: "9".repeat(40) } }, "Retired");
+    if (defect === "receipt-repo") f.pr.body = retiredCandidateBody({ ...f.receipt, candidate: { ...f.c, repository: "foreign/package" } }, "Retired");
+    if (defect === "body") f.pr.body = "<!-- pm-ops-retired-candidate-v1\nbroken";
+    await assert.rejects(runReleaseContinuation("retired-branch"));
+    assert.equal(f.calls.filter(call => call.method !== "GET").length, 0);
+  });
+});
+
+test("a failed superseded close cannot leave an active receipt to block discovery", async () => {
+  const f = remoteFixture(); f.pr.state = "open";
+  const old = structuredClone(f.pr); old.number = 41; old.head.ref = "release/2026.11.05";
+  const api: ReleaseApi = async (path, method = "GET", body) => {
+    if (method === "PATCH") {
+      const patch = body as { body?: string; state?: string };
+      if (patch.state) throw new Error("synthetic close failure");
+      Object.assign(old, patch); return {};
+    }
+    if (method === "POST") return {};
+    return path.endsWith("/42") ? f.pr : old;
+  };
+  await assert.rejects(closeSuperseded([41], 42, f.c.repository, api), /Could not retire or close/);
+  assert.equal(old.state, "open");
+  assert.equal(parseCandidateReceipt(old.body), null);
+  assert.deepEqual(parseCandidateReceipt(old.body, true), f.receipt);
+  assert.deepEqual([f.pr, old].filter(pr => parseCandidateReceipt(pr.body)).map(pr => pr.number), [42]);
+  for (const body of ["legacy owned release PR", null]) {
+    Object.assign(old, { body });
+    await assert.rejects(closeSuperseded([41], 42, f.c.repository, api), /Could not retire or close/);
+    assert.equal(parseCandidateReceipt(old.body), null);
+  }
+});
+
+
+test("preparation stamp binds a fresh run even when version metadata is already on main", async () => {
+  await withAdapter(async f => {
+    await runReleaseContinuation("stamp");
+    const path = join(f.root, ".github/pm-release-candidate.json"), first = readFileSync(path, "utf8");
+    assert.equal(JSON.parse(first).baseSha, f.c.baseSha);
+    assert.equal(JSON.parse(first).version, f.c.version);
+    process.env.GITHUB_RUN_ID = "11";
+    await runReleaseContinuation("stamp");
+    assert.notEqual(readFileSync(path, "utf8"), first);
+    for (const [key, bad] of [["RELEASE_BASE_SHA", "bad"], ["NPM_VERSION", "latest"], ["GITHUB_RUN_ID", "1.5"], ["GITHUB_RUN_ID", "0"], ["GITHUB_RUN_ATTEMPT", "1.5"], ["GITHUB_RUN_ATTEMPT", "0"]]) {
+      const before = process.env[key]; process.env[key] = bad;
+      await assert.rejects(runReleaseContinuation("stamp"), /Malformed preparation/);
+      if (before === undefined) delete process.env[key]; else process.env[key] = before;
+    }
+    process.env.GITHUB_REPOSITORY = "foreign"; process.env.CALLER_WORKFLOW = "foreign/.github/workflows/release.yml@main";
+    await assert.rejects(runReleaseContinuation("stamp"), /Malformed preparation/);
+  });
+});
+
+test("fresh retirement and retired-branch reuse refuse an intent changed after discovery", async () => {
+  for (const transition of ["probe", "retired-branch"]) await withAdapter(async f => {
+    f.state.main = "9".repeat(40); process.env.TRIGGER_SHA = f.state.main;
+    if (transition === "retired-branch") f.pr.body = retiredCandidateBody(f.receipt, "Retired");
+    const transport = globalThis.fetch; let reads = 0;
+    globalThis.fetch = async (input, init) => {
+      const target = String(input).endsWith("/pulls/42") && init?.method === "GET";
+      const patch = target && ++reads === (transition === "probe" ? 2 : 1);
+      const response = await transport(input, init);
+      return patch ? new Response(JSON.stringify({ ...f.pr, body: transition === "probe" ? "changed after discovery" : null }), { status: 200 }) : response;
+    };
+    await assert.rejects(runReleaseContinuation(transition), /changed before retirement|branch identity changed/);
+    assert.equal(f.calls.filter(call => call.method !== "GET").length, 0);
+  });
+});
+
+
+test("successful preparation remains trusted after later cleanup fails, with exact-attempt job proof", async () => {
+  const f = remoteFixture(); f.run.conclusion = "failure";
+  assert.equal((await f.inspect()).action, "publish");
+  assert.ok(f.calls.some(call => call.path.includes("/attempts/1/jobs?")));
+  const rerun: ReleaseApi = (path, method, body) => path.endsWith("/runs/10/attempts/1") ? Promise.resolve({ ...f.run, run_attempt: 1 })
+    : path.endsWith("/runs/10") ? Promise.resolve({ ...f.run, run_attempt: 2 }) : f.api(path, method, body);
+  assert.equal((await inspectCandidate(f.receipt, f.options, rerun, f.registry, () => ({ states: ["SUCCESS"], review: "APPROVED" }))).action, "publish");
+  for (const [status, conclusion] of [["in_progress", "success"], ["completed", "failure"], ["completed", null]]) {
+    await assert.rejects(inspectJobProof(f, { total_count: 1, jobs: [{ name: "prepare", status, conclusion, run_id: f.c.runId, head_sha: f.c.baseSha }] }), /Untrusted/);
+  }
+});
+
+test("preparation job proof refuses missing, duplicate, truncated or changing pages", async () => {
+  const f = remoteFixture(), job = { name: "prepare", status: "completed", conclusion: "success", run_id: f.c.runId, head_sha: f.c.baseSha };
+  for (const data of [{ total_count: -1, jobs: [] }, { total_count: 0, jobs: [] }, { total_count: 1, jobs: [] }, { total_count: 2, jobs: [job, job] }, { total_count: 1, jobs: null }]) {
+    await assert.rejects(inspectJobProof(f, data), /preparation job|paginated/);
+  }
+  for (const patch of [{ run_id: 999 }, { head_sha: "9".repeat(40) }]) {
+    await assert.rejects(inspectJobProof(f, { total_count: 1, jobs: [{ ...job, ...patch }] }), /job identity/);
+  }
+  for (const changing of [false, true]) {
+    const inspect = () => inspectJobProof(f, path => ({ total_count: changing && path.endsWith("page=2") ? 102 : 101,
+      jobs: path.endsWith("page=1") ? Array.from({ length: 100 }, () => ({ ...job, name: "other" })) : [job] }));
+    if (changing) await assert.rejects(inspect(), /job count/);
+    else assert.equal((await inspect()).action, "publish");
+  }
 });
