@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.11.6 - 2026-11-06
+
+No tracked changes.
+
 ## 2026.11.5 - 2026-11-05
 
 No tracked changes.
