@@ -6,9 +6,9 @@ status: in_progress
 priority: 1
 tags[3]: "area:release","gh:unbraind/pm-ops#249","gh:unbraind/pm-ops#250"
 created_at: "2026-11-06T04:32:10.197Z"
-updated_at: "2026-11-07T11:09:23.357Z"
+updated_at: "2026-11-07T14:26:23.286Z"
 author: codex-sol
-comments[52]{created_at,author,text}:
+comments[56]{created_at,author,text}:
   "2026-11-06T04:32:12.566Z",codex-sol,"Plan: persist the verified candidate before requesting protected squash auto-merge, then exit. An hourly caller and daily catch-up inspect intent without installing dependencies; only a trusted merged candidate enters publication. Serialize all caller events, bind candidate/artifact/run/config identities, and refuse ambiguous registry or provenance results. Full live pilot and account-wide admission evidence remain outside this task authorization; PR will use Refs #249. Run targeted tests, lint and typecheck locally; CI owns the full gate."
   "2026-11-06T04:43:41.909Z",codex-sol,"Implementation now has a dependency-free TypeScript probe, versioned candidate receipt in the bot PR, immutable run artifact retained for 90 days, exact source/digest/config checks and a publication-attempt journal. The hourly path skips installs when no intent exists. Sixteen new focused state/adapter tests pass, including late CI, suppressed bot push, hostile identity, crash recovery and authoritative supersession. Migrating legacy workflow-shape tests to the shared implementation and documenting the read-only fleet inventory."
   "2026-11-06T05:00:39.230Z",codex-sol,"Behavioral revert proofs ran in disposable copies only. Twenty paired regressions each failed with its relevant guard/transition reverted: runner-held merge loop, late CI, stale-base refresh, fork/foreign-branch/exact-head/artifact ownership, merged identity, trusted preparation, required protection, ambiguous publication attempt, live daily cap, downloaded bytes, receipt parsing/schema, authoritative supersession and hourly pilot wiring. Restoring the fixed implementation passed all 20 tests (11 decision + 9 adapter). Targeted package set passed 512 tests with zero failures/skips; lint, typecheck, build:test and docstrings passed; duplication is 0% across 125 sources. Focused release-continuation coverage is 100/100/100/100. Full npm/Bun release gates are delegated to PR CI as requested; no publication, merge, other-repository edit or hosted change was performed."
@@ -61,7 +61,11 @@ comments[52]{created_at,author,text}:
   "2026-11-07T10:38:13.111Z",codex-agent,"Pinned pm seven-file targeted run passed 63 tests with zero failures/skips. Packed npm/Node and native Bun acceptance passed all 384 SDK/caller/attestation cases and 24 CLI JSON/TOON checks against the final rebuilt artifact, including complete two-band diagnostics and exactly six required packed selectors. All nine isolated revert proofs and their restored runs passed. The explicit oracle bounds remain intentionally finite and now widen endpoint/witness grids together; existing semver compatibility tests independently derive their witnesses from their endpoints, so no analogous uncoupled grid was found. Final full npm and Bun release gates will run serially under isolated HOME and git configuration with unchanged thresholds and at most two test workers. No existing assertion was removed or weakened."
   "2026-11-07T10:42:24.215Z",codex-agent,"The first full-gate attempt stopped at test compilation after the recursive fixture-source scan inferred string-or-buffer filenames. Explicit encoding utf8 fixes that test-helper type error; runtime behavior and assertions are unchanged. Fresh npm run build:test, the fixture contracts and the seven-file pinned pm run pass again (63/63, zero failures/skips). This was an implementation typing error, not a host-load timeout. Restarting the serial npm/Bun full gates at unchanged thresholds."
   "2026-11-07T11:09:21.337Z",codex-agent,"Round 2 final validation: fresh npm run release:check passed in 828.5 seconds and bun run release:check passed in 719.2 seconds, serially under isolated HOME and git configuration with at most two workers. Each ran 1623 tests: 1621 passed, zero failed/cancelled, two unchanged optional configured-repository real-data skips. All 48 required sources measured unchanged 100/100/100/100. Typecheck, lint, zero duplication (139 sources), 370 declaration docstrings, production/private-runtime audits (zero vulnerabilities), pack, self-hosted changelog contracts, identity/privacy, changelog/section/date, publish-attestation and lifecycle gates passed. The earlier recursive-scan typing failure was fixed with explicit utf8 encoding; the seven-file pinned pm run then passed 63/63 and both fresh full gates passed. No local timeout occurred. Packed npm/Node and native Bun acceptance passed 384 SDK/caller/attestation cases and 24 CLI JSON/TOON checks in real non-git trackers; the exact tested tarball SHA-256 is 147ea03b6e422b71b61e2b85ff85ac9beab71b06cfdee4612a17da741e2c0a62. All nine isolated mutations failed their regression and passed after restoration. All four review findings are fixed across the identified classes; the embedded RegExp.exec tool warning is documented as a false positive. Previous fixes and assertions remain intact; dist is rebuilt and history remains append-only. No new pm CLI/SDK bug was encountered. The item remains in progress for orchestrator verification; the claim is released next. Fresh pushed-head CI and re-review remain pending. No thread reply/resolution, merge, release or publication occurred."
-files[42]{path,scope}:
+  "2026-11-07T13:46:02.518Z",codex-agent,"Round 3: worktree clean at the pushed head; main is already an ancestor. The unresolved permission-documentation thread and every comment were fetched. General rule: least-privilege documentation must enumerate the same job grants as the executable workflow, including grant purpose, so a documented permission audit cannot omit a capability. Verifying all package permission statements and shared/caller surfaces before correcting the valid recover grant and adding a workflow-backed parity regression. Earlier fixes and gates remain recorded and will not be reimplemented."
+  "2026-11-07T13:54:57.118Z",codex-agent,"Verified PRRT_kwDOTOTl1M601dZC as valid: recover explicitly requests contents-write plus actions-read, and the latter reads the original publication run. Corrected the exclusive prose statement and added an eight-job permission matrix with grant purpose and the official GitHub job-permissions reference. A workflow-backed regression compares every matrix scope/access pair and every exclusive prose claim against actual YAML, including the alert-only issues-write claim. Adversarial checks add/omit/change grants in every job and remove/duplicate documentation rows. The package audit found no second current contradictory grant statement: the CLI repair README describes a separate npm-signatures adapter, while historical audit files are dated snapshots. Caller templates/examples already cover the grant union, and SDK/CLI/JSON/TOON/packed consumers do not contain a separate copy of the stale job grant. The new checker also runs in a no-git disposable directory; no runtime or workflow permission change is needed. Focused tests passed 39/39, and typecheck, test compilation, lint and zero duplication across 140 sources passed at unchanged thresholds."
+  "2026-11-07T13:58:29.069Z",codex-agent,"Round 3 revert evidence: general rule is that permission documentation must enumerate the exact job-scoped workflow grants, including exclusive prose claims. In a disposable plain directory without git, node --test --test-concurrency=2 --test-name-pattern=\"^the permission guide covers\" test/release-permissions-docs.test.ts failed once and passed once after restoration for each of nine isolated changes: restoring the original stale recover prose, and omitting a documented grant separately for reconcile, prepare, request, release, audit, alert, recover and verify_bun. The reviewed checkout was never mutated. The property corpus also adds grants, deletes each grant and flips each access level for every job. The pinned pm linked test run passed all 39 tests with zero failures/skips. Documentation-only change; existing adapters and historical audit snapshots do not repeat this defect. Running full serial npm and Bun release gates at the existing two-worker limit."
+  "2026-11-07T14:26:22.087Z",codex-agent,"Round 3 final local evidence for PRRT_kwDOTOTl1M601dZC: all nine isolated documentation revert proofs are red/green, and the pinned tracker-linked four-file command passed 39/39. npm run release:check passed in 906.1 seconds; bun run release:check passed in 698.5 seconds. Each full gate passed 1624 tests with zero failures/cancellations and two unchanged optional configured-repository real-data skips (1626 total), with all 48 required sources at unchanged 100/100/100/100. Typecheck, lint, zero duplication across 140 sources, declaration documentation, production/private-runtime audits, pack, self-hosted changelog contracts, identity/privacy, changelog/sections/date, publish-attestation and lifecycle checks passed. Strict isolated tracker health passed. No timeout occurred. Dist was rebuilt without a content change. Fresh fetch confirms main is already an ancestor and the remote PR head is unchanged. No additional stale current permission claim exists in the package; previous runtime, CLI/SDK, JSON/TOON and packed-consumer fixes remain intact. Ready for commit and push; CI and re-review remain pending. Releasing the claim without closing the item. No thread replies/resolution, merge, release or publication performed."
+files[43]{path,scope}:
   .github/dependabot.yml,project
   .github/release-runtime/package-lock.json,project
   .github/release-runtime/package.json,project
@@ -98,13 +102,14 @@ files[42]{path,scope}:
   test/release-continuation-fixture.ts,project
   test/release-continuation.test.ts,project
   test/release-fixture-contracts.test.ts,project
+  test/release-permissions-docs.test.ts,project
   test/release-provenance.test.ts,project
   test/release-recovery-signer.test.ts,project
   test/release-review.test.ts,project
   test/release-runtime.test.ts,project
   test/release-workflow.test.ts,project
   test/third-party-publish-wrappers.test.ts,project
-tests[19]:
+tests[20]:
   - command: node --test --test-concurrency=2 test/release-continuation.test.ts test/release-continuation-adapter.test.ts
     scope: project
     provenance:
@@ -244,6 +249,14 @@ tests[19]:
     provenance:
       author: codex-agent
       created_at: "2026-11-07T10:36:16.139Z"
+      source_kind: local_mutation
+      source_ref: release-continuation-without-runner-wait
+  - command: node --test --test-concurrency=2 test/release-permissions-docs.test.ts test/release-review.test.ts test/daily-release-workflow.test.ts test/release-recovery-signer.test.ts
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-07T13:54:59.751Z"
       source_kind: local_mutation
       source_ref: release-continuation-without-runner-wait
 docs[4]{path,scope}:
