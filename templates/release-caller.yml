@@ -22,5 +22,6 @@ jobs:
       issues: write
     uses: unbraind/pm-ops/.github/workflows/daily-release.yml@0000000000000000000000000000000000000000 # v2026.10.19
     with:
+      # Keep this comparison in sync with the hourly cron above when staggering schedules.
       reconcile-only: ${{ (github.event_name == 'schedule' && github.event.schedule == '41 * * * *') || inputs.retire-unpublished == true }}
       retire-unpublished: ${{ github.event_name == 'workflow_dispatch' && inputs.retire-unpublished == true }}

@@ -120,6 +120,9 @@ export function inspectReleaseCaller(source: string, resolveTags: ((tag: string)
   if (Object.keys(trigger).some(key => !["schedule", "workflow_dispatch"].includes(key))) errors.push("caller permits an unsafe release trigger");
   if (Object.keys(workflow).some(key => !["name", "on", "permissions", "jobs"].includes(key))) errors.push("caller contains private workflow logic");
   if (errors.length > 0 || pin === undefined) return { status: "refused", errors };
+  if (!checksRead && !metadata.legacyWorkflowShas.includes(pin.sha)) {
+    return { status: "refused", errors: ["caller permissions must grant checks: read for continuation workflow pins; only audited legacy workflow SHAs may omit it"] };
+  }
   let tags: Readonly<Record<string, string>>;
   try {
     tags = resolveTags(pin.tag);
@@ -127,9 +130,6 @@ export function inspectReleaseCaller(source: string, resolveTags: ((tag: string)
     if (error instanceof CaptureRefusal) return { status: "refused", errors: [error.message] };
     tags = metadata.tags;
     if (!(pin.tag in tags)) return { status: "unverified-offline", errors: ["unverified-offline: canonical release tag is absent from the bundled snapshot; retry online to verify SHA provenance"] };
-  }
-  if (tags[pin.tag] === pin.sha && !checksRead && !metadata.legacyWorkflowShas.includes(pin.sha)) {
-    return { status: "refused", errors: ["caller permissions must grant checks: read for continuation workflow pins; only audited legacy workflow SHAs may omit it"] };
   }
   return tags[pin.tag] === pin.sha
     ? { status: "verified", errors: [] }

@@ -48,6 +48,7 @@ jobs:
       issues: write
     uses: unbraind/pm-ops/.github/workflows/daily-release.yml@0000000000000000000000000000000000000000 # REPLACE_WITH_CANONICAL_TAG
     with:
+      # Keep this comparison in sync with the hourly cron above when staggering schedules.
       reconcile-only: ${{ (github.event_name == 'schedule' && github.event.schedule == '41 * * * *') || inputs.retire-unpublished == true }}
       retire-unpublished: ${{ github.event_name == 'workflow_dispatch' && inputs.retire-unpublished == true }}
 ```
@@ -108,7 +109,7 @@ Rollback the local caller migration through a reviewed revert. Keep candidate ar
 Before migrating each remaining caller, record its bot-created issue/PR count and active receipt count using the REST creator filter. Discovery uses that direct REST index rather than a search index or all pull-request history; creation order prevents ordinary updates from moving records between pages; only receipt-bearing PRs are hydrated, and the probe passes its freshly read PR number to verification instead of scanning twice. Both paths refuse incomplete pagination at 100 full pages. Repositories approaching that bound require an explicit durable index before migration. On 2026-11-06 the read-only pm-ops pilot preflight returned 58 bot-created records in one page; counts for other packages remain required in their own migration PRs.
 
 ```sh
-gh api --paginate 'repos/OWNER/REPO/issues?state=all&creator=github-actions%5Bbot%5D&per_page=100' --jq 'length'
+counts=$(gh api --paginate 'repos/OWNER/REPO/issues?state=all&creator=github-actions%5Bbot%5D&per_page=100' --jq 'length') && printf '%s\n' "$counts" | awk '{ sum += $1 } END { print sum+0 }'
 gh api --paginate 'repos/OWNER/REPO/issues?state=all&creator=github-actions%5Bbot%5D&per_page=100' --jq '.[] | select(.pull_request and ((.body // "") | contains("<!-- pm-ops-candidate-v1"))) | .number'
 ```
 

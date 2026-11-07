@@ -124,6 +124,9 @@ export function inspectReleaseCaller(source, resolveTags = defaultCanonicalTagRe
         errors.push("caller contains private workflow logic");
     if (errors.length > 0 || pin === undefined)
         return { status: "refused", errors };
+    if (!checksRead && !metadata.legacyWorkflowShas.includes(pin.sha)) {
+        return { status: "refused", errors: ["caller permissions must grant checks: read for continuation workflow pins; only audited legacy workflow SHAs may omit it"] };
+    }
     let tags;
     try {
         tags = resolveTags(pin.tag);
@@ -134,9 +137,6 @@ export function inspectReleaseCaller(source, resolveTags = defaultCanonicalTagRe
         tags = metadata.tags;
         if (!(pin.tag in tags))
             return { status: "unverified-offline", errors: ["unverified-offline: canonical release tag is absent from the bundled snapshot; retry online to verify SHA provenance"] };
-    }
-    if (tags[pin.tag] === pin.sha && !checksRead && !metadata.legacyWorkflowShas.includes(pin.sha)) {
-        return { status: "refused", errors: ["caller permissions must grant checks: read for continuation workflow pins; only audited legacy workflow SHAs may omit it"] };
     }
     return tags[pin.tag] === pin.sha
         ? { status: "verified", errors: [] }

@@ -22,6 +22,7 @@ jobs:
       issues: write
     uses: ./.github/workflows/daily-release.yml
     with:
+      # Keep this comparison in sync with the hourly cron above when staggering schedules.
       reconcile-only: ${{ (github.event_name == 'schedule' && github.event.schedule == '41 * * * *') || inputs.retire-unpublished == true }}
       retire-unpublished: ${{ github.event_name == 'workflow_dispatch' && inputs.retire-unpublished == true }}
       audit-script: release:audit
