@@ -51,6 +51,7 @@ function remoteFixture() {
     if (path.includes("/git/commits/")) return { tree: { sha: state.tree }, parents: state.parents.map(sha => ({ sha })) };
     if (path.startsWith("repos/unbraind/pm-ops/contents/package.json?")) return { content: Buffer.from(JSON.stringify({ name: "pm-ops", version: c.opsVersion })).toString("base64") };
     if (path.includes("/contents/package.json?")) return { content: Buffer.from(JSON.stringify({ name: state.pkgName, version: state.pkgVersion })).toString("base64") };
+    if (path.includes("/contents/Cargo.toml?")) return { content: Buffer.from('[package]\nversion = "' + state.pkgVersion + '"\n').toString("base64") };
     if (path.includes("/git/ref/tags/")) return state.tag ? { object: { type: "commit", sha: state.tag } } : null;
     if (path.includes("/releases/tags/")) return state.release ? { tag_name: c.tag, draft: false } : null;
     if (path.includes("/comments?")) return state.comments;
@@ -127,6 +128,16 @@ async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { ro
 function assertIntentRetained(f: ReturnType<typeof remoteFixture>): void {
   assert.deepEqual(parseCandidateReceipt(f.pr.body), f.receipt);
   assert.equal(f.calls.filter(call => call.method !== "GET").length, 0);
+}
+
+/** Prepare each real handoff format, including Rust's absent tarball and canonical empty digest. */
+function setHandoffPackageMode(f: ReturnType<typeof remoteFixture> & { handoff: string }, kind: "npm" | "github-typescript" | "rust"): void {
+  f.c.npmPublish = kind === "npm"; process.env.IS_RUST = String(kind === "rust");
+  if (kind === "rust") {
+    f.c.packageSha256 = releaseDigest("");
+    f.c.packageIntegrity = `sha512-${createHash("sha512").update("").digest("base64")}`;
+    rmSync(join(f.handoff, "package.tgz"));
+  }
 }
 
 test("merged package version lookup must not substitute receipt data for a missing live file", async () => {
@@ -458,6 +469,42 @@ test("publication CLI refuses stale candidate, notes and changed ignored shipped
       assert.match(result.stderr, new RegExp(`Stale ${scenario === "notes" ? "release notes" : scenario === "package" ? "package artifact" : "candidate artifact"}`));
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("every executing transition rejects every handoff binding before remote reads or effects in all package modes", async () => {
+  for (const mode of ["verify", "attempt", "post-hook", "complete"]) for (const kind of ["npm", "github-typescript", "rust"] as const) {
+    for (const defect of ["candidate", "notes", "package", "integrity"] as const) await withAdapter(async f => {
+      assert.equal(existsSync(join(f.root, ".git")), false);
+      setHandoffPackageMode(f, kind);
+      if (defect === "notes") writeFileSync(join(f.handoff, "RELEASE_NOTES.md"), "changed notes");
+      if (defect === "package") {
+        if (kind === "rust") f.c.packageSha256 = releaseDigest("not the canonical empty payload");
+        else writeFileSync(join(f.handoff, "package.tgz"), "changed ignored shipped bytes");
+      }
+      if (defect === "integrity") f.c.packageIntegrity = `sha512-${Buffer.alloc(64).toString("base64")}`;
+      writeFileSync(join(f.handoff, "candidate.json"), defect === "candidate" ? "{}" : JSON.stringify(f.c));
+      process.env.CANDIDATE_RECEIPT = JSON.stringify(f.receipt);
+      f.pr.body = candidateBody(f.receipt);
+      await assert.rejects(runReleaseContinuation(mode), new RegExp("Stale " + ({ candidate: "candidate artifact", notes: "release notes", package: "package artifact", integrity: "package integrity" })[defect]));
+      assert.equal(f.calls.length, 0, "a refused handoff must not reach a remote read");
+      assert.equal(f.control.writes, 0);
+      assert.equal(readFileSync(join(f.root, "output"), "utf8"), "");
+      assert.equal(existsSync(join(f.root, "hooks")), false);
+    });
+  }
+});
+
+test("metadata probe plans while only measured handoffs admit execution for npm and GitHub-only packages", async () => {
+  for (const kind of ["npm", "github-typescript", "rust"] as const) await withAdapter(async f => {
+    setHandoffPackageMode(f, kind);
+    writeFileSync(join(f.handoff, "candidate.json"), JSON.stringify(f.c));
+    f.pr.body = candidateBody(f.receipt); process.env.CANDIDATE_RECEIPT = JSON.stringify(f.receipt);
+    await runReleaseContinuation("verify");
+    assert.match(readFileSync(join(f.root, "output"), "utf8"), /action=publish/);
+    writeFileSync(join(f.handoff, "RELEASE_NOTES.md"), "changed notes");
+    await runReleaseContinuation("probe");
+    await assert.rejects(runReleaseContinuation("verify"), /Stale release notes/);
+  });
 });
 
 test("superseded closure re-reads both PR identities and names the successor while refusing foreign ownership", async () => {

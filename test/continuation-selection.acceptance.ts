@@ -10,6 +10,7 @@ import { npmLauncher } from "./npm-launcher.ts";
 import { developmentCliVersion } from "./dependency-contract.ts";
 import { continuationCliCases, continuationSelectionCases } from "./continuation-selection-corpus.ts";
 import { replaceFixtureOnce, withCallerInput } from "./fixture-contracts.ts";
+import { candidateFixture } from "./release-continuation-fixture.ts";
 
 const source = process.cwd(), scratch = fs.mkdtempSync(join(tmpdir(), "selection-packed-"));
 const taskEnvironment: NodeJS.ProcessEnv = {
@@ -61,6 +62,20 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { inspectReleaseCaller, checkReleaseCaller } from "pm-ops/release-caller";
 import { auditPublishAttestation } from "pm-ops/attestation";
+import { createHash } from "node:crypto";
+import { releaseDigest, verifyReleaseHandoff } from "./node_modules/pm-ops/dist/release-continuation.js";
+assert.equal(fs.existsSync(".git"), false);
+for (let seed = 0; seed < 32; seed++) for (const npmPublish of [false, true]) {
+  const bytes = Buffer.alloc(seed * 17, seed), notes = Buffer.from("notes-" + seed);
+  const candidate = { ...${JSON.stringify(candidateFixture())}, npmPublish, packageSha256: releaseDigest(bytes), notesSha256: releaseDigest(notes),
+    packageIntegrity: "sha512-" + createHash("sha512").update(bytes).digest("base64") };
+  verifyReleaseHandoff(candidate, JSON.stringify(candidate), notes, bytes);
+  assert.throws(() => verifyReleaseHandoff(candidate, "{}", notes, bytes), /Stale candidate artifact/);
+  assert.throws(() => verifyReleaseHandoff(candidate, JSON.stringify(candidate), Buffer.concat([notes, Buffer.from("tamper")]), bytes), /Stale release notes/);
+  assert.throws(() => verifyReleaseHandoff(candidate, JSON.stringify(candidate), notes, Buffer.concat([bytes, Buffer.from("tamper")])), /Stale package artifact/);
+  const wrong = { ...candidate, packageIntegrity: "sha512-" + Buffer.alloc(64).toString("base64") };
+  assert.throws(() => verifyReleaseHandoff(wrong, JSON.stringify(wrong), notes, bytes), /Stale package integrity/);
+}
 for (const row of JSON.parse(fs.readFileSync("cases.json", "utf8"))) {
   const tags = { "${tag}": "${sha}" };
   const inspected = inspectReleaseCaller(row.source, () => tags);
@@ -85,7 +100,7 @@ for (const row of JSON.parse(fs.readFileSync("cases.json", "utf8"))) {
       }
     }
     assert.equal(fs.existsSync(join(cwd, ".git")), false);
-    console.log(`${runtime}: ${rows.length} SDK/caller/attestation cases, ${cliCases.length * 2} CLI JSON/TOON checks, non-git tracker PASS`);
+    console.log(`${runtime}: ${rows.length} SDK/caller/attestation cases, ${cliCases.length * 2} CLI JSON/TOON checks, 64 handoff cases / 256 tamper refusals, non-git tracker PASS`);
   }
   assert.equal(createHash("sha256").update(fs.readFileSync(archive)).digest("hex"), digest);
   console.log(`Exact tarball sha256 ${digest}; both consumers PASS`);

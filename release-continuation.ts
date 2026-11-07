@@ -40,7 +40,7 @@ export interface ContinuationPr {
   mergedSha: string | null;
 }
 
-/** Live proof gathered again at the publication boundary, never from an event payload. */
+/** Live metadata proof for planning; downloaded bytes are verified separately by verifyReleaseHandoff. */
 export interface ContinuationEvidence {
   repository: string;
   defaultBranch: string;
@@ -57,7 +57,6 @@ export interface ContinuationEvidence {
   requiredChecks: string[];
   reviewDecision: string;
   version: string;
-  artifactSha256: string;
   tagSha: string | null;
   releaseSha: string | null;
   registry: "absent" | "verified" | "unverified";
@@ -107,6 +106,15 @@ export function validateReleaseCandidate(candidate: ReleaseCandidate): void {
   }
 }
 
+/** Bind downloaded handoff bytes before any publication, recovery, hook or completion effect. */
+export function verifyReleaseHandoff(candidate: ReleaseCandidate, manifest: string, notes: Uint8Array, packageBytes: Uint8Array): void {
+  validateReleaseCandidate(candidate);
+  if (manifest !== JSON.stringify(candidate)) throw new Error("Stale candidate artifact");
+  if (releaseDigest(notes) !== candidate.notesSha256) throw new Error("Stale release notes");
+  if (releaseDigest(packageBytes) !== candidate.packageSha256) throw new Error("Stale package artifact");
+  if (`sha512-${createHash("sha512").update(packageBytes).digest("base64")}` !== candidate.packageIntegrity) throw new Error("Stale package integrity");
+}
+
 /** Identity evidence shared by publication and explicit non-publishing retirement. */
 export type RetirementEvidence = Pick<ContinuationEvidence, "repository" | "defaultBranch" | "workflow" | "pr" | "registry" | "attempted" | "tagSha" | "releaseSha">;
 
@@ -124,7 +132,7 @@ export function decideUnpublishedRetirement(c: ReleaseCandidate, e: RetirementEv
   throw new Error("Operator retirement refused: publication evidence or an ambiguous attempt exists");
 }
 
-/** Admit only trusted merged bytes; pending checks consume no runner time between invocations. */
+/** Plan from authoritative metadata; verifyReleaseHandoff binds bytes before executing the plan. */
 export function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEvidence): "pending" | "refresh" | "publish" | "recover" | "complete" | "stranded" | "retire" {
   assertContinuationIdentity(c, e);
   if (e.retireUnpublished === true) return decideUnpublishedRetirement(c, e);
@@ -136,7 +144,7 @@ export function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEv
     throw new Error("Caller configuration changed with publication evidence; operator reconciliation is required");
   }
   if (!e.pr.merged) return e.mainSha === c.baseSha ? "pending" : "refresh";
-  if (e.pr.state !== "closed" || !e.pr.mergedSha || e.artifactSha256 !== c.packageSha256) throw new Error("Merged source or artifact changed");
+  if (e.pr.state !== "closed" || !e.pr.mergedSha) throw new Error("Merged source identity changed");
   const changedSource = e.mergedTree !== c.tree || e.mergedParents.length !== 1 || e.mergedParents[0] !== c.baseSha || e.version !== c.version;
   if (e.requiredChecks.length === 0 || e.requiredChecks.some(state => state !== "SUCCESS")
     || !["APPROVED", ""].includes(e.reviewDecision)) throw new Error("Required protection proof is missing or not green; use reconcile-only with retire-unpublished for verified untouched intent");

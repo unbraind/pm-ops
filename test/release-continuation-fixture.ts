@@ -15,5 +15,5 @@ export function evidenceFixture(): ContinuationEvidence {
     pr: { number: 42, author: "github-actions[bot]", repository: c.repository, headRepository: c.repository, base: "main", branch: "release/2026.11.06", head: c.headSha, state: "closed", merged: true, mergedSha: merged },
     run: { repository: c.repository, branch: "main", sha: c.baseSha, workflow: c.workflow, event: "schedule", conclusion: "success", attempt: 1 },
     artifactAvailable: true, mergedTree: c.tree, mergedParents: [c.baseSha], requiredChecks: ["SUCCESS", "SUCCESS"], reviewDecision: "APPROVED", version: c.version,
-    artifactSha256: c.packageSha256, tagSha: null, releaseSha: null, registry: "absent", attempted: false, publishedToday: false };
+    tagSha: null, releaseSha: null, registry: "absent", attempted: false, publishedToday: false };
 }

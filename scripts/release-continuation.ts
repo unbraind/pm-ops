@@ -7,7 +7,7 @@ import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "./
 import { verifyRegistryProvenance, type ProvenanceIdentity, type verifySigstoreBundle } from "../release-provenance.ts";
 import { pathToFileURL } from "node:url";
 import {
-  cargoPackageVersion, decideReleaseContinuation, decideUnpublishedRetirement, ownsContinuationPr, releaseConfigDigest, releaseDigest, validateReleaseCandidate,
+  cargoPackageVersion, decideReleaseContinuation, decideUnpublishedRetirement, ownsContinuationPr, releaseConfigDigest, releaseDigest, validateReleaseCandidate, verifyReleaseHandoff,
   type ContinuationEvidence, type ContinuationPr, type ReleaseCandidate,
 } from "../release-continuation.ts";
 
@@ -182,7 +182,7 @@ async function preparationConclusion(api: ReleaseApi, repository: string, c: Rel
   return prepare[0].status === "completed" ? prepare[0].conclusion ?? "" : "";
 }
 
-/** Re-read all publication proof. No webhook payload, PR artifact or API failure substitutes for it. */
+/** Re-read live planning metadata and registry provenance; execution separately binds downloaded bytes. */
 export async function inspectCandidate(receipt: CandidateReceipt, options: {
   repository: string; triggerSha: string; workflow: string; configDigest: string; timezone: string; now: string; retireUnpublished?: boolean; prNumber?: number;
 }, api: ReleaseApi = githubApi, readRegistry = registryJson,
@@ -261,7 +261,7 @@ verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mai
     run: { repository: run.repository.full_name, branch: run.head_branch, sha: run.head_sha, workflow: normalizeWorkflowPath(run.path, options.repository, metadata.default_branch, c.baseSha), event: run.event, conclusion: prepared, attempt: run.run_attempt },
     artifactAvailable: artifact?.expired === false && artifact.workflow_run?.id === c.runId && artifact.name === `verified-daily-release-${c.headSha}`,
     mergedTree: merged?.tree.sha ?? "", mergedParents: merged?.parents.map(parent => parent.sha) ?? [], requiredChecks: protection.states, reviewDecision: protection.review,
-    version, artifactSha256: c.packageSha256, tagSha, releaseSha: release ? tagSha : null, registry, attempted, publishedToday,
+    version, tagSha, releaseSha: release ? tagSha : null, registry, attempted, publishedToday,
   });
   return { action, pr, mainSha: main.object.sha, toolsSha, signerWorkflow };
 }
@@ -464,10 +464,8 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
     Object.assign(options, { prNumber: candidates[0].number });
   } else {
     receipt = JSON.parse(required("CANDIDATE_RECEIPT")) as CandidateReceipt;
-    const artifact = readFileSync(join(handoff, "candidate.json"), "utf8");
-    if (artifact !== JSON.stringify(receipt.candidate)) throw new Error("Stale candidate artifact");
-    if (releaseDigest(readFileSync(join(handoff, "RELEASE_NOTES.md"))) !== receipt.candidate.notesSha256) throw new Error("Stale release notes");
-    if (receipt.candidate.npmPublish && releaseDigest(readFileSync(join(handoff, "package.tgz"))) !== receipt.candidate.packageSha256) throw new Error("Stale package artifact");
+    verifyReleaseHandoff(receipt.candidate, readFileSync(join(handoff, "candidate.json"), "utf8"),
+      readFileSync(join(handoff, "RELEASE_NOTES.md")), process.env.IS_RUST === "true" ? Buffer.alloc(0) : readFileSync(join(handoff, "package.tgz")));
   }
   const result = await inspectCandidate(receipt, options, githubApi, registryJson, requiredProtection, verifyProvenance);
   let retired = false;
