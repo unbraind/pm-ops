@@ -12,15 +12,16 @@ import { releaseCallerFixture } from "./canonical-tags-fixture.ts";
 import metadata from "../release-metadata.json" with { type: "json" };
 import { CAPTURE_LIMIT, CaptureRefusal, spawnSync } from "../subprocess.ts";
 import { runCmd } from "./command-test-helpers.ts";
+import { withCallerInput } from "./fixture-contracts.ts";
 
 const { releasedSha, canonical, caller, api } = releaseCallerFixture();
 
 test("caller refuses Node selectors below the native floor while retaining audited legacy callers", () => {
   const sha = "c".repeat(40), tag = "v2026.11.07";
   const current = caller.replace(releasedSha, sha).replace("v2026.10.19", tag);
-  for (const version of ["20", "22.17.0", "lts/iron", "lts/hydrogen"]) assert.ok(inspectReleaseCaller(current.replace("    with:", `    with:\n      node-version: "${version}"`), () => ({ [tag]: sha })).errors.some(error => error.includes("22.18.0")));
-  assert.deepEqual(inspectReleaseCaller(current.replace("    with:", '    with:\n      node-version: "24"'), () => ({ [tag]: sha })).errors, []);
-  assert.deepEqual(checkReleaseCaller(caller.replace("    with:", '    with:\n      node-version: "20"')), []);
+  for (const version of ["20", "22.17.0", "lts/iron", "lts/hydrogen"]) assert.ok(inspectReleaseCaller(withCallerInput(current, "node-version", version), () => ({ [tag]: sha })).errors.some(error => error.includes("22.18.0")));
+  assert.deepEqual(inspectReleaseCaller(withCallerInput(current, "node-version", "24"), () => ({ [tag]: sha })).errors, []);
+  assert.deepEqual(checkReleaseCaller(withCallerInput(caller, "node-version", "20")), []);
 });
 
 test("caller provenance rejects fork-only pins, tag mismatches and a version comment on another YAML node", () => {
@@ -45,7 +46,7 @@ test("caller permits checks-read for continuation and refuses checks-write while
   assert.deepEqual(checkReleaseCaller(caller), []);
   assert.ok(checkReleaseCaller(caller.replace("checks: read", "checks: write")).some(error => error.includes("permissions")));
   assert.deepEqual(checkReleaseCaller(caller.replace("      checks: read\n", "")), []);
-  assert.ok(checkReleaseCaller(caller.replace("    with:", "    with:\n      pm-ops-version: 2026.10.19")).some(error => error.includes("must be derived")));
+  assert.ok(checkReleaseCaller(withCallerInput(caller, "pm-ops-version", "2026.10.19")).some(error => error.includes("must be derived")));
 });
 
 test("online provenance paginates canonical refs, peels nested annotated tags and refuses malformed or cyclic objects", () => {

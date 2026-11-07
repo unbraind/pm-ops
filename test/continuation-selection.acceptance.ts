@@ -8,7 +8,8 @@ import { decode } from "@toon-format/toon";
 import { spawnSync } from "../subprocess.ts";
 import { npmLauncher } from "./npm-launcher.ts";
 import { developmentCliVersion } from "./dependency-contract.ts";
-import { continuationSelectionCases } from "./continuation-selection-corpus.ts";
+import { continuationCliCases, continuationSelectionCases } from "./continuation-selection-corpus.ts";
+import { replaceFixtureOnce, withCallerInput } from "./fixture-contracts.ts";
 
 const source = process.cwd(), scratch = fs.mkdtempSync(join(tmpdir(), "selection-packed-"));
 const taskEnvironment: NodeJS.ProcessEnv = {
@@ -29,15 +30,18 @@ function execute(program: string, args: string[], cwd: string, context: NodeJS.P
 }
 
 try {
+  const selectors = continuationSelectionCases();
+  const sha = "e".repeat(40), tag = "v2099.01.01";
+  const template = fs.readFileSync(join(source, "templates/release-caller.yml"), "utf8");
+  const caller = replaceFixtureOnce(replaceFixtureOnce(template, "0".repeat(40), sha), "v2026.10.19", tag);
+  const rows = selectors.map(row => ({ ...row, source: withCallerInput(caller, "node-version", row.selection) }));
+  const cliCases = continuationCliCases(rows);
+  assert.equal(cliCases.length, 6);
   execute("npm", ["pack", "--ignore-scripts", "--pack-destination", scratch], source);
   const archives = fs.readdirSync(scratch).filter(name => name.endsWith(".tgz"));
   assert.equal(archives.length, 1);
   const archive = join(scratch, archives[0]);
   const digest = createHash("sha256").update(fs.readFileSync(archive)).digest("hex");
-  const selectors = continuationSelectionCases();
-  const sha = "e".repeat(40), tag = "v2099.01.01";
-  const caller = fs.readFileSync(join(source, "templates/release-caller.yml"), "utf8").replaceAll("0".repeat(40), sha).replace("v2026.10.19", tag);
-  const rows = selectors.map(row => ({ ...row, source: caller.replace("    with:", `    with:\n      node-version: ${JSON.stringify(row.selection)}`) }));
   for (const runtime of ["npm", "bun"]) {
     const cwd = join(scratch, runtime);
     fs.mkdirSync(cwd);
@@ -59,7 +63,9 @@ import { inspectReleaseCaller, checkReleaseCaller } from "pm-ops/release-caller"
 import { auditPublishAttestation } from "pm-ops/attestation";
 for (const row of JSON.parse(fs.readFileSync("cases.json", "utf8"))) {
   const tags = { "${tag}": "${sha}" };
-  assert.equal(inspectReleaseCaller(row.source, () => tags).status, row.supported ? "verified" : "refused", row.selection);
+  const inspected = inspectReleaseCaller(row.source, () => tags);
+  assert.equal(inspected.status, row.supported ? "verified" : "refused", row.selection);
+  if (!row.supported) assert.match(inspected.errors.join(" "), /22\\.18\\.0.*23\\.6\\.0/, row.selection);
   assert.equal(checkReleaseCaller(row.source, tags).length === 0, row.supported, row.selection);
   const audit = auditPublishAttestation([{ file: ".github/workflows/release.yml", text: row.source }]);
   assert.equal(audit.recognition.kind, row.supported ? "unverified-offline" : "none", row.selection);
@@ -69,13 +75,13 @@ for (const row of JSON.parse(fs.readFileSync("cases.json", "utf8"))) {
     execute(runtime === "bun" ? "bun" : process.execPath, ["probe.mjs"], cwd, context);
     fs.mkdirSync(join(cwd, ".github/workflows"), { recursive: true });
     fs.writeFileSync(join(cwd, "policy.json"), JSON.stringify({ checks: [{ id: "release-caller", severity: "error" }] }));
-    const cliCases = rows.filter(row => [">=20 <21", ">=23 <23.6", ">=24.0.0-alpha <24.0.0", "20 || 24", "^22.17.0", "lts/*"].includes(row.selection));
     for (const row of cliCases) {
       fs.writeFileSync(join(cwd, ".github/workflows/release.yml"), row.source);
       for (const format of ["json", "toon"]) {
         const output = pm(["ops", "policy", "--repos", ".", "--policy", "policy.json", "--format", format]);
-        const result = (format === "json" ? JSON.parse(output) : decode(output)) as { repos: { checks: { status: string }[] }[] };
+        const result = (format === "json" ? JSON.parse(output) : decode(output)) as { repos: { checks: { status: string; message: string }[] }[] };
         assert.equal(result.repos[0].checks[0].status, row.supported ? "unverified-offline" : "refused", `${runtime}/${format}/${row.selection}`);
+        if (!row.supported) assert.match(result.repos[0].checks[0].message, /22\.18\.0.*23\.6\.0/, `${runtime}/${format}/${row.selection}`);
       }
     }
     assert.equal(fs.existsSync(join(cwd, ".git")), false);

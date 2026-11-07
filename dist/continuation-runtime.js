@@ -5,21 +5,22 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 /** Minimum minor for each runtime band; the final band also admits later majors. */
 const runtimeBands = [[22, 18], [23, 6]];
+const runtimeRequirement = runtimeBands.map(([major, minor], index) => `Node.js ${major}.${minor}.0 or newer${index < runtimeBands.length - 1 ? ` within major ${major}` : ""}`).join(", or ");
 /** Refuse runtimes that cannot execute the continuation's native TypeScript entry point. */
 export function assertContinuationRuntime(version) {
     const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
     const band = runtimeBands.slice().reverse().find(([major]) => Number(match?.[1]) >= major);
     if (!match || band === undefined || (Number(match[1]) === band[0] && Number(match[2]) < band[1])) {
-        throw new Error("Release continuation requires Node.js 22.18.0 or newer");
+        throw new Error("Release continuation requires " + runtimeRequirement);
     }
 }
 /** Reject semver selectors with no supported stable runtime while retaining setup-node aliases. */
 export function assertContinuationSelection(value) {
     if (typeof value !== "string")
-        throw new Error("node-version must be a string selecting Node.js 22.18.0 or newer");
+        throw new Error("node-version must be a string selecting " + runtimeRequirement);
     const selection = value.trim();
     if (/^lts\/(argon|boron|carbon|dubnium|erbium|fermium|gallium|hydrogen|iron)$/i.test(selection)) {
-        throw new Error("node-version must select Node.js 22.18.0 or newer");
+        throw new Error("node-version must select " + runtimeRequirement);
     }
     // Loading a selector's semver parser must not add dependencies to the runtime preflight.
     const { Range, inc } = require("semver");
@@ -59,7 +60,7 @@ export function assertContinuationSelection(value) {
         }
     });
     if (!possible) {
-        throw new Error("node-version must select Node.js 22.18.0 or newer");
+        throw new Error("node-version must select " + runtimeRequirement);
     }
 }
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url))

@@ -14,15 +14,16 @@ import { spawnSync } from "../subprocess.ts";
 import { releaseCallerFixture } from "./canonical-tags-fixture.ts";
 import { continuationSelectionCases } from "./continuation-selection-corpus.ts";
 import { runCmd } from "./command-test-helpers.ts";
+import { replaceFixtureOnce, requiredFixtureCases, withCallerInput } from "./fixture-contracts.ts";
 
 const { caller, releasedSha, canonical, api } = releaseCallerFixture();
 const sha = "e".repeat(40), tag = "v2099.01.01";
-const current = caller.replace(releasedSha, sha).replace("v2026.10.19", tag);
+const current = replaceFixtureOnce(replaceFixtureOnce(caller, releasedSha, sha), "v2026.10.19", tag);
 const cases = continuationSelectionCases();
 
 /** Render one caller without changing its immutable workflow identity. */
 function withSelection(selection: string, source = current): string {
-  return source.replace("    with:", `    with:\n      node-version: ${JSON.stringify(selection)}`);
+  return withCallerInput(source, "node-version", selection);
 }
 
 test("all selector and caller entry points agree with the adversarial stable-runtime oracle", () => {
@@ -34,7 +35,9 @@ test("all selector and caller entry points agree with the adversarial stable-run
         else assert.throws(() => validate(selection), /22.18.0/, selection);
       }
       const source = withSelection(selection), tags = { [tag]: sha };
-      assert.equal(inspectReleaseCaller(source, () => tags).status, supported ? "verified" : "refused", selection);
+      const inspected = inspectReleaseCaller(source, () => tags);
+      assert.equal(inspected.status, supported ? "verified" : "refused", selection);
+      if (!supported) assert.match(inspected.errors.join(" "), /22\.18\.0.*23\.6\.0/, selection);
       assert.equal(checkReleaseCaller(source, tags).length === 0, supported, selection);
       const audit = auditPublishAttestation([{ file: ".github/workflows/release.yml", text: source }]);
       assert.equal(audit.failures.length === 0, supported, selection);
@@ -54,9 +57,10 @@ test("real SDK policy refuses every unsupported selector in a non-git project", 
     writeFileSync(policy, JSON.stringify({ checks: [{ id: "release-caller", severity: "error" }] }));
     for (const { selection, supported } of cases) {
       writeFileSync(join(root, ".github/workflows/release.yml"), withSelection(selection));
-      const result = await runCmd<{ repos: { checks: { pass: boolean; status: string }[] }[] }>(ext, "ops policy", { repos: [root], policy });
+      const result = await runCmd<{ repos: { checks: { pass: boolean; status: string; message: string }[] }[] }>(ext, "ops policy", { repos: [root], policy });
       assert.equal(result.repos[0].checks[0].pass, supported, selection);
       assert.equal(result.repos[0].checks[0].status, supported ? "verified" : "refused", selection);
+      if (!supported) assert.match(result.repos[0].checks[0].message, /22\.18\.0.*23\.6\.0/, selection);
     }
   } finally { api.setTags(canonical); await ext.deactivate(); rmSync(root, { recursive: true, force: true }); }
 });
@@ -67,11 +71,13 @@ test("standalone caller CLI refuses unsupported ranges before offline deferral i
   const options = { encoding: "utf8" as const, env: { ...process.env, PM_OPS_OFFLINE: "1" } };
   try {
     const path = join(root, "release.yml");
-    for (const { selection, supported } of cases.slice(0, 14)) {
+    const selected = requiredFixtureCases(cases, [">=20 <21", "<22.18", ">=23 <23.6", "<=22.17.999", "^20 || ~23.5", ">23.5.0 <23.6.0", ">=24.0.0-alpha <24.0.0", ">=24.0.0 <24.0.0", "~22.17.0", "lts/iron", ">=23.0.0-alpha <23.0.1", ">9007199254740991.9007199254740991.9007199254740991", ">=20 <24", "20 || 24"], row => row.selection);
+    assert.equal(selected.length, 14);
+    for (const { selection, supported } of selected) {
       writeFileSync(path, withSelection(selection));
       const result = spawnSync(process.execPath, [entry, path], options);
       assert.equal(result.status, supported ? 0 : 1, selection + result.stderr);
-      assert.match(result.stderr, supported ? /unverified-offline/ : /22.18.0/, selection);
+      assert.match(result.stderr, supported ? /unverified-offline/ : /22\.18\.0.*23\.6\.0/, selection);
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

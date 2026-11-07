@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { parse } from "yaml";
 import { auditPublishAttestation } from "../attestation.ts";
+import { requiredFixtureCases } from "./fixture-contracts.ts";
 
 /** Workflow step fields used by the structural and shell regression tests. */
 interface Step {
@@ -325,7 +326,7 @@ test("release staging commits first-time outputs, declared release files and del
       writeFileSync(join(project, "cache/ignored"), "cache\n");
       const bin = join(root, "cache/bin"); mkdirSync(bin, { recursive: true });
       writeFileSync(join(bin, "just"), '#!/bin/sh\n[ "$1" = release-check ] && [ -f "$GITHUB_WORKSPACE/.github/pm-release-candidate.json" ]\n'); chmodSync(join(bin, "just"), 0o755);
-      const transaction = "set -euo pipefail\n" + workflow.jobs.prepare.steps.filter(current => ["Record preparation stamp", "Run release checks", "Commit release files"].includes(current.name ?? "")).map(current => current.run).join("\n");
+      const transaction = "set -euo pipefail\n" + requiredFixtureCases(workflow.jobs.prepare.steps, ["Record preparation stamp", "Run release checks", "Commit release files"], current => current.name ?? "").map(current => current.run).join("\n");
       const stageEnv = { ...process.env, GITHUB_WORKSPACE: root, NPM_PROJECT_PATH: project, NPM_PROJECT_DIR: directory, RELEASE_FILES: "release-manifest.json", REPO_NAME: "example", RELEASE_TAG: "v2099.1.1", CONTINUATION_SCRIPT: new URL("../scripts/release-continuation.ts", import.meta.url).pathname, RELEASE_CONFIG: "{}", CALLER_WORKFLOW: "example/package/.github/workflows/release.yml@refs/heads/main", GITHUB_REPOSITORY: "example/package", RELEASE_BASE_SHA: initial, NPM_VERSION: "2099.1.1", GITHUB_RUN_ID: "1", GITHUB_RUN_ATTEMPT: "1", RUNNER_TEMP: root, IS_RUST: "true", PATH: `${bin}:${process.env.PATH}` };
       const result = runBashFixture(transaction, { cwd: root, encoding: "utf8", env: stageEnv });
       assert.equal(result.status, 0, result.stdout + result.stderr);
