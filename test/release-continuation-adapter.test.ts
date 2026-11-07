@@ -530,7 +530,7 @@ test("superseded closure re-reads both PR identities and names the successor whi
   await assert.rejects(closeSuperseded([41], 42, f.c.repository, untrustedApi), /successor/);
 });
 
-test("pilot schedules the shared workflow hourly and daily; empty reconciliation installs no packages and no PR wait survives", () => {
+test("pilot schedules the shared workflow hourly and daily; empty reconciliation installs no project packages and no PR wait survives", () => {
   const file = (name: string) => readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), "utf8");
   const pilot = parse(file("release.yml")) as { on: { schedule: { cron: string }[] }; jobs: { release: { uses: string; with: Record<string, string> } } };
   assert.equal(pilot.jobs.release.uses, "./.github/workflows/daily-release.yml");
@@ -540,7 +540,10 @@ test("pilot schedules the shared workflow hourly and daily; empty reconciliation
   assert.ok(shared.jobs.prepare.if.includes("needs.reconcile.outputs.pending == 'false'"));
   assert.ok(shared.jobs.prepare.if.includes("!inputs.reconcile-only"));
   assert.ok(shared.jobs.audit.if.includes("!inputs.reconcile-only"));
-  assert.doesNotMatch(JSON.stringify(shared.jobs.reconcile.steps), /npm (ci|install)/);
+  const reconcile = shared.jobs.reconcile.steps;
+  const npmSetup = reconcile.find(s => s.name === "Use an npm that supports trusted publishing");
+  assert.match(npmSetup?.run ?? "", /npm install -g npm@11\.21\.0 --ignore-scripts --no-audit --no-fund/);
+  assert.doesNotMatch(JSON.stringify(reconcile.filter(s => s !== npmSetup)), /npm (ci|install)/);
   assert.doesNotMatch(JSON.stringify(shared.jobs.request.steps), /sleep |1800|did not merge within 30 minutes|awaiting_approval/);
   const adapter = readFileSync(new URL("../scripts/release-continuation.ts", import.meta.url), "utf8");
   assert.ok(adapter.indexOf('"PATCH", { body: candidateBody(receipt) }') < adapter.indexOf('"--auto", "--squash"'));

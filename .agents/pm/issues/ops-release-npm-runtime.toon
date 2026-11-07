@@ -4,26 +4,30 @@ description: Daily Release run 42412827958 failed before publishing because trus
 type: Issue
 status: in_progress
 priority: 1
-tags: []
+tags[1]: "gh:unbraind/pm-ops#260"
 created_at: "2026-11-07T23:40:56.448Z"
-updated_at: "2026-11-07T23:46:05.602Z"
+updated_at: "2026-11-07T23:52:09.619Z"
 author: pi-agent
 acceptance_criteria: "Inventory every workflow and script npm install with before and after runtimes; Pin and verify npm before trusted tool, provenance and caller installs while retaining node-version and ignore-scripts; PR CI executes the exact release production install against both committed locks; Document passing fixed and failing npm 10.9.3 runs against the unchanged 091124b fixture; Focused tests and typecheck pass; CI is the full gate; docs explain the caller runtime"
-comments[4]{created_at,author,text}:
+comments[6]{created_at,author,text}:
   "2026-11-07T23:40:58.995Z",pi-agent,"Repro: on main 091124b (Dependabot #254), npm 10.9.3 ci --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund reports EUSAGE: glob@13.0.6 does not satisfy glob@13.0.7. Reported npm 11.17.0 succeeds. CI already selects 11.21.0; release selects 11.19.0 only after tool bootstrap, while audit/alert/recover/Bun hooks inherit bundled npm. Plan: pin packageManager to 11.21.0, install and verify it immediately after setup-node in all reusable jobs, add isolated exact-command root/private PR CI smoke checks, retain lock bytes and lifecycle suppression."
   "2026-11-07T23:44:59.543Z",pi-agent,"Revert proof: immutable 091124b package.json/package-lock.json fixtures on real Node 22.18.0: exact npm ci --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund exits 1 with npm 10.9.3 (EUSAGE; glob@13.0.6 does not satisfy glob@13.0.7), exits 0 with npm 11.21.0 (5 production packages). Private provenance fixture passes with both npm versions (52 packages). All four runs preserve the lock SHA-256. In a disposable source copy, retaining new tests/manifests but restoring only both workflows to 091124b gives 0/3 pass and 3 failures; restoring fixed workflows gives 3/3 pass, no skips. Original worktree is never reverted. npm 11.21.0 engine range ^20.17.0 || >=22.9.0 admits the Node 22.18.0 default."
   "2026-11-07T23:45:00.919Z",pi-agent,"Local gates: focused workflow/runtime tests 43/43 pass, zero failures/skips; npm run typecheck and npm run build:test pass; lint passes; duplication 0% (0/37768 lines, 141 sources, zero clones); docstring 48 files/370 declarations pass. Full npm/Bun release gates and Windows consumers are delegated to PR CI per task scope. docs/reusable-release.md contains the complete before/after install inventory. Both committed locks remain byte-identical to 091124b. No release dispatch, publication or merge performed."
   "2026-11-07T23:46:03.257Z",pi-agent,The new CI lock-smoke shell step also ran unchanged locally under pinned npm 11.21.0 against fresh copies of the current root and private manifests/locks; both installations succeeded. PM linked-test execution uses the default sandbox context; no test-run artifacts are written into the package tracker.
-files[6]{path,scope}:
+  "2026-11-07T23:51:01.184Z",pi-agent,"PR #260 is ready for review. Initial CI run 42426776935: both new lock compatibility jobs passed (Node 22.18.0 and 26); Windows Node 22 and CodeQL passed. Full Node 26 npm gate found one additional older structural assertion in test/release-continuation-adapter.test.ts that prohibited even the now-required global npm bootstrap (1632 passed, 1 failed, 2 platform skips). Updated that assertion to require the exact pinned script-disabled npm bootstrap and retain the prohibition on all other reconciliation npm installs. Expanding focused coverage to include the adapter suite; fresh exact-head CI will verify the follow-up."
+  "2026-11-07T23:52:06.683Z",pi-agent,"Follow-up local verification passes: adapter suite 62/62 with zero failures/skips (via linked pm test), bringing focused coverage to 105 passing tests including the original 43 workflow/runtime tests. Test compilation and typecheck pass after the assertion update. Reconciliation still forbids project npm installs, while requiring the exact verified npm bootstrap. Initial CI run https://github.com/unbraind/pm-ops/actions/runs/42426776935 completed with 4 successful jobs (both lock gates and both Windows consumers) and the 2 Linux test jobs failing only the old adapter assertion. CodeQL passed separately. PR https://github.com/unbraind/pm-ops/pull/260 will receive fresh exact-head gates; no old-head success is treated as final verification."
+files[7]{path,scope}:
   .github/release-runtime/package.json,project
   .github/workflows/ci.yml,project
   .github/workflows/daily-release.yml,project
   package.json,project
   test/daily-release-workflow.test.ts,project
+  test/release-continuation-adapter.test.ts,project
   test/release-workflow.test.ts,project
-tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/daily-release-workflow.test.ts test/release-workflow.test.ts test/release-runtime.test.ts,project,pi-agent,"2026-11-07T23:44:55.195Z",local_mutation,fix/release-npm-runtime-reads-lock
   npm run typecheck,project,pi-agent,"2026-11-07T23:44:56.684Z",local_mutation,fix/release-npm-runtime-reads-lock
+  node --test --test-concurrency=2 test/release-continuation-adapter.test.ts,project,pi-agent,"2026-11-07T23:51:03.335Z",local_mutation,fix/release-npm-runtime-reads-lock
 docs[2]{path,scope}:
   docs/release-migration.md,project
   docs/reusable-release.md,project
