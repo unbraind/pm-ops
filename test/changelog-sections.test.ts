@@ -148,11 +148,11 @@ test("release commits stay current after tagging, including empty and same-day r
 });
 
 test("release workflow uses the same npm policy for generation, drift checking and notes", () => {
-  const workflow = readFileSync(resolve(".github/workflows/release.yml"), "utf8");
+  const workflow = readFileSync(resolve(".github/workflows/daily-release.yml"), "utf8");
   const step = workflow.slice(workflow.indexOf("- name: Generate changelog"), workflow.indexOf("- name: Run release checks"));
-  assert.match(step, /npm run changelog:full -- --github-step-summary/);
-  assert.match(step, /npm run changelog:check/);
-  assert.match(step, /npm run --silent release:notes > RELEASE_NOTES.md/);
+  assert.match(step, /npm run "\$CHANGELOG_SCRIPT"/);
+  assert.match(step, /npm run "\$CHANGELOG_CHECK_SCRIPT"/);
+  assert.match(step, /npm run --silent "\$NOTES_SCRIPT"/);
 });
 
 test("empty wording leaves tracked prose alone and invalid adapter options fail before writing", () => {

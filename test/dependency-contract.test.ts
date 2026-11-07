@@ -52,7 +52,7 @@ test("dependency contract accepts the real installed pin and rejects every incon
     assert.equal(pin, developmentCliVersion(source));
     mkdirSync(join(root, "test"));
     mkdirSync(join(root, ".github/workflows"), { recursive: true });
-    for (const file of ["test/compatibility-floor.test.ts", "test/dependency-contract.ts", ".github/workflows/release.yml"]) {
+    for (const file of ["test/compatibility-floor.test.ts", "test/dependency-contract.ts", ".github/workflows/release.yml", ".github/workflows/daily-release.yml"]) {
       copyFileSync(join(source, file), join(root, file));
     }
     const suite = spawnSync(process.execPath, ["--test", "test/compatibility-floor.test.ts"], { cwd: root, env, encoding: "utf8", timeout: 30_000 });

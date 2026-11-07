@@ -51,7 +51,7 @@ esac
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("both release selectors resolve only complete threads from explicitly trusted Bot accounts", () => {
+test("the shared release selector resolves only complete threads from explicitly trusted Bot accounts", () => {
   const trusted = ["sourcery-ai", "cubic-dev-ai", "coderabbitai"];
   /** Build one fetched comment, including unavailable author identities. */
   const comment = (login: string | null, type = "Bot") => ({ author: login === null ? null : { login, __typename: type } });
@@ -71,7 +71,7 @@ test("both release selectors resolve only complete threads from explicitly trust
   const input = JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: cases.map(fixture => ({
     id: fixture.id, isResolved: fixture.isResolved, comments: { totalCount: fixture.count, nodes: fixture.authors },
   })) } } } } });
-  for (const file of ["daily-release.yml", "release.yml"]) {
+  for (const file of ["daily-release.yml"]) {
     const filter = /--jq '(\.data\.repository\.pullRequest\.reviewThreads[\s\S]*?)'/.exec(read(`.github/workflows/${file}`))?.[1];
     assert.ok(filter, `missing review selector in ${file}`);
     const result = spawnSync("jq", ["-r", filter], { input, encoding: "utf8" });
@@ -114,4 +114,45 @@ test("caller guides use the current CLI contract without a removed online flag",
   const files = ["README.md", ...readdirSync(new URL("../docs/", import.meta.url), { recursive: true })
     .map(String).filter(path => path.endsWith(".md")).map(path => `docs/${path}`)];
   for (const file of files) assert.doesNotMatch(read(file), /--online\b/, file);
+});
+
+test("every continuation caller example keeps cron customization guidance next to its comparison", () => {
+  for (const file of ["docs/release-migration.md", "docs/reusable-release.md", "templates/release-caller.yml", ".github/workflows/release.yml"]) {
+    const source = read(file);
+    const examples = file.endsWith(".md") ? [...source.matchAll(/```yaml\n([\s\S]*?)```/g)].map(match => match[1]) : [source];
+    let checked = 0;
+    for (const example of examples) {
+      if (!example.includes("      reconcile-only:")) continue;
+      assert.match(example, /# Keep this comparison in sync with the hourly cron above when staggering schedules\.\n      reconcile-only:/, file);
+      const workflow = parse(example) as { on: { schedule: { cron: string }[] }; jobs: { release: { with: { "reconcile-only": string } } } };
+      const schedules = workflow.on.schedule.map(entry => entry.cron);
+      const hourly = schedules.filter(cron => /^\d+ \* \* \* \*$/.test(cron));
+      assert.equal(hourly.length, 1, file);
+      assert.ok(workflow.jobs.release.with["reconcile-only"].includes(`github.event.schedule == '${hourly[0]}'`), file);
+      checked++;
+    }
+    assert.ok(checked > 0, file);
+  }
+});
+
+test("documented discovery count totals every page and refuses incomplete reads", () => {
+  const command = read("docs/release-migration.md").split("\n").find(line => line.includes("gh api --paginate") && line.includes("--jq 'length'"));
+  assert.ok(command, "missing executable discovery count command");
+  for (const fixture of [
+    { pages: "100\n100\n7\n", exit: 0, expected: "207\n" },
+    { pages: "58\n", exit: 0, expected: "58\n" },
+    { pages: "", exit: 0, expected: "0\n" },
+    { pages: "100\n", exit: 7, expected: "" },
+  ]) {
+    const result = runBashFixture(`gh() {
+  test "$#" -eq 5 && test "$1" = api && test "$2" = --paginate &&
+    test "$3" = 'repos/OWNER/REPO/issues?state=all&creator=github-actions%5Bbot%5D&per_page=100' &&
+    test "$4" = --jq && test "$5" = length || return 9
+  printf '%s' "$DISCOVERY_PAGES"
+  return "$DISCOVERY_EXIT"
+}
+${command}`, { encoding: "utf8", env: { ...process.env, DISCOVERY_PAGES: fixture.pages, DISCOVERY_EXIT: String(fixture.exit) } });
+    assert.equal(result.status, fixture.exit, result.stderr);
+    assert.equal(result.stdout, fixture.expected);
+  }
 });

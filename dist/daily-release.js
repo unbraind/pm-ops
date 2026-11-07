@@ -82,39 +82,7 @@ export function stampExtensionVersion(source, version) {
         source = source.slice(0, edit.start) + JSON.stringify(version) + source.slice(edit.end);
     return source;
 }
-/** Safely narrow a JSON object received from the npm attestation endpoint. */
-function record(value) {
-    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
-/** Check registry-served SLSA v1 provenance binds both the tarball digest and published commit. */
-export function verifyPublishedProvenance(bundle, commit, integrity) {
-    const attestations = record(bundle).attestations;
-    if (!Array.isArray(attestations))
-        return false;
-    const [algorithm, digest] = integrity.split("-");
-    if (algorithm !== "sha512" || !digest)
-        return false;
-    const expectedDigest = Buffer.from(digest, "base64").toString("hex");
-    return attestations.some((entry) => {
-        const attestation = record(entry);
-        if (attestation.predicateType !== "https://slsa.dev/provenance/v1")
-            return false;
-        const envelope = record(record(attestation.bundle).dsseEnvelope);
-        if (typeof envelope.payload !== "string")
-            return false;
-        let statement;
-        try {
-            statement = record(JSON.parse(Buffer.from(envelope.payload, "base64").toString("utf8")));
-        }
-        catch {
-            return false;
-        }
-        const subjects = statement.subject;
-        const dependencies = record(record(statement.predicate).buildDefinition).resolvedDependencies;
-        return Array.isArray(subjects) && subjects.some((subject) => record(record(subject).digest).sha512 === expectedDigest)
-            && Array.isArray(dependencies) && dependencies.some((dependency) => record(record(dependency).digest).gitCommit === commit);
-    });
-}
+export { verifyPublishedProvenance } from "./release-provenance.js";
 export { verifyBunScript } from "./release-verification.js";
 /** Stamp the package table's literal Cargo version while preserving dependency and metadata versions. */
 export function stampCargoVersion(source, version) {

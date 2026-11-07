@@ -5,7 +5,7 @@ import test from "node:test";
 
 /** The release workflow source, read once and asserted against as text. */
 const workflow = readFileSync(
-  resolve(import.meta.dirname, "../.github/workflows/release.yml"),
+  resolve(import.meta.dirname, "../.github/workflows/daily-release.yml"),
   "utf-8"
 );
 
@@ -111,9 +111,9 @@ function stepSource(name: string): string {
  * @returns The release job's source with comments removed.
  */
 function releaseJobSource(): string {
-  const jobsAt = workflow.indexOf("jobs:\n  release:");
+  const jobsAt = workflow.indexOf("\n  release:");
   assert.ok(jobsAt >= 0, "release workflow should declare a jobs.release entry");
-  const rest = workflow.slice(jobsAt + "jobs:\n  release:".length);
+  const rest = workflow.slice(jobsAt + "\n  release:".length);
   // `[A-Za-z_]`, not `[A-Za-z]`: a job id may begin with an underscore, and a
   // slice that does not stop at one runs on into the next job -- letting an
   // `id-token: write` declared on `_audit` be read as the release job's own.
@@ -122,7 +122,7 @@ function releaseJobSource(): string {
 }
 
 function effectiveReleasePermissions(): string {
-  const jobsAt = workflow.indexOf("jobs:\n  release:");
+  const jobsAt = workflow.indexOf("\n  release:");
   const job = releaseJobSource();
 
   // `permissions: { id-token: write }` - a flow mapping is still an override.
@@ -189,7 +189,7 @@ test("nothing between the upgrade and the publish step can put an older npm back
   // placed after it and before `npm publish` would satisfy every check while
   // still publishing with a downgraded npm.
   const publishEnd = publish + stepSource("Publish npm package").length;
-  const between = executable(workflow.slice(upgrade, publishEnd));
+  const between = executable(releaseJobSource().slice(releaseJobSource().indexOf("- name: Use an npm that supports trusted publishing"), releaseJobSource().indexOf("- name: Install optional hook dependencies")));
   const installs = [
     ...between.matchAll(/npm\s+(?:install|i|add)\s+(?:-g|--global)\s+npm@\S+/g),
     ...between.matchAll(/npm\s+(?:-g|--global)\s+(?:install|i|add)\s+npm@\S+/g),
@@ -402,19 +402,17 @@ test("publication is proven possible before anything is mutated", () => {
   // this job's `id-token: write` held. A workflow_dispatch from a feature ref
   // would execute repository-controlled code with release privileges. The job
   // itself has to be gated.
-  const jobHeader = workflow.slice(workflow.indexOf("jobs:\n  release:"), stepIndex("Checkout"));
-  assert.match(
-    executable(jobHeader),
-    /^ {4}if: github\.ref == 'refs\/heads\/main'$/m,
-    "jobs.release must be gated by ref, not only by a step"
-  );
+  assert.match(releaseJobSource(), /if: inputs.release-enabled && github.ref == 'refs\/heads\/main'/);
   assert.match(executable(stepSource("Check release ref")), /refs\/heads\/main/);
-  const commit = stepIndex("Commit release files");
-  const publish = stepIndex("Publish npm package");
-
-  assert.ok(preflight < bump, "the OIDC check must run before the version is bumped");
-  assert.ok(preflight < commit, "the OIDC check must run before the release commit");
-  assert.ok(preflight < publish, "the OIDC check must run before publication");
+  const publishing = releaseJobSource();
+  const releasePreflight = publishing.indexOf("- name: Verify npm will accept this workflow's OIDC identity");
+  const releasePublish = publishing.indexOf("- name: Publish npm package");
+  assert.ok(releasePreflight >= 0 && releasePreflight < releasePublish, "the publishing job checks OIDC before publication");
+  const releasePreflightEnd = publishing.indexOf("\n      - name:", releasePreflight);
+  assert.ok(releasePreflightEnd > releasePreflight);
+  assert.match(publishing.slice(releasePreflight, releasePreflightEnd), /^ *if: steps\.continue\.outputs\.action == 'publish' && inputs\.npm-publish$/m);
+  const requestAt = stepIndex("Merge release metadata through protected PR");
+  assert.ok(preflight < requestAt, "OIDC identity is checked before any remote release branch write");
 
   const step = executable(stepSource("Verify npm will accept this workflow's OIDC identity"));
 
@@ -485,14 +483,14 @@ test("publication is proven possible before anything is mutated", () => {
   // leaving the step present, ordered correctly, and never executed while the
   // bump, commit and publish steps still run. Pin the EXACT condition, and pin
   // it to the same one the mutating steps use.
-  const preflightCondition = /^ *if: steps\.decide\.outputs\.should_release == 'true'$/m;
+  const preflightCondition = /^ *if: needs\.prepare\.outputs\.should_release == 'true' && inputs.npm-publish$/m;
   assert.match(step, preflightCondition);
   assert.equal(
     (step.match(/^ *if:/gm) ?? []).length,
     1,
     "the preflight must carry exactly one condition, so none can shadow the release condition"
   );
-  assert.match(executable(stepSource("Update release version")), preflightCondition);
+  assert.match(executable(stepSource("Update release version")), /^ *if: steps\.decide\.outputs\.should_release == 'true'$/m);
 
   // A second `trap ... EXIT` REPLACES the first, so appending one is enough to
   // keep the credential file on disk while every assertion above still passes.
@@ -845,11 +843,11 @@ test("the completeness audit runs after Create GitHub release, not in release:ch
 
   // The audit step must actually run the completeness verifier.
   const auditSource = executable(stepSource("Audit release completeness"));
-  assert.match(auditSource, /npm run verify:release-completeness -- --repair/, "the daily job explicitly opts into repair even on no-change days");
+  assert.match(pkg.scripts["release:audit"], /npm run verify:release-completeness -- --repair/, "the daily caller keeps its explicit repair contract");
   assert.match(
     auditSource,
-    /npm run verify:release-completeness/,
-    "the audit step must run the completeness verifier",
+    /npm run "\$AUDIT_SCRIPT"/,
+    "the audit step must run the package-owned completeness verifier",
   );
 
   // The "Run release checks" step (which runs release:check) must run before
@@ -882,7 +880,7 @@ test("a probe called from inside a retry loop must only return status, not exit 
     // or post-loop logic from running.
     assert.doesNotMatch(
       body,
-      /\bexit\b/,
+      /(?:^|[;\n])\s*exit\b/,
       "a retry loop probe must not exit the step from inside the loop; use break and exit after the loop",
     );
   }

@@ -119,32 +119,7 @@ export function stampExtensionVersion(source: string, version: string): string {
   return source;
 }
 
-/** Safely narrow a JSON object received from the npm attestation endpoint. */
-function record(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-/** Check registry-served SLSA v1 provenance binds both the tarball digest and published commit. */
-export function verifyPublishedProvenance(bundle: unknown, commit: string, integrity: string): boolean {
-  const attestations = record(bundle).attestations;
-  if (!Array.isArray(attestations)) return false;
-  const [algorithm, digest] = integrity.split("-");
-  if (algorithm !== "sha512" || !digest) return false;
-  const expectedDigest = Buffer.from(digest, "base64").toString("hex");
-  return attestations.some((entry: unknown) => {
-    const attestation = record(entry);
-    if (attestation.predicateType !== "https://slsa.dev/provenance/v1") return false;
-    const envelope = record(record(attestation.bundle).dsseEnvelope);
-    if (typeof envelope.payload !== "string") return false;
-    let statement: Record<string, unknown>;
-    try { statement = record(JSON.parse(Buffer.from(envelope.payload, "base64").toString("utf8"))); }
-    catch { return false; }
-    const subjects = statement.subject;
-    const dependencies = record(record(statement.predicate).buildDefinition).resolvedDependencies;
-    return Array.isArray(subjects) && subjects.some((subject: unknown) => record(record(subject).digest).sha512 === expectedDigest)
-      && Array.isArray(dependencies) && dependencies.some((dependency: unknown) => record(record(dependency).digest).gitCommit === commit);
-  });
-}
+export { verifyPublishedProvenance } from "./release-provenance.ts";
 
 export { verifyBunScript } from "./release-verification.ts";
 

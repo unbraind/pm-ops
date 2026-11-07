@@ -118,7 +118,7 @@
     "docstring": "node scripts/docstring-gate.ts",
     "lint": "node scripts/lint.ts",
     "duplication": "node scripts/duplication-gate.ts",
-    "release:check": "npm run check && npm run lint && npm run duplication && npm run docstring && npm run coverage && npm run audit:prod && npm run pack:dry-run && npm run changelog:check && npm run verify:release-changelog-sections && npm run verify:release-changelog-date && npm run verify:release-publish-attestation && npm run verify:lifecycle-policy",
+    "release:check": "npm run check && npm run lint && npm run duplication && npm run docstring && npm run coverage && npm run audit:prod && npm run audit:release-tools && npm run pack:dry-run && npm run changelog:check && npm run verify:release-changelog-sections && npm run verify:release-changelog-date && npm run verify:release-publish-attestation && npm run verify:lifecycle-policy",
     "prepublishOnly": "npm run release:check",
     "release:notes": "node scripts/pm-changelog.ts --pm-root .agents/pm --stdout --since-previous-tag --until-release-tag --release-version-from-package --date-from-version --item-url-base https://github.com/unbraind/pm-ops/blob/main/.agents/pm --respect-item-release --include-empty --pm-bin ./node_modules/.bin/pm --pm-arg=--output-budget --pm-arg=unbounded --pm-arg=--output-limit --pm-arg=unbounded --github-step-summary",
     "prepare": "node scripts/prepare-merge-driver.ts",
@@ -130,7 +130,9 @@
     "verify:release-completeness": "node scripts/verify-release-completeness.ts",
     "verify:lifecycle-policy": "node scripts/verify-lifecycle-policy.ts",
     "accept:packed": "node test/packed-consumer.acceptance.ts",
-    "release-caller": "node scripts/release-caller.ts"
+    "release-caller": "node scripts/release-caller.ts",
+    "release:audit": "npm run verify:release-completeness -- --repair",
+    "audit:release-tools": "npm --prefix .github/release-runtime audit --package-lock-only --omit=dev --ignore-scripts"
   },
   "dependencies": {
     "@toon-format/toon": "^4.1.0",
@@ -162,13 +164,15 @@
   "devDependencies": {
     "@babel/eslint-parser": "8.0.7",
     "@babel/plugin-syntax-typescript": "8.0.3",
+    "@sigstore/protobuf-specs": "0.5.2",
     "@types/node": "26.6.6",
     "@types/semver": "7.8.0",
     "@unbrained/pm-cli": "2026.11.3",
     "c8": "12.0.0",
     "eslint": "10.14.0",
     "jscpd": "5.4.2",
-    "pm-changelog": "2026.10.31"
+    "pm-changelog": "2026.10.31",
+    "sigstore": "4.1.1"
   },
   "keywords": [
     "pm-cli",
@@ -242,6 +246,9 @@
     "minTokens": 50
   },
   "overrides": {
-    "minimatch": "^11.0.1"
+    "minimatch": "^11.0.1",
+    "sigstore": {
+      "glob": "14.0.2"
+    }
   }
 }

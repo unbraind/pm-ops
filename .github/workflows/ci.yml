@@ -65,6 +65,11 @@ jobs:
       - name: Bun release gate
         run: bun run release:check
 
+      - name: Verify private provenance runtime
+        run: |
+          npm ci --prefix .github/release-runtime --omit=dev --ignore-scripts --engine-strict --no-audit --no-fund
+          node --test --test-concurrency=2 test/release-provenance.test.ts
+
       - name: Compatibility packed global, local and x consumers
         run: node test/compatibility-packed.acceptance.ts
 
