@@ -167,7 +167,7 @@ test("the npm upgrade cannot be skipped and fails closed on the version it actua
   // Pinned exactly, not a caret range: a privileged publish job that resolves a
   // different npm on every run is not reproducible, and an unreviewed 11.x could
   // change publishing behaviour between two identical release commits.
-  assert.match(step, /npm install -g npm@11\.19\.0(?!\S)/);
+  assert.match(step, /npm install -g npm@11\.21\.0(?!\S)/);
   assert.doesNotMatch(step, /npm install -g npm@[\^~]/);
   assert.doesNotMatch(step, /^ *if:/m);
   assert.match(step, /npm --version/);

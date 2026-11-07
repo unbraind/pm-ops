@@ -506,7 +506,7 @@ test("stranded receipt retirement keeps reconciliation short and branch reuse be
   const request = step("Merge release metadata through protected PR").run!;
   assert.match(request, /node "\$CONTINUATION_SCRIPT" retired-branch/);
   assert.ok(request.indexOf('retired-branch') < request.indexOf('--force-with-lease='));
-  assert.ok(workflow.jobs.reconcile.steps.every(current => !/npm (?:ci|install)/.test(current.run ?? "")));
+  assert.ok(workflow.jobs.reconcile.steps.filter(current => current.name !== "Use an npm that supports trusted publishing").every(current => !/npm (?:ci|install)/.test(current.run ?? "")));
 });
 
 test("all tool bootstraps use trusted source, and publication replays the recorded workflow SHA", () => {
@@ -549,4 +549,56 @@ test("rollback guidance preserves reconciliation and documents explicit operator
   assert.match(docs, /release-enabled: true/); assert.match(docs, /reconcile-only: true/);
   assert.match(docs, /release-enabled: false.*disables reconciliation/);
   assert.match(docs, /retire-unpublished: true/);
+});
+
+test("every reusable job pins and verifies the same npm before any install or continuation", () => {
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { packageManager: string };
+  const runtime = JSON.parse(readFileSync(new URL("../.github/release-runtime/package.json", import.meta.url), "utf8")) as { packageManager: string };
+  assert.equal(pkg.packageManager, "npm@11.21.0");
+  assert.equal(runtime.packageManager, pkg.packageManager);
+  for (const [name, job] of Object.entries(workflow.jobs)) {
+    const node = job.steps.findIndex(s => s.uses?.startsWith("actions/setup-node@"));
+    const setup = job.steps.findIndex(s => s.name === "Use an npm that supports trusted publishing");
+    assert.equal(setup, node + 1, `${name}: upgrade immediately after selecting the caller's Node`);
+    const selected = job.steps[node] as Step & { with: Record<string, unknown> };
+    assert.equal(selected.with["node-version"], "${{ inputs.node-version }}");
+    assert.equal(selected.with["package-manager-cache"], false);
+    assert.equal(job.steps[setup].if, undefined);
+    assert.match(job.steps[setup].run!, /npm install -g npm@11\.21\.0 --ignore-scripts --no-audit --no-fund/);
+    assert.match(job.steps[setup].run!, /\[\[ "\$active" == "11\.21\.0" \]\]/);
+  }
+});
+
+test("npm setup refuses a silent downgrade, a different new version and an install failure", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-npm-pin-"));
+  try {
+    writeFileSync(join(root, "npm"), '#!/bin/sh\ncase "$1" in\ninstall) exit "$INSTALL_STATUS" ;;\n--version) echo "$ACTIVE_NPM" ;;\nesac\n', { mode: 0o755 });
+    for (const [active, status, success] of [["11.21.0", "0", true], ["10.9.3", "0", false], ["11.22.0", "0", false], ["11.21.0", "7", false]] as const) {
+      const result = runBashFixture(step("Use an npm that supports trusted publishing").run, { encoding: "utf8", env: {
+        PATH: `${root}:${process.env.PATH}`, ACTIVE_NPM: active, INSTALL_STATUS: status,
+      } });
+      assert.equal(result.status === 0, success, `${active}/${status}: ${result.stderr}`);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("PR lock gate uses both committed locks and the exact script-disabled release install", () => {
+  const ci = parse(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")) as { jobs: Record<string, { strategy: { matrix: { "node-version": (string | number)[] } }; steps: Step[] }> };
+  const job = ci.jobs["release-lock"];
+  assert.deepEqual(job.strategy.matrix["node-version"], ["22.18.0", 26]);
+  const command = "npm ci --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund";
+  const gate = job.steps.find(s => s.name === "Install committed locks exactly as release tools do")!;
+  assert.equal(gate.if, undefined);
+  assert.match(gate.run!, /for project in \. \.github\/release-runtime/);
+  assert.match(gate.run!, /cp "\$project\/package.json" "\$project\/package-lock.json" "\$scratch\/"/);
+  assert.ok(gate.run!.includes(command));
+  const helper = readFileSync(new URL("../scripts/release-runtime.ts", import.meta.url), "utf8");
+  assert.equal(helper.split(JSON.stringify(command.split(" ").slice(1)).replaceAll(",", ", ")).length - 1, 2);
+  for (const entry of Object.values(ci.jobs)) {
+    const setup = entry.steps.findIndex(s => s.name === "Install npm 11.21.0");
+    assert.ok(setup >= 0);
+    assert.match(entry.steps[setup].run!, /npm --version/);
+    const firstInstall = entry.steps.findIndex(s => /npm ci/.test(s.run ?? ""));
+    assert.ok(firstInstall > setup);
+  }
 });

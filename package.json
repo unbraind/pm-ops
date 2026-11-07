@@ -11,6 +11,7 @@
   },
   "homepage": "https://pm-cli.unbrained.dev/packages/pm-ops",
   "type": "module",
+  "packageManager": "npm@11.21.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
