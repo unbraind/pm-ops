@@ -75,7 +75,7 @@ GitHub documents that [`job.workflow_sha`](https://docs.github.com/en/actions/re
 | `reconcile-only` | boolean | `false` | Hourly recovery without admitting a fresh release |
 | `release-enabled` | boolean | `true` | Approval gate; pass the existing repository variable comparison for unapproved packages |
 | `npm-project-dir` | string | `.` | Relative npm project directory; Rust uses the crate root |
-| `node-version` | string | `22.18.0` | Node runtime for release tools |
+| `node-version` | string | `22.18.0` | Node runtime for release tools; semver selectors must admit a supported stable runtime |
 | `retire-unpublished` | boolean | `false` | Explicit operator cancellation, with reconcile-only enabled; supports open, manually closed or merged owned intent and unavailable preparation evidence, but refuses any attempt/hook journal, npm coordinate, tag or Release |
 | `release-timezone` | string | `Europe/Vienna` | Calendar timezone for the single daily release |
 | `rust` | boolean | `false` | Use Cargo versioning and just release-check instead of npm project hooks |
@@ -107,6 +107,8 @@ The `prepare-script` hook covers pm-todos' `release:update-version` and other pa
 ## Caller check
 
 `npm run release-caller -- path/to/release.yml` fails on a copied implementation, additional jobs/steps, unsafe triggers, inherited secrets, missing least-privilege grants, a non-SHA reference, a zero placeholder SHA, a missing version comment, or a second pm-ops version input. The exported `pm-ops/release-caller` function is also available to package gates.
+
+Continuation accepts stable Node 22.18.0 and later within 22.x, and stable Node 23.6.0 and later. Caller checks evaluate the whole `node-version` semver range: `>=20 <21` is refused, while `20 || 24` and `^22.17.0` admit supported runtimes. Aliases remain resolved by setup-node, and the dependency-free runtime preflight checks the selected version before reconciliation. Audited legacy workflow SHAs retain their existing caller contract.
 
 The canonical publish-attestation auditor also recognizes this exact caller at `.github/workflows/release.yml`. Its result explicitly identifies delegation to the verified pm-ops workflow. Foreign or floating references, placeholder SHAs, private workflow logic and malformed callers do not satisfy the non-vacuity gate. Every adjacent local, foreign or unresolved publisher is still checked, and parse failures remain failures. The gate does not independently re-audit remote workflow contents.
 

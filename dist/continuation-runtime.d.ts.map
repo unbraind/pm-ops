@@ -1,1 +1,1 @@
-{"version":3,"file":"continuation-runtime.d.ts","sourceRoot":"","sources":["../continuation-runtime.ts"],"names":[],"mappings":"AAIA,4FAA4F;AAC5F,wBAAgB,yBAAyB,CAAC,OAAO,EAAE,MAAM,GAAG,IAAI,CAK/D;AAED,gGAAgG;AAChG,wBAAgB,2BAA2B,CAAC,KAAK,EAAE,OAAO,GAAG,IAAI,CAWhE"}
+{"version":3,"file":"continuation-runtime.d.ts","sourceRoot":"","sources":["../continuation-runtime.ts"],"names":[],"mappings":"AAUA,4FAA4F;AAC5F,wBAAgB,yBAAyB,CAAC,OAAO,EAAE,MAAM,GAAG,IAAI,CAM/D;AAED,mGAAmG;AACnG,wBAAgB,2BAA2B,CAAC,KAAK,EAAE,OAAO,GAAG,IAAI,CAiChE"}

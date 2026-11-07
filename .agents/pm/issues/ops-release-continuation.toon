@@ -6,9 +6,9 @@ status: in_progress
 priority: 1
 tags[3]: "area:release","gh:unbraind/pm-ops#249","gh:unbraind/pm-ops#250"
 created_at: "2026-11-06T04:32:10.197Z"
-updated_at: "2026-11-07T00:40:46.524Z"
+updated_at: "2026-11-07T01:43:50.668Z"
 author: codex-sol
-comments[41]{created_at,author,text}:
+comments[46]{created_at,author,text}:
   "2026-11-06T04:32:12.566Z",codex-sol,"Plan: persist the verified candidate before requesting protected squash auto-merge, then exit. An hourly caller and daily catch-up inspect intent without installing dependencies; only a trusted merged candidate enters publication. Serialize all caller events, bind candidate/artifact/run/config identities, and refuse ambiguous registry or provenance results. Full live pilot and account-wide admission evidence remain outside this task authorization; PR will use Refs #249. Run targeted tests, lint and typecheck locally; CI owns the full gate."
   "2026-11-06T04:43:41.909Z",codex-sol,"Implementation now has a dependency-free TypeScript probe, versioned candidate receipt in the bot PR, immutable run artifact retained for 90 days, exact source/digest/config checks and a publication-attempt journal. The hourly path skips installs when no intent exists. Sixteen new focused state/adapter tests pass, including late CI, suppressed bot push, hostile identity, crash recovery and authoritative supersession. Migrating legacy workflow-shape tests to the shared implementation and documenting the read-only fleet inventory."
   "2026-11-06T05:00:39.230Z",codex-sol,"Behavioral revert proofs ran in disposable copies only. Twenty paired regressions each failed with its relevant guard/transition reverted: runner-held merge loop, late CI, stale-base refresh, fork/foreign-branch/exact-head/artifact ownership, merged identity, trusted preparation, required protection, ambiguous publication attempt, live daily cap, downloaded bytes, receipt parsing/schema, authoritative supersession and hourly pilot wiring. Restoring the fixed implementation passed all 20 tests (11 decision + 9 adapter). Targeted package set passed 512 tests with zero failures/skips; lint, typecheck, build:test and docstrings passed; duplication is 0% across 125 sources. Focused release-continuation coverage is 100/100/100/100. Full npm/Bun release gates are delegated to PR CI as requested; no publication, merge, other-repository edit or hosted change was performed."
@@ -50,7 +50,12 @@ comments[41]{created_at,author,text}:
   "2026-11-07T00:16:27.057Z",codex-agent,"Revert commands (all executed in disposable copies; no mutation of the reviewed checkout): node --test --test-concurrency=2 --test-name-pattern='missing checks-read refuses|offline CLI rejects' test/release-caller.test.ts (only inspectReleaseCaller reverted; npm run build on mutant and restoration; 2 assertion failures, then 2 passes). node --test --test-concurrency=2 --test-name-pattern='documented discovery count' test/release-review.test.ts (only migration count example reverted; 1 failure, then 1 pass). node --test --test-concurrency=2 --test-name-pattern='every continuation caller example' test/release-review.test.ts (four separate reverts: docs/release-migration.md, docs/reusable-release.md, templates/release-caller.yml, .github/workflows/release.yml; 1 failure then 1 pass for each). Added offline CLI fixtures use a plain temporary directory with no git repository."
   "2026-11-07T00:17:11.607Z",codex-agent,"Pinned pm test runner completed the six-file targeted command successfully. The prior full release gates on this host finished in about 25 minutes for both runtimes; starting fresh serial npm and Bun release:check under isolated HOME and git configuration, with a 60-minute combined upper bound, unchanged thresholds and at most two test workers. All pm writes will be followed by changelog regeneration/check. No review replies or resolutions are authorized."
   "2026-11-07T00:40:45.459Z",codex-agent,"Final review-round gates: pinned pm six-file targeted command passed 69/69, zero failures/skips. npm run release:check passed in 791 seconds and bun run release:check passed in 560 seconds under isolated HOME and global/system git configuration; each ran 1615 tests with 1613 passes, zero failures/cancellations and two existing optional configured-repository real-data skips. Both measured all 48 required runtime sources at unchanged 100/100/100/100; typecheck, lint, zero duplication (134 sources), 370 declaration docstrings, production/private-runtime audits (zero vulnerabilities), pack dry run, self-hosted changelog contracts, changelog check/section/date, identity, publish-attestation and lifecycle checks passed. Strict isolated tracker health passed with one unchanged advisory telemetry queue warning. No local timeout or retry was needed. Six isolated revert experiments produced seven expected assertion failures and seven restored passes; exact proof commands are recorded above. Dist was rebuilt. All three unresolved findings are fixed; no invalid findings, extra outside-diff findings or new pm CLI/SDK bugs were found. Item remains in progress for orchestrator verification; claim will be released. Fresh pushed-head CI and live publisher/fleet rollout evidence remain pending; no thread reply, resolution, merge, release or publication was performed."
-files[36]{path,scope}:
+  "2026-11-07T01:20:45.236Z",codex-agent,"Re-review PRRT_kwDOTOTl1M60wEsk is valid: prefix-only Node selector checks accept ranges such as >=20 <21 and also reject some union/hyphen ranges containing supported versions. General rule: setup selector admission must test nonempty intersection with the actual runtime support domain, not inspect a numeric prefix. Remote head is current, main is already an ancestor, previous review fixes are preserved, and the prior claim was released. Auditing all selector/runtime validation paths and emitted policy/CLI/attestation results, while preserving dependency-free empty reconciliation."
+  "2026-11-07T01:28:41.082Z",codex-agent,"Class audit complete: continuation-runtime.ts is the only selector validator; release-caller.ts delegates to it, the standalone caller CLI and index.ts policy use inspectReleaseCaller, and attestation.ts uses that same checker. Prefix comparison is replaced by semver comparator/core/successor witnesses checked against the actual runtime guard. Both guards share runtime bands, stable prerelease rules are preserved, and semver loads only when checking a selector, so empty reconciliation remains dependency-free. The 192-case adversarial/seeded corpus includes an independently exhaustive bounded stable comparator oracle, contradictory/disjunctive/hyphen/caret/prerelease ranges, supported aliases, unsupported ranges and maximum numeric component carries. Source/compiled guards, caller SDK, real SDK policy and attestation all agree. Focused 7/7 passed and continuation-runtime.ts measures unchanged 100/100/100/100. One exact packed artifact passed npm/Node and native Bun consumers: 192 SDK/caller/attestation cases and 12 actual CLI JSON/TOON checks per runtime in real non-git trackers (384 SDK cases, 24 format checks total). A dependency-free copied guard also executes successfully. Existing tests were retained; duplication remains zero across 137 sources and all 370 declarations are documented."
+  "2026-11-07T01:30:59.800Z",codex-agent,"Revert proof for PRRT_kwDOTOTl1M60wEsk: eight disposable-copy mutations each produced exactly one assertion failure and one restored pass. Source mutations were rebuilt with npm run build before both red and green runs; stale dist was deliberately tested without rebuilding the mutant. Command: node --test --test-concurrency=2 --test-name-pattern='all selector and caller entry points' test/continuation-selection.test.ts. This caught reverting only assertContinuationSelection to its old prefix logic, bypassing its call in inspectReleaseCaller, bypassing attestation refusal, reverting only the compiled dist artifact, omitting semver minor carry, and omitting semver major carry. Command: node --test --test-concurrency=2 --test-name-pattern='real SDK policy' test/continuation-selection.test.ts caught policy verdict bypass. Command: node --test --test-concurrency=2 --test-name-pattern='runtime preflight loads from a dependency-free checkout' test/continuation-selection.test.ts caught an eager semver import. Every original implementation was restored in finally before further checks. No reviewed checkout or existing tracker was mutated by the experiments. The copied guard stays executable without installed dependencies. All earlier review fixes and tests remain intact."
+  "2026-11-07T01:32:42.642Z",codex-agent,"Pinned pm linked tests passed: the five-file focused command ran 53 tests, all passing with no failures/skips; node test/continuation-selection.acceptance.ts passed under the same runner with one final rebuilt tarball, 384 packed SDK cases and 24 CLI JSON/TOON checks across npm/Node and native Bun. Result tracking is disabled by the existing project policy; evidence is recorded here without creating run artefacts in the package tracker. All eight paired behavioral proofs passed. Starting fresh serial npm run release:check and bun run release:check under isolated HOME and global/system git configuration, unchanged thresholds and at most two test workers. The last full pair finished well within 60 minutes on this host."
+  "2026-11-07T01:43:49.898Z",codex-agent,"Final re-review verification for PRRT_kwDOTOTl1M60wEsk: npm run release:check passed in 326.5 seconds and bun run release:check passed in 301.6 seconds, serially under isolated HOME and git configuration with at most two workers. Each gate ran 1619 tests: 1617 passed, zero failed/cancelled, two unchanged optional configured-repository real-data skips. All 48 required source files measured unchanged 100/100/100/100. Typecheck, lint, zero duplication (137 sources), 370 documented declarations, production and private-runtime audits (zero vulnerabilities), pack, self-hosted changelog, identity/privacy, changelog/section/date, publish-attestation and lifecycle gates passed. No local timeout or retry was needed. Pinned pm focused run passed 53/53; packed npm/Node and native Bun acceptance passed 384 SDK/caller/attestation cases plus 24 CLI JSON/TOON checks in real non-git trackers. The exact tested tarball SHA-256 is 20f4a1dbcc5aa864e2a4a9b2091154e41508fee423273656044febab331fe5e5. All eight isolated behavioral mutations failed their assertion and passed after restoration. The valid finding is fixed across the shared validator and its consumers, with previous review fixes preserved. Dist is rebuilt; history is append-only. No new pm CLI/SDK bug was encountered. The item remains in progress for orchestrator verification; the claim is released next. Fresh pushed-head CI and re-review remain pending. No thread reply/resolution, merge, release or publication occurred."
+files[39]{path,scope}:
   .github/dependabot.yml,project
   .github/release-runtime/package-lock.json,project
   .github/release-runtime/package.json,project
@@ -71,6 +76,9 @@ files[36]{path,scope}:
   scripts/verify-registry-provenance.ts,project
   test/compatibility-floor.test.ts,project
   test/continuation-runtime.test.ts,project
+  test/continuation-selection-corpus.ts,project
+  test/continuation-selection.acceptance.ts,project
+  test/continuation-selection.test.ts,project
   test/daily-release-workflow.test.ts,project
   test/dependency-contract.test.ts,project
   test/fixtures/provenance/sigstore-4.1.1.json,project
@@ -87,7 +95,7 @@ files[36]{path,scope}:
   test/release-runtime.test.ts,project
   test/release-workflow.test.ts,project
   test/third-party-publish-wrappers.test.ts,project
-tests[16]:
+tests[18]:
   - command: node --test --test-concurrency=2 test/release-continuation.test.ts test/release-continuation-adapter.test.ts
     scope: project
     provenance:
@@ -203,6 +211,22 @@ tests[16]:
     provenance:
       author: codex-agent
       created_at: "2026-11-07T00:16:01.217Z"
+      source_kind: local_mutation
+      source_ref: release-continuation-without-runner-wait
+  - command: node --test --test-concurrency=2 test/continuation-runtime.test.ts test/continuation-selection.test.ts test/release-caller.test.ts test/release-caller-attestation.test.ts test/daily-release-workflow.test.ts
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-07T01:29:32.061Z"
+      source_kind: local_mutation
+      source_ref: release-continuation-without-runner-wait
+  - command: node test/continuation-selection.acceptance.ts
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-07T01:29:34.198Z"
       source_kind: local_mutation
       source_ref: release-continuation-without-runner-wait
 docs[4]{path,scope}:
