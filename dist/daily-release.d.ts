@@ -57,8 +57,7 @@ export declare function decideDailyRelease(input: DailyReleaseInput): {
 };
 /** Stamp literal descriptor properties using the existing syntax-aware token stream. */
 export declare function stampExtensionVersion(source: string, version: string): string;
-/** Check registry-served SLSA v1 provenance binds both the tarball digest and published commit. */
-export declare function verifyPublishedProvenance(bundle: unknown, commit: string, integrity: string): boolean;
+export { verifyPublishedProvenance } from "./release-provenance.ts";
 export { verifyBunScript } from "./release-verification.ts";
 /** Stamp the package table's literal Cargo version while preserving dependency and metadata versions. */
 export declare function stampCargoVersion(source: string, version: string): string;

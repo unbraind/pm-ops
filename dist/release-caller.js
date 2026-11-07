@@ -1,5 +1,6 @@
 /** Structural and canonical tag provenance checks for shared release workflow callers. */
 import { isScalar, parseDocument } from "yaml";
+import { assertContinuationSelection } from "./continuation-runtime.js";
 import { CaptureRefusal, execFileSync } from "./subprocess.js";
 import metadata from "./release-metadata.json" with { type: "json" };
 /** Resolve canonical release tags, or only one exact tag, including annotated tag peeling. */
@@ -72,6 +73,7 @@ export function inspectReleaseCaller(source, resolveTags = defaultCanonicalTagRe
     const jobs = Object.entries(mapping(workflow.jobs));
     const errors = [];
     let pin;
+    let checksRead = false;
     if (jobs.length !== 1)
         errors.push("release.yml must contain exactly one reusable release job");
     for (const [id, value] of jobs) {
@@ -91,11 +93,22 @@ export function inspectReleaseCaller(source, resolveTags = defaultCanonicalTagRe
             errors.push("release job contains private logic or secrets");
         }
         const permissions = mapping(job.permissions);
+        checksRead = permissions.checks === "read";
         if (["contents", "pull-requests", "actions", "id-token", "issues"].some(key => permissions[key] !== "write")
-            || Object.keys(permissions).some(key => !["contents", "pull-requests", "actions", "id-token", "issues"].includes(key))) {
+            || Object.keys(permissions).some(key => !["contents", "pull-requests", "actions", "id-token", "issues", "checks"].includes(key))
+            || ("checks" in permissions && permissions.checks !== "read")) {
             errors.push("caller must grant only the reusable workflow permissions at job level");
         }
         const inputs = mapping(job.with);
+        // Audited legacy tools predate native continuation; retain their existing caller contract.
+        if (!metadata.legacyWorkflowShas.includes(String(job.uses).split("@")[1])) {
+            try {
+                assertContinuationSelection(inputs["node-version"] ?? "22.18.0");
+            }
+            catch (error) {
+                errors.push(error.message);
+            }
+        }
         if ("pm-ops-version" in inputs)
             errors.push("pm-ops version must be derived from the workflow release tag");
     }
@@ -111,6 +124,9 @@ export function inspectReleaseCaller(source, resolveTags = defaultCanonicalTagRe
         errors.push("caller contains private workflow logic");
     if (errors.length > 0 || pin === undefined)
         return { status: "refused", errors };
+    if (!checksRead && !metadata.legacyWorkflowShas.includes(pin.sha)) {
+        return { status: "refused", errors: ["caller permissions must grant checks: read for continuation workflow pins; only audited legacy workflow SHAs may omit it"] };
+    }
     let tags;
     try {
         tags = resolveTags(pin.tag);

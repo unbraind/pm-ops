@@ -9,10 +9,20 @@ import extension from "../index.ts";
 import { checkReleaseCaller, fetchCanonicalReleaseTags, inspectReleaseCaller } from "../release-caller.ts";
 import { runReleaseCaller, releaseCallerMain } from "../scripts/release-caller.ts";
 import { releaseCallerFixture } from "./canonical-tags-fixture.ts";
-import { CAPTURE_LIMIT, CaptureRefusal } from "../subprocess.ts";
+import metadata from "../release-metadata.json" with { type: "json" };
+import { CAPTURE_LIMIT, CaptureRefusal, spawnSync } from "../subprocess.ts";
 import { runCmd } from "./command-test-helpers.ts";
+import { withCallerInput } from "./fixture-contracts.ts";
 
 const { releasedSha, canonical, caller, api } = releaseCallerFixture();
+
+test("caller refuses Node selectors below the native floor while retaining audited legacy callers", () => {
+  const sha = "c".repeat(40), tag = "v2026.11.07";
+  const current = caller.replace(releasedSha, sha).replace("v2026.10.19", tag);
+  for (const version of ["20", "22.17.0", "lts/iron", "lts/hydrogen"]) assert.ok(inspectReleaseCaller(withCallerInput(current, "node-version", version), () => ({ [tag]: sha })).errors.some(error => error.includes("22.18.0")));
+  assert.deepEqual(inspectReleaseCaller(withCallerInput(current, "node-version", "24"), () => ({ [tag]: sha })).errors, []);
+  assert.deepEqual(checkReleaseCaller(withCallerInput(caller, "node-version", "20")), []);
+});
 
 test("caller provenance rejects fork-only pins, tag mismatches and a version comment on another YAML node", () => {
   const forkSha = "f".repeat(40);
@@ -30,6 +40,13 @@ test("caller requires the alert job issues-write permission even without an aler
   for (const source of [caller.replace("      issues: write\n", ""), caller.replace("issues: write", "issues: read")]) {
     assert.ok(checkReleaseCaller(source).some(error => error.includes("permissions")));
   }
+});
+
+test("caller permits checks-read for continuation and refuses checks-write while retaining older caller compatibility", () => {
+  assert.deepEqual(checkReleaseCaller(caller), []);
+  assert.ok(checkReleaseCaller(caller.replace("checks: read", "checks: write")).some(error => error.includes("permissions")));
+  assert.deepEqual(checkReleaseCaller(caller.replace("      checks: read\n", "")), []);
+  assert.ok(checkReleaseCaller(withCallerInput(caller, "pm-ops-version", "2026.10.19")).some(error => error.includes("must be derived")));
 });
 
 test("online provenance paginates canonical refs, peels nested annotated tags and refuses malformed or cyclic objects", () => {
@@ -112,7 +129,7 @@ test("online CLI checks and metadata refresh use canonical API results and fall 
     const moduleUrl = new URL("../scripts/release-caller.ts", import.meta.url).href;
     releaseCallerMain([process.execPath, new URL(moduleUrl).pathname, path], moduleUrl);
     releaseCallerMain([process.execPath, new URL(moduleUrl).pathname, "--write-metadata", output], moduleUrl);
-    assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), { repository: "unbraind/pm-ops", tags: { "v2026.10.19": releasedSha } });
+    assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), { repository: "unbraind/pm-ops", tags: { "v2026.10.19": releasedSha }, legacyWorkflowShas: metadata.legacyWorkflowShas });
     writeFileSync(gh, "#!/bin/sh\nexit 7\n");
     assert.equal(runReleaseCaller(path, () => {}), true);
   } finally {
@@ -285,4 +302,50 @@ test("canonical API capture overflow refuses without curl or bundled-metadata ap
     assert.equal(result.status, "refused"); assert.match(result.errors[0], /output_limit:.*Reduce or paginate/);
     assert.doesNotMatch(result.errors[0], /ENOBUFS/);
   } finally { process.env.PATH = beforePath; rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("new canonical workflow pins require checks-read while audited legacy pins may omit it", () => {
+  const sha = "e".repeat(40), tag = "v2099.01.01";
+  const source = caller.replace(releasedSha, sha).replace("v2026.10.19", tag);
+  const resolve = () => ({ [tag]: sha });
+  assert.equal(inspectReleaseCaller(source, resolve).status, "verified");
+  assert.match(inspectReleaseCaller(source.replace("      checks: read\n", ""), resolve).errors.join(" "), /checks: read/);
+  assert.equal(inspectReleaseCaller(caller.replace("      checks: read\n", "")).status, "verified");
+  const legacySha = "c282fa9d8297d431dc6366081bad59efb668b2be";
+  const legacy = caller.replace(releasedSha, legacySha).replace("v2026.10.19", "v2026.11.05").replace("      checks: read\n", "");
+  assert.equal(inspectReleaseCaller(legacy, () => ({ "v2026.11.05": legacySha })).status, "verified");
+});
+
+test("missing checks-read refuses before offline provenance deferral without contacting the resolver", () => {
+  const source = caller.replace(releasedSha, "e".repeat(40)).replace("v2026.10.19", "v2099.01.01");
+  let calls = 0;
+  /** An unavailable transport must never conceal an independently invalid caller. */
+  const offline = () => { calls++; throw new Error("synthetic offline transport"); };
+  const result = inspectReleaseCaller(source.replace("      checks: read\n", ""), offline);
+  assert.equal(result.status, "refused");
+  assert.match(result.errors.join(" "), /checks: read/);
+  assert.equal(calls, 0);
+  assert.equal(inspectReleaseCaller(source, offline).status, "unverified-offline");
+  assert.equal(inspectReleaseCaller(caller.replace("      checks: read\n", ""), offline).status, "verified");
+});
+
+test("offline CLI rejects missing checks-read while preserving valid deferral and legacy callers", () => {
+  const root = mkdtempSync(join(tmpdir(), "offline-caller-permissions-"));
+  try {
+    const path = join(root, "release.yml");
+    const current = caller.replace(releasedSha, "e".repeat(40)).replace("v2026.10.19", "v2099.01.01");
+    for (const fixture of [
+      { source: current.replace("      checks: read\n", ""), exit: 1, diagnostic: /checks: read/ },
+      { source: current, exit: 0, diagnostic: /unverified-offline/ },
+      { source: caller.replace("      checks: read\n", ""), exit: 0, diagnostic: /^$/ },
+    ]) {
+      writeFileSync(path, fixture.source);
+      const result = spawnSync(process.execPath, [new URL("../scripts/release-caller.ts", import.meta.url).pathname, path], {
+        encoding: "utf8", env: { ...process.env, PM_OPS_OFFLINE: "1" },
+      });
+      assert.equal(result.status, fixture.exit, result.stdout + result.stderr);
+      assert.match(result.stderr, fixture.diagnostic);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

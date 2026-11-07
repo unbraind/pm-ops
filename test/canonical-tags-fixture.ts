@@ -3,6 +3,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after } from "node:test";
+import { replaceFixtureOnce, requireFixtureAnchor } from "./fixture-contracts.ts";
 
 /** Install canonical tag responses and an offline curl boundary for one test process. */
 export function canonicalTagsFixture(tags: Readonly<Record<string, string>>) {
@@ -40,7 +41,10 @@ export function canonicalTagsFixture(tags: Readonly<Record<string, string>>) {
 export function releaseCallerFixture() {
   const releasedSha = "c3af218f2f052cc4fddb3e84ef87974c58283be7";
   const canonical = { "v2026.10.19": releasedSha };
-  const caller = readFileSync(new URL("../templates/release-caller.yml", import.meta.url), "utf8").replaceAll("0".repeat(40), releasedSha);
+  const template = readFileSync(new URL("../templates/release-caller.yml", import.meta.url), "utf8");
+  requireFixtureAnchor(template, "    with:\n");
+  requireFixtureAnchor(template, "# v2026.10.19");
+  const caller = replaceFixtureOnce(template, "0".repeat(40), releasedSha);
   const api = canonicalTagsFixture(canonical);
   after(() => api.restore());
   return { releasedSha, canonical, caller, api };
