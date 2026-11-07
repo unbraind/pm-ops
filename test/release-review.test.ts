@@ -141,6 +141,8 @@ test("documented discovery count totals every page and refuses incomplete reads"
   for (const fixture of [
     { pages: "100\n100\n7\n", exit: 0, expected: "207\n" },
     { pages: "58\n", exit: 0, expected: "58\n" },
+    { pages: "100\n".repeat(99) + "99\n", exit: 0, expected: "9999\n" },
+    { pages: "100\n".repeat(100), exit: 0, expected: "10000\n" },
     { pages: "", exit: 0, expected: "0\n" },
     { pages: "100\n", exit: 7, expected: "" },
   ]) {
