@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { parse } from "yaml";
+import { assertNoNpmInstalls } from "./npm-bootstrap-contract.ts";
 import { candidateFixture, evidenceFixture } from "./release-continuation-fixture.ts";
 import { releaseConfigDigest, releaseDigest } from "../release-continuation.ts";
 import { candidateBody, retiredCandidateBody, discoverCandidatePrs, parseCandidateReceipt, inspectCandidate as inspectProductionCandidate, closeSuperseded, requiredProtection, approveRequiredWorkflowRuns, githubApi, registryJson, runReleaseContinuation as runProductionContinuation, normalizeWorkflowPath, type ReleaseApi } from "../scripts/release-continuation.ts";
@@ -541,9 +542,7 @@ test("pilot schedules the shared workflow hourly and daily; empty reconciliation
   assert.ok(shared.jobs.prepare.if.includes("!inputs.reconcile-only"));
   assert.ok(shared.jobs.audit.if.includes("!inputs.reconcile-only"));
   const reconcile = shared.jobs.reconcile.steps;
-  const npmSetup = reconcile.find(s => s.name === "Use an npm that supports trusted publishing");
-  assert.match(npmSetup?.run ?? "", /npm install -g npm@11\.21\.0 --ignore-scripts --no-audit --no-fund/);
-  assert.doesNotMatch(JSON.stringify(reconcile.filter(s => s !== npmSetup)), /npm (ci|install)/);
+  for (const current of [...reconcile, ...shared.jobs.request.steps]) assertNoNpmInstalls(current.run ?? "");
   assert.doesNotMatch(JSON.stringify(shared.jobs.request.steps), /sleep |1800|did not merge within 30 minutes|awaiting_approval/);
   const adapter = readFileSync(new URL("../scripts/release-continuation.ts", import.meta.url), "utf8");
   assert.ok(adapter.indexOf('"PATCH", { body: candidateBody(receipt) }') < adapter.indexOf('"--auto", "--squash"'));

@@ -10,12 +10,15 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { parse } from "yaml";
 import { auditPublishAttestation } from "../attestation.ts";
+import { assertNoNpmInstalls, assertPinnedNpmBootstrap } from "./npm-bootstrap-contract.ts";
 import { requiredFixtureCases } from "./fixture-contracts.ts";
 
 /** Workflow step fields used by the structural and shell regression tests. */
 interface Step {
   /** Human-readable identity, optional for anonymous action steps. */
   name?: string;
+  /** Whether failure is tolerated to preserve independent failure reporting. */
+  "continue-on-error"?: boolean;
   /** Identifier whose outputs guard dependent effects. */
   id?: string;
   /** Immutable action reference. */
@@ -506,7 +509,7 @@ test("stranded receipt retirement keeps reconciliation short and branch reuse be
   const request = step("Merge release metadata through protected PR").run!;
   assert.match(request, /node "\$CONTINUATION_SCRIPT" retired-branch/);
   assert.ok(request.indexOf('retired-branch') < request.indexOf('--force-with-lease='));
-  assert.ok(workflow.jobs.reconcile.steps.filter(current => current.name !== "Use an npm that supports trusted publishing").every(current => !/npm (?:ci|install)/.test(current.run ?? "")));
+  for (const current of workflow.jobs.reconcile.steps) assertNoNpmInstalls(current.run ?? "");
 });
 
 test("all tool bootstraps use trusted source, and publication replays the recorded workflow SHA", () => {
@@ -551,7 +554,7 @@ test("rollback guidance preserves reconciliation and documents explicit operator
   assert.match(docs, /retire-unpublished: true/);
 });
 
-test("every reusable job pins and verifies the same npm before any install or continuation", () => {
+test("every installing reusable job pins npm while reconciliation stays installation-free", () => {
   const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { packageManager: string };
   const runtime = JSON.parse(readFileSync(new URL("../.github/release-runtime/package.json", import.meta.url), "utf8")) as { packageManager: string };
   assert.equal(pkg.packageManager, "npm@11.21.0");
@@ -559,25 +562,66 @@ test("every reusable job pins and verifies the same npm before any install or co
   for (const [name, job] of Object.entries(workflow.jobs)) {
     const node = job.steps.findIndex(s => s.uses?.startsWith("actions/setup-node@"));
     const setup = job.steps.findIndex(s => s.name === "Use an npm that supports trusted publishing");
-    assert.equal(setup, node + 1, `${name}: upgrade immediately after selecting the caller's Node`);
     const selected = job.steps[node] as Step & { with: Record<string, unknown> };
     assert.equal(selected.with["node-version"], "${{ inputs.node-version }}");
     assert.equal(selected.with["package-manager-cache"], false);
-    assert.equal(job.steps[setup].if, undefined);
+    if (["reconcile", "request"].includes(name)) {
+      assert.equal(setup, -1);
+      for (const current of job.steps) assertNoNpmInstalls(current.run ?? "");
+      continue;
+    }
+    assert.equal(setup, node + 1, `${name}: upgrade immediately after selecting the caller's Node`);
+    assert.equal(job.steps[setup].if, name === "verify_bun" ? "inputs.bunx-script != ''" : undefined);
+    assertPinnedNpmBootstrap(job.steps[setup].run!);
     assert.match(job.steps[setup].run!, /npm install -g npm@11\.21\.0 --ignore-scripts --no-audit --no-fund/);
     assert.match(job.steps[setup].run!, /\[\[ "\$active" == "11\.21\.0" \]\]/);
   }
 });
 
-test("npm setup refuses a silent downgrade, a different new version and an install failure", () => {
+test("every reusable and CI npm setup refuses failed installs and wrong active versions", () => {
+  const ci = parse(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")) as { jobs: Record<string, { steps: Step[] }> };
   const root = mkdtempSync(join(tmpdir(), "release-npm-pin-"));
   try {
+    for (const name of ["reconcile", "request"]) for (const current of workflow.jobs[name].steps) for (const install of ["npm ci", "npm install -g another-package", "npm -g i another-package", "npm add another-package"]) {
+      assert.throws(() => assertNoNpmInstalls((current.run ?? "") + "\n" + install), /must not install/);
+    }
     writeFileSync(join(root, "npm"), '#!/bin/sh\ncase "$1" in\ninstall) exit "$INSTALL_STATUS" ;;\n--version) echo "$ACTIVE_NPM" ;;\nesac\n', { mode: 0o755 });
-    for (const [active, status, success] of [["11.21.0", "0", true], ["10.9.3", "0", false], ["11.22.0", "0", false], ["11.21.0", "7", false]] as const) {
-      const result = runBashFixture(step("Use an npm that supports trusted publishing").run, { encoding: "utf8", env: {
-        PATH: `${root}:${process.env.PATH}`, ACTIVE_NPM: active, INSTALL_STATUS: status,
-      } });
-      assert.equal(result.status === 0, success, `${active}/${status}: ${result.stderr}`);
+    for (const [file, jobs] of [["reusable", workflow.jobs], ["CI", ci.jobs]] as const) for (const [name, job] of Object.entries(jobs)) {
+      const setupName = file === "reusable" ? "Use an npm that supports trusted publishing" : "Install npm 11.21.0";
+      const setups = job.steps.filter(s => s.name === setupName);
+      assert.equal(setups.length, file === "reusable" && ["reconcile", "request"].includes(name) ? 0 : 1, `${file}/${name}`);
+      for (const setup of setups) {
+        assertPinnedNpmBootstrap(setup.run!);
+        for (const extra of ["\nnpm install -g another-package", "; npm ci", " && npm install another-package", "\nnpm add another-package"]) {
+          assert.throws(() => assertPinnedNpmBootstrap(setup.run! + extra), /only the pinned npm/);
+        }
+        for (const [active, status, success] of [["11.21.0", "0", true], ["10.9.3", "0", false], ["11.22.0", "0", false], ["11.21.0", "7", false]] as const) {
+          const result = runBashFixture(setup.run!, { encoding: "utf8", env: {
+            PATH: `${root}:${process.env.PATH}`, ACTIVE_NPM: active, INSTALL_STATUS: status,
+          } });
+          assert.equal(result.status === 0, success, `${file}/${name}/${active}/${status}: ${result.stderr}`);
+        }
+      }
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("failure reporting attempts its script after bootstrap or dependency installation fails", () => {
+  const setup = workflow.jobs.alert.steps.find(s => s.id === "npm_setup")!;
+  const report = step("Report release failure");
+  assert.equal(setup["continue-on-error"], true);
+  assert.equal(report.if, "${{ !cancelled() }}");
+  assert.equal(report.env?.NPM_READY, "${{ steps.npm_setup.outcome == 'success' }}");
+  const root = mkdtempSync(join(tmpdir(), "release-alert-failure-"));
+  try {
+    writeFileSync(join(root, "npm"), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$GITHUB_WORKSPACE/calls"\ncase "$1" in ci) exit "$INSTALL_STATUS" ;; run) touch "$GITHUB_WORKSPACE/alert-ran" ;; esac\n', { mode: 0o755 });
+    for (const ready of ["true", "false"]) for (const status of ["0", "7"]) {
+      writeFileSync(join(root, "calls"), ""); rmSync(join(root, "alert-ran"), { force: true });
+      const result = runBashFixture(report.run, { encoding: "utf8", env: { PATH: `${root}:${process.env.PATH}`,
+        GITHUB_WORKSPACE: root, NPM_PROJECT_DIR: ".", NPM_READY: ready, INSTALL_STATUS: status, ALERT_SCRIPT: "release:alert" } });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(existsSync(join(root, "alert-ran")), true);
+      assert.equal(readFileSync(join(root, "calls"), "utf8"), (ready === "true" ? "ci --ignore-scripts\n" : "") + "run release:alert\n");
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

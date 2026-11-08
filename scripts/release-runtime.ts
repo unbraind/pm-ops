@@ -10,9 +10,18 @@ import { execFileSync } from "../subprocess.ts";
 export const workflowToolsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Install dependencies from the trusted commit's lockfile without running lifecycle scripts. */
-function installLockedRuntime(args: string[], cwd: string): void { execFileSync("npm", args, { cwd, stdio: "inherit", timeout: 180_000,
-    env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, NPM_CONFIG_USERCONFIG: devNull,
-      NPM_CONFIG_REGISTRY: "https://registry.npmjs.org/", NPM_CONFIG_CACHE: join(tmpdir(), "pm-ops-runtime-cache") } }); }
+function installLockedRuntime(args: string[], cwd: string): void {
+  const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, NPM_CONFIG_USERCONFIG: devNull,
+    NPM_CONFIG_REGISTRY: "https://registry.npmjs.org/", NPM_CONFIG_CACHE: join(tmpdir(), "pm-ops-runtime-cache") };
+  const options = { cwd, env, timeout: 180_000, encoding: "utf8" as const };
+  const expected = "11.21.0";
+  if (execFileSync("npm", ["--version"], options).trim() !== expected) {
+    execFileSync("npm", ["install", "-g", `npm@${expected}`, "--ignore-scripts", "--no-audit", "--no-fund"], { ...options, stdio: "inherit" });
+    const active = execFileSync("npm", ["--version"], options).trim();
+    if (active !== expected) throw new Error(`Expected npm ${expected}, got ${active}`);
+  }
+  execFileSync("npm", args, { ...options, stdio: "inherit" });
+}
 
 /** Install the private verifier only for a pending publication, never for an empty probe. */
 export function ensureReleaseRuntime(root = workflowToolsRoot, run: (args: string[], cwd: string) => void = installLockedRuntime): void {

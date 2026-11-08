@@ -23,7 +23,7 @@ test("unpublished trusted source version bootstraps from exact committed planner
   const saved = new Map(keys.map(key => [key, process.env[key]]));
   try {
     const bin = join(root, "bin"); mkdirSync(bin);
-    writeFileSync(join(bin, "npm"), '#!/bin/sh\nprintf "%s\\n" "$*" > "$PWD/unpublished-lookup"\nexit 7\n'); chmodSync(join(bin, "npm"), 0o755);
+    writeFileSync(join(bin, "npm"), '#!/bin/sh\nif [ "$1" = --version ]; then echo 11.21.0; exit 0; fi\nprintf "%s\\n" "$*" > "$PWD/unpublished-lookup"\nexit 7\n'); chmodSync(join(bin, "npm"), 0o755);
     process.env.PATH = bin + ":" + process.env.PATH;
     const source = sourceFixture(root);
     const module = installReleaseTools(source, join(root, "prefix"), "9999.1.1");
@@ -63,7 +63,7 @@ test("runtime installs only locked production dependencies without lifecycle scr
     assert.equal(calls, 1);
     ensureReleaseRuntime(undefined, () => {});
     const bin = join(root, "bin"); mkdirSync(bin);
-    writeFileSync(join(bin, "npm"), '#!/bin/sh\nprintf "%s\\n" "$*" > "$PWD/install-args"\n'); chmodSync(join(bin, "npm"), 0o755);
+    writeFileSync(join(bin, "npm"), '#!/bin/sh\nif [ "$1" = --version ]; then echo 11.21.0; exit 0; fi\nprintf "%s\\n" "$*" > "$PWD/install-args"\n'); chmodSync(join(bin, "npm"), 0o755);
     process.env.PATH = bin + ":" + savedPath;
     ensureReleaseRuntime(root);
     assert.match(readFileSync(join(privateRoot, "install-args"), "utf8"), /^ci --omit=dev --ignore-scripts/);
@@ -94,4 +94,38 @@ test("an empty native probe works with no installed runtime dependencies and nev
     assert.equal(existsSync(join(root, "npm-invoked")), false);
     assert.equal(existsSync(join(root, "node_modules")), false);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("every on-demand locked installer pins npm and refuses bootstrap failures before ci", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-lazy-npm-"));
+  const savedPath = process.env.PATH;
+  try {
+    const bin = join(root, "bin"); mkdirSync(bin);
+    writeFileSync(join(bin, "npm"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$PWD/calls"
+case "$1" in
+  --version) if [ -f "$PWD/upgraded" ]; then cat "$PWD/after"; else cat "$PWD/before"; fi ;;
+  install) touch "$PWD/upgraded"; exit "$(cat "$PWD/status")" ;;
+  ci) ln -s "${join(workflowToolsRoot, "node_modules")}" "$PWD/node_modules" ;;
+esac
+`, { mode: 0o755 });
+    process.env.PATH = bin + ":" + savedPath;
+    for (const installer of ["private", "tools"]) for (const [before, after, status, success] of [
+      ["11.21.0", "11.21.0", "0", true], ["10.9.3", "11.21.0", "0", true],
+      ["10.9.3", "10.9.3", "0", false], ["10.9.3", "11.22.0", "0", false], ["10.9.3", "11.21.0", "7", false],
+    ] as const) {
+      const source = join(root, `${installer}-${before}-${after}-${status}`); mkdirSync(source);
+      writeFileSync(join(source, "package.json"), '{"name":"pm-ops","version":"9999.1.1","type":"module"}');
+      symlinkSync(join(workflowToolsRoot, "dist"), join(source, "dist"), "junction");
+      const cwd = installer === "tools" ? source : join(source, ".github/release-runtime"); mkdirSync(cwd, { recursive: true });
+      for (const [file, value] of [["before", before], ["after", after], ["status", status]]) writeFileSync(join(cwd, file), value);
+      const run = () => installer === "tools" ? installReleaseTools(source, join(source, "prefix"), "9999.1.1") : ensureReleaseRuntime(source);
+      if (success) run(); else assert.throws(run, /Expected npm|Command failed/);
+      const calls = readFileSync(join(cwd, "calls"), "utf8").trim().split("\n");
+      assert.equal(calls.some(call => call.startsWith("ci ")), success, `${installer}/${before}/${after}/${status}`);
+      assert.deepEqual(calls.filter(call => call.startsWith("install ")), before === "11.21.0" ? [] : ["install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund"]);
+      if (success) assert.equal(calls.at(-1), "ci --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund");
+    }
+  } finally { if (savedPath === undefined) delete process.env.PATH; else process.env.PATH = savedPath; rmSync(root, { recursive: true, force: true }); }
 });
