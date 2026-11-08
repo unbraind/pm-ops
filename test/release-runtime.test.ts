@@ -102,30 +102,63 @@ test("every on-demand locked installer pins npm and refuses bootstrap failures b
   const savedPath = process.env.PATH;
   try {
     const bin = join(root, "bin"); mkdirSync(bin);
-    writeFileSync(join(bin, "npm"), `#!/bin/sh
-printf '%s\\n' "$*" >> "$PWD/calls"
-case "$1" in
-  --version) if [ -f "$PWD/upgraded" ]; then cat "$PWD/after"; else cat "$PWD/before"; fi ;;
-  install) touch "$PWD/upgraded"; exit "$(cat "$PWD/status")" ;;
-  ci) ln -s "${join(workflowToolsRoot, "node_modules")}" "$PWD/node_modules" ;;
-esac
+    // The inherited npm deliberately refuses every global installation, even as root.
+    // Its only successful bootstrap writes a CLI which is absent from PATH.
+    writeFileSync(join(bin, "npm"), `#!${process.execPath}
+const fs = require("node:fs");
+const path = require("node:path");
+const args = process.argv.slice(2);
+const cwd = process.cwd();
+if (args[0] === "--version") {
+  console.log(fs.readFileSync(path.join(cwd, "before"), "utf8"));
+} else if (args[0] === "install") {
+  if (args.includes("-g") || args.includes("--global")) process.exit(77);
+  const prefix = args[args.indexOf("--prefix") + 1];
+  // Bootstrap runs outside the source checkout, so inherit the scenario through a file.
+  const scenario = fs.readFileSync(path.join(${JSON.stringify(bin)}, "scenario"), "utf8");
+  fs.appendFileSync(path.join(scenario, "calls"), JSON.stringify(args) + "\\n");
+  fs.writeFileSync(path.join(scenario, "bootstrap-prefix"), prefix);
+  fs.mkdirSync(path.join(prefix, "node_modules/npm/bin"), { recursive: true });
+  fs.writeFileSync(path.join(prefix, "node_modules/npm/bin/npm-cli.js"), ${JSON.stringify(`const fs = require("node:fs");
+const path = require("node:path");
+const args = process.argv.slice(2);
+fs.appendFileSync(path.join(process.cwd(), "calls"), JSON.stringify(args) + "\\n");
+if (args[0] === "--version") console.log(fs.readFileSync("after", "utf8"));
+else if (args[0] === "ci") {
+  if (fs.readFileSync("ci-status", "utf8") !== "0") process.exit(8);
+  fs.symlinkSync(${JSON.stringify(join(workflowToolsRoot, "node_modules"))}, "node_modules", "junction");
+}`)});
+  process.exit(Number(fs.readFileSync(path.join(scenario, "status"), "utf8")));
+} else if (args[0] === "ci") {
+  fs.appendFileSync(path.join(cwd, "calls"), JSON.stringify(args) + "\\n");
+  if (fs.readFileSync("ci-status", "utf8") !== "0") process.exit(8);
+  fs.symlinkSync(${JSON.stringify(join(workflowToolsRoot, "node_modules"))}, "node_modules", "junction");
+}
 `, { mode: 0o755 });
-    process.env.PATH = bin + ":" + savedPath;
-    for (const installer of ["private", "tools"]) for (const [before, after, status, success] of [
-      ["11.21.0", "11.21.0", "0", true], ["10.9.3", "11.21.0", "0", true],
-      ["10.9.3", "10.9.3", "0", false], ["10.9.3", "11.22.0", "0", false], ["10.9.3", "11.21.0", "7", false],
+    process.env.PATH = bin; // No git or pinned npm executable is discoverable through PATH.
+    for (const installer of ["private", "tools"]) for (const [before, after, status, ciStatus, success] of [
+      ["11.21.0", "11.21.0", "0", "0", true], ["10.9.3", "11.21.0", "0", "0", true],
+      ["10.9.3", "10.9.3", "0", "0", false], ["10.9.3", "11.22.0", "0", "0", false], ["10.9.3", "11.21.0", "7", "0", false],
+      ["10.9.3", "11.21.0", "0", "8", false],
     ] as const) {
-      const source = join(root, `${installer}-${before}-${after}-${status}`); mkdirSync(source);
+      const source = join(root, `${installer}-${before}-${after}-${status}-${ciStatus}`); mkdirSync(source);
       writeFileSync(join(source, "package.json"), '{"name":"pm-ops","version":"9999.1.1","type":"module"}');
       symlinkSync(join(workflowToolsRoot, "dist"), join(source, "dist"), "junction");
       const cwd = installer === "tools" ? source : join(source, ".github/release-runtime"); mkdirSync(cwd, { recursive: true });
-      for (const [file, value] of [["before", before], ["after", after], ["status", status]]) writeFileSync(join(cwd, file), value);
+      for (const [file, value] of [["before", before], ["after", after], ["status", status], ["ci-status", ciStatus]]) writeFileSync(join(cwd, file), value);
+      writeFileSync(join(bin, "scenario"), cwd);
       const run = () => installer === "tools" ? installReleaseTools(source, join(source, "prefix"), "9999.1.1") : ensureReleaseRuntime(source);
       if (success) run(); else assert.throws(run, /Expected npm|Command failed/);
-      const calls = readFileSync(join(cwd, "calls"), "utf8").trim().split("\n");
-      assert.equal(calls.some(call => call.startsWith("ci ")), success, `${installer}/${before}/${after}/${status}`);
-      assert.deepEqual(calls.filter(call => call.startsWith("install ")), before === "11.21.0" ? [] : ["install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund"]);
-      if (success) assert.equal(calls.at(-1), "ci --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund");
+      const calls = readFileSync(join(cwd, "calls"), "utf8").trim().split("\n").map(line => JSON.parse(line) as string[]);
+      assert.equal(calls.some(call => call[0] === "ci"), success || ciStatus !== "0", `${installer}/${before}/${after}/${status}/${ciStatus}`);
+      if (before === "11.21.0") assert.equal(calls.length, 1);
+      else {
+        const prefix = readFileSync(join(cwd, "bootstrap-prefix"), "utf8");
+        assert.deepEqual(calls[0], ["install", "--prefix", prefix, "--no-save", "--package-lock=false", "npm@11.21.0", "--ignore-scripts", "--no-audit", "--no-fund"]);
+        assert.equal(existsSync(prefix), false, "remove temporary npm after success, bootstrap failure, version mismatch and ci failure");
+        if (status === "0") assert.deepEqual(calls[1], ["--version"]);
+      }
+      if (success) assert.deepEqual(calls.at(-1), ["ci", "--omit=dev", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund"]);
     }
   } finally { if (savedPath === undefined) delete process.env.PATH; else process.env.PATH = savedPath; rmSync(root, { recursive: true, force: true }); }
 });

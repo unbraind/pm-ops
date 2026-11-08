@@ -582,7 +582,9 @@ test("every reusable and CI npm setup refuses failed installs and wrong active v
   const ci = parse(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")) as { jobs: Record<string, { steps: Step[] }> };
   const root = mkdtempSync(join(tmpdir(), "release-npm-pin-"));
   try {
-    for (const name of ["reconcile", "request"]) for (const current of workflow.jobs[name].steps) for (const install of ["npm ci", "npm install -g another-package", "npm -g i another-package", "npm add another-package"]) {
+    const installCommands = ["npm ci", "npm install -g another-package", "npm -g i another-package", "npm add another-package", "npm it another-package", "npm install-test another-package", "npm installt another-package", "npm clean-install", "npm cit", "npm sit", "npm ic", "npm install-ci-test", "npm clean-install-test", "npm in another-package", "npm ins another-package", "npm inst another-package", "npm insta another-package", "npm instal another-package", "npm isnt another-package", "npm isnta another-package", "npm isntal another-package", "npm isntall another-package", "npm install-clean", "npm isntall-clean", "npm installTest another-package", "npm installCiTest another-package"];
+    const scenarios = installCommands.flatMap(command => [command, `if ${command}; then true; fi`, `for attempt in 1; do ${command}; done`, `NPM_CONFIG_CACHE=cache ${command}`, `env NPM_CONFIG_CACHE=cache ${command}`, `command ${command}`, command.replace(/^npm /, "npm.cmd ")]);
+    for (const name of ["reconcile", "request"]) for (const current of workflow.jobs[name].steps) for (const install of scenarios) {
       assert.throws(() => assertNoNpmInstalls((current.run ?? "") + "\n" + install), /must not install/);
     }
     writeFileSync(join(root, "npm"), '#!/bin/sh\ncase "$1" in\ninstall) exit "$INSTALL_STATUS" ;;\n--version) echo "$ACTIVE_NPM" ;;\nesac\n', { mode: 0o755 });
@@ -592,7 +594,7 @@ test("every reusable and CI npm setup refuses failed installs and wrong active v
       assert.equal(setups.length, file === "reusable" && ["reconcile", "request"].includes(name) ? 0 : 1, `${file}/${name}`);
       for (const setup of setups) {
         assertPinnedNpmBootstrap(setup.run!);
-        for (const extra of ["\nnpm install -g another-package", "; npm ci", " && npm install another-package", "\nnpm add another-package"]) {
+        for (const extra of scenarios.flatMap(command => ["\n", "; ", " && "].map(separator => separator + command))) {
           assert.throws(() => assertPinnedNpmBootstrap(setup.run! + extra), /only the pinned npm/);
         }
         for (const [active, status, success] of [["11.21.0", "0", true], ["10.9.3", "0", false], ["11.22.0", "0", false], ["11.21.0", "7", false]] as const) {

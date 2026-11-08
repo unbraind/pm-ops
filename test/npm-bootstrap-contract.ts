@@ -1,11 +1,13 @@
 /** Inspect every command in bootstrap steps rather than exempting the whole script. */
 import assert from "node:assert/strict";
-import { tokenizeCommands } from "../shell-scan.ts";
+import { commandArguments, commandCandidates, commandName, tokenizeCommands } from "../shell-scan.ts";
 
 /** Enumerate npm installation commands across shell separators and install aliases. */
-function npmInstalls(script: string): string[][] {
-  return tokenizeCommands(script).map(command => command.map(token => token.value))
-    .filter(words => words[0] === "npm" && words.some(word => ["install", "ci", "i", "add"].includes(word)));
+export function npmInstalls(script: string): string[][] {
+  return tokenizeCommands(script).flatMap(command => commandCandidates(command))
+    .filter(command => /^(?:npm|npm\.cmd)$/.test(commandName(command) ?? ""))
+    .map(command => ["npm", ...commandArguments(command).map(token => token.value)])
+    .filter(words => words[0] === "npm" && words.some(word => ["install", "i", "in", "ins", "inst", "insta", "instal", "isnt", "isnta", "isntal", "isntall", "add", "ci", "ic", "clean-install", "install-clean", "isntall-clean", "install-test", "installt", "it", "install-ci-test", "cit", "sit", "clean-install-test"].includes(word.replace(/[A-Z]/g, letter => "-" + letter.toLowerCase()))));
 }
 
 /** Keep every metadata-only reconciliation step free of dependency installation. */

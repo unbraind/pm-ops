@@ -1,5 +1,5 @@
 /** Install locked runtime dependencies only when release tooling is actually needed. */
-import { existsSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { devNull, tmpdir } from "node:os";
@@ -15,12 +15,22 @@ function installLockedRuntime(args: string[], cwd: string): void {
     NPM_CONFIG_REGISTRY: "https://registry.npmjs.org/", NPM_CONFIG_CACHE: join(tmpdir(), "pm-ops-runtime-cache") };
   const options = { cwd, env, timeout: 180_000, encoding: "utf8" as const };
   const expected = "11.21.0";
-  if (execFileSync("npm", ["--version"], options).trim() !== expected) {
-    execFileSync("npm", ["install", "-g", `npm@${expected}`, "--ignore-scripts", "--no-audit", "--no-fund"], { ...options, stdio: "inherit" });
-    const active = execFileSync("npm", ["--version"], options).trim();
-    if (active !== expected) throw new Error(`Expected npm ${expected}, got ${active}`);
+  let prefix: string | undefined;
+  let command = "npm";
+  let leading: string[] = [];
+  try {
+    if (execFileSync(command, ["--version"], options).trim() !== expected) {
+      prefix = mkdtempSync(join(tmpdir(), "pm-ops-npm-"));
+      execFileSync(command, ["install", "--prefix", prefix, "--no-save", "--package-lock=false", `npm@${expected}`, "--ignore-scripts", "--no-audit", "--no-fund"], { ...options, cwd: prefix, stdio: "inherit" });
+      command = process.execPath;
+      leading = [join(prefix, "node_modules/npm/bin/npm-cli.js")];
+      const active = execFileSync(command, [...leading, "--version"], options).trim();
+      if (active !== expected) throw new Error(`Expected npm ${expected}, got ${active}`);
+    }
+    execFileSync(command, [...leading, ...args], { ...options, stdio: "inherit" });
+  } finally {
+    if (prefix !== undefined) rmSync(prefix, { recursive: true, force: true });
   }
-  execFileSync("npm", args, { ...options, stdio: "inherit" });
 }
 
 /** Install the private verifier only for a pending publication, never for an empty probe. */
