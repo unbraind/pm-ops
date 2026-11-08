@@ -105,10 +105,12 @@ jobs:
       - name: Install npm 11.21.0
         # Keep the selected Node installation on npm 11 even when a consumer
         # deliberately ignores the runner's user npm configuration.
+        shell: bash
         run: |
-          npm install --global --prefix (Split-Path (Get-Command node).Source) npm@11.21.0 --ignore-scripts --no-audit --no-fund
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ((npm --version) -ne "11.21.0") { throw "Expected npm 11.21.0" }
+          set -euo pipefail
+          node_prefix="$(node -p 'require("node:path").dirname(process.execPath)')"
+          npm install --global --prefix "$node_prefix" npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          test "$(npm --version)" = "11.21.0"
 
       - name: Install dependencies
         run: npm ci --ignore-scripts

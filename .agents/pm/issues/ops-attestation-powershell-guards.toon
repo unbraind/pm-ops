@@ -1,0 +1,14 @@
+id: ops-attestation-powershell-guards
+title: Handle PowerShell exit guards without misreading them as publish paths
+description: "The repository-wide publish-attestation audit parses a PowerShell conditional such as if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } as an unresolved executable expansion, although it is an exit-status guard and contains no publication. This surfaced in release npm runtime PR #260. The current fix uses explicit Bash for that npm bootstrap; shell-aware PowerShell scanning is a separate follow-up."
+type: Issue
+status: open
+priority: 2
+tags: []
+created_at: "2026-11-08T00:01:38.311Z"
+updated_at: "2026-11-08T00:01:41.429Z"
+author: pi-agent
+acceptance_criteria: Recognize or explicitly diagnose PowerShell workflow run blocks without treating an exit guard as a publish command; Retain refusal of dynamic or unattested PowerShell publish paths with must-refuse and must-allow synthetic fixtures; Preserve current Bash attestation protections and prove the regression fails on revert
+files[1]{path,scope}:
+  attestation.ts,project
+body: ""
