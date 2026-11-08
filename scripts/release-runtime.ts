@@ -16,12 +16,14 @@ function installLockedRuntime(args: string[], cwd: string): void {
   const options = { cwd, env, timeout: 180_000, encoding: "utf8" as const };
   const expected = "11.21.0";
   let prefix: string | undefined;
-  let command = "npm";
-  let leading: string[] = [];
+  // Native Windows cannot execute npm.cmd through execFile without a shell.
+  // Official Node distributions keep the bundled CLI beside node.exe.
+  let command = process.platform === "win32" ? process.execPath : "npm";
+  let leading: string[] = process.platform === "win32" ? [join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js")] : [];
   try {
-    if (execFileSync(command, ["--version"], options).trim() !== expected) {
+    if (execFileSync(command, [...leading, "--version"], options).trim() !== expected) {
       prefix = mkdtempSync(join(tmpdir(), "pm-ops-npm-"));
-      execFileSync(command, ["install", "--prefix", prefix, "--no-save", "--package-lock=false", `npm@${expected}`, "--ignore-scripts", "--no-audit", "--no-fund"], { ...options, cwd: prefix, stdio: "inherit" });
+      execFileSync(command, [...leading, "install", "--prefix", prefix, "--no-save", "--package-lock=false", `npm@${expected}`, "--ignore-scripts", "--no-audit", "--no-fund"], { ...options, cwd: prefix, stdio: "inherit" });
       command = process.execPath;
       leading = [join(prefix, "node_modules/npm/bin/npm-cli.js")];
       const active = execFileSync(command, [...leading, "--version"], options).trim();

@@ -570,8 +570,17 @@ test("every installing reusable job pins npm while reconciliation stays installa
       for (const current of job.steps) assertNoNpmInstalls(current.run ?? "");
       continue;
     }
-    assert.equal(setup, node + 1, `${name}: upgrade immediately after selecting the caller's Node`);
-    assert.equal(job.steps[setup].if, name === "verify_bun" ? "inputs.bunx-script != ''" : undefined);
+    if (name === "verify_bun") {
+      const mirror = job.steps.findIndex(s => s.id === "verify_bun");
+      const hook = job.steps.findIndex(s => s.name === "Run optional caller bunx acceptance");
+      assert.ok(setup > mirror && hook > setup, "npm setup follows the independent Bun mirror check and precedes the hook");
+      assert.equal(job.steps[setup].if, "inputs.bunx-script != '' && steps.verify_bun.outcome == 'success'");
+      assert.equal(job.steps[hook].if, job.steps[setup].if);
+      assertNoNpmInstalls(job.steps[mirror].run!);
+    } else {
+      assert.equal(setup, node + 1, `${name}: upgrade immediately after selecting the caller's Node`);
+      assert.equal(job.steps[setup].if, undefined);
+    }
     assertPinnedNpmBootstrap(job.steps[setup].run!);
     assert.match(job.steps[setup].run!, /npm install -g npm@11\.21\.0 --ignore-scripts --no-audit --no-fund/);
     assert.match(job.steps[setup].run!, /\[\[ "\$active" == "11\.21\.0" \]\]/);
@@ -625,6 +634,69 @@ test("failure reporting attempts its script after bootstrap or dependency instal
       assert.equal(existsSync(join(root, "alert-ran")), true);
       assert.equal(readFileSync(join(root, "calls"), "utf8"), (ready === "true" ? "ci --ignore-scripts\n" : "") + "run release:alert\n");
     }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("failure alerts fall back without dependencies and deduplicate the run issue", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-alert-fallback-"));
+  try {
+    writeFileSync(join(root, "missing-dependency.mjs"), 'import "uninstalled-alert-dependency";\n');
+    writeFileSync(join(root, "npm"), `#!/bin/sh
+case "$1" in
+ci) exit 7 ;;
+run) exec '${process.execPath}' "$GITHUB_WORKSPACE/missing-dependency.mjs" ;;
+esac
+`, { mode: 0o755 });
+    writeFileSync(join(root, "gh"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$GITHUB_WORKSPACE/gh-calls"
+case "$2" in
+list) if [ "$LIST_STATUS" != 0 ]; then exit "$LIST_STATUS"; fi; printf '%s\\n' "$EXISTING_ISSUES" ;;
+create) for argument in "$@"; do last="$argument"; done
+  cp "$last" "$GITHUB_WORKSPACE/issue-body"
+  printf '%s' "$last" > "$GITHUB_WORKSPACE/body-path"
+  exit "$CREATE_STATUS" ;;
+esac
+`, { mode: 0o755 });
+    for (const [ready, existing, listStatus, createStatus, success, created] of [
+      ["false", "[]", "0", "0", true, true], ["true", "[]", "0", "0", true, true],
+      ["false", '[{"title":"Daily release failed (run 123)","number":7}]', "0", "0", true, false],
+      ["false", "[]", "7", "0", false, false], ["false", "[]", "0", "7", false, true],
+    ] as const) {
+      writeFileSync(join(root, "gh-calls"), "");
+      for (const file of ["issue-body", "body-path"]) rmSync(join(root, file), { force: true });
+      const result = runBashFixture(step("Report release failure").run, { encoding: "utf8", env: {
+        PATH: `${root}:${process.env.PATH}`, GITHUB_WORKSPACE: root, NPM_PROJECT_DIR: ".", NPM_READY: ready,
+        ALERT_SCRIPT: "release:alert", GITHUB_REPOSITORY: "example/package", GITHUB_RUN_ID: "123",
+        GITHUB_SERVER_URL: "https://github.com", EXISTING_ISSUES: existing, LIST_STATUS: listStatus, CREATE_STATUS: createStatus,
+      } });
+      assert.equal(result.status === 0, success, result.stderr);
+      const calls = readFileSync(join(root, "gh-calls"), "utf8");
+      assert.match(calls, /issue list/);
+      assert.equal(calls.includes("issue create"), created);
+      if (created) {
+        assert.match(readFileSync(join(root, "issue-body"), "utf8"), /https:\/\/github.com\/example\/package\/actions\/runs\/123/);
+        assert.equal(existsSync(readFileSync(join(root, "body-path"), "utf8")), false, "clean fallback body on success and failure");
+      }
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Bun mirror verification completes independently before optional npm setup", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-bun-before-npm-"));
+  try {
+    for (const command of ["bun", "bunx"]) writeFileSync(join(root, command), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$RUNNER_TEMP/bun-calls"\n', { mode: 0o755 });
+    writeFileSync(join(root, "npm"), '#!/bin/sh\nexit 7\n', { mode: 0o755 });
+    const env = { PATH: `${root}:${process.env.PATH}`, RUNNER_TEMP: root, GITHUB_ENV: join(root, "github-env"),
+      NPM_VERSION: "2026.11.7", PKG_NAME: "example-package", CLI_VERSION: "2026.11.4", BUNX_SCRIPT: "accept:bun",
+      NPM_PROJECT_DIR: ".", GITHUB_WORKSPACE: root };
+    const verified = runBashFixture(step("Verify bun install of published package").run, { encoding: "utf8", env });
+    assert.equal(verified.status, 0, verified.stderr);
+    assert.match(readFileSync(join(root, "bun-calls"), "utf8"), /health --strict-exit/);
+    assert.match(readFileSync(join(root, "github-env"), "utf8"), /PM_PATH=.*\nPM_GLOBAL_PATH=.*\nBUN_INSTALL_CACHE_DIR=/);
+    const setup = workflow.jobs.verify_bun.steps.find(s => s.name === "Use an npm that supports trusted publishing")!;
+    const failed = runBashFixture(setup.run!, { encoding: "utf8", env });
+    assert.notEqual(failed.status, 0);
+    assert.match(readFileSync(join(root, "bun-calls"), "utf8"), /health --strict-exit/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

@@ -100,6 +100,8 @@ test("an empty native probe works with no installed runtime dependencies and nev
 test("every on-demand locked installer pins npm and refuses bootstrap failures before ci", () => {
   const root = mkdtempSync(join(tmpdir(), "release-lazy-npm-"));
   const savedPath = process.env.PATH;
+  const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  const executable = Object.getOwnPropertyDescriptor(process, "execPath")!;
   try {
     const bin = join(root, "bin"); mkdirSync(bin);
     // The inherited npm deliberately refuses every global installation, even as root.
@@ -135,30 +137,45 @@ else if (args[0] === "ci") {
   fs.symlinkSync(${JSON.stringify(join(workflowToolsRoot, "node_modules"))}, "node_modules", "junction");
 }
 `, { mode: 0o755 });
+    const bundled = join(bin, "node_modules/npm/bin"); mkdirSync(bundled, { recursive: true });
+    cpSync(join(bin, "npm"), join(bundled, "npm-cli.js"));
+    symlinkSync(process.execPath, join(bin, "node"));
     process.env.PATH = bin; // No git or pinned npm executable is discoverable through PATH.
-    for (const installer of ["private", "tools"]) for (const [before, after, status, ciStatus, success] of [
-      ["11.21.0", "11.21.0", "0", "0", true], ["10.9.3", "11.21.0", "0", "0", true],
-      ["10.9.3", "10.9.3", "0", "0", false], ["10.9.3", "11.22.0", "0", "0", false], ["10.9.3", "11.21.0", "7", "0", false],
-      ["10.9.3", "11.21.0", "0", "8", false],
-    ] as const) {
-      const source = join(root, `${installer}-${before}-${after}-${status}-${ciStatus}`); mkdirSync(source);
-      writeFileSync(join(source, "package.json"), '{"name":"pm-ops","version":"9999.1.1","type":"module"}');
-      symlinkSync(join(workflowToolsRoot, "dist"), join(source, "dist"), "junction");
-      const cwd = installer === "tools" ? source : join(source, ".github/release-runtime"); mkdirSync(cwd, { recursive: true });
-      for (const [file, value] of [["before", before], ["after", after], ["status", status], ["ci-status", ciStatus]]) writeFileSync(join(cwd, file), value);
-      writeFileSync(join(bin, "scenario"), cwd);
-      const run = () => installer === "tools" ? installReleaseTools(source, join(source, "prefix"), "9999.1.1") : ensureReleaseRuntime(source);
-      if (success) run(); else assert.throws(run, /Expected npm|Command failed/);
-      const calls = readFileSync(join(cwd, "calls"), "utf8").trim().split("\n").map(line => JSON.parse(line) as string[]);
-      assert.equal(calls.some(call => call[0] === "ci"), success || ciStatus !== "0", `${installer}/${before}/${after}/${status}/${ciStatus}`);
-      if (before === "11.21.0") assert.equal(calls.length, 1);
-      else {
-        const prefix = readFileSync(join(cwd, "bootstrap-prefix"), "utf8");
-        assert.deepEqual(calls[0], ["install", "--prefix", prefix, "--no-save", "--package-lock=false", "npm@11.21.0", "--ignore-scripts", "--no-audit", "--no-fund"]);
-        assert.equal(existsSync(prefix), false, "remove temporary npm after success, bootstrap failure, version mismatch and ci failure");
-        if (status === "0") assert.deepEqual(calls[1], ["--version"]);
+    for (const target of ["native", "windows-launch"]) {
+      if (target === "windows-launch") {
+        Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+        Object.defineProperty(process, "execPath", { ...executable, value: join(bin, "node") });
+        rmSync(join(bin, "npm")); // Only Node and its adjacent bundled CLI remain.
       }
-      if (success) assert.deepEqual(calls.at(-1), ["ci", "--omit=dev", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund"]);
+      for (const installer of ["private", "tools"]) for (const [before, after, status, ciStatus, success] of [
+        ["11.21.0", "11.21.0", "0", "0", true], ["10.9.3", "11.21.0", "0", "0", true],
+        ["10.9.3", "10.9.3", "0", "0", false], ["10.9.3", "11.22.0", "0", "0", false], ["10.9.3", "11.21.0", "7", "0", false],
+        ["10.9.3", "11.21.0", "0", "8", false],
+      ] as const) {
+        const source = join(root, `${target}-${installer}-${before}-${after}-${status}-${ciStatus}`); mkdirSync(source);
+        writeFileSync(join(source, "package.json"), '{"name":"pm-ops","version":"9999.1.1","type":"module"}');
+        symlinkSync(join(workflowToolsRoot, "dist"), join(source, "dist"), "junction");
+        const cwd = installer === "tools" ? source : join(source, ".github/release-runtime"); mkdirSync(cwd, { recursive: true });
+        for (const [file, value] of [["before", before], ["after", after], ["status", status], ["ci-status", ciStatus]]) writeFileSync(join(cwd, file), value);
+        writeFileSync(join(bin, "scenario"), cwd);
+        const run = () => installer === "tools" ? installReleaseTools(source, join(source, "prefix"), "9999.1.1") : ensureReleaseRuntime(source);
+        if (success) run(); else assert.throws(run, /Expected npm|Command failed/);
+        const calls = readFileSync(join(cwd, "calls"), "utf8").trim().split("\n").map(line => JSON.parse(line) as string[]);
+        assert.equal(calls.some(call => call[0] === "ci"), success || ciStatus !== "0", `${installer}/${before}/${after}/${status}/${ciStatus}`);
+        if (before === "11.21.0") assert.equal(calls.length, 1);
+        else {
+          const prefix = readFileSync(join(cwd, "bootstrap-prefix"), "utf8");
+          assert.deepEqual(calls[0], ["install", "--prefix", prefix, "--no-save", "--package-lock=false", "npm@11.21.0", "--ignore-scripts", "--no-audit", "--no-fund"]);
+          assert.equal(existsSync(prefix), false, "remove temporary npm after success, bootstrap failure, version mismatch and ci failure");
+          if (status === "0") assert.deepEqual(calls[1], ["--version"]);
+        }
+        if (success) assert.deepEqual(calls.at(-1), ["ci", "--omit=dev", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund"]);
+      }
     }
-  } finally { if (savedPath === undefined) delete process.env.PATH; else process.env.PATH = savedPath; rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    Object.defineProperty(process, "platform", platform);
+    Object.defineProperty(process, "execPath", executable);
+    if (savedPath === undefined) delete process.env.PATH; else process.env.PATH = savedPath;
+    rmSync(root, { recursive: true, force: true });
+  }
 });
