@@ -4,7 +4,7 @@ The shared workflow uses exact **npm 11.21.0** independently of the caller's `no
 
 The optional alert job attempts the caller script even after bootstrap or dependency-install failure. If that script fails, it uses gh to report a dependency-free GitHub issue for the run, deduplicates retries, and fails visibly if lookup or issue creation fails.
 
-PR CI uses the same npm and tests Node `22.18.0` and `26` against fresh copies of both committed manifests/locks with the release tools' exact command: `npm ci --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund`. Dependabot lock updates must pass this gate before merging. Keep the pin, setup steps and lock gate aligned when upgrading npm; retain lifecycle suppression and the committed lock format.
+PR CI uses the same npm and tests Node `22.18.0` and `26` against fresh copies of both committed manifests/locks with the release tools' exact command: `npm ci --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund`. The private provenance runtime also installs with `--engine-strict` at its declared Node floor, independently of the exact-command check and the floating Node jobs. Dependabot lock updates must pass these gates before merging. Keep the pin, setup steps and lock gate aligned when upgrading npm; retain lifecycle suppression and the committed lock format.
 
 
 The pm-ops pilot is .github/workflows/release.yml: a local call to the shared workflow at the same trusted commit, daily at 03:23 UTC and reconciliation-only at minute 41 hourly. No other package is modified. The existing npm trusted-publisher caller filename remains release.yml. Live publication is deliberately not exercised by this implementation PR.

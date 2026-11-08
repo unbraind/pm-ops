@@ -6,6 +6,7 @@ import { spawnSync } from "../subprocess.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "../scripts/release-runtime.ts";
+import { interceptRuntimeNpm } from "./runtime-npm-fixture.ts";
 import { runReleaseContinuation } from "../scripts/release-continuation.ts";
 
 /** A source checkout whose intentionally unpublished version must never be requested from npm. */
@@ -21,10 +22,8 @@ test("unpublished trusted source version bootstraps from exact committed planner
   const root = mkdtempSync(join(tmpdir(), "release-source-tools-"));
   const keys = ["RUNNER_TEMP", "PM_OPS_VERSION", "RELEASE_TOOLS_ROOT", "GITHUB_ENV", "PATH"];
   const saved = new Map(keys.map(key => [key, process.env[key]]));
+  const restoreNpm = interceptRuntimeNpm(root, 'if (process.argv[2] === "--version") console.log("11.21.0"); else { require("node:fs").writeFileSync("unpublished-lookup", process.argv.slice(2).join(" ")); process.exit(7); }');
   try {
-    const bin = join(root, "bin"); mkdirSync(bin);
-    writeFileSync(join(bin, "npm"), '#!/bin/sh\nif [ "$1" = --version ]; then echo 11.21.0; exit 0; fi\nprintf "%s\\n" "$*" > "$PWD/unpublished-lookup"\nexit 7\n'); chmodSync(join(bin, "npm"), 0o755);
-    process.env.PATH = bin + ":" + process.env.PATH;
     const source = sourceFixture(root);
     const module = installReleaseTools(source, join(root, "prefix"), "9999.1.1");
     assert.equal(existsSync(join(source, "unpublished-lookup")), false);
@@ -49,29 +48,28 @@ test("unpublished trusted source version bootstraps from exact committed planner
     assert.throws(() => installReleaseTools(uninstalled, join(root, "missing"), "9999.1.1"), /Command failed/);
     assert.match(readFileSync(join(uninstalled, "unpublished-lookup"), "utf8"), /^ci --omit=dev --ignore-scripts/);
   } finally {
+    restoreNpm();
     for (const key of keys) { const prior = saved.get(key); if (prior === undefined) Reflect.deleteProperty(process.env, key); else process.env[key] = prior; }
     rmSync(root, { recursive: true, force: true });
   }
 });
 
 test("runtime installs only locked production dependencies without lifecycle scripts", () => {
-  const root = mkdtempSync(join(tmpdir(), "release-runtime-")); const savedPath = process.env.PATH;
+  const root = mkdtempSync(join(tmpdir(), "release-runtime-"));
+  const restoreNpm = interceptRuntimeNpm(root, 'if (process.argv[2] === "--version") console.log("11.21.0"); else require("node:fs").writeFileSync("install-args", process.argv.slice(2).join(" "));');
   try {
     let calls = 0;
     const privateRoot = join(root, ".github/release-runtime"); mkdirSync(privateRoot, { recursive: true });
     ensureReleaseRuntime(root, (args, cwd) => { calls++; assert.equal(cwd, privateRoot); assert.deepEqual(args, ["ci", "--omit=dev", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund"]); });
     assert.equal(calls, 1);
     ensureReleaseRuntime(undefined, () => {});
-    const bin = join(root, "bin"); mkdirSync(bin);
-    writeFileSync(join(bin, "npm"), '#!/bin/sh\nif [ "$1" = --version ]; then echo 11.21.0; exit 0; fi\nprintf "%s\\n" "$*" > "$PWD/install-args"\n'); chmodSync(join(bin, "npm"), 0o755);
-    process.env.PATH = bin + ":" + savedPath;
     ensureReleaseRuntime(root);
     assert.match(readFileSync(join(privateRoot, "install-args"), "utf8"), /^ci --omit=dev --ignore-scripts/);
     assert.doesNotMatch(readFileSync(join(privateRoot, "install-args"), "utf8"), /pm-ops@/);
     mkdirSync(join(privateRoot, "node_modules/sigstore"), { recursive: true }); writeFileSync(join(privateRoot, "node_modules/sigstore/package.json"), "{}");
     ensureReleaseRuntime(root, () => { throw new Error("already installed"); });
     assert.equal(existsSync(join(root, "node_modules")), false);
-  } finally { if (savedPath === undefined) delete process.env.PATH; else process.env.PATH = savedPath; rmSync(root, { recursive: true, force: true }); }
+  } finally { restoreNpm(); rmSync(root, { recursive: true, force: true }); }
 });
 
 test("an empty native probe works with no installed runtime dependencies and never invokes npm", () => {
@@ -99,15 +97,13 @@ test("an empty native probe works with no installed runtime dependencies and nev
 
 test("every on-demand locked installer pins npm and refuses bootstrap failures before ci", () => {
   const root = mkdtempSync(join(tmpdir(), "release-lazy-npm-"));
-  const savedPath = process.env.PATH;
+  let restoreNpm = () => {};
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
-  const executable = Object.getOwnPropertyDescriptor(process, "execPath")!;
   try {
-    const bin = join(root, "bin"); mkdirSync(bin);
+    const bin = join(root, "bin");
     // The inherited npm deliberately refuses every global installation, even as root.
     // Its only successful bootstrap writes a CLI which is absent from PATH.
-    writeFileSync(join(bin, "npm"), `#!${process.execPath}
-const fs = require("node:fs");
+    restoreNpm = interceptRuntimeNpm(root, `const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
 const cwd = process.cwd();
@@ -136,15 +132,11 @@ else if (args[0] === "ci") {
   if (fs.readFileSync("ci-status", "utf8") !== "0") process.exit(8);
   fs.symlinkSync(${JSON.stringify(join(workflowToolsRoot, "node_modules"))}, "node_modules", "junction");
 }
-`, { mode: 0o755 });
-    const bundled = join(bin, "node_modules/npm/bin"); mkdirSync(bundled, { recursive: true });
-    cpSync(join(bin, "npm"), join(bundled, "npm-cli.js"));
-    symlinkSync(process.execPath, join(bin, "node"));
+`);
     process.env.PATH = bin; // No git or pinned npm executable is discoverable through PATH.
     for (const target of ["native", "windows-launch"]) {
       if (target === "windows-launch") {
         Object.defineProperty(process, "platform", { ...platform, value: "win32" });
-        Object.defineProperty(process, "execPath", { ...executable, value: join(bin, "node") });
         rmSync(join(bin, "npm")); // Only Node and its adjacent bundled CLI remain.
       }
       for (const installer of ["private", "tools"]) for (const [before, after, status, ciStatus, success] of [
@@ -174,8 +166,7 @@ else if (args[0] === "ci") {
     }
   } finally {
     Object.defineProperty(process, "platform", platform);
-    Object.defineProperty(process, "execPath", executable);
-    if (savedPath === undefined) delete process.env.PATH; else process.env.PATH = savedPath;
+    restoreNpm();
     rmSync(root, { recursive: true, force: true });
   }
 });

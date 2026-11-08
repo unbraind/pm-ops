@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
-import { npmInstalls } from "./npm-bootstrap-contract.ts";
+import { assertNoNpmInstalls, npmInstalls } from "./npm-bootstrap-contract.ts";
 
 /** The release workflow source, read once and asserted against as text. */
 const workflow = readFileSync(
@@ -887,5 +887,22 @@ test("a probe called from inside a retry loop must only return status, not exit 
 test("retry guards reject every npm install family, including test and clean aliases", () => {
   for (const verb of ["it", "installt", "install-test", "installTest", "cit", "sit", "install-ci-test", "clean-install-test", "ic", "clean-install", "isntall-clean", "in", "ins", "inst", "insta", "instal", "isntall"]) {
     assert.equal(vacuousRetryLoops(`for attempt in 1 2; do npm ${verb} pkg; sleep 1; done`).length, 1, verb);
+  }
+});
+
+
+test("npm install and retry guards distinguish every install alias from script and option operands", () => {
+  const aliases = ["install", "i", "in", "ins", "inst", "insta", "instal", "isnt", "isnta", "isntal", "isntall", "add", "ci", "ic", "clean-install", "install-clean", "isntall-clean", "install-test", "installt", "it", "install-ci-test", "cit", "sit", "clean-install-test", "installTest", "installCiTest"];
+  for (const alias of aliases) for (const prefix of ["npm", "npm.cmd", "command npm", "env CACHE=fixture npm", "npm --prefix fixture", "npm --cache=fixture", "npm -g", "npm --ignore-scripts true"]) {
+    const installing = `${prefix} ${alias} pkg`;
+    assert.equal(npmInstalls(installing).length, 1, installing);
+    assert.equal(vacuousRetryLoops(`for attempt in 1 2; do ${installing}; done`).length, 1, installing);
+    for (const verb of ["run", "run-script", "exec", "x", "view", "help", "config get"]) {
+      const script = `${prefix} ${verb} ${alias}`;
+      assert.deepEqual(npmInstalls(script), [], script);
+      assert.doesNotThrow(() => assertNoNpmInstalls(script), script);
+      assert.equal(vacuousRetryLoops(`for attempt in 1 2; do ${script}; done`).length, 0, script);
+    }
+    assert.deepEqual(npmInstalls(`npm --prefix ${alias} run ci`), [], alias);
   }
 });

@@ -2,12 +2,33 @@
 import assert from "node:assert/strict";
 import { commandArguments, commandCandidates, commandName, tokenizeCommands } from "../shell-scan.ts";
 
+/** npm configuration options with a separate value before the subcommand. */
+const VALUE_FLAGS = new Set(["--prefix", "--cache", "--registry", "--userconfig", "--globalconfig", "--workspace", "-w", "--tag", "--access", "--otp", "--loglevel", "--omit", "--include", "--before", "--auth-type", "--provenance-file"]);
+
+/** Read the first npm positional word, excluding configuration operands. */
+function npmSubcommand(words: string[]): string | undefined {
+  for (let index = 1; index < words.length; index++) {
+    const word = words[index];
+    if (word === "--") return words[index + 1];
+    if (VALUE_FLAGS.has(word)) { index++; continue; }
+    if (word.startsWith("-")) {
+      if (["true", "false"].includes(words[index + 1])) index++;
+      continue;
+    }
+    return word;
+  }
+  return undefined;
+}
+
 /** Enumerate npm installation commands across shell separators and install aliases. */
 export function npmInstalls(script: string): string[][] {
   return tokenizeCommands(script).flatMap(command => commandCandidates(command))
     .filter(command => /^(?:npm|npm\.cmd)$/.test(commandName(command) ?? ""))
     .map(command => ["npm", ...commandArguments(command).map(token => token.value)])
-    .filter(words => words[0] === "npm" && words.some(word => ["install", "i", "in", "ins", "inst", "insta", "instal", "isnt", "isnta", "isntal", "isntall", "add", "ci", "ic", "clean-install", "install-clean", "isntall-clean", "install-test", "installt", "it", "install-ci-test", "cit", "sit", "clean-install-test"].includes(word.replace(/[A-Z]/g, letter => "-" + letter.toLowerCase()))));
+    .filter(words => {
+      const word = npmSubcommand(words) ?? "";
+      return ["install", "i", "in", "ins", "inst", "insta", "instal", "isnt", "isnta", "isntal", "isntall", "add", "ci", "ic", "clean-install", "install-clean", "isntall-clean", "install-test", "installt", "it", "install-ci-test", "cit", "sit", "clean-install-test"].includes(word.replace(/[A-Z]/g, letter => "-" + letter.toLowerCase()));
+    });
 }
 
 /** Keep every metadata-only reconciliation step free of dependency installation. */

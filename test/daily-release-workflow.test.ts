@@ -38,6 +38,7 @@ const workflow = parse(source) as {
   concurrency: { group: string; "cancel-in-progress": boolean; queue: string };
   jobs: Record<string, { if: string; needs: string[]; env: Record<string, string>; permissions: Record<string, string>; steps: Step[] }>;
 };
+const ci = parse(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")) as { jobs: Record<string, { strategy: { matrix: { "node-version": (string | number)[] } }; steps: Step[] }> };
 const steps = Object.values(workflow.jobs).flatMap(job => job.steps);
 
 /** Read a required executable step, failing if it was removed or renamed. */
@@ -540,7 +541,6 @@ test("every continuation job enforces its runtime floor before executing TypeScr
 });
 
 test("private runtime CI installs and executes its own lockfile after root-installation gates", () => {
-  const ci = parse(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")) as { jobs: Record<string, { steps: Step[] }> };
   const steps = ci.jobs.test.steps, index = steps.findIndex(s => s.name === "Verify private provenance runtime");
   assert.ok(index > steps.findIndex(s => s.name === "Bun release gate"));
   assert.match(steps[index].run!, /npm ci --prefix \.github\/release-runtime .*--ignore-scripts --engine-strict/);
@@ -588,7 +588,6 @@ test("every installing reusable job pins npm while reconciliation stays installa
 });
 
 test("every reusable and CI npm setup refuses failed installs and wrong active versions", () => {
-  const ci = parse(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")) as { jobs: Record<string, { steps: Step[] }> };
   const root = mkdtempSync(join(tmpdir(), "release-npm-pin-"));
   try {
     const installCommands = ["npm ci", "npm install -g another-package", "npm -g i another-package", "npm add another-package", "npm it another-package", "npm install-test another-package", "npm installt another-package", "npm clean-install", "npm cit", "npm sit", "npm ic", "npm install-ci-test", "npm clean-install-test", "npm in another-package", "npm ins another-package", "npm inst another-package", "npm insta another-package", "npm instal another-package", "npm isnt another-package", "npm isnta another-package", "npm isntal another-package", "npm isntall another-package", "npm install-clean", "npm isntall-clean", "npm installTest another-package", "npm installCiTest another-package"];
@@ -599,7 +598,7 @@ test("every reusable and CI npm setup refuses failed installs and wrong active v
     writeFileSync(join(root, "npm"), '#!/bin/sh\ncase "$1" in\ninstall) exit "$INSTALL_STATUS" ;;\n--version) echo "$ACTIVE_NPM" ;;\nesac\n', { mode: 0o755 });
     for (const [file, jobs] of [["reusable", workflow.jobs], ["CI", ci.jobs]] as const) for (const [name, job] of Object.entries(jobs)) {
       const setupName = file === "reusable" ? "Use an npm that supports trusted publishing" : "Install npm 11.21.0";
-      const setups = job.steps.filter(s => s.name === setupName);
+      const setups = job.steps.filter((s: Step) => s.name === setupName);
       assert.equal(setups.length, file === "reusable" && ["reconcile", "request"].includes(name) ? 0 : 1, `${file}/${name}`);
       for (const setup of setups) {
         assertPinnedNpmBootstrap(setup.run!);
@@ -701,7 +700,6 @@ test("Bun mirror verification completes independently before optional npm setup"
 });
 
 test("PR lock gate uses both committed locks and the exact script-disabled release install", () => {
-  const ci = parse(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")) as { jobs: Record<string, { strategy: { matrix: { "node-version": (string | number)[] } }; steps: Step[] }> };
   const job = ci.jobs["release-lock"];
   assert.deepEqual(job.strategy.matrix["node-version"], ["22.18.0", 26]);
   const command = "npm ci --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund";
@@ -719,4 +717,43 @@ test("PR lock gate uses both committed locks and the exact script-disabled relea
     const firstInstall = entry.steps.findIndex(s => /npm ci/.test(s.run ?? ""));
     assert.ok(firstInstall > setup);
   }
+});
+
+
+test("every private runtime Node floor has an independent strict engine gate", () => {
+  const floor = JSON.parse(readFileSync(new URL("../.github/release-runtime/package.json", import.meta.url), "utf8")).engines.node.replace(/^>=/, "");
+  const job = ci.jobs["release-lock"];
+  assert.ok(job.strategy.matrix["node-version"].includes(floor));
+  const strict = job.steps.find((s: Step) => s.run?.includes("--engine-strict"));
+  assert.ok(strict, "the floor needs a strict install in addition to the exact release command");
+  assert.equal(strict.if, "${{ matrix.node-version == '" + floor + "' }}");
+  assert.equal(strict.run, "npm ci --prefix .github/release-runtime --omit=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund");
+  assert.ok(job.steps.indexOf(strict) > job.steps.findIndex((s: Step) => s.name === "Install committed locks exactly as release tools do"));
+});
+
+test("private runtime floor gate rejects incompatible root and transitive engines before installation", () => {
+  const strict = ci.jobs["release-lock"].steps.find((s: Step) => s.run?.includes("--engine-strict"));
+  assert.ok(strict, "a strict floor gate must exist before exercising its engine policy");
+  const root = mkdtempSync(join(tmpdir(), "release-engine-policy-"));
+  try {
+    for (const target of ["", "node_modules/sigstore"]) {
+      const cwd = join(root, target === "" ? "root-engine" : "dependency-engine");
+      const runtime = join(cwd, ".github/release-runtime");
+      mkdirSync(runtime, { recursive: true });
+      const manifest = JSON.parse(readFileSync(new URL("../.github/release-runtime/package.json", import.meta.url), "utf8"));
+      const lock = JSON.parse(readFileSync(new URL("../.github/release-runtime/package-lock.json", import.meta.url), "utf8"));
+      assert.ok(lock.packages[target].engines.node, "the adversary must change an existing engine declaration");
+      lock.packages[target].engines.node = ">=999.0.0";
+      if (target === "") manifest.engines.node = ">=999.0.0";
+      writeFileSync(join(runtime, "package.json"), JSON.stringify(manifest));
+      writeFileSync(join(runtime, "package-lock.json"), JSON.stringify(lock));
+      const result = runBashFixture(strict.run!, { cwd, encoding: "utf8", timeout: 30_000, env: {
+        PATH: process.env.PATH, SystemRoot: process.env.SystemRoot,
+        NPM_CONFIG_USERCONFIG: process.platform === "win32" ? "NUL" : "/dev/null", NPM_CONFIG_CACHE: join(cwd, "cache"),
+      } });
+      assert.notEqual(result.status, 0, target);
+      assert.match(result.stderr, /EBADENGINE/, target);
+      assert.equal(existsSync(join(runtime, "node_modules")), false, "engine refusal precedes dependency writes");
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
