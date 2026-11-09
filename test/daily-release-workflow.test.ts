@@ -590,7 +590,7 @@ test("every installing reusable job pins npm while reconciliation stays installa
 test("every reusable and CI npm setup refuses failed installs and wrong active versions", () => {
   const root = mkdtempSync(join(tmpdir(), "release-npm-pin-"));
   try {
-    const installCommands = ["npm ci", "npm install -g another-package", "npm -g i another-package", "npm add another-package", "npm it another-package", "npm install-test another-package", "npm installt another-package", "npm clean-install", "npm cit", "npm sit", "npm ic", "npm install-ci-test", "npm clean-install-test", "npm in another-package", "npm ins another-package", "npm inst another-package", "npm insta another-package", "npm instal another-package", "npm isnt another-package", "npm isnta another-package", "npm isntal another-package", "npm isntall another-package", "npm install-clean", "npm isntall-clean", "npm installTest another-package", "npm installCiTest another-package"];
+    const installCommands = ["npm ci", "npm install -g another-package", "npm -g i another-package", "npm add another-package", "npm it another-package", "npm install-test another-package", "npm installt another-package", "npm clean-install", "npm cit", "npm sit", "npm ic", "npm install-ci-test", "npm clean-install-test", "npm in another-package", "npm ins another-package", "npm inst another-package", "npm insta another-package", "npm instal another-package", "npm isnt another-package", "npm isnta another-package", "npm isntal another-package", "npm isntall another-package", "npm install-clean", "npm isntall-clean", "npm installTest another-package", "npm installCiTest another-package", "npm --install-strategy nested ci", "npm --cpu x64 ci", "npm --audit-level high install another-package"];
     const scenarios = installCommands.flatMap(command => [command, `if ${command}; then true; fi`, `for attempt in 1; do ${command}; done`, `NPM_CONFIG_CACHE=cache ${command}`, `env NPM_CONFIG_CACHE=cache ${command}`, `command ${command}`, command.replace(/^npm /, "npm.cmd ")]);
     for (const name of ["reconcile", "request"]) for (const current of workflow.jobs[name].steps) for (const install of scenarios) {
       assert.throws(() => assertNoNpmInstalls((current.run ?? "") + "\n" + install), /must not install/);
@@ -641,8 +641,9 @@ test("failure alerts fall back without dependencies and deduplicate the run issu
   try {
     writeFileSync(join(root, "missing-dependency.mjs"), 'import "uninstalled-alert-dependency";\n');
     writeFileSync(join(root, "npm"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$GITHUB_WORKSPACE/npm-calls"
 case "$1" in
-ci) exit 7 ;;
+ci) exit "$INSTALL_STATUS" ;;
 run) exec '${process.execPath}' "$GITHUB_WORKSPACE/missing-dependency.mjs" ;;
 esac
 `, { mode: 0o755 });
@@ -656,22 +657,27 @@ create) for argument in "$@"; do last="$argument"; done
   exit "$CREATE_STATUS" ;;
 esac
 `, { mode: 0o755 });
-    for (const [ready, existing, listStatus, createStatus, success, created] of [
-      ["false", "[]", "0", "0", true, true], ["true", "[]", "0", "0", true, true],
-      ["false", '[{"title":"Daily release failed (run 123)","number":7}]', "0", "0", true, false],
-      ["false", "[]", "7", "0", false, false], ["false", "[]", "0", "7", false, true],
+    for (const [ready, installStatus, existing, listStatus, createStatus, success, created] of [
+      ["false", "7", "[]", "0", "0", true, true], ["true", "7", "[]", "0", "0", true, true],
+      ["true", "0", "[]", "0", "0", true, true],
+      ["false", "7", '[{"number":9}]', "0", "0", true, false],
+      ["false", "7", "[]", "7", "0", false, false], ["false", "7", "[]", "0", "7", false, true],
     ] as const) {
-      writeFileSync(join(root, "gh-calls"), "");
+      writeFileSync(join(root, "gh-calls"), ""); writeFileSync(join(root, "npm-calls"), "");
       for (const file of ["issue-body", "body-path"]) rmSync(join(root, file), { force: true });
       const result = runBashFixture(step("Report release failure").run, { encoding: "utf8", env: {
         PATH: `${root}:${process.env.PATH}`, GITHUB_WORKSPACE: root, NPM_PROJECT_DIR: ".", NPM_READY: ready,
         ALERT_SCRIPT: "release:alert", GITHUB_REPOSITORY: "example/package", GITHUB_RUN_ID: "123",
         GITHUB_SERVER_URL: "https://github.com", EXISTING_ISSUES: existing, LIST_STATUS: listStatus, CREATE_STATUS: createStatus,
+        INSTALL_STATUS: installStatus,
       } });
       assert.equal(result.status === 0, success, result.stderr);
       const calls = readFileSync(join(root, "gh-calls"), "utf8");
       assert.match(calls, /issue list/);
+      assert.match(calls, /--search in:title,body 123/, "deduplicate on the workflow run identity, not the fallback title");
       assert.equal(calls.includes("issue create"), created);
+      const npmCalls = readFileSync(join(root, "npm-calls"), "utf8");
+      assert.equal(npmCalls, (ready === "true" ? "ci --ignore-scripts\n" : "") + "run release:alert\n");
       if (created) {
         assert.match(readFileSync(join(root, "issue-body"), "utf8"), /https:\/\/github.com\/example\/package\/actions\/runs\/123/);
         assert.equal(existsSync(readFileSync(join(root, "body-path"), "utf8")), false, "clean fallback body on success and failure");
@@ -724,11 +730,16 @@ test("every private runtime Node floor has an independent strict engine gate", (
   const floor = JSON.parse(readFileSync(new URL("../.github/release-runtime/package.json", import.meta.url), "utf8")).engines.node.replace(/^>=/, "");
   const job = ci.jobs["release-lock"];
   assert.ok(job.strategy.matrix["node-version"].includes(floor));
+  assert.equal(job.steps.filter((s: Step) => s.run?.includes("--engine-strict")).length, 2, "both committed locks need a strict gate at the Node floor");
   const strict = job.steps.find((s: Step) => s.run?.includes("--engine-strict"));
   assert.ok(strict, "the floor needs a strict install in addition to the exact release command");
   assert.equal(strict.if, "${{ matrix.node-version == '" + floor + "' }}");
   assert.equal(strict.run, "npm ci --prefix .github/release-runtime --omit=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund");
   assert.ok(job.steps.indexOf(strict) > job.steps.findIndex((s: Step) => s.name === "Install committed locks exactly as release tools do"));
+  const root = job.steps.find((s: Step) => s.name === "Check root dependency engines at the Node floor")!;
+  assert.equal(root.if, strict.if, "the root lock gets the same floor as the private runtime");
+  assert.equal(root.run, "npm ci --omit=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund");
+  assert.ok(job.steps.indexOf(root) > job.steps.indexOf(strict), "the root gate follows the private runtime gate");
 });
 
 test("private runtime floor gate rejects incompatible root and transitive engines before installation", () => {
@@ -755,5 +766,28 @@ test("private runtime floor gate rejects incompatible root and transitive engine
       assert.match(result.stderr, /EBADENGINE/, target);
       assert.equal(existsSync(join(runtime, "node_modules")), false, "engine refusal precedes dependency writes");
     }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("root engine floor gate refuses an incompatible root manifest before installation", () => {
+  const rootStep = ci.jobs["release-lock"].steps.find((s: Step) => s.name === "Check root dependency engines at the Node floor")!;
+  const root = mkdtempSync(join(tmpdir(), "release-root-engine-"));
+  try {
+    const project = join(root, "root-engine"); mkdirSync(project);
+    const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+    const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"));
+    // The adversary changes an existing engine declaration, here the committed root floor.
+    assert.equal(manifest.engines.node, ">=22.18.0");
+    manifest.engines.node = ">=999.0.0";
+    lock.packages[""].engines.node = ">=999.0.0";
+    writeFileSync(join(project, "package.json"), JSON.stringify(manifest));
+    writeFileSync(join(project, "package-lock.json"), JSON.stringify(lock));
+    const result = runBashFixture(rootStep.run!, { cwd: project, encoding: "utf8", timeout: 60_000, env: {
+      PATH: process.env.PATH, SystemRoot: process.env.SystemRoot,
+      NPM_CONFIG_USERCONFIG: process.platform === "win32" ? "NUL" : "/dev/null", NPM_CONFIG_CACHE: join(root, "cache"),
+    } });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /EBADENGINE/);
+    assert.equal(existsSync(join(project, "node_modules")), false, "engine refusal precedes dependency writes");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

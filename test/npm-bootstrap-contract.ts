@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { commandArguments, commandCandidates, commandName, tokenizeCommands } from "../shell-scan.ts";
 
 /** npm configuration options with a separate value before the subcommand. */
-const VALUE_FLAGS = new Set(["--prefix", "--cache", "--registry", "--userconfig", "--globalconfig", "--workspace", "-w", "--tag", "--access", "--otp", "--loglevel", "--omit", "--include", "--before", "--auth-type", "--provenance-file"]);
+const VALUE_FLAGS = new Set(["--prefix", "--cache", "--registry", "--userconfig", "--globalconfig", "--workspace", "-w", "--tag", "--access", "--otp", "--loglevel", "--omit", "--include", "--before", "--auth-type", "--provenance-file",
+  "--install-strategy", "--audit-level", "--depth", "--cpu", "--os", "--libc", "--archive", "--save-prefix", "--scope", "--lockfile-version", "--fetch-retries", "--fetch-retry-factor", "--fetch-retry-mintimeout", "--fetch-retry-maxtimeout", "--fetch-timeout", "--max-sockets", "--proxy", "--https-proxy", "--noproxy", "--user-agent", "--local-address", "--ca", "--cert", "--key", "--git", "--editor", "--to", "--from", "--searchexclude", "--searchlimit", "--searchopts", "--node-options"]);
 
 /** Read the first npm positional word, excluding configuration operands. */
 function npmSubcommand(words: string[]): string | undefined {

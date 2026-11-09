@@ -11,8 +11,12 @@ export const workflowToolsRoot = resolve(dirname(fileURLToPath(import.meta.url))
 
 /** Install dependencies from the trusted commit's lockfile without running lifecycle scripts. */
 function installLockedRuntime(args: string[], cwd: string): void {
+  // A fixed shared cache would let another user on a multi-user host pre-seed registry
+  // metadata and a forged tarball whose CLI this process then executes; a fresh
+  // private mkdtemp cache (0700) cannot be pre-populated and is always removed.
+  const cache = mkdtempSync(join(tmpdir(), "pm-ops-npm-cache-"));
   const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, NPM_CONFIG_USERCONFIG: devNull,
-    NPM_CONFIG_REGISTRY: "https://registry.npmjs.org/", NPM_CONFIG_CACHE: join(tmpdir(), "pm-ops-runtime-cache") };
+    NPM_CONFIG_REGISTRY: "https://registry.npmjs.org/", NPM_CONFIG_CACHE: cache };
   const options = { cwd, env, timeout: 180_000, encoding: "utf8" as const };
   const expected = "11.21.0";
   let prefix: string | undefined;
@@ -32,6 +36,7 @@ function installLockedRuntime(args: string[], cwd: string): void {
     execFileSync(command, [...leading, ...args], { ...options, stdio: "inherit" });
   } finally {
     if (prefix !== undefined) rmSync(prefix, { recursive: true, force: true });
+    rmSync(cache, { recursive: true, force: true });
   }
 }
 

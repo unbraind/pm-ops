@@ -1425,7 +1425,10 @@ jobs:
           if npm run "$ALERT_SCRIPT"; then exit 0; fi
           echo "::warning::Configured alert failed; reporting without project dependencies."
           title="Daily release failed (run $GITHUB_RUN_ID)"
-          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state all --search "in:title $title" --json title,number | jq -r --arg title "$title" '.[] | select(.title == $title) | .number')"
+          # Deduplicate on the workflow-run identity, not the fallback title: the
+          # configured alert's issue may use any title, and issues that reference the
+          # failed run (the documented alert contract) already cover this failure.
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state all --search "in:title,body $GITHUB_RUN_ID" --json number | jq -r '.[].number')"
           if [[ -n "$existing" ]]; then exit 0; fi
           body="$(mktemp)"
           trap 'rm -f -- "$body"' EXIT

@@ -181,3 +181,6 @@ jobs:
       - name: Check private runtime engines at the Node floor
         if: ${{ matrix.node-version == '22.18.0' }}
         run: npm ci --prefix .github/release-runtime --omit=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund
+      - name: Check root dependency engines at the Node floor
+        if: ${{ matrix.node-version == '22.18.0' }}
+        run: npm ci --omit=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund
