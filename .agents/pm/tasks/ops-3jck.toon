@@ -1,0 +1,25 @@
+id: ops-3jck
+title: Release runtime discovers a non-adjacent npm CLI and pins the caller's Node for the matched CLI
+description: "Local recovery must discover standard npm installations outside the Node directory and run the verified CLI with the explicit caller Node even when PATH selects another Node. Resolve the adjacent npm CLI first, then standard PATH layouts and POSIX npm symlink targets. Execute every version probe, bootstrap and locked install directly with the caller Node, without a shell; refuse clearly when no CLI is available and clean private caches on every outcome. Implemented in the existing release-runtime PR with native Windows CI and disposable regression/revert evidence."
+type: Task
+status: in_progress
+priority: 3
+tags[1]: "area:release;type:enhancement"
+created_at: "2026-11-09T06:12:30.542Z"
+updated_at: "2026-11-09T09:46:10.092Z"
+author: pi-glm
+comments[5]{created_at,author,text}:
+  "2026-11-09T06:47:22.887Z",codex-sol,"Completing this existing follow-up in PR 260. Resolve the adjacent npm CLI first, then standard PATH npm installation layouts and real npm symlink targets. Invoke every probe, bootstrap and locked install with process.execPath, without a shell. Synthetic standalone-Node and conflicting-PATH scenarios execute on Linux and the Windows launch path; native Windows CI retains the real locked-install fixture."
+  "2026-11-09T06:53:30.791Z",codex-sol,"Implementation and linked tests pass 6/6. The non-adjacent fixture runs both native and Windows launch identities without a shell and asserts the installed CLI runs under the exact caller Node, while PATH supplies a different Node. Reverting scripts/release-runtime.ts to the prior implementation fails that equality assertion; restoring it passes. No duplicate follow-up or PR was created. Full release gates are running before handoff."
+  "2026-11-09T07:12:45.203Z",codex-sol,"Delivered in existing PR 260: selected-Node npm execution, standard non-adjacent npm discovery, clear missing-prerequisite refusal and private-cache cleanup. Linked tests pass 6/6; complete npm and Bun gates each pass 1647 tests with two platform skips, zero failures and four 100 percent coverage dimensions. Claim released for orchestrator verification; item remains in progress as required."
+  "2026-11-09T09:43:53.161Z",codex-sol,"Final-round regression and revert proof for PRRT_kwDOTOTl1M61MCRs: the existing matching-npm test now discovers npm through a relative PATH entry while the locked installer runs in another directory. In a disposable source copy, node --test --test-concurrency=2 --test-name-pattern=\"matching npm\" test/release-runtime.test.ts passes 1/1; reverting only return resolve(candidate) to return candidate fails 0/1 with MODULE_NOT_FOUND; restoring the fix passes 1/1. The package worktree implementation was never reverted. PRRT_kwDOTOTl1M61MCSF: the existing bootstrap matrix records process.execPath for the generated CLI version probe and ci, uses a caller executable distinct from the PATH twin, and asserts both are the caller executable. Pinned-pm runtime suite passes 7/7, zero skips. No new helper or fixture."
+  "2026-11-09T09:45:57.202Z",codex-sol,"Final-round source changes are one absolute-path resolution and strengthened existing tests; no helper, fixture or abstraction added. Existing linked runtime suite passes 7/7; broader focused runtime/workflow/adapter suite passes 120/120. IMPORTANT relative-PATH behavioral revert proof is recorded above. Claims will be released for orchestrator verification; items remain in progress."
+files[2]{path,scope}:
+  scripts/release-runtime.ts,project
+  test/release-runtime.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/release-runtime.test.ts,project,codex-sol,"2026-11-09T06:49:48.213Z",local_mutation,fix/release-npm-runtime-reads-lock
+docs[2]{path,scope}:
+  docs/release-migration.md,project
+  docs/reusable-release.md,project
+body: ""

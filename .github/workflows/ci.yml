@@ -11,6 +11,8 @@ permissions:
 
 jobs:
   test:
+    needs: [release-lock]
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -19,6 +21,9 @@ jobs:
         # TypeScript without a flag; 26 is what the fleet develops against.
         node-version: [22, 26]
     steps:
+      - name: Require both release lock compatibility checks
+        run: test '${{ needs.release-lock.result }}' = 'success'
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
@@ -36,7 +41,10 @@ jobs:
         uses: oven-sh/setup-bun@v2.2.0
 
       - name: Install npm 11.21.0
-        run: npm install --global npm@11.21.0 --ignore-scripts --no-audit --no-fund
+        run: |
+          set -euo pipefail
+          npm install --global npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          test "$(npm --version)" = "11.21.0"
 
       - name: Install dependencies
         run: npm ci
@@ -102,7 +110,12 @@ jobs:
       - name: Install npm 11.21.0
         # Keep the selected Node installation on npm 11 even when a consumer
         # deliberately ignores the runner's user npm configuration.
-        run: npm install --global --prefix (Split-Path (Get-Command node).Source) npm@11.21.0 --ignore-scripts --no-audit --no-fund
+        shell: bash
+        run: |
+          set -euo pipefail
+          node_prefix="$(node -p 'require("node:path").dirname(process.execPath)')"
+          npm install --global --prefix "$node_prefix" npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          test "$(npm --version)" = "11.21.0"
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
@@ -126,8 +139,61 @@ jobs:
           node test/packed-consumer.acceptance.ts
           node test/duplication-packed.acceptance.ts
 
+      - name: Native Windows locked release runtime
+        run: node --test --test-concurrency=2 test/release-runtime.test.ts test/release-runtime-windows.test.ts
+
       - name: Missing historical proof diagnostic
         run: node --test test/windows-proof-history.test.ts
 
       - name: Source-only revert proofs and actual npm 10 refusal
         run: node test/windows-consumers.proof.ts
+
+  release-lock:
+    name: Release lock compatibility
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22.18.0, 26]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          package-manager-cache: false
+      - name: Install npm 11.21.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          test "$(npm --version)" = "11.21.0"
+      - name: Install committed locks exactly as release tools do
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Fresh directories ensure existing dependencies cannot hide a stale lock.
+          for project in . .github/release-runtime; do
+            scratch="$(mktemp -d)"
+            cp "$project/package.json" "$project/package-lock.json" "$scratch/"
+            (
+              cd "$scratch"
+              npm ci --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund
+            )
+            rm -rf -- "$scratch"
+          done
+      - name: Check private runtime engines at the Node floor
+        if: ${{ matrix.node-version == '22.18.0' }}
+        run: npm ci --prefix .github/release-runtime --omit=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund
+      - name: Check root dependency engines at the Node floor
+        if: ${{ matrix.node-version == '22.18.0' }}
+        run: npm ci --omit=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund
+      - name: Check development dependency engines at the Node floor
+        if: ${{ matrix.node-version == '22.18.0' }}
+        run: npm ci --include=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund
+      - name: Test provenance at the Node floor
+        if: ${{ matrix.node-version == '22.18.0' }}
+        run: |
+          npm run build
+          node --test --test-concurrency=2 test/release-provenance.test.ts

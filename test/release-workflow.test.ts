@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
+import { assertNoNpmInstalls, assertPinnedNpmBootstrap, npmInstalls } from "./npm-bootstrap-contract.ts";
 
 /** The release workflow source, read once and asserted against as text. */
 const workflow = readFileSync(
@@ -167,7 +168,7 @@ test("the npm upgrade cannot be skipped and fails closed on the version it actua
   // Pinned exactly, not a caret range: a privileged publish job that resolves a
   // different npm on every run is not reproducible, and an unreviewed 11.x could
   // change publishing behaviour between two identical release commits.
-  assert.match(step, /npm install -g npm@11\.19\.0(?!\S)/);
+  assert.match(step, /npm install -g npm@11\.21\.0(?!\S)/);
   assert.doesNotMatch(step, /npm install -g npm@[\^~]/);
   assert.doesNotMatch(step, /^ *if:/m);
   assert.match(step, /npm --version/);
@@ -190,10 +191,7 @@ test("nothing between the upgrade and the publish step can put an older npm back
   // still publishing with a downgraded npm.
   const publishEnd = publish + stepSource("Publish npm package").length;
   const between = executable(releaseJobSource().slice(releaseJobSource().indexOf("- name: Use an npm that supports trusted publishing"), releaseJobSource().indexOf("- name: Install optional hook dependencies")));
-  const installs = [
-    ...between.matchAll(/npm\s+(?:install|i|add)\s+(?:-g|--global)\s+npm@\S+/g),
-    ...between.matchAll(/npm\s+(?:-g|--global)\s+(?:install|i|add)\s+npm@\S+/g),
-  ];
+  const installs = npmInstalls(between).filter(words => words.some(word => /^npm@/.test(word)));
   assert.equal(
     installs.length,
     1,
@@ -515,13 +513,12 @@ test("publication is proven possible before anything is mutated", () => {
 });
 
 /**
- * Package-manager install commands a retry loop might re-run. Matched as
- * whole commands so `bun additional` or a variable named `add` do not trip the
- * rule: `npm i` only matches a standalone `i`, because the word boundary after
- * `i` is absent inside `install`.
+ * Other package-manager installs a retry loop might re-run. npm commands use
+ * the shared shell-aware installation scanner, including aliases and wrappers.
+ * Whole words prevent an unrelated command such as `bun additional` matching.
  */
 const INSTALL_COMMANDS =
-  /\b(?:bun\s+add|npm\s+(?:install|i|add|ci)|pnpm\s+(?:add|install|i)|yarn\s+(?:add|install))\b/;
+  /\b(?:bun\s+add|pnpm\s+(?:add|install|i)|yarn\s+(?:add|install))\b/;
 
 /**
  * Commands that clear a package-manager's cache between attempts. A clear
@@ -644,7 +641,7 @@ function vacuousRetryLoops(source: string): string[] {
   for (const header of source.matchAll(/\b(?:for|while)\b[\s\S]*?\bdo\b/g)) {
     const body = shellLoopBody(source, header.index! + header[0].length);
     if (body === undefined) continue;
-    if (!INSTALL_COMMANDS.test(body)) continue;
+    if (!INSTALL_COMMANDS.test(body) && npmInstalls(body).length === 0) continue;
     if (CACHE_INVALIDATIONS.test(body) || FRESH_CACHE_DIR.test(body)) continue;
     defects.push(
       "retry loop re-runs a package-manager install without clearing its cache or binding a fresh cache directory between attempts",
@@ -872,7 +869,7 @@ test("a probe called from inside a retry loop must only return status, not exit 
   for (const header of step.matchAll(/\b(?:for|while)\b[\s\S]*?\bdo\b/g)) {
     const body = shellLoopBody(step, header.index! + header[0].length);
     if (body === undefined) continue;
-    if (!INSTALL_COMMANDS.test(body)) continue;
+    if (!INSTALL_COMMANDS.test(body) && npmInstalls(body).length === 0) continue;
     foundInstallLoop = true;
     // The loop body must not contain `exit` — the probe returns status to
     // loop-level termination (break), not to the step's exit. An `exit` inside
@@ -885,4 +882,72 @@ test("a probe called from inside a retry loop must only return status, not exit 
     );
   }
   assert.ok(foundInstallLoop, "the Verify bun install step must contain a retry loop around a package-manager install");
+});
+
+test("retry guards reject every npm install family, including test and clean aliases", () => {
+  for (const verb of ["it", "installt", "install-test", "installTest", "cit", "sit", "install-ci-test", "clean-install-test", "ic", "clean-install", "isntall-clean", "in", "ins", "inst", "insta", "instal", "isntall"]) {
+    assert.equal(vacuousRetryLoops(`for attempt in 1 2; do npm ${verb} pkg; sleep 1; done`).length, 1, verb);
+  }
+  for (const verb of ["exec", "x"]) for (const flag of ["--package", "-p", "--package=pkg"]) {
+    assert.equal(vacuousRetryLoops(`for attempt in 1 2; do npm ${verb} ${flag} pkg; sleep 1; done`).length, 1, `${verb} ${flag}`);
+  }
+});
+
+
+test("npm install and retry guards distinguish every install alias from script and option operands", () => {
+  const aliases = ["install", "i", "in", "ins", "inst", "insta", "instal", "isnt", "isnta", "isntal", "isntall", "add", "ci", "ic", "clean-install", "install-clean", "isntall-clean", "install-test", "installt", "it", "install-ci-test", "cit", "sit", "clean-install-test", "installTest", "installCiTest"];
+  for (const alias of aliases) for (const prefix of ["npm", "npm.cmd", "command npm", "env CACHE=fixture npm", "npm --prefix fixture", "npm --cache=fixture", "npm -g", "npm --ignore-scripts true"]) {
+    const installing = `${prefix} ${alias} pkg`;
+    assert.equal(npmInstalls(installing).length, 1, installing);
+    assert.equal(vacuousRetryLoops(`for attempt in 1 2; do ${installing}; done`).length, 1, installing);
+    for (const verb of ["run", "run-script", "exec", "x", "view", "help", "config get"]) {
+      const script = `${prefix} ${verb} ${alias}`;
+      assert.deepEqual(npmInstalls(script), [], script);
+      assert.doesNotThrow(() => assertNoNpmInstalls(script), script);
+      assert.equal(vacuousRetryLoops(`for attempt in 1 2; do ${script}; done`).length, 0, script);
+    }
+    assert.deepEqual(npmInstalls(`npm --prefix ${alias} run ci`), [], alias);
+  }
+  // Package-acquiring exec and x are installs; the same verbs without --package
+  // stay allowed above.
+  for (const verb of ["exec", "x"]) for (const flag of ["--package", "-p", "--package=pkg", "-p=pkg"]) for (const prefix of ["npm", "npm --location global", "npm -L user", "npm --prefix fixture"]) {
+    const acquiring = `${prefix} ${verb} ${flag} pkg`;
+    assert.equal(npmInstalls(acquiring).length, 1, acquiring);
+    assert.throws(() => assertNoNpmInstalls(acquiring), /must not install/);
+  }
+});
+
+test("npm guards count repeated installs", () => {
+  const bootstrap = "npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund";
+  assert.doesNotThrow(() => assertPinnedNpmBootstrap(bootstrap));
+  for (const separator of ["\n", "; ", " && "]) {
+    assert.equal(npmInstalls(bootstrap + separator + bootstrap).length, 2);
+    assert.throws(() => assertPinnedNpmBootstrap(bootstrap + separator + bootstrap), /only the pinned npm install/);
+  }
+});
+
+test("npm guards allow printed package-acquiring commands", () => {
+  for (const verb of ["exec", "x"]) {
+    for (const prefix of ["echo", "printf '%s'", "npm run describe --", "command echo", "env CACHE=fixture echo", "command npm run describe --"]) {
+      assert.doesNotThrow(() => assertNoNpmInstalls(`${prefix} npm ${verb} --package pkg`));
+    }
+    for (const prefix of ["", "command ", "env CACHE=fixture "]) {
+      assert.equal(npmInstalls(`${prefix}npm ${verb} --package pkg`).length, 1);
+    }
+  }
+});
+
+test("npm guards detect timed installs without treating printed arguments as commands", () => {
+  const bootstrap = "npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund";
+  for (const wrapper of ["timeout 60", "timeout -s TERM -k 5 60", "timeout --foreground -- 1m", "command timeout 60", "env CACHE=fixture timeout 60", "timeout 60 timeout 30"]) {
+    for (const install of ["npm ci", "npm exec --package pkg", "npm --location global install pkg"]) {
+      assert.equal(npmInstalls(`${wrapper} ${install}`).length, 1);
+      assert.throws(() => assertNoNpmInstalls(`${wrapper} ${install}`), /must not install/);
+      assert.throws(() => assertPinnedNpmBootstrap(bootstrap + "\n" + wrapper + " " + install), /only the pinned npm/);
+      assert.equal(vacuousRetryLoops(`for attempt in 1 2; do ${wrapper} ${install}; done`).length, 1);
+    }
+    for (const printed of ["echo npm ci", "echo npm exec --package pkg", "npm run describe -- npm exec --package pkg"]) {
+      assert.doesNotThrow(() => assertNoNpmInstalls(`${wrapper} ${printed}`));
+    }
+  }
 });

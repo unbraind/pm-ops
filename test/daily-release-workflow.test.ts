@@ -10,12 +10,15 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { parse } from "yaml";
 import { auditPublishAttestation } from "../attestation.ts";
+import { assertNoNpmInstalls, assertPinnedNpmBootstrap } from "./npm-bootstrap-contract.ts";
 import { requiredFixtureCases } from "./fixture-contracts.ts";
 
 /** Workflow step fields used by the structural and shell regression tests. */
 interface Step {
   /** Human-readable identity, optional for anonymous action steps. */
   name?: string;
+  /** Whether failure is tolerated to preserve independent failure reporting. */
+  "continue-on-error"?: boolean;
   /** Identifier whose outputs guard dependent effects. */
   id?: string;
   /** Immutable action reference. */
@@ -35,6 +38,7 @@ const workflow = parse(source) as {
   concurrency: { group: string; "cancel-in-progress": boolean; queue: string };
   jobs: Record<string, { if: string; needs: string[]; env: Record<string, string>; permissions: Record<string, string>; steps: Step[] }>;
 };
+const ci = parse(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")) as { jobs: Record<string, { strategy: { matrix: { "node-version": (string | number)[] } }; steps: Step[] }> };
 const steps = Object.values(workflow.jobs).flatMap(job => job.steps);
 
 /** Read a required executable step, failing if it was removed or renamed. */
@@ -506,7 +510,7 @@ test("stranded receipt retirement keeps reconciliation short and branch reuse be
   const request = step("Merge release metadata through protected PR").run!;
   assert.match(request, /node "\$CONTINUATION_SCRIPT" retired-branch/);
   assert.ok(request.indexOf('retired-branch') < request.indexOf('--force-with-lease='));
-  assert.ok(workflow.jobs.reconcile.steps.every(current => !/npm (?:ci|install)/.test(current.run ?? "")));
+  for (const current of workflow.jobs.reconcile.steps) assertNoNpmInstalls(current.run ?? "");
 });
 
 test("all tool bootstraps use trusted source, and publication replays the recorded workflow SHA", () => {
@@ -537,7 +541,6 @@ test("every continuation job enforces its runtime floor before executing TypeScr
 });
 
 test("private runtime CI installs and executes its own lockfile after root-installation gates", () => {
-  const ci = parse(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")) as { jobs: Record<string, { steps: Step[] }> };
   const steps = ci.jobs.test.steps, index = steps.findIndex(s => s.name === "Verify private provenance runtime");
   assert.ok(index > steps.findIndex(s => s.name === "Bun release gate"));
   assert.match(steps[index].run!, /npm ci --prefix \.github\/release-runtime .*--ignore-scripts --engine-strict/);
@@ -549,4 +552,242 @@ test("rollback guidance preserves reconciliation and documents explicit operator
   assert.match(docs, /release-enabled: true/); assert.match(docs, /reconcile-only: true/);
   assert.match(docs, /release-enabled: false.*disables reconciliation/);
   assert.match(docs, /retire-unpublished: true/);
+});
+
+test("every installing reusable job pins npm while reconciliation stays installation-free", () => {
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { packageManager: string };
+  const runtime = JSON.parse(readFileSync(new URL("../.github/release-runtime/package.json", import.meta.url), "utf8")) as { packageManager: string };
+  assert.equal(pkg.packageManager, "npm@11.21.0");
+  assert.equal(runtime.packageManager, pkg.packageManager);
+  for (const [name, job] of Object.entries(workflow.jobs)) {
+    const node = job.steps.findIndex(s => s.uses?.startsWith("actions/setup-node@"));
+    const setup = job.steps.findIndex(s => s.name === "Use an npm that supports trusted publishing");
+    const selected = job.steps[node] as Step & { with: Record<string, unknown> };
+    assert.equal(selected.with["node-version"], "${{ inputs.node-version }}");
+    assert.equal(selected.with["package-manager-cache"], false);
+    if (["reconcile", "request"].includes(name)) {
+      assert.equal(setup, -1);
+      for (const current of job.steps) assertNoNpmInstalls(current.run ?? "");
+      continue;
+    }
+    if (name === "verify_bun") {
+      const mirror = job.steps.findIndex(s => s.id === "verify_bun");
+      const hook = job.steps.findIndex(s => s.name === "Run optional caller bunx acceptance");
+      assert.ok(setup > mirror && hook > setup, "npm setup follows the independent Bun mirror check and precedes the hook");
+      assert.equal(job.steps[setup].if, "inputs.bunx-script != '' && steps.verify_bun.outcome == 'success'");
+      assert.equal(job.steps[hook].if, job.steps[setup].if);
+      assertNoNpmInstalls(job.steps[mirror].run!);
+    } else {
+      assert.equal(setup, node + 1, `${name}: upgrade immediately after selecting the caller's Node`);
+      assert.equal(job.steps[setup].if, undefined);
+    }
+    assertPinnedNpmBootstrap(job.steps[setup].run!);
+    assert.match(job.steps[setup].run!, /npm install -g npm@11\.21\.0 --ignore-scripts --no-audit --no-fund/);
+    assert.match(job.steps[setup].run!, /\[\[ "\$active" == "11\.21\.0" \]\]/);
+  }
+});
+
+test("every reusable and CI npm setup refuses failed installs and wrong active versions", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-npm-pin-"));
+  try {
+    const installCommands = ["npm ci", "npm install -g another-package", "npm -g i another-package", "npm add another-package", "npm it another-package", "npm install-test another-package", "npm installt another-package", "npm clean-install", "npm cit", "npm sit", "npm ic", "npm install-ci-test", "npm clean-install-test", "npm in another-package", "npm ins another-package", "npm inst another-package", "npm insta another-package", "npm instal another-package", "npm isnt another-package", "npm isnta another-package", "npm isntal another-package", "npm isntall another-package", "npm install-clean", "npm isntall-clean", "npm installTest another-package", "npm installCiTest another-package", "npm --install-strategy nested ci", "npm --cpu x64 ci", "npm --audit-level high install another-package", "npm --location global ci", "npm -L user ci", "npm exec --package another-package", "npm x --package another-package", "npm exec -p another-package", "npm exec --yes --package another-package"];
+    const scenarios = installCommands.flatMap(command => [command, `if ${command}; then true; fi`, `for attempt in 1; do ${command}; done`, `NPM_CONFIG_CACHE=cache ${command}`, `env NPM_CONFIG_CACHE=cache ${command}`, `command ${command}`, command.replace(/^npm /, "npm.cmd ")]);
+    for (const name of ["reconcile", "request"]) for (const current of workflow.jobs[name].steps) for (const install of scenarios) {
+      assert.throws(() => assertNoNpmInstalls((current.run ?? "") + "\n" + install), /must not install/);
+    }
+    writeFileSync(join(root, "npm"), '#!/bin/sh\ncase "$1" in\ninstall) exit "$INSTALL_STATUS" ;;\n--version) echo "$ACTIVE_NPM" ;;\nesac\n', { mode: 0o755 });
+    for (const [file, jobs] of [["reusable", workflow.jobs], ["CI", ci.jobs]] as const) for (const [name, job] of Object.entries(jobs)) {
+      const setupName = file === "reusable" ? "Use an npm that supports trusted publishing" : "Install npm 11.21.0";
+      const setups = job.steps.filter((s: Step) => s.name === setupName);
+      assert.equal(setups.length, file === "reusable" && ["reconcile", "request"].includes(name) ? 0 : 1, `${file}/${name}`);
+      for (const setup of setups) {
+        assertPinnedNpmBootstrap(setup.run!);
+        for (const extra of scenarios.flatMap(command => ["\n", "; ", " && "].map(separator => separator + command))) {
+          assert.throws(() => assertPinnedNpmBootstrap(setup.run! + extra), /only the pinned npm/);
+        }
+        for (const [active, status, success] of [["11.21.0", "0", true], ["10.9.3", "0", false], ["11.22.0", "0", false], ["11.21.0", "7", false]] as const) {
+          const result = runBashFixture(setup.run!, { encoding: "utf8", env: {
+            PATH: `${root}:${process.env.PATH}`, ACTIVE_NPM: active, INSTALL_STATUS: status,
+          } });
+          assert.equal(result.status === 0, success, `${file}/${name}/${active}/${status}: ${result.stderr}`);
+        }
+      }
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("failure reporting attempts its script after bootstrap or dependency installation fails", () => {
+  const setup = workflow.jobs.alert.steps.find(s => s.id === "npm_setup")!;
+  const report = step("Report release failure");
+  assert.equal(setup["continue-on-error"], true);
+  assert.equal(report.if, "${{ !cancelled() }}");
+  assert.equal(report.env?.NPM_READY, "${{ steps.npm_setup.outcome == 'success' }}");
+  const root = mkdtempSync(join(tmpdir(), "release-alert-failure-"));
+  try {
+    writeFileSync(join(root, "npm"), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$GITHUB_WORKSPACE/calls"\ncase "$1" in ci) exit "$INSTALL_STATUS" ;; run) touch "$GITHUB_WORKSPACE/alert-ran" ;; esac\n', { mode: 0o755 });
+    for (const ready of ["true", "false"]) for (const status of ["0", "7"]) {
+      writeFileSync(join(root, "calls"), ""); rmSync(join(root, "alert-ran"), { force: true });
+      const result = runBashFixture(report.run, { encoding: "utf8", env: { PATH: `${root}:${process.env.PATH}`,
+        GITHUB_WORKSPACE: root, NPM_PROJECT_DIR: ".", NPM_READY: ready, INSTALL_STATUS: status, ALERT_SCRIPT: "release:alert" } });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(existsSync(join(root, "alert-ran")), true);
+      assert.equal(readFileSync(join(root, "calls"), "utf8"), (ready === "true" ? "ci --ignore-scripts\n" : "") + "run release:alert\n");
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("failure alerts fall back without dependencies and deduplicate the run issue", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-alert-fallback-"));
+  try {
+    writeFileSync(join(root, "missing-dependency.mjs"), 'import "uninstalled-alert-dependency";\n');
+    writeFileSync(join(root, "npm"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$GITHUB_WORKSPACE/npm-calls"
+case "$1" in
+ci) exit "$INSTALL_STATUS" ;;
+run) exec '${process.execPath}' "$GITHUB_WORKSPACE/missing-dependency.mjs" ;;
+esac
+`, { mode: 0o755 });
+    writeFileSync(join(root, "gh"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$GITHUB_WORKSPACE/gh-calls"
+case "$2" in
+list) if [ "$LIST_STATUS" != 0 ]; then exit "$LIST_STATUS"; fi; printf '%s\\n' "$EXISTING_ISSUES" ;;
+create) for argument in "$@"; do last="$argument"; done
+  cp "$last" "$GITHUB_WORKSPACE/issue-body"
+  printf '%s' "$last" > "$GITHUB_WORKSPACE/body-path"
+  exit "$CREATE_STATUS" ;;
+esac
+`, { mode: 0o755 });
+    for (const [ready, installStatus, existing, listStatus, createStatus, success, created] of [
+      ["false", "7", "[]", "0", "0", true, true], ["true", "7", "[]", "0", "0", true, true],
+      ["true", "0", "[]", "0", "0", true, true],
+      ["false", "7", '[{"number":9}]', "0", "0", true, false],
+      ["false", "7", "[]", "7", "0", false, false], ["false", "7", "[]", "0", "7", false, true],
+    ] as const) {
+      writeFileSync(join(root, "gh-calls"), ""); writeFileSync(join(root, "npm-calls"), "");
+      for (const file of ["issue-body", "body-path"]) rmSync(join(root, file), { force: true });
+      const result = runBashFixture(step("Report release failure").run, { encoding: "utf8", env: {
+        PATH: `${root}:${process.env.PATH}`, GITHUB_WORKSPACE: root, NPM_PROJECT_DIR: ".", NPM_READY: ready,
+        ALERT_SCRIPT: "release:alert", GITHUB_REPOSITORY: "example/package", GITHUB_RUN_ID: "123",
+        GITHUB_SERVER_URL: "https://github.com", EXISTING_ISSUES: existing, LIST_STATUS: listStatus, CREATE_STATUS: createStatus,
+        INSTALL_STATUS: installStatus,
+      } });
+      assert.equal(result.status === 0, success, result.stderr);
+      const calls = readFileSync(join(root, "gh-calls"), "utf8");
+      assert.match(calls, /issue list/);
+      assert.match(calls, /--search in:title,body 123/, "deduplicate on the workflow run identity, not the fallback title");
+      assert.equal(calls.includes("issue create"), created);
+      const npmCalls = readFileSync(join(root, "npm-calls"), "utf8");
+      assert.equal(npmCalls, (ready === "true" ? "ci --ignore-scripts\n" : "") + "run release:alert\n");
+      if (created) {
+        assert.match(readFileSync(join(root, "issue-body"), "utf8"), /https:\/\/github.com\/example\/package\/actions\/runs\/123/);
+        assert.equal(existsSync(readFileSync(join(root, "body-path"), "utf8")), false, "clean fallback body on success and failure");
+      }
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Bun mirror verification completes independently before optional npm setup", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-bun-before-npm-"));
+  try {
+    for (const command of ["bun", "bunx"]) writeFileSync(join(root, command), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$RUNNER_TEMP/bun-calls"\n', { mode: 0o755 });
+    writeFileSync(join(root, "npm"), '#!/bin/sh\nexit 7\n', { mode: 0o755 });
+    const env = { PATH: `${root}:${process.env.PATH}`, RUNNER_TEMP: root, GITHUB_ENV: join(root, "github-env"),
+      NPM_VERSION: "2026.11.7", PKG_NAME: "example-package", CLI_VERSION: "2026.11.4", BUNX_SCRIPT: "accept:bun",
+      NPM_PROJECT_DIR: ".", GITHUB_WORKSPACE: root };
+    const verified = runBashFixture(step("Verify bun install of published package").run, { encoding: "utf8", env });
+    assert.equal(verified.status, 0, verified.stderr);
+    assert.match(readFileSync(join(root, "bun-calls"), "utf8"), /health --strict-exit/);
+    assert.match(readFileSync(join(root, "github-env"), "utf8"), /PM_PATH=.*\nPM_GLOBAL_PATH=.*\nBUN_INSTALL_CACHE_DIR=/);
+    const setup = workflow.jobs.verify_bun.steps.find(s => s.name === "Use an npm that supports trusted publishing")!;
+    const failed = runBashFixture(setup.run!, { encoding: "utf8", env });
+    assert.notEqual(failed.status, 0);
+    assert.match(readFileSync(join(root, "bun-calls"), "utf8"), /health --strict-exit/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("PR lock gate uses both committed locks and the exact script-disabled release install", () => {
+  const job = ci.jobs["release-lock"];
+  assert.deepEqual(job.strategy.matrix["node-version"], ["22.18.0", 26]);
+  const command = "npm ci --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund";
+  const gate = job.steps.find(s => s.name === "Install committed locks exactly as release tools do")!;
+  assert.equal(gate.if, undefined);
+  assert.match(gate.run!, /for project in \. \.github\/release-runtime/);
+  assert.match(gate.run!, /cp "\$project\/package.json" "\$project\/package-lock.json" "\$scratch\/"/);
+  assert.ok(gate.run!.includes(command));
+  const helper = readFileSync(new URL("../scripts/release-runtime.ts", import.meta.url), "utf8");
+  assert.equal(helper.split(JSON.stringify(command.split(" ").slice(1)).replaceAll(",", ", ")).length - 1, 2);
+  for (const entry of Object.values(ci.jobs)) {
+    const setup = entry.steps.findIndex(s => s.name === "Install npm 11.21.0");
+    assert.ok(setup >= 0);
+    assert.match(entry.steps[setup].run!, /npm --version/);
+    const firstInstall = entry.steps.findIndex(s => /npm ci/.test(s.run ?? ""));
+    assert.ok(firstInstall > setup);
+  }
+});
+
+
+test("every private runtime Node floor has an independent strict engine gate", () => {
+  const floor = JSON.parse(readFileSync(new URL("../.github/release-runtime/package.json", import.meta.url), "utf8")).engines.node.replace(/^>=/, "");
+  const job = ci.jobs["release-lock"];
+  assert.ok(job.strategy.matrix["node-version"].includes(floor));
+  assert.equal(job.steps.filter((s: Step) => s.run?.includes("--engine-strict")).length, 3, "both committed locks and development dependencies need strict gates at the Node floor");
+  const strict = job.steps.find((s: Step) => s.run?.includes("--engine-strict"));
+  assert.ok(strict, "the floor needs a strict install in addition to the exact release command");
+  assert.equal(strict.if, "${{ matrix.node-version == '" + floor + "' }}");
+  assert.equal(strict.run, "npm ci --prefix .github/release-runtime --omit=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund");
+  assert.ok(job.steps.indexOf(strict) > job.steps.findIndex((s: Step) => s.name === "Install committed locks exactly as release tools do"));
+  const root = job.steps.find((s: Step) => s.name === "Check root dependency engines at the Node floor")!;
+  assert.equal(root.if, strict.if, "the root lock gets the same floor as the private runtime");
+  assert.equal(root.run, "npm ci --omit=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund");
+  assert.ok(job.steps.indexOf(root) > job.steps.indexOf(strict), "the root gate follows the private runtime gate");
+});
+
+test("private runtime floor gate rejects incompatible root and transitive engines before installation", () => {
+  const strict = ci.jobs["release-lock"].steps.find((s: Step) => s.run?.includes("--engine-strict"));
+  assert.ok(strict, "a strict floor gate must exist before exercising its engine policy");
+  const root = mkdtempSync(join(tmpdir(), "release-engine-policy-"));
+  try {
+    for (const target of ["", "node_modules/sigstore"]) {
+      const cwd = join(root, target === "" ? "root-engine" : "dependency-engine");
+      const runtime = join(cwd, ".github/release-runtime");
+      mkdirSync(runtime, { recursive: true });
+      const manifest = JSON.parse(readFileSync(new URL("../.github/release-runtime/package.json", import.meta.url), "utf8"));
+      const lock = JSON.parse(readFileSync(new URL("../.github/release-runtime/package-lock.json", import.meta.url), "utf8"));
+      assert.ok(lock.packages[target].engines.node, "the adversary must change an existing engine declaration");
+      lock.packages[target].engines.node = ">=999.0.0";
+      if (target === "") manifest.engines.node = ">=999.0.0";
+      writeFileSync(join(runtime, "package.json"), JSON.stringify(manifest));
+      writeFileSync(join(runtime, "package-lock.json"), JSON.stringify(lock));
+      const result = runBashFixture(strict.run!, { cwd, encoding: "utf8", timeout: 30_000, env: {
+        PATH: process.env.PATH, SystemRoot: process.env.SystemRoot,
+        NPM_CONFIG_USERCONFIG: process.platform === "win32" ? "NUL" : "/dev/null", NPM_CONFIG_CACHE: join(cwd, "cache"),
+      } });
+      assert.notEqual(result.status, 0, target);
+      assert.match(result.stderr, /EBADENGINE/, target);
+      assert.equal(existsSync(join(runtime, "node_modules")), false, "engine refusal precedes dependency writes");
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("root engine floor gate refuses an incompatible root manifest before installation", () => {
+  const rootStep = ci.jobs["release-lock"].steps.find((s: Step) => s.name === "Check root dependency engines at the Node floor")!;
+  const root = mkdtempSync(join(tmpdir(), "release-root-engine-"));
+  try {
+    const project = join(root, "root-engine"); mkdirSync(project);
+    const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+    const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"));
+    // The adversary changes an existing engine declaration, here the committed root floor.
+    assert.equal(manifest.engines.node, ">=22.18.0");
+    manifest.engines.node = ">=999.0.0";
+    lock.packages[""].engines.node = ">=999.0.0";
+    writeFileSync(join(project, "package.json"), JSON.stringify(manifest));
+    writeFileSync(join(project, "package-lock.json"), JSON.stringify(lock));
+    const result = runBashFixture(rootStep.run!, { cwd: project, encoding: "utf8", timeout: 60_000, env: {
+      PATH: process.env.PATH, SystemRoot: process.env.SystemRoot,
+      NPM_CONFIG_USERCONFIG: process.platform === "win32" ? "NUL" : "/dev/null", NPM_CONFIG_CACHE: join(root, "cache"),
+    } });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /EBADENGINE/);
+    assert.equal(existsSync(join(project, "node_modules")), false, "engine refusal precedes dependency writes");
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

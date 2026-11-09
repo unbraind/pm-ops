@@ -186,6 +186,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
       - name: Checkout trusted continuation tools
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -274,6 +275,20 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
+      - name: Use an npm that supports trusted publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          active="$(npm --version)"
+          [[ "$active" == "11.21.0" ]] || { echo "::error::Expected npm 11.21.0, got $active"; exit 1; }
+          required="11.5.1"
+          if [ "$(printf '%s\n%s\n' "$active" "$required" | sort -V | head -n 1)" != "$required" ]; then
+            echo "::error::npm $active cannot exchange an OIDC token; $required or newer is required."
+            exit 1
+          fi
+          echo "npm $active can exchange an OIDC token for a registry credential."
       - name: Resolve pm-ops release version
         shell: bash
         env:
@@ -375,18 +390,6 @@ jobs:
           printf 'NPM_PROJECT_PATH=%s\n' "$project" >> "$GITHUB_ENV"
           [[ "$VERSION_POLICY" == daily || "$VERSION_POLICY" == package ]]
           [[ "$VERSION_POLICY" != package || "$IS_RUST" != true ]]
-      - name: Use an npm that supports trusted publishing
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm install -g npm@11.19.0
-          active="$(npm --version)"
-          required="11.5.1"
-          if [ "$(printf '%s\n%s\n' "$active" "$required" | sort -V | head -n 1)" != "$required" ]; then
-            echo "::error::npm $active cannot exchange an OIDC token; $required or newer is required."
-            exit 1
-          fi
-          echo "npm $active can exchange an OIDC token for a registry credential."
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
       - name: Install Rust
@@ -721,6 +724,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
       - name: Checkout publishing base
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -782,18 +786,6 @@ jobs:
             [[ -z "$script" || "$script" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$ ]] || { echo '::error::Hooks must be npm script names.'; exit 1; }
           done
           printf 'NPM_PROJECT_PATH=%s\n' "$project" >> "$GITHUB_ENV"
-      - name: Use an npm that supports trusted publishing
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm install -g npm@11.19.0
-          active="$(npm --version)"
-          required="11.5.1"
-          if [ "$(printf '%s\n%s\n' "$active" "$required" | sort -V | head -n 1)" != "$required" ]; then
-            echo "::error::npm $active cannot exchange an OIDC token; $required or newer is required."
-            exit 1
-          fi
-          echo "npm $active can exchange an OIDC token for a registry credential."
       - name: Verify npm will accept this workflow's OIDC identity
         if: needs.prepare.outputs.should_release == 'true' && inputs.npm-publish
         shell: bash
@@ -981,6 +973,20 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
+      - name: Use an npm that supports trusted publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          active="$(npm --version)"
+          [[ "$active" == "11.21.0" ]] || { echo "::error::Expected npm 11.21.0, got $active"; exit 1; }
+          required="11.5.1"
+          if [ "$(printf '%s\n%s\n' "$active" "$required" | sort -V | head -n 1)" != "$required" ]; then
+            echo "::error::npm $active cannot exchange an OIDC token; $required or newer is required."
+            exit 1
+          fi
+          echo "npm $active can exchange an OIDC token for a registry credential."
       - name: Checkout publishing base
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -1061,18 +1067,6 @@ jobs:
             [[ -z "$script" || "$script" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$ ]] || { echo '::error::Hooks must be npm script names.'; exit 1; }
           done
           printf 'NPM_PROJECT_PATH=%s\n' "$project" >> "$GITHUB_ENV"
-      - name: Use an npm that supports trusted publishing
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm install -g npm@11.19.0
-          active="$(npm --version)"
-          required="11.5.1"
-          if [ "$(printf '%s\n%s\n' "$active" "$required" | sort -V | head -n 1)" != "$required" ]; then
-            echo "::error::npm $active cannot exchange an OIDC token; $required or newer is required."
-            exit 1
-          fi
-          echo "npm $active can exchange an OIDC token for a registry credential."
       - name: Verify npm will accept this workflow's OIDC identity
         if: steps.continue.outputs.action == 'publish' && inputs.npm-publish
         shell: bash
@@ -1339,6 +1333,20 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
+      - name: Use an npm that supports trusted publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          active="$(npm --version)"
+          [[ "$active" == "11.21.0" ]] || { echo "::error::Expected npm 11.21.0, got $active"; exit 1; }
+          required="11.5.1"
+          if [ "$(printf '%s\n%s\n' "$active" "$required" | sort -V | head -n 1)" != "$required" ]; then
+            echo "::error::npm $active cannot exchange an OIDC token; $required or newer is required."
+            exit 1
+          fi
+          echo "npm $active can exchange an OIDC token for a registry credential."
       - name: Audit release completeness
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1377,8 +1385,26 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
+      - name: Use an npm that supports trusted publishing
+        id: npm_setup
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          active="$(npm --version)"
+          [[ "$active" == "11.21.0" ]] || { echo "::error::Expected npm 11.21.0, got $active"; exit 1; }
+          required="11.5.1"
+          if [ "$(printf '%s\n%s\n' "$active" "$required" | sort -V | head -n 1)" != "$required" ]; then
+            echo "::error::npm $active cannot exchange an OIDC token; $required or newer is required."
+            exit 1
+          fi
+          echo "npm $active can exchange an OIDC token for a registry credential."
       - name: Report release failure
+        if: ${{ !cancelled() }}
         env:
+          NPM_READY: ${{ steps.npm_setup.outcome == 'success' }}
           GH_TOKEN: ${{ github.token }}
           ALERT_SCRIPT: ${{ inputs.alert-script }}
           NPM_PROJECT_DIR: ${{ inputs.npm-project-dir }}
@@ -1391,8 +1417,23 @@ jobs:
           project="$(realpath -e -- "$GITHUB_WORKSPACE/$NPM_PROJECT_DIR")"
           [[ "$project" == "$GITHUB_WORKSPACE" || "$project" == "$GITHUB_WORKSPACE/"* ]]
           cd "$project"
-          npm ci --ignore-scripts
-          npm run "$ALERT_SCRIPT"
+          if [[ "$NPM_READY" == "true" ]]; then
+            npm ci --ignore-scripts || echo "::warning::Alert dependency installation failed; attempting the configured script."
+          else
+            echo "::warning::Pinned npm setup failed; attempting the configured alert without installing dependencies."
+          fi
+          if npm run "$ALERT_SCRIPT"; then exit 0; fi
+          echo "::warning::Configured alert failed; reporting without project dependencies."
+          title="Daily release failed (run $GITHUB_RUN_ID)"
+          # Deduplicate on the workflow-run identity, not the fallback title: the
+          # configured alert's issue may use any title, and issues that reference the
+          # failed run (the documented alert contract) already cover this failure.
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state all --search "in:title,body $GITHUB_RUN_ID" --json number | jq -r '.[].number')"
+          if [[ -n "$existing" ]]; then exit 0; fi
+          body="$(mktemp)"
+          trap 'rm -f -- "$body"' EXIT
+          printf 'The daily release failed and its configured alert script could not complete. Inspect the workflow run: %s/%s/actions/runs/%s\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > "$body"
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$body"
   recover:
     needs: prepare
     if: inputs.release-enabled && github.ref == 'refs/heads/main' && needs.prepare.outputs.recovery_tag != ''
@@ -1426,6 +1467,20 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
+      - name: Use an npm that supports trusted publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          active="$(npm --version)"
+          [[ "$active" == "11.21.0" ]] || { echo "::error::Expected npm 11.21.0, got $active"; exit 1; }
+          required="11.5.1"
+          if [ "$(printf '%s\n%s\n' "$active" "$required" | sort -V | head -n 1)" != "$required" ]; then
+            echo "::error::npm $active cannot exchange an OIDC token; $required or newer is required."
+            exit 1
+          fi
+          echo "npm $active can exchange an OIDC token for a registry credential."
       - name: Checkout existing tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -1514,6 +1569,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
       - name: Verify bun install of published package
@@ -1548,11 +1604,7 @@ jobs:
               bunx --bun --no-install pm init --defaults --agent-guidance skip --prefix release --json
               bunx --bun --no-install pm package install "./node_modules/$pkg_name" --project
               bunx --bun --no-install pm health --strict-exit --json
-              if [[ -n "$BUNX_SCRIPT" ]]; then
-                cd "$GITHUB_WORKSPACE/$NPM_PROJECT_DIR"
-                npm ci --ignore-scripts
-                npm run "$BUNX_SCRIPT"
-              fi
+              printf 'PM_PATH=%s\nPM_GLOBAL_PATH=%s\nBUN_INSTALL_CACHE_DIR=%s\n' "$PM_PATH" "$PM_GLOBAL_PATH" "$BUN_INSTALL_CACHE_DIR" >> "$GITHUB_ENV"
               echo "bun add succeeded on attempt $attempt"
               verified=true
               break
@@ -1565,6 +1617,36 @@ jobs:
           [[ "$verified" == true ]] && exit 0
           echo "::error::bun could not resolve ${pkg_name}@${pkg_version} after ${bun_attempts} attempts across a 10-minute window. npm accepted the publish and the GitHub release is created regardless of this step; this failure keeps the bun mirror problem visible instead of silent."
           exit 1
+      - name: Use an npm that supports trusted publishing
+        if: inputs.bunx-script != '' && steps.verify_bun.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          active="$(npm --version)"
+          [[ "$active" == "11.21.0" ]] || { echo "::error::Expected npm 11.21.0, got $active"; exit 1; }
+          required="11.5.1"
+          if [ "$(printf '%s\n%s\n' "$active" "$required" | sort -V | head -n 1)" != "$required" ]; then
+            echo "::error::npm $active cannot exchange an OIDC token; $required or newer is required."
+            exit 1
+          fi
+          echo "npm $active can exchange an OIDC token for a registry credential."
+      - name: Run optional caller bunx acceptance
+        if: inputs.bunx-script != '' && steps.verify_bun.outcome == 'success'
+        env:
+          BUNX_SCRIPT: ${{ inputs.bunx-script }}
+          NPM_PROJECT_DIR: ${{ inputs.npm-project-dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BUNX_SCRIPT" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$ ]]
+          [[ -n "$NPM_PROJECT_DIR" && "$NPM_PROJECT_DIR" != /* && "$NPM_PROJECT_DIR" != *[$'\r\n:']* ]]
+          case "/$NPM_PROJECT_DIR/" in */../*) exit 1 ;; esac
+          project="$(realpath -e -- "$GITHUB_WORKSPACE/$NPM_PROJECT_DIR")"
+          [[ "$project" == "$GITHUB_WORKSPACE" || "$project" == "$GITHUB_WORKSPACE/"* ]]
+          cd "$project"
+          npm ci --ignore-scripts
+          npm run "$BUNX_SCRIPT"
       - name: Fail the job on bun verification failure
         if: "!cancelled() && steps.verify_bun.outcome == 'failure'"
         shell: bash
