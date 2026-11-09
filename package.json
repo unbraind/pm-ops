@@ -168,11 +168,11 @@
     "@sigstore/protobuf-specs": "0.5.2",
     "@types/node": "26.6.6",
     "@types/semver": "7.8.0",
-    "@unbrained/pm-cli": "2026.11.4",
+    "@unbrained/pm-cli": "2026.11.6",
     "c8": "12.0.0",
     "eslint": "10.14.0",
     "jscpd": "5.4.2",
-    "pm-changelog": "2026.10.31",
+    "pm-changelog": "2026.11.6",
     "sigstore": "4.1.1"
   },
   "keywords": [
