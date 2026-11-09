@@ -24,6 +24,11 @@ function installLockedRuntime(args: string[], cwd: string): void {
   // Official Node distributions keep the bundled CLI beside node.exe.
   let command = process.platform === "win32" ? process.execPath : "npm";
   let leading: string[] = process.platform === "win32" ? [join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js")] : [];
+  if (process.platform === "win32" && !existsSync(leading[0])) {
+    // Refuse with the requirement named instead of a confusing module error:
+    // a PATH npm.cmd cannot be launched without a shell on Windows.
+    throw new Error(`Release runtime needs the npm CLI bundled beside the Node executable (${leading[0]}); use an official Node distribution or install npm there`);
+  }
   try {
     if (execFileSync(command, [...leading, "--version"], options).trim() !== expected) {
       prefix = mkdtempSync(join(tmpdir(), "pm-ops-npm-"));

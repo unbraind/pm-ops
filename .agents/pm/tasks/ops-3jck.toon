@@ -1,0 +1,11 @@
+id: ops-3jck
+title: Release runtime discovers a non-adjacent npm CLI and pins the caller's Node for the matched CLI
+description: "Round-6 review of gh:unbraind/pm-ops#260 asked scripts/release-runtime.ts to run the matched npm CLI with process.execPath even when PATH selects another Node, and to discover an npm CLI outside the Node directory on Windows (suggesting reuse of the test npm-launcher resolution). Declined in that round as a large mechanism: a correct fix needs PATH shim-target discovery (where.exe plus npm-prefix metadata or npm.cmd parsing on Windows, symlink/wrapper/binary shim classification on POSIX) whose success paths cannot execute off Windows, which conflicts with the 100 percent coverage gate, the no-shell subprocess contract and the ban on trusted sources importing test modules; official Node distributions bundle the npm CLI beside node.exe, so the affected population is non-official Node builds and custom global prefixes on Windows, which the shipped clear refusal now names instead of a confusing module error. Revisit when the runtime gains a Windows-runnable discovery path that the coverage gate can exercise."
+type: Task
+status: open
+priority: 3
+tags[1]: "area:release;type:enhancement"
+created_at: "2026-11-09T06:12:30.542Z"
+updated_at: "2026-11-09T06:12:30.542Z"
+author: pi-glm
+body: ""

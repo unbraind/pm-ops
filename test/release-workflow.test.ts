@@ -888,6 +888,9 @@ test("retry guards reject every npm install family, including test and clean ali
   for (const verb of ["it", "installt", "install-test", "installTest", "cit", "sit", "install-ci-test", "clean-install-test", "ic", "clean-install", "isntall-clean", "in", "ins", "inst", "insta", "instal", "isntall"]) {
     assert.equal(vacuousRetryLoops(`for attempt in 1 2; do npm ${verb} pkg; sleep 1; done`).length, 1, verb);
   }
+  for (const verb of ["exec", "x"]) for (const flag of ["--package", "-p", "--package=pkg"]) {
+    assert.equal(vacuousRetryLoops(`for attempt in 1 2; do npm ${verb} ${flag} pkg; sleep 1; done`).length, 1, `${verb} ${flag}`);
+  }
 });
 
 
@@ -904,5 +907,12 @@ test("npm install and retry guards distinguish every install alias from script a
       assert.equal(vacuousRetryLoops(`for attempt in 1 2; do ${script}; done`).length, 0, script);
     }
     assert.deepEqual(npmInstalls(`npm --prefix ${alias} run ci`), [], alias);
+  }
+  // Package-acquiring exec and x are installs; the same verbs without --package
+  // stay allowed above.
+  for (const verb of ["exec", "x"]) for (const flag of ["--package", "-p", "--package=pkg", "-p=pkg"]) for (const prefix of ["npm", "npm --location global", "npm -L user", "npm --prefix fixture"]) {
+    const acquiring = `${prefix} ${verb} ${flag} pkg`;
+    assert.equal(npmInstalls(acquiring).length, 1, acquiring);
+    assert.throws(() => assertNoNpmInstalls(acquiring), /must not install/);
   }
 });

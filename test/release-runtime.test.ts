@@ -100,8 +100,15 @@ test("every on-demand locked installer pins npm and refuses bootstrap failures b
   const root = mkdtempSync(join(tmpdir(), "release-lazy-npm-"));
   let restoreNpm = () => {};
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  const executable = Object.getOwnPropertyDescriptor(process, "execPath")!;
   try {
-    const bin = join(root, "bin");
+    // A Node executable under a path with spaces is the launch condition the
+    // fixture must survive; a shebang cannot carry such a path, so the PATH
+    // command has to launch the CLI with a quoted interpreter reference.
+    const spaced = join(root, "node with space"); mkdirSync(spaced);
+    symlinkSync(process.execPath, join(spaced, "node"));
+    Object.defineProperty(process, "execPath", { ...executable, value: join(spaced, "node") });
+    const bin = join(root, "bin with space");
     // The inherited npm deliberately refuses every global installation, even as root.
     // Its only successful bootstrap writes a CLI which is absent from PATH.
     restoreNpm = interceptRuntimeNpm(root, `const fs = require("node:fs");
@@ -123,6 +130,7 @@ if (args[0] === "--version") {
     fs.writeFileSync(path.join(prefix, "node_modules/npm/bin/npm-cli.js"), ${JSON.stringify(`const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
+if (process.env.NPM_CONFIG_CACHE) fs.appendFileSync(path.join(process.cwd(), "cli-caches"), process.env.NPM_CONFIG_CACHE + "\\n");
 fs.appendFileSync(path.join(process.cwd(), "calls"), JSON.stringify(args) + "\\n");
 if (args[0] === "--version") console.log(fs.readFileSync("after", "utf8"));
 else if (args[0] === "ci") {
@@ -165,6 +173,9 @@ else if (args[0] === "ci") {
         assert.match(cache.dir, /pm-ops-npm-cache-/, "install through a fresh private cache, never a shared fixed path");
         if (process.platform !== "win32") assert.equal(cache.mode, 0o700, "private cache permissions");
         assert.equal(existsSync(cache.dir), false, "remove the private cache on every install outcome");
+        const cliCaches = existsSync(join(cwd, "cli-caches")) ? readFileSync(join(cwd, "cli-caches"), "utf8").trim().split("\n").filter(Boolean) : [];
+        const generatedCliCalls = before === "11.21.0" || status !== "0" || cli !== "present" ? 0 : after === "11.21.0" ? 2 : 1;
+        assert.deepEqual(cliCaches, Array.from({ length: generatedCliCalls }, () => cache.dir), "the bootstrapped CLI probe and ci must both use the private cache");
         const calls = readFileSync(join(cwd, "calls"), "utf8").trim().split("\n").map(line => JSON.parse(line) as string[]);
         assert.equal(calls.some(call => call[0] === "ci"), success || ciStatus !== "0", `${installer}/${before}/${after}/${status}/${ciStatus}`);
         if (before === "11.21.0") assert.equal(calls.length, 1);
@@ -177,6 +188,22 @@ else if (args[0] === "ci") {
         if (success) assert.deepEqual(calls.at(-1), ["ci", "--omit=dev", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund"]);
       }
     }
+  } finally {
+    Object.defineProperty(process, "platform", platform);
+    restoreNpm();
+    Object.defineProperty(process, "execPath", executable);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("windows runtime refuses clearly when no npm CLI sits beside the Node executable", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-windows-missing-"));
+  const restoreNpm = interceptRuntimeNpm(root, "process.exit(9);");
+  const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  try {
+    rmSync(join(root, "bin with space", "node_modules/npm/bin/npm-cli.js"));
+    Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+    assert.throws(() => ensureReleaseRuntime(root), /npm CLI bundled beside the Node executable/);
   } finally {
     Object.defineProperty(process, "platform", platform);
     restoreNpm();
