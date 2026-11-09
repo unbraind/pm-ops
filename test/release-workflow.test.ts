@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
-import { assertNoNpmInstalls, npmInstalls } from "./npm-bootstrap-contract.ts";
+import { assertNoNpmInstalls, assertPinnedNpmBootstrap, npmInstalls } from "./npm-bootstrap-contract.ts";
 
 /** The release workflow source, read once and asserted against as text. */
 const workflow = readFileSync(
@@ -914,5 +914,25 @@ test("npm install and retry guards distinguish every install alias from script a
     const acquiring = `${prefix} ${verb} ${flag} pkg`;
     assert.equal(npmInstalls(acquiring).length, 1, acquiring);
     assert.throws(() => assertNoNpmInstalls(acquiring), /must not install/);
+  }
+});
+
+test("npm guards count repeated installs", () => {
+  const bootstrap = "npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund";
+  assert.doesNotThrow(() => assertPinnedNpmBootstrap(bootstrap));
+  for (const separator of ["\n", "; ", " && "]) {
+    assert.equal(npmInstalls(bootstrap + separator + bootstrap).length, 2);
+    assert.throws(() => assertPinnedNpmBootstrap(bootstrap + separator + bootstrap), /only the pinned npm install/);
+  }
+});
+
+test("npm guards allow printed package-acquiring commands", () => {
+  for (const verb of ["exec", "x"]) {
+    for (const prefix of ["echo", "printf '%s'", "npm run describe --", "command echo", "env CACHE=fixture echo", "command npm run describe --"]) {
+      assert.doesNotThrow(() => assertNoNpmInstalls(`${prefix} npm ${verb} --package pkg`));
+    }
+    for (const prefix of ["", "command ", "env CACHE=fixture "]) {
+      assert.equal(npmInstalls(`${prefix}npm ${verb} --package pkg`).length, 1);
+    }
   }
 });

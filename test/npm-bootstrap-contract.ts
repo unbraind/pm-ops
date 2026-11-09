@@ -1,6 +1,6 @@
 /** Inspect every command in bootstrap steps rather than exempting the whole script. */
 import assert from "node:assert/strict";
-import { commandArguments, commandCandidates, commandName, tokenizeCommands } from "../shell-scan.ts";
+import { commandArguments, commandName, tokenizeCommands } from "../shell-scan.ts";
 
 /** npm configuration options with a separate value before the subcommand. */
 const VALUE_FLAGS = new Set(["--prefix", "--cache", "--registry", "--userconfig", "--globalconfig", "--workspace", "-w", "--tag", "--access", "--otp", "--loglevel", "--omit", "--include", "--before", "--auth-type", "--provenance-file", "--location", "-L", "--package", "-p",
@@ -33,23 +33,16 @@ function acquiringExec(words: string[]): boolean {
 /** Enumerate npm installation commands across shell separators and install aliases. */
 export function npmInstalls(script: string): string[][] {
   const installs: string[][] = [];
-  const seen = new Set<string>();
-  const record = (words: string[]): void => {
-    const key = JSON.stringify(words);
-    if (!seen.has(key)) { seen.add(key); installs.push(words); }
-  };
   for (const command of tokenizeCommands(script)) {
-    for (const candidate of commandCandidates(command)) {
-      if (!/^(?:npm|npm\.cmd)$/.test(commandName(candidate) ?? "")) continue;
-      const words = ["npm", ...commandArguments(candidate).map(token => token.value)];
-      if (acquiringExec(words) || INSTALL_SUBCOMMANDS.includes((npmSubcommand(words) ?? "").replace(/[A-Z]/g, letter => "-" + letter.toLowerCase()))) record(words);
-    }
-    // shell-scan consumes an `npm exec`/`npm x` pair as a wrapper prefix, so the
-    // package-acquiring form is also read from the raw words candidates skip.
-    const raw = command.map(token => token.value);
-    for (let index = 0; index < raw.length - 1; index++) {
-      if (raw[index] !== "npm" || (raw[index + 1] !== "exec" && raw[index + 1] !== "x")) continue;
-      if (acquiringExec(["npm", ...raw.slice(index + 1)])) record(["npm", ...raw.slice(index + 1)]);
+    // Preserve exec/x as npm subcommands instead of consuming them as shell
+    // wrappers. Keep command positions, so printed arguments remain inert.
+    const protectedCommand = command.map((token, index) =>
+      /^(?:exec|x)$/.test(token.value) && /(?:^|[\\/])npm(?:\.cmd)?$/.test(command[index - 1]?.value ?? "")
+        ? { ...token, value: `npm-subcommand-${token.value}` } : token);
+    if (!/^(?:npm|npm\.cmd)$/.test(commandName(protectedCommand) ?? "")) continue;
+    const words = ["npm", ...commandArguments(protectedCommand).map(token => token.value.replace(/^npm-subcommand-(exec|x)$/, "$1"))];
+    if (acquiringExec(words) || INSTALL_SUBCOMMANDS.includes((npmSubcommand(words) ?? "").replace(/[A-Z]/g, letter => "-" + letter.toLowerCase()))) {
+      installs.push(words);
     }
   }
   return installs;

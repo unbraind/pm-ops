@@ -1,10 +1,10 @@
 /** Bootstrap exact source tools without relying on publication of their declared package version. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cpSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "../subprocess.ts";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "../scripts/release-runtime.ts";
 import { interceptRuntimeNpm } from "./runtime-npm-fixture.ts";
@@ -106,8 +106,9 @@ test("every on-demand locked installer pins npm and refuses bootstrap failures b
     // fixture must survive; a shebang cannot carry such a path, so the PATH
     // command has to launch the CLI with a quoted interpreter reference.
     const spaced = join(root, "node with space"); mkdirSync(spaced);
-    symlinkSync(process.execPath, join(spaced, "node"));
-    Object.defineProperty(process, "execPath", { ...executable, value: join(spaced, "node") });
+    const spacedNode = join(spaced, process.platform === "win32" ? "node.exe" : "node");
+    try { linkSync(process.execPath, spacedNode); } catch { cpSync(process.execPath, spacedNode); chmodSync(spacedNode, 0o755); }
+    Object.defineProperty(process, "execPath", { ...executable, value: spacedNode });
     const bin = join(root, "bin with space");
     // The inherited npm deliberately refuses every global installation, even as root.
     // Its only successful bootstrap writes a CLI which is absent from PATH.
@@ -196,17 +197,57 @@ else if (args[0] === "ci") {
   }
 });
 
-test("windows runtime refuses clearly when no npm CLI sits beside the Node executable", () => {
+test("missing npm CLI refuses clearly and removes the private cache", () => {
   const root = mkdtempSync(join(tmpdir(), "release-windows-missing-"));
   const restoreNpm = interceptRuntimeNpm(root, "process.exit(9);");
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  const tempKeys = ["TMPDIR", "TMP", "TEMP"];
+  const savedTemp = new Map(tempKeys.map(key => [key, process.env[key]]));
   try {
+    for (const key of tempKeys) process.env[key] = root;
     rmSync(join(root, "bin with space", "node_modules/npm/bin/npm-cli.js"));
     Object.defineProperty(process, "platform", { ...platform, value: "win32" });
-    assert.throws(() => ensureReleaseRuntime(root), /npm CLI bundled beside the Node executable/);
+    for (const path of [join(root, "bin with space"), undefined]) {
+      if (path === undefined) delete process.env.PATH; else process.env.PATH = path;
+      assert.throws(() => ensureReleaseRuntime(root), /needs an npm CLI/);
+      assert.deepEqual(readdirSync(root).filter(name => name.startsWith("pm-ops-npm-cache-")), []);
+    }
+  } finally {
+    for (const key of tempKeys) { const prior = savedTemp.get(key); if (prior === undefined) delete process.env[key]; else process.env[key] = prior; }
+    Object.defineProperty(process, "platform", platform);
+    restoreNpm();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("matching npm uses the caller Node and discovers non-adjacent PATH installations", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-npm-discovery-"));
+  const executable = Object.getOwnPropertyDescriptor(process, "execPath")!;
+  const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  const restoreNpm = interceptRuntimeNpm(root, `
+if (process.argv[2] === "--version") console.log("11.21.0");
+else require("node:fs").writeFileSync("installed-with-node", process.execPath);
+`);
+  try {
+    const bin = join(root, "bin with space");
+    const standalone = join(root, "standalone"); mkdirSync(standalone);
+    const node = join(standalone, process.platform === "win32" ? "node.exe" : "node");
+    try { linkSync(executable.value, node); } catch { cpSync(executable.value, node); chmodSync(node, 0o755); }
+    Object.defineProperty(process, "execPath", { ...executable, value: node });
+    const poison = join(root, "poison"); mkdirSync(poison);
+    writeFileSync(join(poison, "node"), "#!/bin/sh\nexit 91\n"); chmodSync(join(poison, "node"), 0o755);
+    process.env.PATH = poison + delimiter + bin;
+    for (const target of new Set([platform.value, "win32"])) {
+      Object.defineProperty(process, "platform", { ...platform, value: target });
+      const source = join(root, `source-${target}`); mkdirSync(join(source, ".github/release-runtime"), { recursive: true });
+      ensureReleaseRuntime(source);
+      const actualNode = readFileSync(join(source, ".github/release-runtime/installed-with-node"), "utf8");
+      assert.equal(actualNode, node, "matching npm must run with the explicit caller Node even when PATH has another Node");
+    }
   } finally {
     Object.defineProperty(process, "platform", platform);
     restoreNpm();
+    Object.defineProperty(process, "execPath", executable);
     rmSync(root, { recursive: true, force: true });
   }
 });

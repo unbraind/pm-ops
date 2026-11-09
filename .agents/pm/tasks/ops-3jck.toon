@@ -1,11 +1,23 @@
 id: ops-3jck
 title: Release runtime discovers a non-adjacent npm CLI and pins the caller's Node for the matched CLI
-description: "Round-6 review of gh:unbraind/pm-ops#260 asked scripts/release-runtime.ts to run the matched npm CLI with process.execPath even when PATH selects another Node, and to discover an npm CLI outside the Node directory on Windows (suggesting reuse of the test npm-launcher resolution). Declined in that round as a large mechanism: a correct fix needs PATH shim-target discovery (where.exe plus npm-prefix metadata or npm.cmd parsing on Windows, symlink/wrapper/binary shim classification on POSIX) whose success paths cannot execute off Windows, which conflicts with the 100 percent coverage gate, the no-shell subprocess contract and the ban on trusted sources importing test modules; official Node distributions bundle the npm CLI beside node.exe, so the affected population is non-official Node builds and custom global prefixes on Windows, which the shipped clear refusal now names instead of a confusing module error. Revisit when the runtime gains a Windows-runnable discovery path that the coverage gate can exercise."
+description: "Local recovery must discover standard npm installations outside the Node directory and run the verified CLI with the explicit caller Node even when PATH selects another Node. Resolve the adjacent npm CLI first, then standard PATH layouts and POSIX npm symlink targets. Execute every version probe, bootstrap and locked install directly with the caller Node, without a shell; refuse clearly when no CLI is available and clean private caches on every outcome. Implemented in the existing release-runtime PR with native Windows CI and disposable regression/revert evidence."
 type: Task
-status: open
+status: in_progress
 priority: 3
 tags[1]: "area:release;type:enhancement"
 created_at: "2026-11-09T06:12:30.542Z"
-updated_at: "2026-11-09T06:12:30.542Z"
+updated_at: "2026-11-09T07:12:45.997Z"
 author: pi-glm
+comments[3]{created_at,author,text}:
+  "2026-11-09T06:47:22.887Z",codex-sol,"Completing this existing follow-up in PR 260. Resolve the adjacent npm CLI first, then standard PATH npm installation layouts and real npm symlink targets. Invoke every probe, bootstrap and locked install with process.execPath, without a shell. Synthetic standalone-Node and conflicting-PATH scenarios execute on Linux and the Windows launch path; native Windows CI retains the real locked-install fixture."
+  "2026-11-09T06:53:30.791Z",codex-sol,"Implementation and linked tests pass 6/6. The non-adjacent fixture runs both native and Windows launch identities without a shell and asserts the installed CLI runs under the exact caller Node, while PATH supplies a different Node. Reverting scripts/release-runtime.ts to the prior implementation fails that equality assertion; restoring it passes. No duplicate follow-up or PR was created. Full release gates are running before handoff."
+  "2026-11-09T07:12:45.203Z",codex-sol,"Delivered in existing PR 260: selected-Node npm execution, standard non-adjacent npm discovery, clear missing-prerequisite refusal and private-cache cleanup. Linked tests pass 6/6; complete npm and Bun gates each pass 1647 tests with two platform skips, zero failures and four 100 percent coverage dimensions. Claim released for orchestrator verification; item remains in progress as required."
+files[2]{path,scope}:
+  scripts/release-runtime.ts,project
+  test/release-runtime.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/release-runtime.test.ts,project,codex-sol,"2026-11-09T06:49:48.213Z",local_mutation,fix/release-npm-runtime-reads-lock
+docs[2]{path,scope}:
+  docs/release-migration.md,project
+  docs/reusable-release.md,project
 body: ""

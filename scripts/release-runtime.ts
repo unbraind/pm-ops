@@ -1,6 +1,6 @@
 /** Install locked runtime dependencies only when release tooling is actually needed. */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { devNull, tmpdir } from "node:os";
 import { createRequire } from "node:module";
@@ -8,6 +8,23 @@ import { execFileSync } from "../subprocess.ts";
 
 /** The source checkout containing this trusted helper, never a release PR checkout. */
 export const workflowToolsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+/** Locate an npm CLI without executing a shell or switching the selected Node. */
+function npmCli(): string {
+  const adjacent = join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js");
+  if (existsSync(adjacent)) return adjacent;
+  for (const directory of (process.env.PATH ?? "").split(delimiter).filter(Boolean)) {
+    for (const candidate of [join(directory, "node_modules/npm/bin/npm-cli.js"), join(directory, "../lib/node_modules/npm/bin/npm-cli.js")]) {
+      if (existsSync(candidate)) return candidate;
+    }
+    const launcher = join(directory, "npm");
+    if (existsSync(launcher)) {
+      const target = realpathSync(launcher);
+      if (target.endsWith("npm-cli.js")) return target;
+    }
+  }
+  throw new Error("Release runtime needs an npm CLI beside Node or in a PATH npm installation; install npm before retrying");
+}
 
 /** Install dependencies from the trusted commit's lockfile without running lifecycle scripts. */
 function installLockedRuntime(args: string[], cwd: string): void {
@@ -20,20 +37,12 @@ function installLockedRuntime(args: string[], cwd: string): void {
   const options = { cwd, env, timeout: 180_000, encoding: "utf8" as const };
   const expected = "11.21.0";
   let prefix: string | undefined;
-  // Native Windows cannot execute npm.cmd through execFile without a shell.
-  // Official Node distributions keep the bundled CLI beside node.exe.
-  let command = process.platform === "win32" ? process.execPath : "npm";
-  let leading: string[] = process.platform === "win32" ? [join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js")] : [];
-  if (process.platform === "win32" && !existsSync(leading[0])) {
-    // Refuse with the requirement named instead of a confusing module error:
-    // a PATH npm.cmd cannot be launched without a shell on Windows.
-    throw new Error(`Release runtime needs the npm CLI bundled beside the Node executable (${leading[0]}); use an official Node distribution or install npm there`);
-  }
   try {
+    const command = process.execPath;
+    let leading = [npmCli()];
     if (execFileSync(command, [...leading, "--version"], options).trim() !== expected) {
       prefix = mkdtempSync(join(tmpdir(), "pm-ops-npm-"));
       execFileSync(command, [...leading, "install", "--prefix", prefix, "--no-save", "--package-lock=false", `npm@${expected}`, "--ignore-scripts", "--no-audit", "--no-fund"], { ...options, cwd: prefix, stdio: "inherit" });
-      command = process.execPath;
       leading = [join(prefix, "node_modules/npm/bin/npm-cli.js")];
       const active = execFileSync(command, [...leading, "--version"], options).trim();
       if (active !== expected) throw new Error(`Expected npm ${expected}, got ${active}`);
