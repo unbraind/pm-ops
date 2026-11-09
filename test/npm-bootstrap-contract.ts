@@ -24,7 +24,7 @@ function npmSubcommand(words: string[]): string | undefined {
 /** npm subcommands that install packages. */
 const INSTALL_SUBCOMMANDS = ["install", "i", "in", "ins", "inst", "insta", "instal", "isnt", "isnta", "isntal", "isntall", "add", "ci", "ic", "clean-install", "install-clean", "isntall-clean", "install-test", "installt", "it", "install-ci-test", "cit", "sit", "clean-install-test"];
 
-/** exec and x acquire packages only with --package; without it they run local binaries. */
+/** Detect explicit package acquisition requested by exec/x's --package option. */
 function acquiringExec(words: string[]): boolean {
   const subcommand = npmSubcommand(words) ?? "";
   return (subcommand === "exec" || subcommand === "x") && words.some(token => token === "--package" || token.startsWith("--package=") || token === "-p" || token.startsWith("-p="));
@@ -36,11 +36,29 @@ export function npmInstalls(script: string): string[][] {
   for (const command of tokenizeCommands(script)) {
     // Preserve exec/x as npm subcommands instead of consuming them as shell
     // wrappers. Keep command positions, so printed arguments remain inert.
-    const protectedCommand = command.map((token, index) =>
-      /^(?:exec|x)$/.test(token.value) && /(?:^|[\\/])npm(?:\.cmd)?$/.test(command[index - 1]?.value ?? "")
-        ? { ...token, value: `npm-subcommand-${token.value}` } : token);
-    if (!/^(?:npm|npm\.cmd)$/.test(commandName(protectedCommand) ?? "")) continue;
-    const words = ["npm", ...commandArguments(protectedCommand).map(token => token.value.replace(/^npm-subcommand-(exec|x)$/, "$1"))];
+    const originalWords = new Map<object, string>();
+    const protectedCommand = command.map((token, index) => {
+      const value = /^(?:exec|x)$/.test(token.value) && /(?:^|[\\/])npm(?:\.cmd)?$/.test(command[index - 1]?.value ?? "")
+        ? `npm-subcommand-${token.value}` : /(?:^|[\\/])timeout$/.test(token.value) ? "npm-check-timeout" : token.value;
+      const protectedToken = { ...token, value };
+      originalWords.set(protectedToken, token.value);
+      return protectedToken;
+    });
+    let executing = protectedCommand;
+    // timeout has one duration operand after its options; consume it before
+    // asking the shared prefix walker about the program it actually launches.
+    while (commandName(executing) === "npm-check-timeout") {
+      const args = commandArguments(executing);
+      let index = 0;
+      while (args[index]?.value.startsWith("-")) {
+        const flag = args[index++].value;
+        if (flag === "--") break;
+        if (["-s", "--signal", "-k", "--kill-after"].includes(flag)) index++;
+      }
+      executing = args.slice(index + 1);
+    }
+    if (!/^(?:npm|npm\.cmd)$/.test(commandName(executing) ?? "")) continue;
+    const words = ["npm", ...commandArguments(executing).map(token => originalWords.get(token) ?? token.value)];
     if (acquiringExec(words) || INSTALL_SUBCOMMANDS.includes((npmSubcommand(words) ?? "").replace(/[A-Z]/g, letter => "-" + letter.toLowerCase()))) {
       installs.push(words);
     }

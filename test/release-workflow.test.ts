@@ -936,3 +936,18 @@ test("npm guards allow printed package-acquiring commands", () => {
     }
   }
 });
+
+test("npm guards detect timed installs without treating printed arguments as commands", () => {
+  const bootstrap = "npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund";
+  for (const wrapper of ["timeout 60", "timeout -s TERM -k 5 60", "timeout --foreground -- 1m", "command timeout 60", "env CACHE=fixture timeout 60", "timeout 60 timeout 30"]) {
+    for (const install of ["npm ci", "npm exec --package pkg", "npm --location global install pkg"]) {
+      assert.equal(npmInstalls(`${wrapper} ${install}`).length, 1);
+      assert.throws(() => assertNoNpmInstalls(`${wrapper} ${install}`), /must not install/);
+      assert.throws(() => assertPinnedNpmBootstrap(bootstrap + "\n" + wrapper + " " + install), /only the pinned npm/);
+      assert.equal(vacuousRetryLoops(`for attempt in 1 2; do ${wrapper} ${install}; done`).length, 1);
+    }
+    for (const printed of ["echo npm ci", "echo npm exec --package pkg", "npm run describe -- npm exec --package pkg"]) {
+      assert.doesNotThrow(() => assertNoNpmInstalls(`${wrapper} ${printed}`));
+    }
+  }
+});

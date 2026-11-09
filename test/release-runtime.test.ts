@@ -1,7 +1,7 @@
 /** Bootstrap exact source tools without relying on publication of their declared package version. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cpSync, chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "../subprocess.ts";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -17,6 +17,14 @@ function sourceFixture(root: string, name = "pm-ops", version = "9999.1.1"): str
   symlinkSync(join(workflowToolsRoot, "node_modules"), join(source, "node_modules"), "junction");
   symlinkSync(join(workflowToolsRoot, "dist"), join(source, "dist"), "junction");
   return source;
+}
+
+/** Restore synthetic runtime identity and remove its disposable source checkout. */
+function restoreRuntimeProcess(root: string, platform: PropertyDescriptor, executable: PropertyDescriptor, restoreNpm: () => void): void {
+  Object.defineProperty(process, "platform", platform);
+  restoreNpm();
+  Object.defineProperty(process, "execPath", executable);
+  rmSync(root, { recursive: true, force: true });
 }
 
 test("unpublished trusted source version bootstraps from exact committed planner bytes", async () => {
@@ -189,12 +197,7 @@ else if (args[0] === "ci") {
         if (success) assert.deepEqual(calls.at(-1), ["ci", "--omit=dev", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund"]);
       }
     }
-  } finally {
-    Object.defineProperty(process, "platform", platform);
-    restoreNpm();
-    Object.defineProperty(process, "execPath", executable);
-    rmSync(root, { recursive: true, force: true });
-  }
+  } finally { restoreRuntimeProcess(root, platform, executable, restoreNpm); }
 });
 
 test("missing npm CLI refuses clearly and removes the private cache", () => {
@@ -244,10 +247,20 @@ else require("node:fs").writeFileSync("installed-with-node", process.execPath);
       const actualNode = readFileSync(join(source, ".github/release-runtime/installed-with-node"), "utf8");
       assert.equal(actualNode, node, "matching npm must run with the explicit caller Node even when PATH has another Node");
     }
-  } finally {
-    Object.defineProperty(process, "platform", platform);
-    restoreNpm();
-    Object.defineProperty(process, "execPath", executable);
-    rmSync(root, { recursive: true, force: true });
-  }
+  } finally { restoreRuntimeProcess(root, platform, executable, restoreNpm); }
+});
+
+test("POSIX npm symlink discovery does not depend on the host Node layout", { skip: process.platform === "win32" }, () => {
+  const root = mkdtempSync(join(tmpdir(), "release-npm-symlink-"));
+  const restoreNpm = interceptRuntimeNpm(root, 'if (process.argv[2] === "--version") console.log("11.21.0"); else require("node:fs").writeFileSync("installed", "yes");');
+  try {
+    const bin = join(root, "bin with space");
+    const cli = join(root, "npm-cli.js");
+    renameSync(join(bin, "node_modules/npm/bin/npm-cli.js"), cli);
+    rmSync(join(bin, "npm")); symlinkSync(cli, join(bin, "npm"));
+    process.env.PATH = bin;
+    mkdirSync(join(root, ".github/release-runtime"), { recursive: true });
+    ensureReleaseRuntime(root);
+    assert.equal(readFileSync(join(root, ".github/release-runtime/installed"), "utf8"), "yes");
+  } finally { restoreNpm(); rmSync(root, { recursive: true, force: true }); }
 });
