@@ -6,9 +6,7 @@ status: in_progress
 priority: 1
 tags[1]: "gh:unbraind/pm-ops#260"
 created_at: "2026-11-07T23:40:56.448Z"
-updated_at: "2026-11-09T01:49:28.886Z"
-assignee: pi-glm
-claim_principal: pi-glm
+updated_at: "2026-11-09T01:49:51.384Z"
 author: pi-agent
 acceptance_criteria: "Inventory every workflow and script npm install with before and after runtimes; Pin and verify npm before trusted tool, provenance and caller installs while retaining node-version and ignore-scripts; PR CI executes the exact release production install against both committed locks; Document passing fixed and failing npm 10.9.3 runs against the unchanged 091124b fixture; Focused tests and typecheck pass; CI is the full gate; docs explain the caller runtime"
 comments[33]{created_at,author,text}:
