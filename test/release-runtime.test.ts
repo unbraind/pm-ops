@@ -5,6 +5,7 @@ import { cpSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rm
 import { spawnSync } from "../subprocess.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "../scripts/release-runtime.ts";
 import { interceptRuntimeNpm } from "./runtime-npm-fixture.ts";
 import { runReleaseContinuation } from "../scripts/release-continuation.ts";
@@ -82,7 +83,7 @@ test("an empty native probe works with no installed runtime dependencies and nev
     writeFileSync(join(root, "package.json"), '{"type":"module"}');
     writeFileSync(join(root, "read-only-fixture.mjs"), 'globalThis.fetch = async () => new Response("[]");\n');
     writeFileSync(join(root, "npm"), '#!/bin/sh\necho unexpected > "$PWD/npm-invoked"\nexit 7\n'); chmodSync(join(root, "npm"), 0o755);
-    const result = spawnSync(process.execPath, ["--import", join(root, "read-only-fixture.mjs"), join(root, "scripts/release-continuation.ts"), "probe"], { cwd: root, encoding: "utf8", timeout: 30_000, env: {
+    const result = spawnSync(process.execPath, ["--import", pathToFileURL(join(root, "read-only-fixture.mjs")).href, join(root, "scripts/release-continuation.ts"), "probe"], { cwd: root, encoding: "utf8", timeout: 30_000, env: {
       PATH: root + ":" + process.env.PATH, GITHUB_REPOSITORY: "example/package", GH_TOKEN: "synthetic-token", RELEASE_CONFIG: "{}",
       CALLER_WORKFLOW: "example/package/.github/workflows/release.yml@refs/heads/main", RUNNER_TEMP: root, GITHUB_OUTPUT: join(root, "output"),
       TRIGGER_SHA: "a".repeat(40), RELEASE_TIMEZONE: "UTC",
