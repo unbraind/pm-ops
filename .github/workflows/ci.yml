@@ -11,6 +11,8 @@ permissions:
 
 jobs:
   test:
+    needs: [release-lock]
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -19,6 +21,9 @@ jobs:
         # TypeScript without a flag; 26 is what the fleet develops against.
         node-version: [22, 26]
     steps:
+      - name: Require both release lock compatibility checks
+        run: test '${{ needs.release-lock.result }}' = 'success'
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
@@ -184,3 +189,11 @@ jobs:
       - name: Check root dependency engines at the Node floor
         if: ${{ matrix.node-version == '22.18.0' }}
         run: npm ci --omit=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund
+      - name: Check development dependency engines at the Node floor
+        if: ${{ matrix.node-version == '22.18.0' }}
+        run: npm ci --include=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund
+      - name: Test provenance at the Node floor
+        if: ${{ matrix.node-version == '22.18.0' }}
+        run: |
+          npm run build
+          node --test --test-concurrency=2 test/release-provenance.test.ts

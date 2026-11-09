@@ -730,7 +730,7 @@ test("every private runtime Node floor has an independent strict engine gate", (
   const floor = JSON.parse(readFileSync(new URL("../.github/release-runtime/package.json", import.meta.url), "utf8")).engines.node.replace(/^>=/, "");
   const job = ci.jobs["release-lock"];
   assert.ok(job.strategy.matrix["node-version"].includes(floor));
-  assert.equal(job.steps.filter((s: Step) => s.run?.includes("--engine-strict")).length, 2, "both committed locks need a strict gate at the Node floor");
+  assert.equal(job.steps.filter((s: Step) => s.run?.includes("--engine-strict")).length, 3, "both committed locks and development dependencies need strict gates at the Node floor");
   const strict = job.steps.find((s: Step) => s.run?.includes("--engine-strict"));
   assert.ok(strict, "the floor needs a strict install in addition to the exact release command");
   assert.equal(strict.if, "${{ matrix.node-version == '" + floor + "' }}");

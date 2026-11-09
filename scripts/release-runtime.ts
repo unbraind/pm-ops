@@ -15,7 +15,7 @@ function npmCli(): string {
   if (existsSync(adjacent)) return adjacent;
   for (const directory of (process.env.PATH ?? "").split(delimiter).filter(Boolean)) {
     for (const candidate of [join(directory, "node_modules/npm/bin/npm-cli.js"), join(directory, "../lib/node_modules/npm/bin/npm-cli.js")]) {
-      if (existsSync(candidate)) return candidate;
+      if (existsSync(candidate)) return resolve(candidate);
     }
     const launcher = join(directory, "npm");
     if (existsSync(launcher)) {

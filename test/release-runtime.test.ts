@@ -4,7 +4,7 @@ import test from "node:test";
 import { cpSync, chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "../subprocess.ts";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "../scripts/release-runtime.ts";
 import { interceptRuntimeNpm } from "./runtime-npm-fixture.ts";
@@ -140,6 +140,7 @@ if (args[0] === "--version") {
 const path = require("node:path");
 const args = process.argv.slice(2);
 if (process.env.NPM_CONFIG_CACHE) fs.appendFileSync(path.join(process.cwd(), "cli-caches"), process.env.NPM_CONFIG_CACHE + "\\n");
+fs.appendFileSync(path.join(process.cwd(), "cli-nodes"), process.execPath + "\\n");
 fs.appendFileSync(path.join(process.cwd(), "calls"), JSON.stringify(args) + "\\n");
 if (args[0] === "--version") console.log(fs.readFileSync("after", "utf8"));
 else if (args[0] === "ci") {
@@ -154,6 +155,7 @@ else if (args[0] === "ci") {
   fs.symlinkSync(${JSON.stringify(join(workflowToolsRoot, "node_modules"))}, "node_modules", "junction");
 }
 `);
+    Object.defineProperty(process, "execPath", { ...executable, value: spacedNode });
     process.env.PATH = bin; // No git or pinned npm executable is discoverable through PATH.
     const twin = join(bin, process.platform === "win32" ? "node.exe" : "node");
     const twinRun = spawnSync(twin, ["-e", "process.stdout.write('twin')"], { encoding: "utf8" });
@@ -185,6 +187,8 @@ else if (args[0] === "ci") {
         const cliCaches = existsSync(join(cwd, "cli-caches")) ? readFileSync(join(cwd, "cli-caches"), "utf8").trim().split("\n").filter(Boolean) : [];
         const generatedCliCalls = before === "11.21.0" || status !== "0" || cli !== "present" ? 0 : after === "11.21.0" ? 2 : 1;
         assert.deepEqual(cliCaches, Array.from({ length: generatedCliCalls }, () => cache.dir), "the bootstrapped CLI probe and ci must both use the private cache");
+        const cliNodes = existsSync(join(cwd, "cli-nodes")) ? readFileSync(join(cwd, "cli-nodes"), "utf8").trim().split("\n") : [];
+        assert.deepEqual(cliNodes, Array.from({ length: generatedCliCalls }, () => spacedNode), "the bootstrapped CLI probe and ci must both use the caller Node");
         const calls = readFileSync(join(cwd, "calls"), "utf8").trim().split("\n").map(line => JSON.parse(line) as string[]);
         assert.equal(calls.some(call => call[0] === "ci"), success || ciStatus !== "0", `${installer}/${before}/${after}/${status}/${ciStatus}`);
         if (before === "11.21.0") assert.equal(calls.length, 1);
@@ -223,7 +227,7 @@ test("missing npm CLI refuses clearly and removes the private cache", () => {
   }
 });
 
-test("matching npm uses the caller Node and discovers non-adjacent PATH installations", () => {
+test("matching npm uses the caller Node and resolves non-adjacent relative PATH installations", () => {
   const root = mkdtempSync(join(tmpdir(), "release-npm-discovery-"));
   const executable = Object.getOwnPropertyDescriptor(process, "execPath")!;
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
@@ -239,7 +243,7 @@ else require("node:fs").writeFileSync("installed-with-node", process.execPath);
     Object.defineProperty(process, "execPath", { ...executable, value: node });
     const poison = join(root, "poison"); mkdirSync(poison);
     writeFileSync(join(poison, "node"), "#!/bin/sh\nexit 91\n"); chmodSync(join(poison, "node"), 0o755);
-    process.env.PATH = poison + delimiter + bin;
+    process.env.PATH = poison + delimiter + relative(process.cwd(), bin);
     for (const target of new Set([platform.value, "win32"])) {
       Object.defineProperty(process, "platform", { ...platform, value: target });
       const source = join(root, `source-${target}`); mkdirSync(join(source, ".github/release-runtime"), { recursive: true });
