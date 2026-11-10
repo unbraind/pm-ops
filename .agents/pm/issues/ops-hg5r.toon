@@ -6,12 +6,13 @@ status: open
 priority: 1
 tags[3]: coverage,release,tests
 created_at: "2026-11-10T16:27:14.620Z"
-updated_at: "2026-11-10T16:27:16.932Z"
+updated_at: "2026-11-10T17:20:57.591Z"
 author: claude-orchestrator
 acceptance_criteria: "The continuation fixture starts every test with NPM_PROJECT_PATH cleared, like POST_RELEASE_SCRIPT; The coverage gate reaches 100% with NPM_PROJECT_PATH set in the ambient environment"
 actual_result: "Run release checks: ERROR: Coverage for branches (99.81%) does not meet threshold (100%) for scripts/release-continuation.ts (line 375)."
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-11-10T16:27:16.932Z",claude-orchestrator,"Fix: the fixture now deletes NPM_PROJECT_PATH next to POST_RELEASE_SCRIPT. Evidence with NPM_PROJECT_PATH exported as in the release job: adapter test alone 62/0, branch coverage of release-continuation.ts 99.62% before and 99.81% after (the other test files cover the remaining branches). Full npm run coverage with the variable set: 1651 tests, 1649 pass, 0 fail; release-continuation.ts 100/100/100/100; all 48 files meet thresholds. Without the fix, the daily release reported 99.81% (line 375)."
+  "2026-11-10T17:20:57.590Z",claude-orchestrator,"CodeRabbit PRRT_kwDOTOTl1M61z_3F: a regression now sets an ambient NPM_PROJECT_PATH, asserts the fixture callback sees it unset, and asserts the value is restored afterwards. Revert proof: dropping the delete fails it (0/1); with the fix 1/0. Adapter file 63/0, test typecheck clean."
 files[1]{path,scope}:
   test/release-continuation-adapter.test.ts,project
 tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:

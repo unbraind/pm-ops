@@ -168,6 +168,17 @@ test("bot receipt discovery narrows history, exhausts pages and hydrates only ca
   assert.equal(f.calls.filter(call => call.path.includes("/pulls/")).length, 1);
 });
 
+test("the adapter fixture clears an inherited NPM_PROJECT_PATH and restores it afterwards", async () => {
+  // Daily release jobs export NPM_PROJECT_PATH through GITHUB_ENV before release:check runs these tests.
+  const previous = process.env.NPM_PROJECT_PATH; process.env.NPM_PROJECT_PATH = "/inherited/release-job/project";
+  try {
+    let seen: string | undefined = "not called";
+    await withAdapter(async () => { seen = process.env.NPM_PROJECT_PATH; });
+    assert.equal(seen, undefined, "hook tests must not run with the release job's project path");
+    assert.equal(process.env.NPM_PROJECT_PATH, "/inherited/release-job/project");
+  } finally { if (previous === undefined) delete process.env.NPM_PROJECT_PATH; else process.env.NPM_PROJECT_PATH = previous; }
+});
+
 test("probe discovers once and reuses a freshly validated PR number", async () => {
   await withAdapter(async f => {
     await runReleaseContinuation("probe");
