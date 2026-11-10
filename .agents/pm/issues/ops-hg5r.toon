@@ -1,0 +1,19 @@
+id: ops-hg5r
+title: "Daily release coverage gate fails: continuation tests inherit the release job's NPM_PROJECT_PATH"
+description: "The daily release exports NPM_PROJECT_PATH through GITHUB_ENV before running release:check. test/release-continuation-adapter.test.ts saved and restored that variable but never cleared it, so inside the release job the post-release hook's default-cwd branch (scripts/release-continuation.ts:375, NPM_PROJECT_PATH ?? '.') was never taken, and branch coverage fell to 99.81% (pm-ops release run 42807281840, 2026-11-10). PR CI, which lacks the variable, reported 100%."
+type: Issue
+status: open
+priority: 1
+tags[3]: coverage,release,tests
+created_at: "2026-11-10T16:27:14.620Z"
+updated_at: "2026-11-10T16:27:16.932Z"
+author: claude-orchestrator
+acceptance_criteria: "The continuation fixture starts every test with NPM_PROJECT_PATH cleared, like POST_RELEASE_SCRIPT; The coverage gate reaches 100% with NPM_PROJECT_PATH set in the ambient environment"
+actual_result: "Run release checks: ERROR: Coverage for branches (99.81%) does not meet threshold (100%) for scripts/release-continuation.ts (line 375)."
+comments[1]{created_at,author,text}:
+  "2026-11-10T16:27:16.932Z",claude-orchestrator,"Fix: the fixture now deletes NPM_PROJECT_PATH next to POST_RELEASE_SCRIPT. Evidence with NPM_PROJECT_PATH exported as in the release job: adapter test alone 62/0, branch coverage of release-continuation.ts 99.62% before and 99.81% after (the other test files cover the remaining branches). Full npm run coverage with the variable set: 1651 tests, 1649 pass, 0 fail; release-continuation.ts 100/100/100/100; all 48 files meet thresholds. Without the fix, the daily release reported 99.81% (line 375)."
+files[1]{path,scope}:
+  test/release-continuation-adapter.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  npm run coverage,project,claude-orchestrator,"2026-11-10T16:27:16.267Z",local_mutation,fix/continuation-tests-own-project-path
+body: ""
