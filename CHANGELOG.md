@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026.11.11 - 2026-11-11
+
+### Dependencies
+
+- Bump the pm-toolchain group across 1 directory with 2 updates ([#261](https://github.com/unbraind/pm-ops/pull/261))
+- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#257](https://github.com/unbraind/pm-ops/pull/257))
+- Bump taiki-e/install-action from 2.88.0 to 2.90.1 ([#258](https://github.com/unbraind/pm-ops/pull/258))
+- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#259](https://github.com/unbraind/pm-ops/pull/259))
+- Bump the codeql-actions group across 1 directory with 2 updates ([#256](https://github.com/unbraind/pm-ops/pull/256))
+- Bump @unbrained/pm-cli ([#254](https://github.com/unbraind/pm-ops/pull/254))
+
 ## 2026.11.6 - 2026-11-06
 
 ### Dependencies
