@@ -101,7 +101,9 @@ async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { ro
   };
   refresh();
   const control = { ignorePersistence: false, write404: false, writes: 0, failWriteAt: 0 };
-  delete process.env.POST_RELEASE_SCRIPT;
+  // Release jobs export NPM_PROJECT_PATH through GITHUB_ENV; a fixture that inherits it covers different branches
+  // there than in PR CI (2026-11-10: the default-cwd branch went uncovered only in the daily release's coverage gate).
+  delete process.env.POST_RELEASE_SCRIPT; delete process.env.NPM_PROJECT_PATH;
   writeFileSync(join(root, "npm"), '#!/bin/sh\necho "$*" >> "$RELEASE_FIXTURE/hooks"\n'); chmodSync(join(root, "npm"), 0o755);
   writeFileSync(join(root, "gh"), '#!/bin/sh\ncase "$1 $2" in\n"api graphql") cat "$RELEASE_FIXTURE/protection.json" ;;\napi\\ repos/*/rules/branches/main) printf "[]" ;;\napi\\ repos/*/branches/main) cat "$RELEASE_FIXTURE/branch-policy.json" ;;\n"pr merge") echo merge >> "$RELEASE_FIXTURE/merges"; echo "$*" >> "$RELEASE_FIXTURE/merge-args" ;;\n*) exit 9 ;;\nesac\n'); chmodSync(join(root, "gh"), 0o755);
   globalThis.fetch = async (input, init) => {
@@ -164,6 +166,17 @@ test("bot receipt discovery narrows history, exhausts pages and hydrates only ca
   assert.deepEqual(await discoverCandidatePrs(f.c.repository, "main", api), [f.pr]);
   assert.equal(f.calls.filter(call => call.path.includes("/issues?")).length, 2);
   assert.equal(f.calls.filter(call => call.path.includes("/pulls/")).length, 1);
+});
+
+test("the adapter fixture clears an inherited NPM_PROJECT_PATH and restores it afterwards", async () => {
+  // Daily release jobs export NPM_PROJECT_PATH through GITHUB_ENV before release:check runs these tests.
+  const previous = process.env.NPM_PROJECT_PATH; process.env.NPM_PROJECT_PATH = "/inherited/release-job/project";
+  try {
+    let seen: string | undefined = "not called";
+    await withAdapter(async () => { seen = process.env.NPM_PROJECT_PATH; });
+    assert.equal(seen, undefined, "hook tests must not run with the release job's project path");
+    assert.equal(process.env.NPM_PROJECT_PATH, "/inherited/release-job/project");
+  } finally { if (previous === undefined) delete process.env.NPM_PROJECT_PATH; else process.env.NPM_PROJECT_PATH = previous; }
 });
 
 test("probe discovers once and reuses a freshly validated PR number", async () => {
