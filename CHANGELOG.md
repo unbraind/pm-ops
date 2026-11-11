@@ -2,27 +2,45 @@
 
 ## 2026.11.6 - 2026-11-06
 
-No tracked changes.
+### Dependencies
+
+- Bump semver ([#252](https://github.com/unbraind/pm-ops/pull/252))
+- Bump @unbrained/pm-cli ([#251](https://github.com/unbraind/pm-ops/pull/251))
 
 ## 2026.11.5 - 2026-11-05
 
-No tracked changes.
+### Dependencies
+
+- Bump @unbrained/pm-cli ([#247](https://github.com/unbraind/pm-ops/pull/247))
 
 ## 2026.11.4 - 2026-11-04
 
-No tracked changes.
+### Dependencies
+
+- Bump the pm-toolchain group with 2 updates ([#245](https://github.com/unbraind/pm-ops/pull/245))
 
 ## 2026.11.3 - 2026-11-03
 
-No tracked changes.
+### Dependencies
+
+- Bump eslint ([#242](https://github.com/unbraind/pm-ops/pull/242))
+- Bump @unbrained/pm-cli ([#241](https://github.com/unbraind/pm-ops/pull/241))
 
 ## 2026.11.2 - 2026-11-02
 
-No tracked changes.
+### Dependencies
+
+- Bump @types/node ([#239](https://github.com/unbraind/pm-ops/pull/239))
+- Bump the pm-toolchain group with 2 updates ([#238](https://github.com/unbraind/pm-ops/pull/238))
+- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#234](https://github.com/unbraind/pm-ops/pull/234))
+- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#233](https://github.com/unbraind/pm-ops/pull/233))
+- Bump taiki-e/install-action from 2.87.30 to 2.88.0 ([#235](https://github.com/unbraind/pm-ops/pull/235))
 
 ## 2026.10.31 - 2026-10-31
 
-No tracked changes.
+### Dependencies
+
+- Bump the pm-toolchain group with 2 updates ([#229](https://github.com/unbraind/pm-ops/pull/229))
 
 ## 2026.10.29 - 2026-10-29
 
