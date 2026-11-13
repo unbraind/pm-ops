@@ -14,12 +14,12 @@ was not treated as proof of absence. Only pm-ops is changed by this PR.
 
 The canonical runner-free continuation has no merge-wait deadline. It reports
 fresh blockers whenever a pending or refresh decision is made. It reads the
-current exact release head, failed check names and links, strict BEHIND state,
+current exact release head, required failed check names and links, strict BEHIND state,
 DIRTY conflicts, and currently waiting/action-required runs; no approval flag is
 retained between decisions. The migration must not copy the obsolete wait loop.
 
 Preparation tooling remains bound to the candidate preparation run and SHA.
-Publication uses the executing reusable job's `job.workflow_ref`, matching the
+New publication uses the executing reusable job's `job.workflow_ref`, matching the
 OIDC `job_workflow_ref` claim, rather than the preparation pin. GitHub documents
 this distinction at
 https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-with-reusable-workflows.
@@ -28,3 +28,12 @@ merged commit and ref, signature, transparency evidence and artifact digest.
 
 One pm-ops follow-up, `ops-release-diagnosis-propagation`, tracks fleet adoption.
 No consumer repository or per-repository tracker item is changed here.
+
+Existing npm uploads are verified against their original publishing job, resolved
+from the scoped invocation and authoritative Actions run metadata, using the same
+resolver as independent recovery. A subsequent caller pin update cannot replace
+that signer. The bundle is still cryptographically checked against the resolved
+identity; neither current-job identity alone nor decoded claims authorize recovery.
+Diagnosis selects required contexts, issuer bindings and current workflow runs
+through `requiredProtection`, shared with approval selection. Optional checks and
+optional waiting runs do not become release blockers.

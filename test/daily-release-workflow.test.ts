@@ -793,6 +793,7 @@ test("root engine floor gate refuses an incompatible root manifest before instal
 });
 
 test("publication provenance expectation comes from the executing job independently of preparation outputs", () => {
+  assert.equal(step("Publish npm package").env?.PROVENANCE_SIGNER_WORKFLOW, "${{ steps.continue.outputs.signer_workflow }}");
   for (const name of ["reconcile", "release"]) {
     const job = workflow.jobs[name];
     const binding = job.steps.find(current => current.name === "Locate trusted continuation tools")!;

@@ -1131,6 +1131,7 @@ jobs:
         shell: bash
         env:
           NPM_VERSION: ${{ needs.reconcile.outputs.version }}
+          PROVENANCE_SIGNER_WORKFLOW: ${{ steps.continue.outputs.signer_workflow }}
         run: |
           set -euo pipefail
           globalconfig="$(npm config get globalconfig 2>/dev/null || true)"

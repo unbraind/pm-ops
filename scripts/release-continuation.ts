@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "./release-runtime.ts";
-import { verifyRegistryProvenance, type ProvenanceIdentity, type verifySigstoreBundle } from "../release-provenance.ts";
+import { originalPublicationSigner, verifyRegistryProvenance, type ProvenanceIdentity, type verifySigstoreBundle } from "../release-provenance.ts";
 import { pathToFileURL } from "node:url";
 import {
   cargoPackageVersion, decideReleaseContinuation, decideUnpublishedRetirement, ownsContinuationPr, releaseConfigDigest, releaseDigest, validateReleaseCandidate, verifyReleaseHandoff,
@@ -148,15 +148,16 @@ export async function registryJson(path: string): Promise<unknown> {
 }
 
 /** Authenticate registry provenance and bind every source field before reconciliation. */
-async function registryProof(c: ReleaseCandidate, merged: string, readRegistry: (path: string) => Promise<unknown>, signerWorkflow: string, verify?: typeof verifySigstoreBundle): Promise<ContinuationEvidence["registry"]> {
+async function registryProof(c: ReleaseCandidate, merged: string, readRegistry: (path: string) => Promise<unknown>, signerWorkflow: string, api: ReleaseApi, verify?: typeof verifySigstoreBundle): Promise<{ state: ContinuationEvidence["registry"]; signerWorkflow?: string }> {
   const metadata = await readRegistry(`${encodeURIComponent(c.packageName)}/${c.version}`) as { dist: { integrity: string; attestations?: { url: string } } } | null;
-  if (!metadata) return "absent";
+  if (!metadata) return { state: "absent" };
   const url = metadata.dist.attestations?.url;
-  if (metadata.dist.integrity !== c.packageIntegrity || !url?.startsWith("https://registry.npmjs.org/")) return "unverified";
+  if (metadata.dist.integrity !== c.packageIntegrity || !url?.startsWith("https://registry.npmjs.org/")) return { state: "unverified" };
   const envelope = await readRegistry(url.slice("https://registry.npmjs.org/".length));
   if (!verify) ensureReleaseRuntime();
   const identity: ProvenanceIdentity = { repository: c.repository, workflow: c.workflow, ref: "refs/heads/" + c.defaultBranch, commit: merged, integrity: c.packageIntegrity, signerWorkflow };
-  return await verifyRegistryProvenance(envelope, identity, verify) ? "verified" : "unverified";
+  identity.signerWorkflow = await originalPublicationSigner(envelope, identity, api);
+  return { state: await verifyRegistryProvenance(envelope, identity, verify) ? "verified" : "unverified", signerWorkflow: identity.signerWorkflow };
 }
 
 /** Normalize documented workflow identities without accepting a foreign repository or ref. */
@@ -192,26 +193,20 @@ export function publishingSignerWorkflow(workflowRef: string): string {
 }
 
 /** Diagnose a pending protected PR from freshly read exact-head evidence, never remembered approval. */
-export async function releaseWaitReason(number: number, head: string, repository: string, api: ReleaseApi = githubApi): Promise<string> {
+export async function releaseWaitReason(number: number, head: string, repository: string, api: ReleaseApi = githubApi,
+  proof: () => { runs?: string[]; failures?: string[] } = () => requiredProtection(number, head, undefined, true)): Promise<string> {
   const pr = await api(`repos/${repository}/pulls/${number}`) as RestPr & { mergeable_state: string };
   if (!ownsContinuationPr(identity(pr), repository, "main") || pr.head.sha !== head || pr.state !== "open") throw new Error("Release diagnosis head or ownership changed");
   const state = pr.mergeable_state.toUpperCase();
   if (state === "BEHIND") return "BEHIND: update the release branch to satisfy strict up-to-date protection.";
   if (state === "DIRTY") return "DIRTY: regenerate the release metadata to resolve merge conflicts.";
-  const checks = await pages<{ name: string; head_sha: string; status: string; conclusion: string | null; html_url: string }>(async path => {
-    const data = await api(path) as { check_runs: unknown[] }; return data.check_runs;
-  }, `repos/${repository}/commits/${head}/check-runs?filter=latest`);
-  const statuses = await pages<{ context: string; state: string; target_url: string | null }>(api, `repos/${repository}/commits/${head}/statuses`);
-  const latest = new Map<string, typeof statuses[number]>();
-  for (const status of statuses) if (!latest.has(status.context)) latest.set(status.context, status);
-  const failing = checks.filter(check => check.head_sha === head && check.status === "completed" && ["failure", "cancelled", "timed_out", "startup_failure", "stale"].includes(check.conclusion ?? ""))
-    .map(check => `${check.name} (${check.html_url})`);
-  failing.push(...[...latest.values()].filter(status => ["failure", "error"].includes(status.state)).map(status => `${status.context} (${status.target_url ?? "no run link"})`));
-  if (failing.length) return "failing: " + failing.join(", ");
-  const runs = await pages<{ head_sha: string; event: string; status: string; conclusion: string | null; html_url: string }>(async path => {
+  const required = proof(), eligible = new Set(required.runs);
+  if (required.failures?.length) return "failing: " + required.failures.join(", ");
+  const runs = await pages<{ id: number; head_sha: string; event: string; status: string; conclusion: string | null; html_url: string }>(async path => {
     const data = await api(path) as { workflow_runs: unknown[] }; return data.workflow_runs;
   }, `repos/${repository}/actions/runs?head_sha=${head}`);
-  const waiting = runs.filter(run => run.head_sha === head && run.event === "pull_request" && (run.status === "waiting" || run.status === "action_required" || run.conclusion === "action_required"));
+  const waiting = runs.filter(run => eligible.has(String(run.id)) && run.head_sha === head && run.event === "pull_request"
+    && (run.status === "waiting" || run.status === "action_required" || run.conclusion === "action_required"));
   if (waiting.length) return "awaiting workflow approval: " + waiting.map(run => run.html_url).join(", ");
   return `still settling (merge state: ${state}): inspect required checks and review decisions.`;
 }
@@ -252,7 +247,7 @@ verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mai
   const referenced = run.referenced_workflows?.filter(item => item.path.startsWith("unbraind/pm-ops/.github/workflows/daily-release.yml@")) ?? [];
   const toolsSha = referenced.length === 1 ? referenced[0].sha : referenced.length === 0 && options.repository === "unbraind/pm-ops" ? c.baseSha : "";
   if (!/^[a-f0-9]{40}$/.test(toolsSha) || (c.toolsSha !== undefined && c.toolsSha !== toolsSha)) throw new Error("Trusted release tools commit is missing or changed");
-  const signerWorkflow = publishingSignerWorkflow(options.publishingWorkflowRef);
+  let signerWorkflow = publishingSignerWorkflow(options.publishingWorkflowRef);
   const tools = await api("repos/unbraind/pm-ops/contents/package.json?ref=" + toolsSha) as { content: string } | null;
   if (!tools) throw new Error("Trusted release tools package is unavailable");
   const toolsPackage = JSON.parse(Buffer.from(tools.content, "base64").toString("utf8")) as { name: string; version: string };
@@ -272,9 +267,13 @@ verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mai
   const tagSha = pr.merged || configChanged ? await tagCommit(api, options.repository, c.tag) : null;
   const release = pr.merged || configChanged ? await api(`${repo}/releases/tags/${c.tag}`) as { tag_name: string; draft: boolean } | null : null;
   if (release && (release.tag_name !== c.tag || release.draft || !tagSha)) throw new Error("GitHub Release identity disagrees");
-  const registry = configChanged && c.npmPublish
-    ? await readRegistry(`${encodeURIComponent(c.packageName)}/${c.version}`) === null ? "absent" : "unverified"
-    : pr.merged && c.npmPublish ? await registryProof(c, pr.merge_commit_sha!, readRegistry, signerWorkflow, verify) : tagSha ? "verified" : "absent";
+  let registry: ContinuationEvidence["registry"];
+  if (configChanged && c.npmPublish) registry = await readRegistry(`${encodeURIComponent(c.packageName)}/${c.version}`) === null ? "absent" : "unverified";
+  else if (pr.merged && c.npmPublish) {
+    const published = await registryProof(c, pr.merge_commit_sha!, readRegistry, signerWorkflow, api, verify);
+    registry = published.state;
+    signerWorkflow = published.signerWorkflow ?? signerWorkflow;
+  } else registry = tagSha ? "verified" : "absent";
   const comments = pr.merged || configChanged ? await pages<{ user: { login: string }; body: string }>(api, `${repo}/issues/${pr.number}/comments`) : [];
   const attempts = comments.filter(comment => comment.user.login === "github-actions[bot]" && comment.body.startsWith(attemptMarker))
     .map(comment => JSON.parse(comment.body.slice(attemptMarker.length, -4)) as { candidate: string });
@@ -309,7 +308,7 @@ function requiredProjectPath(): string {
 
 /** Read complete classic check policy with contents-read access and bind every context to the PR head. */
 export function requiredProtection(number: number, expectedHead: string,
-  run: (args: string[]) => string = args => execFileSync("gh", args, { encoding: "utf8", timeout: 30_000 }), withRuns = false): { states: string[]; review: string; runs?: string[] } {
+  run: (args: string[]) => string = args => execFileSync("gh", args, { encoding: "utf8", timeout: 30_000 }), withRuns = false): { states: string[]; review: string; runs?: string[]; failures?: string[] } {
   const [owner, repository] = required("GITHUB_REPOSITORY").split("/");
   const branch = JSON.parse(run(["api", `repos/${owner}/${repository}/branches/main`])) as {
     name: string; protected: boolean; protection?: { enabled: boolean; required_status_checks?: {
@@ -323,12 +322,12 @@ export function requiredProtection(number: number, expectedHead: string,
     || rule.checks.some(check => typeof check.context !== "string" || !check.context || (check.app_id !== null && check.app_id !== -1 && (!Number.isSafeInteger(check.app_id) || check.app_id < 1)))
     || rule.contexts.some(context => !rule.checks.some(check => check.context === context)) || rule.checks.some(check => !rule.contexts.includes(check.context))
     || !Array.isArray(rules) || rules.length !== 0) throw new Error("Required protection policy is unreadable, incomplete or includes unsupported active rulesets");
-  const query = `query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){headRefOid baseRefName reviewDecision commits(last:1){nodes{commit{oid statusCheckRollup{contexts(first:100){totalCount pageInfo{hasNextPage} nodes{__typename ... on CheckRun{name status conclusion isRequired(pullRequestNumber:$n) checkSuite{app{databaseId} workflowRun{url}}} ... on StatusContext{context state isRequired(pullRequestNumber:$n)}}}}}}}}}}`;
+  const query = `query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){headRefOid baseRefName reviewDecision commits(last:1){nodes{commit{oid statusCheckRollup{contexts(first:100){totalCount pageInfo{hasNextPage} nodes{__typename ... on CheckRun{name detailsUrl status conclusion isRequired(pullRequestNumber:$n) checkSuite{app{databaseId} workflowRun{url}}} ... on StatusContext{context targetUrl state isRequired(pullRequestNumber:$n)}}}}}}}}}}`;
   const response = JSON.parse(run(["api", "graphql", "-f", `query=${query}`, "-F", `o=${owner}`, "-F", `r=${repository}`, "-F", `n=${number}`])) as {
     errors?: unknown[]; data: { repository: { pullRequest: {
       headRefOid: string; baseRefName: string; reviewDecision: string | null;
       commits: { nodes: { commit: { oid: string; statusCheckRollup: { contexts: { totalCount: number; pageInfo: { hasNextPage: boolean }; nodes: {
-        __typename: string; name?: string; context?: string; state?: string; status?: string; conclusion?: string; isRequired: boolean; checkSuite?: { app: { databaseId: number } | null; workflowRun?: { url: string } | null };
+        __typename: string; name?: string; context?: string; detailsUrl?: string; targetUrl?: string; state?: string; status?: string; conclusion?: string; isRequired: boolean; checkSuite?: { app: { databaseId: number } | null; workflowRun?: { url: string } | null };
       }[] } } } }[] };
     } } };
   };
@@ -339,11 +338,15 @@ export function requiredProtection(number: number, expectedHead: string,
     || (pr.reviewDecision !== null && !["APPROVED", "REVIEW_REQUIRED", "CHANGES_REQUESTED"].includes(pr.reviewDecision))
     || !contexts || contexts.pageInfo.hasNextPage || contexts.totalCount !== contexts.nodes.length
     || contexts.nodes.some(node => node.isRequired && !rule.checks.some(check => check.context === (node.name ?? node.context)))) throw new Error("Required protection policy or exact-head evidence is unreadable or incomplete");
-  const runs = new Set<string>();
+  const runs = new Set<string>(), failures: string[] = [];
   const states = rule.checks.flatMap(check => {
     const matching = contexts.nodes.filter(node => (node.name ?? node.context) === check.context && node.isRequired === true
       && (check.app_id === null || check.app_id === -1 || node.checkSuite?.app?.databaseId === check.app_id));
     if (withRuns) for (const node of matching) {
+      const state = node.__typename === "CheckRun" ? node.status === "COMPLETED" ? node.conclusion : undefined : node.state;
+      if (["FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "STARTUP_FAILURE", "STALE"].includes(state ?? "")) {
+        failures.push(`${check.context} (${node.detailsUrl ?? node.targetUrl ?? node.checkSuite?.workflowRun?.url ?? "no run link"})`);
+      }
       const url = node.checkSuite?.workflowRun?.url;
       if (url === undefined) continue;
       const prefix = `https://github.com/${owner}/${repository}/actions/runs/`;
@@ -353,7 +356,7 @@ export function requiredProtection(number: number, expectedHead: string,
     }
     return matching.length ? matching.map(node => node.__typename === "CheckRun" ? node.status === "COMPLETED" ? node.conclusion ?? "MISSING" : "PENDING" : node.state ?? "MISSING") : ["MISSING"];
   });
-  return { states, review: pr.reviewDecision ?? "", ...(withRuns ? { runs: [...runs] } : {}) };
+  return { states, review: pr.reviewDecision ?? "", ...(withRuns ? { runs: [...runs], failures } : {}) };
 }
 
 /** Approve only waiting PR runs proven by exact-head required checks, independent of workflow names. */
