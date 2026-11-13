@@ -105,3 +105,19 @@ test('original run HTTP lookup requires a token and refuses unavailable proof', 
     } finally { Object.assign(globalThis, { fetch: original }); }
   });
 });
+
+test('original publishing identity uses the recorded OIDC ref independently of its implementation SHA', async () => {
+  const run = { ...publicationRun(), referenced_workflows: [{ path: canonical + sha, sha, ref: 'refs/heads/main' as unknown }] };
+  assert.equal(await originalPublicationSigner(fixture(), identity, async () => run), canonical + 'refs/heads/main');
+  run.referenced_workflows[0].path = canonical + 'refs/heads/main';
+  assert.equal(await originalPublicationSigner(fixture(), identity, async () => run), canonical + 'refs/heads/main');
+  run.referenced_workflows[0].path = canonical + sha;
+  run.referenced_workflows[0].ref = sha;
+  assert.equal(await originalPublicationSigner(fixture(), identity, async () => run), canonical + sha);
+  for (const ref of [null, 1, 'refs/heads/foreign']) {
+    run.referenced_workflows[0].ref = ref;
+    await assert.rejects(originalPublicationSigner(fixture(), identity, async () => run), /Untrusted original reusable signer/);
+  }
+  run.referenced_workflows[0].ref = 'refs/heads/main'; run.referenced_workflows[0].path = canonical + 'refs/tags/v2026.11.06';
+  await assert.rejects(originalPublicationSigner(fixture(), identity, async () => run), /Untrusted original reusable signer/);
+});
