@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Parse the candidate receipt independently of surrounding bot summaries ([ops-release-receipt-boundary](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-receipt-boundary.toon))
+- Derive provenance signer from the actual publishing workflow ref ([ops-release-publishing-signer](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-publishing-signer.toon))
+- Report current release blockers instead of remembered approval ([ops-release-current-diagnosis](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-current-diagnosis.toon))
+
 ## 2026.11.11 - 2026-11-11
 
 ### Dependencies
