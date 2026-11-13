@@ -1308,6 +1308,15 @@ for (const [defect, ref] of [
   });
 }
 
+test("the entry point refuses a missing PUBLISHING_WORKFLOW_REF instead of falling back to preparation", async () => {
+  // The environment fallback, not only the helper's empty-string input, must reach the publishing-identity refusal.
+  for (const mode of ["verify", "attempt"]) await withAdapter(async f => {
+    f.refresh(); delete process.env.PUBLISHING_WORKFLOW_REF;
+    await assert.rejects(runReleaseContinuation(mode), /publishing job workflow ref/);
+    assert.equal(f.control.writes, 0, "a refused identity must not write");
+  });
+});
+
 /** Model an existing upload signed by one reusable pin while reconciliation runs another. */
 function resumedPublicationFixture() {
   const f = remoteFixture(), canonical = "unbraind/pm-ops/.github/workflows/daily-release.yml@";
