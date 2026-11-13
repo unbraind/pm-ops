@@ -1,0 +1,26 @@
+id: ops-release-publishing-signer
+title: Derive provenance signer from the actual publishing workflow ref
+description: Fix #270 while retaining independent preparation tooling SHA and cryptographic source and digest verification.
+type: Issue
+status: in_progress
+priority: 1
+tags[1]: "gh:unbraind/pm-ops#270"
+created_at: "2026-11-13T00:10:38.631Z"
+updated_at: "2026-11-13T00:21:19.383Z"
+author: codex-ops268-1112
+comments[3]{created_at,author,text}:
+  "2026-11-13T00:10:46.869Z",codex-ops268-1112,"Historical publication run 43272393997 attempt 1 reports daily-release.yml at implementation 20aeecbd83f6d997576903c881940d459c9b5042 with ref refs/heads/main, whereas preparation used 831a0f01400ed352b75f01ed8ecf6e05b1308fe3. Use the actual job workflow ref for publication identity; keep preparation pin validation independent."
+  "2026-11-13T00:20:23.388Z",codex-ops268-1112,"Revert proof: restoring only the preparation-derived signer expression makes 7/7 selected regressions fail: independent publishing ref, historical cryptographically verified resumed publication, and each foreign repository/path/ref or missing/unqualified publishing identity refusal. Restored adapter passes 76/76. The unmodified public npm attestation verifies with the real Sigstore client and recorded authenticated trust root; its existing upload selects recover, never another publish. Tests also refuse the preparation and publishing implementation SHAs as SAN substitutions. Hosted evidence is read-only historical run metadata; no live release or publication is claimed."
+  "2026-11-13T00:21:17.945Z",codex-ops268-1112,"Final bounded local gate: timeout 1200 node --test --test-concurrency=2 test/release-discovery-evidence.test.ts test/daily-release-workflow.test.ts test/release-runtime.test.ts test/release-workflow.test.ts test/release-provenance.test.ts test/release-recovery-signer.test.ts test/release-continuation-adapter.test.ts passes 149/149, zero failures/skips. All four direct importers of the changed adapter are included. timeout 1200 npm run lint, timeout 1200 npm run typecheck and timeout 1200 npm run build:test pass. Linked pm tests pass: diagnosis 5/5, receipt 2/2, publishing identity 9/9. Full release:check is delegated to CI per the task gate budget; no full-gate or hosted-release certification is claimed. Changelog regeneration and check follow these final tracker writes."
+files[6]{path,scope}:
+  .github/workflows/daily-release.yml,project
+  scripts/release-continuation.ts,project
+  test/daily-release-workflow.test.ts,project
+  test/fixtures/provenance/pm-ops-2026.11.11.json,project
+  test/fixtures/release-publication-43272393997.json,project
+  test/release-continuation-adapter.test.ts,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  "timeout 1200 node --test --test-concurrency=2 --test-name-pattern=\"publishing signer uses|publishing identity refuses|historical resumed pm-ops|trusted tool source|registry proof separates\" test/release-continuation-adapter.test.ts",project,1200,codex-ops268-1112,"2026-11-13T00:19:19.369Z",local_mutation,fix/release-diagnosis-receipt-signer
+docs[1]{path,scope}:
+  docs/release-diagnosis-propagation.md,project
+body: ""

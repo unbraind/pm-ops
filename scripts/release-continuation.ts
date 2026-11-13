@@ -77,8 +77,9 @@ export function parseCandidateReceipt(body: string, retired = false): CandidateR
   const prefix = retired ? retiredMarker : marker;
   if (!body.includes(prefix)) return null;
   const parts = body.split(prefix);
-  if (parts.length !== 2 || !parts[1].endsWith("\n-->")) throw new Error("Malformed candidate receipt");
-  const receipt = JSON.parse(parts[1].slice(0, -4)) as CandidateReceipt;
+  const end = parts[1].indexOf("\n-->");
+  if (parts.length !== 2 || end < 0) throw new Error("Malformed candidate receipt");
+  const receipt = JSON.parse(parts[1].slice(0, end)) as CandidateReceipt;
   validateReleaseCandidate(receipt.candidate);
   if (!Number.isSafeInteger(receipt.artifactId) || receipt.artifactId < 1) throw new Error("Missing immutable artifact ID");
   return receipt;
@@ -182,9 +183,42 @@ async function preparationConclusion(api: ReleaseApi, repository: string, c: Rel
   return prepare[0].status === "completed" ? prepare[0].conclusion ?? "" : "";
 }
 
+/** Bind the signer to GitHub's executing reusable job ref, independently of preparation tools. */
+export function publishingSignerWorkflow(workflowRef: string): string {
+  if (!/^unbraind\/pm-ops\/\.github\/workflows\/daily-release\.yml@(refs\/heads\/main|[a-f0-9]{40})$/.test(workflowRef)) {
+    throw new Error("Untrusted publishing job workflow ref");
+  }
+  return workflowRef;
+}
+
+/** Diagnose a pending protected PR from freshly read exact-head evidence, never remembered approval. */
+export async function releaseWaitReason(number: number, head: string, repository: string, api: ReleaseApi = githubApi): Promise<string> {
+  const pr = await api(`repos/${repository}/pulls/${number}`) as RestPr & { mergeable_state: string };
+  if (!ownsContinuationPr(identity(pr), repository, "main") || pr.head.sha !== head || pr.state !== "open") throw new Error("Release diagnosis head or ownership changed");
+  const state = pr.mergeable_state.toUpperCase();
+  if (state === "BEHIND") return "BEHIND: update the release branch to satisfy strict up-to-date protection.";
+  if (state === "DIRTY") return "DIRTY: regenerate the release metadata to resolve merge conflicts.";
+  const checks = await pages<{ name: string; head_sha: string; status: string; conclusion: string | null; html_url: string }>(async path => {
+    const data = await api(path) as { check_runs: unknown[] }; return data.check_runs;
+  }, `repos/${repository}/commits/${head}/check-runs?filter=latest`);
+  const statuses = await pages<{ context: string; state: string; target_url: string | null }>(api, `repos/${repository}/commits/${head}/statuses`);
+  const latest = new Map<string, typeof statuses[number]>();
+  for (const status of statuses) if (!latest.has(status.context)) latest.set(status.context, status);
+  const failing = checks.filter(check => check.head_sha === head && check.status === "completed" && ["failure", "cancelled", "timed_out", "startup_failure", "stale"].includes(check.conclusion ?? ""))
+    .map(check => `${check.name} (${check.html_url})`);
+  failing.push(...[...latest.values()].filter(status => ["failure", "error"].includes(status.state)).map(status => `${status.context} (${status.target_url ?? "no run link"})`));
+  if (failing.length) return "failing: " + failing.join(", ");
+  const runs = await pages<{ head_sha: string; event: string; status: string; conclusion: string | null; html_url: string }>(async path => {
+    const data = await api(path) as { workflow_runs: unknown[] }; return data.workflow_runs;
+  }, `repos/${repository}/actions/runs?head_sha=${head}`);
+  const waiting = runs.filter(run => run.head_sha === head && run.event === "pull_request" && (run.status === "waiting" || run.status === "action_required" || run.conclusion === "action_required"));
+  if (waiting.length) return "awaiting workflow approval: " + waiting.map(run => run.html_url).join(", ");
+  return `still settling (merge state: ${state}): inspect required checks and review decisions.`;
+}
+
 /** Re-read live planning metadata and registry provenance; execution separately binds downloaded bytes. */
 export async function inspectCandidate(receipt: CandidateReceipt, options: {
-  repository: string; triggerSha: string; workflow: string; configDigest: string; timezone: string; now: string; retireUnpublished?: boolean; prNumber?: number;
+  repository: string; triggerSha: string; workflow: string; publishingWorkflowRef: string; configDigest: string; timezone: string; now: string; retireUnpublished?: boolean; prNumber?: number;
 }, api: ReleaseApi = githubApi, readRegistry = registryJson,
 checks: (number: number, head: string) => { states: string[]; review: string } = requiredProtection,
 verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mainSha: string; toolsSha: string; signerWorkflow: string }> {
@@ -218,7 +252,7 @@ verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mai
   const referenced = run.referenced_workflows?.filter(item => item.path.startsWith("unbraind/pm-ops/.github/workflows/daily-release.yml@")) ?? [];
   const toolsSha = referenced.length === 1 ? referenced[0].sha : referenced.length === 0 && options.repository === "unbraind/pm-ops" ? c.baseSha : "";
   if (!/^[a-f0-9]{40}$/.test(toolsSha) || (c.toolsSha !== undefined && c.toolsSha !== toolsSha)) throw new Error("Trusted release tools commit is missing or changed");
-  const signerWorkflow = referenced.length === 1 ? referenced[0].path.replace(/@main$/, "@refs/heads/main") : "unbraind/pm-ops/.github/workflows/daily-release.yml@refs/heads/main";
+  const signerWorkflow = publishingSignerWorkflow(options.publishingWorkflowRef);
   const tools = await api("repos/unbraind/pm-ops/contents/package.json?ref=" + toolsSha) as { content: string } | null;
   if (!tools) throw new Error("Trusted release tools package is unavailable");
   const toolsPackage = JSON.parse(Buffer.from(tools.content, "base64").toString("utf8")) as { name: string; version: string };
@@ -453,7 +487,7 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
     execFileSync("gh", ["pr", "merge", number, "--repo", repository, "--auto", "--squash", "--match-head-commit", candidate.headSha], { stdio: "inherit" });
     return;
   }
-  const options = { repository, triggerSha: required("TRIGGER_SHA"), workflow, configDigest, timezone: required("RELEASE_TIMEZONE"), now: new Date().toISOString(), retireUnpublished: process.env.RETIRE_UNPUBLISHED === "true" };
+  const options = { repository, publishingWorkflowRef: process.env.PUBLISHING_WORKFLOW_REF ?? "", triggerSha: required("TRIGGER_SHA"), workflow, configDigest, timezone: required("RELEASE_TIMEZONE"), now: new Date().toISOString(), retireUnpublished: process.env.RETIRE_UNPUBLISHED === "true" };
   let receipt: CandidateReceipt;
   if (mode === "probe") {
     const prs = await discoverCandidatePrs(repository, "main", githubApi);
@@ -468,6 +502,7 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
       readFileSync(join(handoff, "RELEASE_NOTES.md")), process.env.IS_RUST === "true" ? Buffer.alloc(0) : readFileSync(join(handoff, "package.tgz")));
   }
   const result = await inspectCandidate(receipt, options, githubApi, registryJson, requiredProtection, verifyProvenance);
+  if (result.action === "pending" || result.action === "refresh") process.stdout.write(`Release PR #${result.pr.number}: ${await releaseWaitReason(result.pr.number, receipt.candidate.headSha, repository)}\n`);
   let retired = false;
   if ((result.action === "stranded" || result.action === "retire") && mode === "probe") {
     if (options.triggerSha === result.mainSha) {

@@ -791,3 +791,14 @@ test("root engine floor gate refuses an incompatible root manifest before instal
     assert.equal(existsSync(join(project, "node_modules")), false, "engine refusal precedes dependency writes");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("publication provenance expectation comes from the executing job independently of preparation outputs", () => {
+  for (const name of ["reconcile", "release"]) {
+    const job = workflow.jobs[name];
+    const binding = job.steps.find(current => current.name === "Locate trusted continuation tools")!;
+    assert.equal(binding.env?.PUBLISHING_WORKFLOW_REF, "${{ job.workflow_ref }}");
+    assert.match(binding.run!, /printf 'PUBLISHING_WORKFLOW_REF=%s\\nPROVENANCE_SIGNER_WORKFLOW=%s\\n' "\$PUBLISHING_WORKFLOW_REF" "\$PUBLISHING_WORKFLOW_REF" >> "\$GITHUB_ENV"/);
+    // job context is available in step env, not in job-level env.
+    assert.doesNotMatch(JSON.stringify(job.env), /job\.workflow_ref|signer_workflow/);
+  }
+});

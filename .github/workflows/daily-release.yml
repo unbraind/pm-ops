@@ -196,11 +196,14 @@ jobs:
           persist-credentials: false
       - name: Locate trusted continuation tools
         shell: bash
+        env:
+          PUBLISHING_WORKFLOW_REF: ${{ job.workflow_ref }}
         run: |
           set -euo pipefail
           mv "$GITHUB_WORKSPACE/.pm-ops-release-tools" "$RUNNER_TEMP/pm-ops-release-tools"
           printf 'CONTINUATION_SCRIPT=%s/pm-ops-release-tools/scripts/release-continuation.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           printf 'PROVENANCE_SCRIPT=%s/pm-ops-release-tools/scripts/verify-registry-provenance.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'PUBLISHING_WORKFLOW_REF=%s\nPROVENANCE_SIGNER_WORKFLOW=%s\n' "$PUBLISHING_WORKFLOW_REF" "$PUBLISHING_WORKFLOW_REF" >> "$GITHUB_ENV"
       - name: Enforce continuation runtime floor
         shell: bash
         run: node "${CONTINUATION_SCRIPT%/scripts/*}/dist/continuation-runtime.js"
@@ -965,7 +968,6 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_CONFIG: ${{ toJSON(inputs) }}
       CALLER_WORKFLOW: ${{ github.workflow_ref }}
-      PROVENANCE_SIGNER_WORKFLOW: ${{ needs.reconcile.outputs.signer_workflow }}
       TRIGGER_SHA: ${{ github.sha }}
       CANDIDATE_RECEIPT: ${{ needs.reconcile.outputs.receipt }}
     steps:
@@ -1002,11 +1004,14 @@ jobs:
           persist-credentials: false
       - name: Locate trusted continuation tools
         shell: bash
+        env:
+          PUBLISHING_WORKFLOW_REF: ${{ job.workflow_ref }}
         run: |
           set -euo pipefail
           mv "$GITHUB_WORKSPACE/.pm-ops-release-tools" "$RUNNER_TEMP/pm-ops-release-tools"
           printf 'CONTINUATION_SCRIPT=%s/pm-ops-release-tools/scripts/release-continuation.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           printf 'PROVENANCE_SCRIPT=%s/pm-ops-release-tools/scripts/verify-registry-provenance.ts\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'PUBLISHING_WORKFLOW_REF=%s\nPROVENANCE_SIGNER_WORKFLOW=%s\n' "$PUBLISHING_WORKFLOW_REF" "$PUBLISHING_WORKFLOW_REF" >> "$GITHUB_ENV"
       - name: Enforce continuation runtime floor
         shell: bash
         run: node "${CONTINUATION_SCRIPT%/scripts/*}/dist/continuation-runtime.js"
