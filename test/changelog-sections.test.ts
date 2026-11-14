@@ -190,6 +190,17 @@ test("dependency-only release windows run the canonical changelog step without a
     const prepared = readFileSync(join(root, "package.json"), "utf8");
     assert.equal(runBashFixture(script, { cwd: root, env: releaseEnv, encoding: "utf8" }).status, 0);
     assert.equal(readFileSync(join(root, "package.json"), "utf8"), prepared, "preparation is idempotent");
+    for (const value of [undefined, "", " ", 42]) {
+      const invalid = JSON.parse(prepared) as { scripts: Record<string, unknown> };
+      invalid.scripts["release:notes"] = value;
+      writeFileSync(join(root, "package.json"), JSON.stringify(invalid));
+      const before = readFileSync(join(root, "package.json"), "utf8");
+      const refused = runBashFixture(script, { cwd: root, env: releaseEnv, encoding: "utf8" });
+      assert.notEqual(refused.status, 0);
+      assert.match(refused.stderr, /Missing changelog hook: release:notes/);
+      assert.equal(readFileSync(join(root, "package.json"), "utf8"), before, "invalid hooks fail before the policy is written");
+    }
+    writeFileSync(join(root, "package.json"), prepared);
     execFileSync("git", ["add", "package.json", "CHANGELOG.md"], { cwd: root, env });
     execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "Release fixture"], { cwd: root, env: { ...env, GIT_AUTHOR_DATE: "2026-10-23T14:00:00Z", GIT_COMMITTER_DATE: "2026-10-23T14:00:00Z" } });
     execFileSync("git", ["tag", "v2026.10.23"], { cwd: root, env });

@@ -57,12 +57,17 @@ and executes the same repository gate after tagging. Reverting only persistence
 of the hook policy reproduces the nested-check failure. Existing real-tracker
 tests retain all 64 combinations of historical empty/nonempty release windows.
 The initial focused baseline passed 139 tests, including superseded cleanup.
-Both `npm run release:check` and `bun run release:check` passed: each reported
+Initial `npm run release:check` and `bun run release:check` gates at commit
+`7c557120aca03f68c88903e20228ad00c89aac66` passed: each reported
 1,672 passed, 2 skipped and 0 failed tests, with all four coverage dimensions at
 100% across the configured 48 source files. The skipped cases are opt-in scans
 of configured real repositories; neither feature-specific proof was skipped.
 Bun's gate also ran with isolated HOME and Git configuration. Both unchanged
 pilot candidates pass `npm run changelog:check`.
+The expanded final regression and both canonical attestation contracts pass
+(3 passed, 0 failed, 0 skipped), and the standalone publish-attestation gate
+passes. Full npm/Bun certification of the final review edits remains pending CI;
+the earlier full results do not certify the final head.
 
 The additional raw-generator post-tag probe reproduced the already open
 [pm-changelog #337](https://github.com/unbraind/pm-changelog/issues/337) with the
@@ -114,7 +119,17 @@ The tested source baseline is main commit
 canonical release exists and its actual tag has been dereferenced. The
 prerequisite run completed successfully by preparing
 [release PR #274](https://github.com/unbraind/pm-ops/pull/274); its CI and CodeQL
-runs require approval. Preparation is not publication or a released pin.
+runs initially required approval. Preparation is not publication or a released pin.
+
+At the one-hour cutoff, **2026-11-14 04:55:38Z**, the newest GitHub Release was
+still v2026.11.11. No newer tag/SHA was selected and no pilot PR was opened;
+both pilot worktrees have no tracked changes. The prerequisite run succeeded
+and has no failed-job logs. By the cutoff, #274's CodeQL had passed and CI was
+running after the earlier approval hold, but publication was still pending.
+Pilot work stopped under the release guard. All 36 authorized copied workflows
+therefore remain unmigrated: the two proposed pilots plus the 34 listed below.
+The canonical candidate and evidence are in
+[pm-ops PR #275](https://github.com/unbraind/pm-ops/pull/275).
 
 ### Remaining rollout
 

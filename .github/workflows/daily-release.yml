@@ -584,8 +584,8 @@ jobs:
           let changed = false;
           for (const name of new Set([process.env.CHANGELOG_SCRIPT, process.env.CHANGELOG_CHECK_SCRIPT, process.env.NOTES_SCRIPT])) {
             const script = pkg.scripts?.[name];
-            if (typeof script !== 'string' || !script.trim()) throw new Error(`Missing changelog hook: ${name}`);
-            if (!/(?:^|\s)--include-empty(?:\s|$)/.test(script)) {
+            if (typeof script !== 'string' || !script.trim()) throw new Error('Missing changelog hook: ' + name);
+            if (!script.split(/\s+/).includes('--include-empty')) {
               pkg.scripts[name] = script + ' --include-empty';
               changed = true;
             }
