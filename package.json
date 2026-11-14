@@ -1,6 +1,6 @@
 {
   "name": "pm-ops",
-  "version": "2026.11.11",
+  "version": "2026.11.14",
   "description": "Multi-repo fleet operations for pm-cli",
   "repository": {
     "type": "git",
@@ -171,7 +171,7 @@
     "@unbrained/pm-cli": "2026.11.6",
     "c8": "12.0.0",
     "eslint": "10.14.0",
-    "jscpd": "5.4.2",
+    "jscpd": "5.4.3",
     "pm-changelog": "2026.11.6",
     "sigstore": "4.1.1"
   },
