@@ -173,7 +173,7 @@
     "eslint": "10.14.0",
     "jscpd": "5.4.3",
     "pm-changelog": "2026.11.6",
-    "sigstore": "4.1.1"
+    "sigstore": "5.0.1"
   },
   "keywords": [
     "pm-cli",
