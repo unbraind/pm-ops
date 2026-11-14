@@ -10,7 +10,6 @@ import { committedReleaseNotes } from "../release-repair.ts";
 import { describeEmptyReleases, runChangelog } from "../scripts/pm-changelog.ts";
 import { verify as verifySections } from "../scripts/verify-release-changelog-sections.ts";
 import { parse } from "yaml";
-import { createRequire } from "node:module";
 import { decideDailyRelease } from "../daily-release.ts";
 import { runBashFixture } from "./bash-fixture.ts";
 
@@ -174,17 +173,27 @@ test("dependency-only release windows run the canonical changelog step without a
     assert.equal(decideDailyRelease(facts).should_release, true);
     assert.equal(decideDailyRelease({ ...facts, hasChanges: false }).should_release, false);
     assert.equal(decideDailyRelease({ ...facts, publishedToday: true }).should_release, false);
-    const generator = createRequire(import.meta.url).resolve("pm-changelog/cli");
+    const generator = resolve("scripts/pm-changelog.ts");
     const commands = Object.fromEntries(["changelog:full", "changelog:check", "release:notes"].map(name => [name,
       [process.execPath, generator, ...args(name).filter(arg => arg !== "--include-empty")].map(arg => `'${arg.replaceAll("'", "'\\''")}'`).join(" ")
     ]));
+    commands["release:check"] = "npm run changelog:check";
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "sample-changelog", version: "2026.10.23", scripts: commands }));
     const workflow = parse(readFileSync(resolve(".github/workflows/daily-release.yml"), "utf8")) as { jobs: { prepare: { steps: { name?: string; run?: string }[] } } };
     const script = workflow.jobs.prepare.steps.find(step => step.name === "Generate changelog and release notes")?.run;
     assert.ok(script);
-    const result = runBashFixture(script, { cwd: root, env: { ...env, IS_RUST: "false", CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check", NOTES_SCRIPT: "release:notes", RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: join(root, "summary.md"), NPM_CONFIG_USERCONFIG: "/dev/null" }, encoding: "utf8" });
+    const releaseEnv = { ...env, IS_RUST: "false", CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check", NOTES_SCRIPT: "release:notes", RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: join(root, "summary.md"), NPM_CONFIG_USERCONFIG: "/dev/null" };
+    const result = runBashFixture(script, { cwd: root, env: releaseEnv, encoding: "utf8" });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     for (const file of ["CHANGELOG.md", "RELEASE_NOTES.md"]) assert.match(committedReleaseNotes(readFileSync(join(root, file), "utf8"), "2026.10.23"), /^No (?:tracked )?changes\.\n$/);
+    execFileSync("npm", ["run", "release:check"], { cwd: root, env: releaseEnv });
+    const prepared = readFileSync(join(root, "package.json"), "utf8");
+    assert.equal(runBashFixture(script, { cwd: root, env: releaseEnv, encoding: "utf8" }).status, 0);
+    assert.equal(readFileSync(join(root, "package.json"), "utf8"), prepared, "preparation is idempotent");
+    execFileSync("git", ["add", "package.json", "CHANGELOG.md"], { cwd: root, env });
+    execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "Release fixture"], { cwd: root, env: { ...env, GIT_AUTHOR_DATE: "2026-10-23T14:00:00Z", GIT_COMMITTER_DATE: "2026-10-23T14:00:00Z" } });
+    execFileSync("git", ["tag", "v2026.10.23"], { cwd: root, env });
+    execFileSync("npm", ["run", "release:check"], { cwd: root, env: releaseEnv });
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

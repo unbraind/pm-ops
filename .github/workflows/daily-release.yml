@@ -577,6 +577,21 @@ jobs:
           else
             # The tree-change decision already admitted this release. Dependency
             # and workflow changes still need notes without a closed tracker item.
+            # Persist the same policy for nested release:check and post-tag checks.
+            node --input-type=module <<'NODE'
+          import {readFileSync, writeFileSync} from 'node:fs';
+          const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+          let changed = false;
+          for (const name of new Set([process.env.CHANGELOG_SCRIPT, process.env.CHANGELOG_CHECK_SCRIPT, process.env.NOTES_SCRIPT])) {
+            const script = pkg.scripts?.[name];
+            if (typeof script !== 'string' || !script.trim()) throw new Error(`Missing changelog hook: ${name}`);
+            if (!/(?:^|\s)--include-empty(?:\s|$)/.test(script)) {
+              pkg.scripts[name] = script + ' --include-empty';
+              changed = true;
+            }
+          }
+          if (changed) writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          NODE
             npm run "$CHANGELOG_SCRIPT" -- --include-empty
             npm run "$CHANGELOG_CHECK_SCRIPT" -- --include-empty
             npm run --silent "$NOTES_SCRIPT" -- --include-empty > "$RUNNER_TEMP/RELEASE_NOTES.md"

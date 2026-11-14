@@ -43,7 +43,7 @@ optional waiting runs do not become release blockers.
 
 | Question | Measured result | Decision |
 | --- | --- | --- |
-| (a) Dependency/workflow changes without a requested-release item | The real tracker and dependency-only Git-window test executes the parsed reusable workflow step with consumer pm-changelog scripts. The original step fails `MISSING_REQUESTED_RELEASE` in release notes. pm-ops' own scripts already include `--include-empty`, masking the consumer failure. | The shared step passes `--include-empty` to generation, checking and notes. This produces a valid empty section through pm-changelog itself. No pm-changelog modification is needed. Tree-change admission and the calendar publication cap still apply. |
+| (a) Dependency/workflow changes without a requested-release item | The real tracker and dependency-only Git-window test executes the parsed reusable workflow step with consumer hooks that omit the flag. The original step fails `MISSING_REQUESTED_RELEASE`; forwarding the flag alone also leaves nested `release:check` inconsistent. | The shared step persists `--include-empty` in the three configured package hooks before calling them with that option. Nested checks and later repository checks therefore use the same policy. The existing canonical wrapper normalizes legacy empty-section output; old raw generators need the #337 prerequisite below. Tree-change admission and the calendar publication cap still apply. |
 | (b) Older open release PRs | Existing planning selects the newest owned date branch and lists older owned PRs. The continuation adapter test re-reads ownership and successor receipt, records supersession, retires the old receipt and closes the old PR. Failed closure remains visible; foreign/human PRs are preserved. | Retain the existing canonical implementation. Copied workflows receive this behavior through the pilot pin. |
 | (c) Cross-repository npm OIDC | npm's current docs say reusable-workflow validation checks the calling workflow. GitHub's standard workflow claims describe the caller; `job_workflow_ref` describes the executing reusable workflow. A local session has no GitHub Actions OIDC token endpoint, so a local dry check cannot prove registry acceptance. | Configure each package's trusted publisher for its own repository and `release.yml`, with `npm publish` allowed. Documentation supports reuse; live cross-repository acceptance remains an explicit pre-activation gate. Missing live evidence is not a rejection and does not justify falling back to copies. |
 
@@ -51,7 +51,10 @@ The regression `dependency-only release windows run the canonical changelog step
 without a requested-release item` uses the installed generator and pinned CLI,
 without tracker mocks. It also checks that unchanged trees and an already
 published calendar day do not admit a release. The same test failed before the
-three shared npm invocations changed and passes after them. Existing real-tracker
+shared invocations changed and passes after them. It also executes nested
+`release:check`, proves preparation is idempotent, commits and tags the fixture,
+and executes the same repository gate after tagging. Reverting only persistence
+of the hook policy reproduces the nested-check failure. Existing real-tracker
 tests retain all 64 combinations of historical empty/nonempty release windows.
 The initial focused baseline passed 139 tests, including superseded cleanup.
 Both `npm run release:check` and `bun run release:check` passed: each reported
@@ -60,6 +63,14 @@ Both `npm run release:check` and `bun run release:check` passed: each reported
 of configured real repositories; neither feature-specific proof was skipped.
 Bun's gate also ran with isolated HOME and Git configuration. Both unchanged
 pilot candidates pass `npm run changelog:check`.
+
+The additional raw-generator post-tag probe reproduced the already open
+[pm-changelog #337](https://github.com/unbraind/pm-changelog/issues/337) with the
+pinned 2026.11.6 generator. No duplicate issue or pm-changelog patch is introduced.
+The canonical wrapper already handles this legacy output. Stop adoption of an
+affected raw-generator consumer until its generator or package-owned wrapper
+passes the same pre-tag/post-tag gate; upgrading that dependency remains owned
+by Dependabot. Passing the preparation step alone is insufficient evidence.
 
 OIDC references, read on 2026-11-14:
 
