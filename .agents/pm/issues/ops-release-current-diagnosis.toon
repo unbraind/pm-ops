@@ -2,12 +2,18 @@ id: ops-release-current-diagnosis
 title: Report current release blockers instead of remembered approval
 description: "Fix #268 in the runner-free continuation: inspect current exact-head runs, failed checks and merge state whenever pending release intent is diagnosed."
 type: Issue
-status: in_progress
+status: closed
 priority: 1
 tags[1]: "gh:unbraind/pm-ops#268"
 created_at: "2026-11-13T00:10:36.564Z"
-updated_at: "2026-11-13T07:07:56.173Z"
+updated_at: "2026-11-13T23:54:34.214Z"
+closed_at: "2026-11-13T23:54:34.198Z"
+completed_at: "2026-11-13T23:54:34.198Z"
 author: codex-ops268-1112
+repro_steps: "1. A release PR CI run is once action_required and is then approved. 2. That CI then fails, or the branch falls BEHIND main, or it conflicts (DIRTY). 3. The \"Merge release metadata through protected PR\" step reaches its 30-minute deadline. Observed: the deadline message blames workflow approval, because awaiting_approval stayed set (pm-ops#268; pm-web#316 and pm-graph#207 failed CI, pm-ado#104 and pm-vcs#196 BEHIND, pm-rl#164 DIRTY on 2026-11-11)."
+resolution: Implemented and merged in #271 (a75ecb1).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #271 as a75ecb1; checks successful at head d52f28f: CodeQL, Release lock compatibility (22.18.0), Release lock compatibility (26), codeql, test (22), test (26), windows-consumers (22), windows-consumers (26)."
 comments[7]{created_at,author,text}:
   "2026-11-13T00:10:45.798Z",codex-ops268-1112,"Current main has removed the merge-wait loop via durable continuation. Add fresh blocker reporting to the pending decision instead of reintroducing a deadline or sticky flag. Cover approved-then-failed, BEHIND, DIRTY, current waiting/action_required, and settling."
   "2026-11-13T00:20:17.913Z",codex-ops268-1112,"Revert proof: restoring remembered-approval behavior in the diagnosis function makes all four current-state tests fail (approved-then-failed, green BEHIND, DIRTY, and waiting-to-settling/exact-head controls). Removing the pending diagnostic call separately makes the entry-point regression fail. Restored implementation: adapter 76/76 passing. This is the runner-free equivalent of deadline diagnosis; no merge-wait loop remains on main."
@@ -24,4 +30,5 @@ tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
   "timeout 1200 node --test --test-concurrency=2 --test-name-pattern=\"optional failures\" test/release-continuation-adapter.test.ts",project,1200,codex-ops268-1112,"2026-11-13T06:59:57.158Z",local_mutation,fix/release-diagnosis-receipt-signer
 docs[1]{path,scope}:
   docs/release-diagnosis-propagation.md,project
+close_reason: "Delivered by #271 \"Report current release blockers and verify receipts against the publishing identity\" (merged as a75ecb1). Checks successful at the PR head d52f28f: CodeQL, Release lock compatibility (22.18.0), Release lock compatibility (26), codeql, test (22), test (26), windows-consumers (22), windows-consumers (26)."
 body: ""

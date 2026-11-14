@@ -2,12 +2,18 @@ id: ops-release-publishing-signer
 title: Derive provenance signer from the actual publishing workflow ref
 description: Fix #270 while retaining independent preparation tooling SHA and cryptographic source and digest verification.
 type: Issue
-status: in_progress
+status: closed
 priority: 1
 tags[1]: "gh:unbraind/pm-ops#270"
 created_at: "2026-11-13T00:10:38.631Z"
-updated_at: "2026-11-13T07:07:59.117Z"
+updated_at: "2026-11-13T23:54:37.311Z"
+closed_at: "2026-11-13T23:54:37.286Z"
+completed_at: "2026-11-13T23:54:37.286Z"
 author: codex-ops268-1112
+repro_steps: "1. A release candidate is prepared with tools pin 831a0f0. 2. Publication resumes in a later run of the reusable daily-release.yml at revision 20aeecb. 3. npm accepts the upload. Observed: provenance verification expects the preparation pin SHA-qualified signer, and Sigstore reports a SAN mismatch with daily-release.yml@refs/heads/main (pm-ops#270; run 43272393997, job 131409063583)."
+resolution: Implemented and merged in #271 (a75ecb1).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #271 as a75ecb1; checks successful at head d52f28f: CodeQL, Release lock compatibility (22.18.0), Release lock compatibility (26), codeql, test (22), test (26), windows-consumers (22), windows-consumers (26)."
 comments[8]{created_at,author,text}:
   "2026-11-13T00:10:46.869Z",codex-ops268-1112,"Historical publication run 43272393997 attempt 1 reports daily-release.yml at implementation 20aeecbd83f6d997576903c881940d459c9b5042 with ref refs/heads/main, whereas preparation used 831a0f01400ed352b75f01ed8ecf6e05b1308fe3. Use the actual job workflow ref for publication identity; keep preparation pin validation independent."
   "2026-11-13T00:20:23.388Z",codex-ops268-1112,"Revert proof: restoring only the preparation-derived signer expression makes 7/7 selected regressions fail: independent publishing ref, historical cryptographically verified resumed publication, and each foreign repository/path/ref or missing/unqualified publishing identity refusal. Restored adapter passes 76/76. The unmodified public npm attestation verifies with the real Sigstore client and recorded authenticated trust root; its existing upload selects recover, never another publish. Tests also refuse the preparation and publishing implementation SHAs as SAN substitutions. Hosted evidence is read-only historical run metadata; no live release or publication is claimed."
@@ -35,4 +41,5 @@ tests[3]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
   "timeout 1200 node --test --test-concurrency=2 --test-name-pattern=\"registry identity changed\" test/release-continuation-adapter.test.ts",project,1200,codex-ops268-1112,"2026-11-13T07:07:47.886Z",local_mutation,fix/release-diagnosis-receipt-signer
 docs[1]{path,scope}:
   docs/release-diagnosis-propagation.md,project
+close_reason: "Delivered by #271 \"Report current release blockers and verify receipts against the publishing identity\" (merged as a75ecb1). Checks successful at the PR head d52f28f: CodeQL, Release lock compatibility (22.18.0), Release lock compatibility (26), codeql, test (22), test (26), windows-consumers (22), windows-consumers (26)."
 body: ""
