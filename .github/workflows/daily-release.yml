@@ -588,6 +588,8 @@ jobs:
             if (!script.split(/\s+/).includes('--include-empty')) {
               pkg.scripts[name] = script + ' --include-empty';
               changed = true;
+              // The release commit carries this package.json edit; say so instead of changing consumer config silently.
+              console.log('::notice::Release commit appends --include-empty to package.json script "' + name + '" so later changelog checks agree with this dependency-only release.');
             }
           }
           if (changed) writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
