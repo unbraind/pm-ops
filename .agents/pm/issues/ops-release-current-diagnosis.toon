@@ -1,0 +1,34 @@
+id: ops-release-current-diagnosis
+title: Report current release blockers instead of remembered approval
+description: "Fix #268 in the runner-free continuation: inspect current exact-head runs, failed checks and merge state whenever pending release intent is diagnosed."
+type: Issue
+status: closed
+priority: 1
+tags[1]: "gh:unbraind/pm-ops#268"
+created_at: "2026-11-13T00:10:36.564Z"
+updated_at: "2026-11-13T23:54:34.214Z"
+closed_at: "2026-11-13T23:54:34.198Z"
+completed_at: "2026-11-13T23:54:34.198Z"
+author: codex-ops268-1112
+repro_steps: "1. A release PR CI run is once action_required and is then approved. 2. That CI then fails, or the branch falls BEHIND main, or it conflicts (DIRTY). 3. The \"Merge release metadata through protected PR\" step reaches its 30-minute deadline. Observed: the deadline message blames workflow approval, because awaiting_approval stayed set (pm-ops#268; pm-web#316 and pm-graph#207 failed CI, pm-ado#104 and pm-vcs#196 BEHIND, pm-rl#164 DIRTY on 2026-11-11)."
+resolution: Implemented and merged in #271 (a75ecb1).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #271 as a75ecb1; checks successful at head d52f28f: CodeQL, Release lock compatibility (22.18.0), Release lock compatibility (26), codeql, test (22), test (26), windows-consumers (22), windows-consumers (26)."
+comments[7]{created_at,author,text}:
+  "2026-11-13T00:10:45.798Z",codex-ops268-1112,"Current main has removed the merge-wait loop via durable continuation. Add fresh blocker reporting to the pending decision instead of reintroducing a deadline or sticky flag. Cover approved-then-failed, BEHIND, DIRTY, current waiting/action_required, and settling."
+  "2026-11-13T00:20:17.913Z",codex-ops268-1112,"Revert proof: restoring remembered-approval behavior in the diagnosis function makes all four current-state tests fail (approved-then-failed, green BEHIND, DIRTY, and waiting-to-settling/exact-head controls). Removing the pending diagnostic call separately makes the entry-point regression fail. Restored implementation: adapter 76/76 passing. This is the runner-free equivalent of deadline diagnosis; no merge-wait loop remains on main."
+  "2026-11-13T00:21:11.118Z",codex-ops268-1112,"Final bounded local gate: timeout 1200 node --test --test-concurrency=2 test/release-discovery-evidence.test.ts test/daily-release-workflow.test.ts test/release-runtime.test.ts test/release-workflow.test.ts test/release-provenance.test.ts test/release-recovery-signer.test.ts test/release-continuation-adapter.test.ts passes 149/149, zero failures/skips. All four direct importers of the changed adapter are included. timeout 1200 npm run lint, timeout 1200 npm run typecheck and timeout 1200 npm run build:test pass. Linked pm tests pass: diagnosis 5/5, receipt 2/2, publishing identity 9/9. Full release:check is delegated to CI per the task gate budget; no full-gate or hosted-release certification is claimed. Changelog regeneration and check follow these final tracker writes."
+  "2026-11-13T06:53:22.668Z",codex-ops268-1112,"Round 2: PRRT_kwDOTOTl1M625hqB is valid. Diagnosis currently treats optional failures as blockers and does not share required-run selection. Reuse requiredProtection selection for failing contexts and eligible waiting runs. Factor the duplicated diagnosis fixture setup without changing the zero duplication threshold."
+  "2026-11-13T07:01:19.823Z",codex-ops268-1112,"Round 2 revert proof for PRRT_kwDOTOTl1M625hqB: restoring only the earlier releaseWaitReason function makes the optional-failure plus required-wait regression fail. Fixed behavior also ignores optional-only failures and optional waiting runs, while retaining required failure names/links. Shared diagnosis and publication fixtures remove the reported clone pair; no threshold change."
+  "2026-11-13T07:04:34.547Z",codex-ops268-1112,"Round 2 final bounded gate: timeout 1200 node --test --test-concurrency=2 test/release-continuation-adapter.test.ts test/release-recovery-signer.test.ts test/daily-release-workflow.test.ts test/release-discovery-evidence.test.ts test/release-repair.test.ts test/release-runtime.test.ts test/release-provenance.test.ts test/release-workflow.test.ts passes 181/181, zero failures/skips. All seven direct module importers plus workflow regression coverage are included. Resolver fixture rerun: 7/7 passing. timeout 1200 npm run duplication reports 0% duplicated lines (0/38667), 144 sources, 0 clone pairs, threshold 0%. timeout 1200 npm run lint, typecheck and build:test pass. Linked pm suites pass diagnosis 5+1 tests and signer 9+4 tests. Full release gate remains delegated to CI. Claims released without closure; final changelog regeneration/check follows these tracker writes."
+  "2026-11-13T07:07:54.252Z",codex-ops268-1112,"Additional focused controls cover queued required checks, required legacy status links, absent check links, and a response changing while original publisher metadata is read. Production source is unchanged from the passing 181-test importer/workflow gate. Expanded adapter rerun passes 81/81; resolver rerun passes 7/7. Final duplication rerun: 0% duplicated lines (0/38691), 144 sources, 0 clone pairs, unchanged threshold 0%. Lint, typecheck and build:test reruns pass, each capped at 1200 seconds. Shared helpers replace both duplicated setups. CI certifies the full gate; no live publication is performed."
+files[2]{path,scope}:
+  scripts/release-continuation.ts,project
+  test/release-continuation-adapter.test.ts,project
+tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  "timeout 1200 node --test --test-concurrency=2 --test-name-pattern=\"release diagnosis|pending continuation reports\" test/release-continuation-adapter.test.ts",project,1200,codex-ops268-1112,"2026-11-13T00:19:17.415Z",local_mutation,fix/release-diagnosis-receipt-signer
+  "timeout 1200 node --test --test-concurrency=2 --test-name-pattern=\"optional failures\" test/release-continuation-adapter.test.ts",project,1200,codex-ops268-1112,"2026-11-13T06:59:57.158Z",local_mutation,fix/release-diagnosis-receipt-signer
+docs[1]{path,scope}:
+  docs/release-diagnosis-propagation.md,project
+close_reason: "Delivered by #271 \"Report current release blockers and verify receipts against the publishing identity\" (merged as a75ecb1). Checks successful at the PR head d52f28f: CodeQL, Release lock compatibility (22.18.0), Release lock compatibility (26), codeql, test (22), test (26), windows-consumers (22), windows-consumers (26)."
+body: ""

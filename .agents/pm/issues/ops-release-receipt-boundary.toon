@@ -1,0 +1,30 @@
+id: ops-release-receipt-boundary
+title: Parse the candidate receipt independently of surrounding bot summaries
+description: Fix #269 by bounding JSON at the first receipt terminator while refusing duplicate markers and malformed records.
+type: Issue
+status: closed
+priority: 1
+tags[1]: "gh:unbraind/pm-ops#269"
+created_at: "2026-11-13T00:10:37.637Z"
+updated_at: "2026-11-13T23:54:38.971Z"
+closed_at: "2026-11-13T23:54:38.928Z"
+completed_at: "2026-11-13T23:54:38.928Z"
+author: codex-ops268-1112
+repro_steps: "1. A release bot PR body carries the candidate receipt. 2. A review bot (Sourcery, cubic) appends text after the receipt closing marker. 3. The Daily Release runs. Observed: Reconcile durable release intent fails with \"Malformed candidate receipt\", because the parser required the body to end with the marker (pm-ops#269; PR #265, run 43186100514)."
+resolution: Implemented and merged in #271 (a75ecb1).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #271 as a75ecb1; checks successful at head d52f28f: CodeQL, Release lock compatibility (22.18.0), Release lock compatibility (26), codeql, test (22), test (26), windows-consumers (22), windows-consumers (26)."
+comments[3]{created_at,author,text}:
+  "2026-11-13T00:17:54.420Z",codex-ops268-1112,"The fixture records the real repaired #265 receipt (artifact 13861624524); tests add generic Sourcery and cubic text before/after the record. Duplicate markers, missing terminators and invalid JSON remain strict refusals."
+  "2026-11-13T00:20:20.720Z",codex-ops268-1112,"Revert proof: restoring only the original parseCandidateReceipt function makes the real #265 body plus generic Sourcery/cubic text regression fail. Restored implementation passes. Duplicate-marker, missing-terminator and invalid-JSON refusals remain exercised; these were pre-existing guards and correctly still refuse with the original parser."
+  "2026-11-13T00:21:14.572Z",codex-ops268-1112,"Final bounded local gate: timeout 1200 node --test --test-concurrency=2 test/release-discovery-evidence.test.ts test/daily-release-workflow.test.ts test/release-runtime.test.ts test/release-workflow.test.ts test/release-provenance.test.ts test/release-recovery-signer.test.ts test/release-continuation-adapter.test.ts passes 149/149, zero failures/skips. All four direct importers of the changed adapter are included. timeout 1200 npm run lint, timeout 1200 npm run typecheck and timeout 1200 npm run build:test pass. Linked pm tests pass: diagnosis 5/5, receipt 2/2, publishing identity 9/9. Full release:check is delegated to CI per the task gate budget; no full-gate or hosted-release certification is claimed. Changelog regeneration and check follow these final tracker writes."
+files[3]{path,scope}:
+  scripts/release-continuation.ts,project
+  test/fixtures/release-pr-265.md,project
+  test/release-continuation-adapter.test.ts,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  "timeout 1200 node --test --test-concurrency=2 --test-name-pattern=\"receipt parser|receipt boundary accepts\" test/release-continuation-adapter.test.ts",project,1200,codex-ops268-1112,"2026-11-13T00:19:18.371Z",local_mutation,fix/release-diagnosis-receipt-signer
+docs[1]{path,scope}:
+  docs/release-diagnosis-propagation.md,project
+close_reason: "Delivered by #271 \"Report current release blockers and verify receipts against the publishing identity\" (merged as a75ecb1). Checks successful at the PR head d52f28f: CodeQL, Release lock compatibility (22.18.0), Release lock compatibility (26), codeql, test (22), test (26), windows-consumers (22), windows-consumers (26)."
+body: ""

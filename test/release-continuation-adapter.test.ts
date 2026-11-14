@@ -11,7 +11,7 @@ import { parse } from "yaml";
 import { assertNoNpmInstalls } from "./npm-bootstrap-contract.ts";
 import { candidateFixture, evidenceFixture } from "./release-continuation-fixture.ts";
 import { releaseConfigDigest, releaseDigest } from "../release-continuation.ts";
-import { candidateBody, retiredCandidateBody, discoverCandidatePrs, parseCandidateReceipt, inspectCandidate as inspectProductionCandidate, closeSuperseded, requiredProtection, approveRequiredWorkflowRuns, githubApi, registryJson, runReleaseContinuation as runProductionContinuation, normalizeWorkflowPath, type ReleaseApi } from "../scripts/release-continuation.ts";
+import { candidateBody, publishingSignerWorkflow, releaseWaitReason, retiredCandidateBody, discoverCandidatePrs, parseCandidateReceipt, inspectCandidate as inspectProductionCandidate, closeSuperseded, requiredProtection, approveRequiredWorkflowRuns, githubApi, registryJson, runReleaseContinuation as runProductionContinuation, normalizeWorkflowPath, type ReleaseApi } from "../scripts/release-continuation.ts";
 
 /** Isolate the cryptographic network boundary in transport fixtures; real signed bundles have separate tests. */
 async function syntheticSignature(): Promise<void> {}
@@ -32,9 +32,10 @@ after(() => { if (previousProject === undefined) delete process.env.NPM_PROJECT_
 /** Stateful remote fixture: no release workflow or registry write escapes this object. */
 function remoteFixture() {
   const c = candidateFixture(), e = evidenceFixture(), receipt = { candidate: c, artifactId: 20 };
-  const pr = { pull_request: {}, number: 42, body: candidateBody(receipt), state: "closed", merged: true, merged_at: "2026-11-06T04:00:00Z" as string | null, merge_commit_sha: e.pr.mergedSha,
+  const pr = { pull_request: {}, number: 42, body: candidateBody(receipt), state: "closed", mergeable_state: "blocked", merged: true, merged_at: "2026-11-06T04:00:00Z" as string | null, merge_commit_sha: e.pr.mergedSha,
     user: { login: "github-actions[bot]" }, head: { ref: e.pr.branch, sha: c.headSha, repo: { full_name: c.repository } }, base: { ref: "main", repo: { full_name: c.repository } } };
   const run = { repository: { full_name: c.repository }, head_branch: "main", head_sha: c.baseSha, path: c.workflow, event: "schedule", conclusion: "success", run_attempt: 1, referenced_workflows: [{ path: "unbraind/pm-ops/.github/workflows/daily-release.yml@main", sha: c.toolsSha! }] };
+  const publicationRun = { ...run, head_sha: e.pr.mergedSha, referenced_workflows: [{ path: "unbraind/pm-ops/.github/workflows/daily-release.yml@refs/heads/main", sha: "8".repeat(40) }] };
   const artifact = { expired: false, workflow_run: { id: c.runId }, name: `verified-daily-release-${c.headSha}` };
   const calls: { path: string; method: string; body?: unknown }[] = [];
   const state = { tag: null as string | null, release: false, registry: false, registryUnavailable: false, checks: ["SUCCESS"], comments: [] as { user: { login: string }; body: string }[], publishedAt: "", npmPublishedAt: "2026-11-05T12:00:00Z", main: e.mainSha, tree: c.tree, parents: [c.baseSha], pkgVersion: c.version, pkgName: c.packageName };
@@ -46,6 +47,10 @@ function remoteFixture() {
     if (path.endsWith("/pulls/42")) return pr;
     if (path.endsWith("/pulls/43")) return { ...pr, number: 43 };
     if (path.includes("/jobs?")) return { total_count: 1, jobs: [{ name: "release / prepare", status: "completed", conclusion: "success", run_id: c.runId, head_sha: c.baseSha }] };
+    if (path.includes("/actions/runs?")) return { workflow_runs: [] };
+    if (path.includes("/check-runs?")) return { check_runs: [] };
+    if (path.includes("/statuses?")) return [];
+    if (path.endsWith("/actions/runs/30/attempts/1")) return publicationRun;
     if (path.includes("/actions/runs/")) return run;
     if (path.includes("/actions/artifacts/")) return artifact;
     if (path.includes("/git/ref/heads/")) return { object: { sha: state.main } };
@@ -63,11 +68,11 @@ function remoteFixture() {
     if (state.registryUnavailable) throw new Error("Synthetic registry outage");
     if (path === c.packageName) return { time: { "2026.11.5": state.npmPublishedAt } };
     if (path === `${c.packageName}/${c.version}`) return state.registry ? { dist: { integrity: c.packageIntegrity, attestations: { url: "https://registry.npmjs.org/-/fixture-proof" } } } : null;
-    const payload = Buffer.from(JSON.stringify({ subject: [{ digest: { sha512: Buffer.from(c.packageIntegrity.slice(7), "base64").toString("hex") } }], predicate: { buildDefinition: { externalParameters: { workflow: { repository: "https://github.com/" + c.repository, path: c.workflow, ref: "refs/heads/main" } }, resolvedDependencies: [{ digest: { gitCommit: e.pr.mergedSha } }] } } })).toString("base64");
+    const payload = Buffer.from(JSON.stringify({ subject: [{ digest: { sha512: Buffer.from(c.packageIntegrity.slice(7), "base64").toString("hex") } }], predicate: { buildDefinition: { externalParameters: { workflow: { repository: "https://github.com/" + c.repository, path: c.workflow, ref: "refs/heads/main" } }, resolvedDependencies: [{ digest: { gitCommit: e.pr.mergedSha } }] }, runDetails: { metadata: { invocationId: `https://github.com/${c.repository}/actions/runs/30/attempts/1` } } } })).toString("base64");
     return { attestations: [{ predicateType: "https://slsa.dev/provenance/v1", bundle: { dsseEnvelope: { payload } } }] };
   };
-  const options = { repository: c.repository, triggerSha: e.triggerSha, workflow: c.workflow, configDigest: c.configDigest, timezone: "Europe/Vienna", now: "2026-11-06T05:00:00Z" };
-  return { c, e, receipt, pr, run, artifact, calls, state, api, options, registry, inspect: () => inspectCandidate(receipt, options, api, registry, () => ({ states: state.checks, review: "APPROVED" })) };
+  const options = { publishingWorkflowRef: "unbraind/pm-ops/.github/workflows/daily-release.yml@refs/heads/main", repository: c.repository, triggerSha: e.triggerSha, workflow: c.workflow, configDigest: c.configDigest, timezone: "Europe/Vienna", now: "2026-11-06T05:00:00Z" };
+  return { c, e, receipt, pr, run, publicationRun, artifact, calls, state, api, options, registry, inspect: () => inspectCandidate(receipt, options, api, registry, () => ({ states: state.checks, review: "APPROVED" })) };
 }
 
 /** Job response variants retain native adapter and exact-head protection checks. */
@@ -83,7 +88,7 @@ async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { ro
   const values: Record<string, string> = { GITHUB_REPOSITORY: f.c.repository, GH_TOKEN: "synthetic-token", RELEASE_CONFIG: "{}", CALLER_WORKFLOW: `${f.c.repository}/${f.c.workflow}@refs/heads/main`,
     RUNNER_TEMP: root, GITHUB_WORKSPACE: root, GITHUB_OUTPUT: join(root, "output"), NPM_PROJECT_DIR: ".", TRIGGER_SHA: f.e.triggerSha, RELEASE_TIMEZONE: "Europe/Vienna", RELEASE_PR_NUMBER: "42", RELEASE_BRANCH: f.pr.head.ref,
     REMOTE_BRANCH_SHA: f.c.headSha, ARTIFACT_ID: "20", RELEASE_BASE_SHA: f.c.baseSha, VERIFIED_COMMIT: f.c.headSha, VERIFIED_TREE: f.c.tree, NPM_VERSION: f.c.version, RELEASE_TAG: f.c.tag,
-    PACKAGE_NAME: f.c.packageName, CLI_VERSION: f.c.cliVersion, PM_OPS_VERSION: f.c.opsVersion, WORKFLOW_TOOLS_SHA: f.c.toolsSha!, GITHUB_ENV: join(root, "env"), GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", NPM_PUBLISH: "true", IS_RUST: "false", RELEASE_FIXTURE: root,
+    PACKAGE_NAME: f.c.packageName, CLI_VERSION: f.c.cliVersion, PM_OPS_VERSION: f.c.opsVersion, WORKFLOW_TOOLS_SHA: f.c.toolsSha!, GITHUB_ENV: join(root, "env"), PUBLISHING_WORKFLOW_REF: f.options.publishingWorkflowRef, GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", NPM_PUBLISH: "true", IS_RUST: "false", RELEASE_FIXTURE: root,
     PATH: `${root}:${process.env.PATH}` };
   const saved = new Map([...Object.keys(values), "CANDIDATE_RECEIPT", "SUPERSEDED_PR_NUMBERS", "POST_RELEASE_SCRIPT", "NPM_PROJECT_PATH", "RETIRE_UNPUBLISHED", "RELEASE_COMMIT"].map(key => [key, process.env[key]]));
   Object.assign(process.env, values);
@@ -367,7 +372,7 @@ test("receipt parser binds one valid artifact and refuses malformed, ambiguous o
   const f = remoteFixture();
   assert.deepEqual(parseCandidateReceipt(candidateBody(f.receipt)), f.receipt);
   assert.equal(parseCandidateReceipt("ordinary release PR"), null);
-  for (const body of [candidateBody(f.receipt) + "extra", candidateBody(f.receipt) + candidateBody(f.receipt), candidateBody({ ...f.receipt, artifactId: 0 })]) assert.throws(() => parseCandidateReceipt(body));
+  for (const body of [candidateBody(f.receipt) + candidateBody(f.receipt), candidateBody({ ...f.receipt, artifactId: 0 })]) assert.throws(() => parseCandidateReceipt(body));
 });
 
 /** Native contents-read policy and GraphQL rollup fixture, with no administration endpoint available. */
@@ -376,7 +381,7 @@ function protectionFixture() {
   const branch = { name: "main", protected: true, protection: { enabled: true, required_status_checks: {
     enforcement_level: "everyone", contexts: ["CI", "legacy"], checks: [{ context: "CI", app_id: 7 as number | null }, { context: "legacy", app_id: null as number | null }],
   } } };
-  const nodes: { __typename: string; name?: string; context?: string; status?: string; conclusion?: string | null; state?: string | null; isRequired: boolean; checkSuite?: { app: { databaseId: number } | null; workflowRun?: { url: string } | null } }[] = [
+  const nodes: { __typename: string; name?: string; context?: string; detailsUrl?: string; targetUrl?: string; status?: string; conclusion?: string | null; state?: string | null; isRequired: boolean; checkSuite?: { app: { databaseId: number } | null; workflowRun?: { url: string } | null } }[] = [
     { __typename: "CheckRun", name: "CI", status: "COMPLETED", conclusion: "SUCCESS", isRequired: true, checkSuite: { app: { databaseId: 7 } } },
     { __typename: "StatusContext", context: "legacy", state: "SUCCESS", isRequired: true },
   ];
@@ -476,7 +481,7 @@ test("publication CLI refuses stale candidate, notes and changed ignored shipped
       writeFileSync(join(handoff, "package.tgz"), "changed ignored shipped bytes");
       const result = spawnSync(process.execPath, [new URL("../scripts/release-continuation.ts", import.meta.url).pathname, "verify"], { encoding: "utf8", env: {
         GITHUB_REPOSITORY: c.repository, RELEASE_CONFIG: "{}", CALLER_WORKFLOW: `${c.repository}/${c.workflow}@refs/heads/main`, RUNNER_TEMP: root,
-        TRIGGER_SHA: "1".repeat(40), RELEASE_TIMEZONE: "Europe/Vienna", CANDIDATE_RECEIPT: JSON.stringify(receipt), GITHUB_OUTPUT: join(root, "output"),
+        PUBLISHING_WORKFLOW_REF: "unbraind/pm-ops/.github/workflows/daily-release.yml@refs/heads/main", TRIGGER_SHA: "1".repeat(40), RELEASE_TIMEZONE: "Europe/Vienna", CANDIDATE_RECEIPT: JSON.stringify(receipt), GITHUB_OUTPUT: join(root, "output"),
         ...(process.env.NODE_V8_COVERAGE ? { NODE_V8_COVERAGE: process.env.NODE_V8_COVERAGE } : {}),
       } });
       assert.equal(result.status, 1, result.stdout + result.stderr);
@@ -690,7 +695,7 @@ test("registry proof refuses missing attestations, foreign endpoints, wrong subj
         predicate: { buildDefinition: { resolvedDependencies: [{ digest: { gitCommit: defect === "commit" ? "wrong" : f.e.pr.mergedSha } }] } } })).toString("base64");
       return { attestations: [{ predicateType: defect === "predicate" ? "other" : "https://slsa.dev/provenance/v1", bundle: { dsseEnvelope: { payload } } }] };
     };
-    await assert.rejects(inspectCandidate(f.receipt, f.options, f.api, registry, () => ({ states: ["SUCCESS"], review: "APPROVED" })), /identity disagrees/);
+    await assert.rejects(inspectCandidate(f.receipt, f.options, f.api, registry, () => ({ states: ["SUCCESS"], review: "APPROVED" })), /identity disagrees|publication invocation/);
   }
 });
 
@@ -1164,4 +1169,229 @@ test("a changed receipt cannot hide an earlier bot publication attempt during co
     assertIntentRetained(f);
     assert.equal(f.state.comments.length, 1);
   });
+});
+
+test("receipt boundary accepts the real release PR with generic review bot text outside the record", () => {
+  const original = readFileSync(new URL("fixtures/release-pr-265.md", import.meta.url), "utf8").trimEnd();
+  const receipt = parseCandidateReceipt(original)!;
+  assert.equal(receipt.artifactId, 13861624524);
+  assert.equal(receipt.candidate.version, "2026.11.11");
+  for (const summary of ["\n\n## Summary by Sourcery\nGeneric release summary.", "\n\nGeneric cubic summary.\n<!-- End of auto-generated description by cubic. -->"]) {
+    assert.deepEqual(parseCandidateReceipt("Generic bot introduction.\n" + original + summary), receipt);
+    assert.deepEqual(parseCandidateReceipt(original + summary + "\n-->"), receipt);
+  }
+  for (const body of [original + original, original.slice(0, -1), original.replace('"schema":1', '"schema":invalid')]) {
+    assert.throws(() => parseCandidateReceipt(body));
+  }
+});
+
+/** Share authoritative required-check selection and current-run responses across diagnosis cases. */
+function diagnosisFixture() {
+  const f = remoteFixture(), protection = protectionFixture(); setMergeState(f, false);
+  const run = { id: 201, head_sha: f.c.headSha, event: "pull_request", status: "completed", conclusion: "action_required" as string | null,
+    html_url: "https://github.com/example/package/actions/runs/201" };
+  const runs = [run], check = protection.nodes[0];
+  Object.assign(check, { conclusion: "ACTION_REQUIRED", detailsUrl: run.html_url + "/job/301" });
+  check.checkSuite!.workflowRun = { url: run.html_url };
+  const proof = () => {
+    const previous = process.env.GITHUB_REPOSITORY; process.env.GITHUB_REPOSITORY = f.c.repository;
+    try { return requiredProtection(42, f.c.headSha, protection.run, true); }
+    finally { if (previous === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = previous; }
+  };
+  const api: ReleaseApi = async (path, method, body) => {
+    if (path.includes("/actions/runs?")) return { workflow_runs: runs };
+    if (path.includes("/check-runs?")) return { check_runs: protection.nodes.filter(node => node.__typename === "CheckRun").map(node => ({
+      name: node.name, head_sha: f.c.headSha, status: node.status?.toLowerCase(), conclusion: node.conclusion?.toLowerCase(), html_url: node.detailsUrl,
+    })) };
+    if (path.includes("/statuses?")) return protection.nodes.filter(node => node.__typename === "StatusContext").map(node => ({ context: node.context, state: node.state?.toLowerCase(), target_url: node.targetUrl }));
+    return f.api(path, method, body);
+  };
+  return { ...f, protection, run, runs, check, proof, api, reason: () => releaseWaitReason(42, f.c.headSha, f.c.repository, api, proof) };
+}
+
+test("release diagnosis re-reads approved-then-failed runs and names current failing checks", async () => {
+  const f = diagnosisFixture();
+  assert.match(await f.reason(), /awaiting workflow approval/);
+  Object.assign(f.run, { conclusion: "failure" }); Object.assign(f.check, { conclusion: "FAILURE" });
+  const reason = await f.reason();
+  assert.match(reason, /failing: CI.*actions\/runs\/201\/job\/301/);
+  assert.doesNotMatch(reason, /approval/);
+});
+
+for (const [state, remedy] of [["behind", /update the release branch/], ["dirty", /regenerate the release metadata/]] as const) {
+  test(`release diagnosis refuses an approval explanation for a green ${state.toUpperCase()} branch`, async () => {
+    const f = remoteFixture(); Object.assign(f.pr, { state: "open", merged: false, mergeable_state: state });
+    const reason = await releaseWaitReason(42, f.c.headSha, f.c.repository, f.api);
+    assert.match(reason, new RegExp(state.toUpperCase())); assert.match(reason, remedy); assert.doesNotMatch(reason, /approval/);
+  });
+}
+
+test("release diagnosis allows only currently waiting exact-head PR runs to explain approval", async () => {
+  const f = diagnosisFixture(); Object.assign(f.run, { status: "waiting", conclusion: null });
+  assert.match(await f.reason(), /awaiting workflow approval/);
+  Object.assign(f.run, { status: "action_required" });
+  assert.match(await f.reason(), /awaiting workflow approval/);
+  for (const change of [{ status: "in_progress" }, { status: "waiting", head_sha: "foreign" }, { head_sha: f.c.headSha, event: "workflow_dispatch" }]) {
+    Object.assign(f.run, change);
+    const reason = await f.reason();
+    assert.match(reason, /still settling/); assert.doesNotMatch(reason, /approval/);
+  }
+  Object.assign(f.pr.head, { sha: "changed" });
+  await assert.rejects(f.reason(), /head or ownership changed/);
+});
+
+test("pending continuation reports the current blocker through the real entry point", async () => {
+  await withAdapter(async f => {
+    setMergeState(f, false); f.pr.mergeable_state = "behind"; f.state.main = f.c.baseSha; process.env.TRIGGER_SHA = f.c.baseSha;
+    await runReleaseContinuation("probe");
+    assert.match(readFileSync(join(f.root, "output"), "utf8"), /action=pending/);
+    assert.equal(f.calls.filter(call => call.path.endsWith("/pulls/42")).length, 4);
+  });
+});
+
+test("publishing signer uses the job ref while resumed preparation retains its independent SHA", async () => {
+  const f = remoteFixture();
+  f.run.referenced_workflows[0].path = "unbraind/pm-ops/.github/workflows/daily-release.yml@" + f.c.toolsSha;
+  const result = await f.inspect();
+  assert.equal(result.toolsSha, f.c.toolsSha);
+  assert.equal(result.signerWorkflow, f.options.publishingWorkflowRef);
+  assert.notEqual(result.signerWorkflow.split("@")[1], result.toolsSha);
+  f.options.publishingWorkflowRef = "unbraind/pm-ops/.github/workflows/daily-release.yml@" + "9".repeat(40);
+  assert.equal((await f.inspect()).signerWorkflow, f.options.publishingWorkflowRef);
+  assert.equal(publishingSignerWorkflow("unbraind/pm-ops/.github/workflows/daily-release.yml@refs/heads/main"), "unbraind/pm-ops/.github/workflows/daily-release.yml@refs/heads/main");
+});
+
+test("historical resumed pm-ops publication verifies real signed provenance with a different preparation pin", async () => {
+  const f = remoteFixture();
+  const receipt = parseCandidateReceipt(readFileSync(new URL("fixtures/release-pr-265.md", import.meta.url), "utf8"))!;
+  const publication = JSON.parse(readFileSync(new URL("fixtures/release-publication-43272393997.json", import.meta.url), "utf8")) as {
+    head_sha: string; referenced_workflows: { path: string; ref: string; sha: string }[];
+  };
+  const signed = JSON.parse(readFileSync(new URL("fixtures/provenance/pm-ops-2026.11.11.json", import.meta.url), "utf8"));
+  Object.assign(f.c, receipt.candidate); f.receipt.artifactId = receipt.artifactId;
+  Object.assign(f.pr, { body: candidateBody(f.receipt), merge_commit_sha: publication.head_sha });
+  Object.assign(f.pr.head, { sha: f.c.headSha }); f.pr.head.repo.full_name = f.pr.base.repo.full_name = f.c.repository;
+  f.e.pr.mergedSha = publication.head_sha;
+  Object.assign(f.state, { main: publication.head_sha, tree: f.c.tree, parents: [f.c.baseSha], pkgVersion: f.c.version, pkgName: f.c.packageName, registry: true });
+  Object.assign(f.run, { repository: { full_name: f.c.repository }, head_sha: f.c.baseSha, referenced_workflows: [{ path: "unbraind/pm-ops/.github/workflows/daily-release.yml@" + f.c.toolsSha, sha: f.c.toolsSha! }] });
+  Object.assign(f.artifact, { workflow_run: { id: f.c.runId }, name: `verified-daily-release-${f.c.headSha}` });
+  Object.assign(f.options, { repository: f.c.repository, triggerSha: publication.head_sha, configDigest: f.c.configDigest });
+  // GitHub records the OIDC ref separately from the SHA-qualified implementation path.
+  f.options.publishingWorkflowRef = publication.referenced_workflows[0].path.split("@")[0] + "@" + publication.referenced_workflows[0].ref;
+  assert.notEqual(f.c.toolsSha, publication.referenced_workflows[0].sha);
+  const registry = async (path: string) => path === "-/fixture-proof" ? signed : f.registry(path);
+  const api: ReleaseApi = async (path, method, body) => {
+    if (path.endsWith("/actions/runs/43272393997/attempts/1")) return { ...f.publicationRun, repository: { full_name: f.c.repository }, ...publication };
+    if (path === `repos/${f.c.repository}/contents/package.json?ref=${publication.head_sha}`) return { content: Buffer.from(JSON.stringify({ name: f.c.packageName, version: f.c.version })).toString("base64") };
+    return f.api(path, method, body);
+  };
+  const inspect = () => inspectProductionCandidate(f.receipt, f.options, api, registry, () => ({ states: ["SUCCESS"], review: "APPROVED" }));
+  const verified = await inspect();
+  assert.equal(verified.action, "recover"); // Already uploaded: recovery never admits another npm publication.
+  assert.equal(verified.toolsSha, f.c.toolsSha);
+  for (const ref of [f.c.toolsSha!, publication.referenced_workflows[0].sha]) {
+    f.options.publishingWorkflowRef = "unbraind/pm-ops/.github/workflows/daily-release.yml@" + ref;
+    assert.equal((await inspect()).action, "recover"); // A later current pin cannot replace the original publisher's signed ref.
+  }
+});
+
+for (const [defect, ref] of [
+  ["repository", "other/shared/.github/workflows/daily-release.yml@refs/heads/main"],
+  ["workflow path", "unbraind/pm-ops/.github/workflows/foreign.yml@refs/heads/main"],
+  ["foreign ref", "unbraind/pm-ops/.github/workflows/daily-release.yml@refs/heads/foreign"],
+  ["missing ref", ""],
+  ["unqualified ref", "unbraind/pm-ops/.github/workflows/daily-release.yml@main"],
+]) {
+  test(`publishing identity refuses ${defect} instead of falling back to preparation`, async () => {
+    const f = remoteFixture(); f.options.publishingWorkflowRef = ref;
+    await assert.rejects(f.inspect(), /publishing job workflow ref/);
+  });
+}
+
+test("the entry point refuses a missing PUBLISHING_WORKFLOW_REF instead of falling back to preparation", async () => {
+  // The environment fallback, not only the helper's empty-string input, must reach the publishing-identity refusal.
+  for (const mode of ["verify", "attempt"]) await withAdapter(async f => {
+    f.refresh(); delete process.env.PUBLISHING_WORKFLOW_REF;
+    await assert.rejects(runReleaseContinuation(mode), /publishing job workflow ref/);
+    assert.equal(f.control.writes, 0, "a refused identity must not write");
+  });
+});
+
+/** Model an existing upload signed by one reusable pin while reconciliation runs another. */
+function resumedPublicationFixture() {
+  const f = remoteFixture(), canonical = "unbraind/pm-ops/.github/workflows/daily-release.yml@";
+  const publisher = canonical + "3".repeat(40), current = canonical + "4".repeat(40);
+  f.state.registry = true; f.options.publishingWorkflowRef = current;
+  f.publicationRun.referenced_workflows = [{ path: publisher, sha: "3".repeat(40) }];
+  const inspectSigned = (verify: NonNullable<Parameters<typeof inspectProductionCandidate>[5]>) => inspectProductionCandidate(
+    f.receipt, f.options, f.api, f.registry, () => ({ states: ["SUCCESS"], review: "APPROVED" }), verify,
+  );
+  return { ...f, canonical, publisher, current, inspectSigned };
+}
+
+test("existing upload recovers through its original publishing pin after the current pin changes", async () => {
+  const f = resumedPublicationFixture(), seen: string[] = [];
+  const result = await f.inspectSigned(async (_bundle, expected) => {
+    seen.push(expected.signerWorkflow!);
+    assert.equal(expected.signerWorkflow, f.publisher, "The original certificate cannot authenticate the current job pin");
+  });
+  assert.equal(result.action, "recover"); assert.equal(result.signerWorkflow, f.publisher);
+  assert.deepEqual(seen, [f.publisher]);
+  assert.ok(f.calls.some(call => call.path.endsWith("/actions/runs/30/attempts/1")));
+});
+
+for (const [kind, actual] of [["neither publisher nor current job", "5"], ["current job but not the original publisher", "4"]]) {
+  test(`existing upload refuses a signer matching ${kind}`, async () => {
+    const f = resumedPublicationFixture(), seen: string[] = [];
+    await assert.rejects(f.inspectSigned(async (_bundle, expected) => {
+      seen.push(expected.signerWorkflow!);
+      if (expected.signerWorkflow !== f.canonical + actual.repeat(40)) throw new Error("Certificate SAN mismatch");
+    }), /Certificate SAN mismatch/);
+    assert.deepEqual(seen, [f.publisher], "Refusal must use the authoritative publisher, rather than the current pin");
+    assert.ok(f.calls.some(call => call.path.endsWith("/actions/runs/30/attempts/1")));
+    assertIntentRetained(f);
+  });
+}
+
+test("optional failures cannot hide required waiting workflows and optional-only failures are not blockers", async () => {
+  const f = diagnosisFixture();
+  f.protection.nodes.push(
+    { __typename: "CheckRun", name: "optional lint", status: "COMPLETED", conclusion: "FAILURE", isRequired: false, detailsUrl: "https://github.com/example/package/actions/runs/202/job/302" },
+    { __typename: "StatusContext", context: "optional status", state: "ERROR", isRequired: false },
+  );
+  f.protection.pr.commits.nodes[0].commit.statusCheckRollup.contexts.totalCount = f.protection.nodes.length;
+  Object.assign(f.run, { status: "waiting", conclusion: null }); Object.assign(f.check, { status: "QUEUED", conclusion: null });
+  const waiting = await f.reason();
+  assert.match(waiting, /awaiting workflow approval:.*actions\/runs\/201/);
+  assert.doesNotMatch(waiting, /optional|failing/);
+  Object.assign(f.run, { status: "completed", conclusion: "success" }); Object.assign(f.check, { status: "COMPLETED", conclusion: "SUCCESS" });
+  assert.match(await f.reason(), /still settling/);
+  f.runs.push({ ...f.run, id: 202, status: "waiting", html_url: "https://github.com/example/package/actions/runs/202" });
+  assert.doesNotMatch(await f.reason(), /approval|failing/);
+  Object.assign(f.check, { conclusion: "FAILURE" });
+  assert.match(await f.reason(), /failing: CI/);
+  Reflect.deleteProperty(f.check, "detailsUrl");
+  assert.match(await f.reason(), /failing: CI.*actions\/runs\/201/);
+  Reflect.deleteProperty(f.check.checkSuite!, "workflowRun");
+  assert.match(await f.reason(), /failing: CI \(no run link\)/);
+  Object.assign(f.check, { conclusion: "SUCCESS" });
+  Object.assign(f.protection.nodes[1], { state: "ERROR", targetUrl: "https://example.invalid/legacy" });
+  assert.match(await f.reason(), /failing: legacy.*example\.invalid\/legacy/);
+  Reflect.deleteProperty(f.protection.nodes[1], "targetUrl");
+  assert.match(await f.reason(), /failing: legacy \(no run link\)/);
+  assert.match(await releaseWaitReason(42, f.c.headSha, f.c.repository, f.api, () => ({})), /still settling/);
+});
+
+
+test("registry identity changed during publisher lookup remains unverified", async () => {
+  const f = resumedPublicationFixture();
+  const envelope = await f.registry("-/fixture-proof") as { attestations: { bundle: { dsseEnvelope: { payload: string } } }[] };
+  const registry = async (path: string) => path === "-/fixture-proof" ? envelope : f.registry(path);
+  const api: ReleaseApi = async (path, method, body) => {
+    const response = await f.api(path, method, body);
+    if (path.endsWith("/actions/runs/30/attempts/1")) envelope.attestations[0].bundle.dsseEnvelope.payload = Buffer.from("{}").toString("base64");
+    return response;
+  };
+  await assert.rejects(inspectCandidate(f.receipt, f.options, api, registry, () => ({ states: ["SUCCESS"], review: "APPROVED" })), /identity disagrees/);
+  assertIntentRetained(f);
 });

@@ -125,9 +125,12 @@ export async function originalPublicationSigner(bundle: unknown, identity: Prove
   const references = (run.referenced_workflows ?? []).map(record).filter(ref => typeof ref.path === "string" && ref.path.startsWith(canonical));
   if (references.length === 0 && identity.repository === "unbraind/pm-ops") return canonical + "refs/heads/main";
   if (references.length !== 1) throw new Error("Missing or ambiguous original reusable signer");
-  const reference = references[0], ref = String(reference.path).slice(canonical.length).replace(/^main$/, "refs/heads/main");
+  const reference = references[0], pathRef = String(reference.path).slice(canonical.length).replace(/^main$/, "refs/heads/main");
+  // Local reusable calls can record path@implementation-SHA plus a distinct OIDC ref.
+  const ref = reference.ref === undefined ? pathRef : typeof reference.ref === "string" ? reference.ref.replace(/^main$/, "refs/heads/main") : "";
   if (!/^[a-f0-9]{40}$/.test(String(reference.sha)) || !/^(?:refs\/heads\/main|refs\/tags\/v\d{4}\.\d+\.\d+(?:-\d+)?|[a-f0-9]{40})$/.test(ref)
-    || (/^[a-f0-9]{40}$/.test(ref) && ref !== reference.sha)) throw new Error("Untrusted original reusable signer");
+    || (/^[a-f0-9]{40}$/.test(ref) && ref !== reference.sha)
+    || (reference.ref !== undefined && pathRef !== reference.sha && pathRef !== ref)) throw new Error("Untrusted original reusable signer");
   return canonical + ref;
 }
 
