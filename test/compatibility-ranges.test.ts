@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 /** Library decisions must agree with a brute-force version corpus, including maximum-length prereleases. */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -41,7 +42,7 @@ test("500 seeded random range pairs equal brute-force corpus verdicts, including
   let seed = 0x6a09e667;
   const next = (): number => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed; };
   const operators = ["", ">", ">=", "<", "<="];
-  for (let sequence = 0; sequence < 500; sequence++) {
+  for (let sequence = 0; sequence < testDepth(500); sequence++) {
     const inferred = sequence % 7 === 1;
     const lower = ["1.0.1-a", "1.0.1-alpha", "1.0.1-beta.1", "1.0.1-z"][next() % 4]!;
     const ranges = sequence === 0 ? [MAX_PRERELEASE_RANGE, "<1.0.0-z"] : inferred ? [">1.0.0 >" + lower, ">=1.0.1-0 <1.0.1"] : Array.from({ length: 2 }, () => {

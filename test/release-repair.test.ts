@@ -1,3 +1,4 @@
+import { testTime } from "./support/time.ts";
 /** Hermetic release recovery with a real pm tracker, local git remote, and recorded npm output shape. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -453,7 +454,7 @@ test("release-note headings are matched in linear time on long runs of spaces", 
   const hostile = `## ${version}${" ".repeat(50_000)}x\n\nbody\n`;
   const started = performance.now();
   assert.throws(() => committedReleaseNotes(hostile, version), /exactly one section/);
-  assert.ok(performance.now() - started < 1_000, "heading parsing must not backtrack quadratically");
+  assert.ok(performance.now() - started < testTime(1_000), "heading parsing must not backtrack quadratically");
   assert.equal(committedReleaseNotes(`## ${version} - 2026-10-08\n\nnotes\n`, version), "notes\n");
 });
 

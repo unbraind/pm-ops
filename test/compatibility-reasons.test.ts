@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 /** Exact joint conflicts, native admission agreement, boundary fuzzing and observational replay. */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -162,7 +163,7 @@ test("range boundary corpus includes unions, empty ranges, prereleases, wildcard
   assert.equal(explainCompatibility(input).rows[0]!.conflicts[0]!.code, "installed_pin_conflict");
   // Independent integer patch lattice exercises every inclusive/exclusive boundary exactly.
   let seed = 97241;
-  for (let trial = 0; trial < 500; trial++) {
+  for (let trial = 0; trial < testDepth(500); trial++) {
     const draw = () => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return seed; };
     const lower = draw() % 6; const upper = draw() % 6; const inclusiveLower = (draw() % 3) === 0; const inclusiveUpper = (draw() % 3) === 0;
     input.requirements = [{ ...input.requirements[0]!, range: `${inclusiveLower ? ">=" : ">"}1.0.${lower} ${inclusiveUpper ? "<=" : "<"}1.0.${upper}` }];
@@ -205,7 +206,7 @@ test("500 seeded operation sequences replay JSON/TOON/CRLF inputs and preserve a
     const referenceState = new Map(await Promise.all(corpus.items.map(async ({ id }) => [id, await reader.get(id)] as const)));
     let seed = 0xc0ffee; const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
     const past: CompatibilityInput[] = [];
-    for (let sequence = 0; sequence < 500; sequence++) {
+    for (let sequence = 0; sequence < testDepth(500); sequence++) {
       const before = fingerprint(tracker);
       let current = fixture(); current.components[0]!.capabilities = [];
       for (const entry of current.requirements) entry.capabilities = [];

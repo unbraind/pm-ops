@@ -542,7 +542,7 @@ test("every continuation job enforces its runtime floor before executing TypeScr
 
 test("private runtime CI installs and executes its own lockfile after root-installation gates", () => {
   const steps = ci.jobs.test.steps, index = steps.findIndex(s => s.name === "Verify private provenance runtime");
-  assert.ok(index > steps.findIndex(s => s.name === "Bun release gate"));
+  assert.ok(index > steps.findIndex(s => s.name === "Quick npm release gate"));
   assert.match(steps[index].run!, /npm ci --prefix \.github\/release-runtime .*--ignore-scripts --engine-strict/);
   assert.match(steps[index].run!, /node --test --test-concurrency=2 test\/release-provenance.test.ts/);
 });
@@ -710,7 +710,7 @@ test("PR lock gate uses both committed locks and the exact script-disabled relea
   assert.deepEqual(job.strategy.matrix["node-version"], ["22.18.0", 26]);
   const command = "npm ci --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund";
   const gate = job.steps.find(s => s.name === "Install committed locks exactly as release tools do")!;
-  assert.equal(gate.if, undefined);
+  assert.equal(gate.if, "steps.changes.outputs.code == 'true'");
   assert.match(gate.run!, /for project in \. \.github\/release-runtime/);
   assert.match(gate.run!, /cp "\$project\/package.json" "\$project\/package-lock.json" "\$scratch\/"/);
   assert.ok(gate.run!.includes(command));
@@ -733,7 +733,7 @@ test("every private runtime Node floor has an independent strict engine gate", (
   assert.equal(job.steps.filter((s: Step) => s.run?.includes("--engine-strict")).length, 3, "both committed locks and development dependencies need strict gates at the Node floor");
   const strict = job.steps.find((s: Step) => s.run?.includes("--engine-strict"));
   assert.ok(strict, "the floor needs a strict install in addition to the exact release command");
-  assert.equal(strict.if, "${{ matrix.node-version == '" + floor + "' }}");
+  assert.equal(strict.if, "${{ steps.changes.outputs.code == 'true' && matrix.node-version == '" + floor + "' }}");
   assert.equal(strict.run, "npm ci --prefix .github/release-runtime --omit=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund");
   assert.ok(job.steps.indexOf(strict) > job.steps.findIndex((s: Step) => s.name === "Install committed locks exactly as release tools do"));
   const root = job.steps.find((s: Step) => s.name === "Check root dependency engines at the Node floor")!;

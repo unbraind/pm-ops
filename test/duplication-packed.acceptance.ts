@@ -1,3 +1,4 @@
+import { testTime } from "./support/time.ts";
 /** Verify packed duplication gates in npm and native Bun consumers without fast-glob. */
 import assert from "node:assert/strict";
 import { spawnSync } from "../subprocess.ts";
@@ -19,7 +20,7 @@ for (const key of Object.keys(env)) {
 /** Run a consumer command, requiring its exact expected exit status. */
 function run(cwd: string, executable: string, args: string[], status = 0): string {
   const launch = executable === "npm" ? npmLauncher(executable, args, env) : { executable, args };
-  const result = spawnSync(launch.executable, launch.args, { cwd, env, encoding: "utf8", timeout: 180_000 });
+  const result = spawnSync(launch.executable, launch.args, { cwd, env, encoding: "utf8", timeout: testTime(180_000) });
   assert.equal(result.status, status, `${executable} ${args.join(" ")}\n${result.stdout}\n${result.stderr}`);
   return result.stdout + result.stderr;
 }

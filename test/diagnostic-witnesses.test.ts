@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
@@ -129,7 +130,7 @@ test("500 seeded model-based sequences replay old inputs and exact CRLF/whitespa
     let seed = 0x5eeda;
     const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
     const past: DiagnosticWitnessInput[] = [];
-    for (let sequence = 0; sequence < 500; sequence++) {
+    for (let sequence = 0; sequence < testDepth(500); sequence++) {
       const before = fingerprint(tracker);
       let current = selection();
       for (let operation = 0; operation < 8; operation++) {

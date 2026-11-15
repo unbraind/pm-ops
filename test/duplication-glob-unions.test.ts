@@ -1,3 +1,4 @@
+import { testTime } from "./support/time.ts";
 /** Brace-union expansion contracts: order, literals, refusal bound and ReDoS timing. */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -50,7 +51,7 @@ test("hostile leading-brace inputs complete in linear time instead of polynomial
   // ~1 ms, so a 1 s bound still catches the regression while tolerating a
   // loaded runner, a GC pause or coverage instrumentation.
   assert.ok(
-    performance.now() - started < 1_000,
+    performance.now() - started < testTime(1_000),
     "leading '{{,' with fifty thousand commas must not backtrack polynomially",
   );
 });
