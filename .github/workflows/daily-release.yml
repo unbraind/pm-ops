@@ -409,7 +409,7 @@ jobs:
           components: llvm-tools-preview
       - name: Install Rust gate tools
         if: inputs.rust
-        uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
         with:
           tool: just,cargo-llvm-cov,cargo-audit
       - name: Install dependencies
