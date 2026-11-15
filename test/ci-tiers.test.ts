@@ -17,6 +17,11 @@ test("required jobs remain hosted and exhaustive jobs use a four-leg local matri
   assert.match(deep.jobs.deep["runs-on"], /PM_LOCAL_DEEP.*self-hosted.*pm-local.*ubuntu-latest/);
   assert.equal(deep.jobs.deep["timeout-minutes"], 120);
   assert.deepEqual(deep.jobs.deep.strategy.matrix, { "node-version": [22, 26], "package-manager": ["npm", "bun"] });
+  const gates = deep.jobs.deep.steps.filter((step: { run?: string }) => step.run?.endsWith("run release:check"));
+  assert.deepEqual(gates.map((step: { run: string; if: string }) => [step.run, step.if]), [
+    ["npm run release:check", "matrix.package-manager == 'npm'"],
+    ["bun run release:check", "matrix.package-manager == 'bun'"],
+  ]);
   assert.equal(deep.jobs.deep.env.PM_TEST_DEPTH, "full");
   assert.equal(deep.jobs.deep.env.PM_TEST_TIME_SCALE, 3);
   assert.ok(Number.isInteger(testTime(1.1)));

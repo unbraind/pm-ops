@@ -73,7 +73,6 @@ jobs:
           cache: npm
 
       - name: Setup Bun
-        if: steps.changes.outputs.code == 'true'
         uses: oven-sh/setup-bun@v2.2.0
 
       - name: Install npm 11.21.0
@@ -115,7 +114,8 @@ jobs:
           npm run verify:release-changelog-date
           npm run verify:release-publish-attestation
           npm run pack:dry-run
-          node --test test/identity-audit.test.ts test/release-permissions-docs.test.ts test/release-verification.test.ts test/published-attestation.test.ts test/release-review.test.ts
+          node test/compatibility-packed.acceptance.ts
+          node --test test/identity-audit.test.ts test/release-permissions-docs.test.ts test/release-verification.test.ts test/published-attestation.test.ts test/release-review.test.ts test/release-discovery-evidence.test.ts test/release-caller.test.ts
           node --test --test-name-pattern="caller template|migration.*guidance|rollback guidance|migration gap tracker" test/daily-release-workflow.test.ts
 
       - name: Engines floor tests
