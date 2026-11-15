@@ -1,3 +1,4 @@
+import { testTime } from "./support/time.ts";
 /** Packed SDK and command acceptance across isolated npm/Bun global, local and x launchers. */
 import assert from "node:assert/strict";
 import * as disk from "node:fs";
@@ -28,7 +29,7 @@ for (const key of Object.keys(baseEnvironment)) if (/TOKEN|SECRET|PASSWORD|CREDE
 
 /** Execute a real consumer command with a bounded deadline and sanitized failure reporting. */
 function execute(cwd: string, program: string, args: string[], extra: NodeJS.ProcessEnv = {}): string {
-  const launched = spawnSync(program, args, { cwd, env: { ...baseEnvironment, ...extra }, encoding: "utf8", timeout: 240000, maxBuffer: 4 * 1024 * 1024 });
+  const launched = spawnSync(program, args, { cwd, env: { ...baseEnvironment, ...extra }, encoding: "utf8", timeout: testTime(240000), maxBuffer: 4 * 1024 * 1024 });
   assert.equal(launched.status, 0, `${program}: ${launched.stderr}\n${launched.stdout}`);
   return launched.stdout;
 }

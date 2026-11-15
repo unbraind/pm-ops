@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 /** Exact optimization, strict boundaries, replay, native-state preservation and real command integration. */
 import assert from "node:assert/strict";
 import test, { before, after } from "node:test";
@@ -138,7 +139,7 @@ test("500 seeded model sequences replay old contracts, relationships, JSON/TOON 
   const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
   const past: ReverificationInput[] = [];
   const file = join(root, "random.json");
-  for (let sequence = 0; sequence < 500; sequence++) {
+  for (let sequence = 0; sequence < testDepth(500); sequence++) {
     const bytes = fingerprint(tracker);
     let current = repairFixture();
     for (let operation = 0; operation < 6; operation++) {

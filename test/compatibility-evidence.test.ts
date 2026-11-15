@@ -1,3 +1,4 @@
+import { testDepth } from "./support/depth.ts";
 /** Monotonic evidence: unknown refinements cannot erase proofs or become contradictions. */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -22,7 +23,7 @@ test("500 seeded exact-domain sequences retain contradictions through unknown re
   assert.ok(versions.every((version) => satisfies(version, MAX_PRERELEASE_RANGE)));
   let state = 0xbb67ae85;
   const random = (): number => { state = (Math.imul(state, 1103515245) + 12345) >>> 0; return state; };
-  for (let sequence = 0; sequence < 500; sequence++) {
+  for (let sequence = 0; sequence < testDepth(500); sequence++) {
     const count = 2 + random() % 3;
     let pins: number[];
     do { pins = Array.from({ length: count }, () => 1 + random() % 7); }

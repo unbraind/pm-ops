@@ -1,3 +1,4 @@
+import { testTime } from "./support/time.ts";
 /**
  * Accept the tarball under npm/Node and native Bun using disposable consumers.
  *
@@ -47,7 +48,7 @@ function run(cwd: string, program: string, args: string[], extra: NodeJS.Process
   const launch = program === "npm" || program === "npx"
     ? npmLauncher(program, args, childEnv) : { executable: program, args };
   const result = spawnSync(launch.executable, launch.args, {
-    cwd, env: childEnv, encoding: "utf8", timeout: 180_000,
+    cwd, env: childEnv, encoding: "utf8", timeout: testTime(180_000),
   });
   assert.equal(result.status, 0, `${program} ${args.join(" ")}\n${result.stderr}\n${result.stdout}`);
   console.log(program, args[0], "PASS");

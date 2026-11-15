@@ -1,19 +1,28 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Same PR grouping as the local-runner pilot (#254); manual runs stay independent.
+concurrency:
+  group: ci-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     needs: [release-lock]
     if: ${{ always() }}
+    # Required checks stay on fast GitHub-hosted hardware.
     runs-on: ubuntu-latest
+    # Quick tier executes in about 6-7 min. A hung step must not hold a hosted slot for the default 6 h:
+    # on 2026-11-15 three fleet release-gate jobs hung for 90+ min until another session cancelled them.
+    timeout-minutes: 30
+    env:
+      PM_TEST_DEPTH: quick
     strategy:
       fail-fast: false
       matrix:
@@ -31,6 +40,32 @@ jobs:
           fetch-tags: true
           persist-credentials: false
 
+      # Checkout must precede this first decision. NUL delimiters handle unusual
+      # filenames; compare the actual PR endpoints, not the synthetic merge commit.
+      # Disable rename folding so moving source into docs still counts its deletion.
+      - name: Detect code changes
+        id: changes
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          code=true
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            code=false
+            git diff --name-only --no-renames -z "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/ci-changed-paths"
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                # Executable tracker files use the same code tier in every package.
+                .agents/pm/*.mjs|.agents/pm/*.cjs|.agents/pm/*.js|.agents/pm/*.ts) code=true ;;
+                .agents/pm/*|*.md|docs/*|CHANGELOG.md|LICENSE) ;;
+                *) code=true ;;
+              esac
+            done < "$RUNNER_TEMP/ci-changed-paths"
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
@@ -38,6 +73,7 @@ jobs:
           cache: npm
 
       - name: Setup Bun
+        if: steps.changes.outputs.code == 'true'
         uses: oven-sh/setup-bun@v2.2.0
 
       - name: Install npm 11.21.0
@@ -50,6 +86,7 @@ jobs:
         run: npm ci
 
       - name: Verify tracked pm project health
+        if: steps.changes.outputs.code != 'true' || matrix.node-version == 26
         shell: bash
         run: |
           set -euo pipefail
@@ -67,26 +104,48 @@ jobs:
           # still exiting successfully.
           ./node_modules/.bin/pm health --strict-exit --require-merge-drivers
 
-      - name: npm release gate
+      # No standalone markdown linter exists. These small suites enforce the
+      # existing README/docs, shipped changelog and public commit contracts.
+      - name: Check documentation and tracker changes
+        if: steps.changes.outputs.code != 'true'
+        run: |
+          npm run changelog:check
+          npm run verify:lifecycle-policy
+          npm run verify:release-changelog-sections
+          npm run verify:release-changelog-date
+          npm run verify:release-publish-attestation
+          npm run pack:dry-run
+          node --test test/identity-audit.test.ts test/release-permissions-docs.test.ts test/release-verification.test.ts test/published-attestation.test.ts test/release-review.test.ts
+          node --test --test-name-pattern="caller template|migration.*guidance|rollback guidance|migration gap tracker" test/daily-release-workflow.test.ts
+
+      - name: Engines floor tests
+        if: steps.changes.outputs.code == 'true' && matrix.node-version == 22
+        run: npm test
+
+      - name: Quick npm release gate
+        if: steps.changes.outputs.code == 'true' && matrix.node-version == 26
         run: npm run release:check
 
-      - name: Bun release gate
-        run: bun run release:check
-
       - name: Verify private provenance runtime
+        if: steps.changes.outputs.code == 'true' && matrix.node-version == 26
         run: |
           npm ci --prefix .github/release-runtime --omit=dev --ignore-scripts --engine-strict --no-audit --no-fund
           node --test --test-concurrency=2 test/release-provenance.test.ts
 
       - name: Compatibility packed global, local and x consumers
+        if: steps.changes.outputs.code == 'true' && matrix.node-version == 26
         run: node test/compatibility-packed.acceptance.ts
 
+      # Compatibility acceptance proves npm/Bun local, global and npx/bunx paths.
       - name: Verify Bun can install the package graph
+        if: steps.changes.outputs.code == 'true' && matrix.node-version == 26
         run: bun install --no-save
 
   windows-consumers:
     runs-on: windows-2025
     timeout-minutes: 20
+    env:
+      PM_TEST_DEPTH: quick
     strategy:
       fail-fast: false
       matrix:
@@ -98,16 +157,42 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Detect code changes
+        id: changes
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          code=true
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            code=false
+            git diff --name-only --no-renames -z "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/ci-changed-paths"
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                # Executable tracker files use the same code tier in every package.
+                .agents/pm/*.mjs|.agents/pm/*.cjs|.agents/pm/*.js|.agents/pm/*.ts) code=true ;;
+                .agents/pm/*|*.md|docs/*|CHANGELOG.md|LICENSE) ;;
+                *) code=true ;;
+              esac
+            done < "$RUNNER_TEMP/ci-changed-paths"
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
       - name: Setup Node.js
+        if: steps.changes.outputs.code == 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
 
       - name: Setup Bun
+        if: steps.changes.outputs.code == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
       - name: Install npm 11.21.0
+        if: steps.changes.outputs.code == 'true'
         # Keep the selected Node installation on npm 11 even when a consumer
         # deliberately ignores the runner's user npm configuration.
         shell: bash
@@ -118,39 +203,49 @@ jobs:
           test "$(npm --version)" = "11.21.0"
 
       - name: Install dependencies
+        if: steps.changes.outputs.code == 'true'
         run: npm ci --ignore-scripts
 
       - name: Build
+        if: steps.changes.outputs.code == 'true'
         run: npm run build
 
       - name: Check consumer tooling
+        if: steps.changes.outputs.code == 'true'
         id: build
         run: npm run build:test
 
       - name: Standalone pack fixture without npm_execpath
+        if: steps.changes.outputs.code == 'true'
         run: |
           Remove-Item Env:npm_execpath -ErrorAction SilentlyContinue
           node --test test/pack-prepare.test.ts
 
       - name: Packed npm and native Bun consumers
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        if: ${{ steps.changes.outputs.code == 'true' && !cancelled() && steps.build.outcome == 'success' }}
         run: |
           Remove-Item Env:npm_execpath -ErrorAction SilentlyContinue
           node test/packed-consumer.acceptance.ts
           node test/duplication-packed.acceptance.ts
 
       - name: Native Windows locked release runtime
+        if: steps.changes.outputs.code == 'true'
         run: node --test --test-concurrency=2 test/release-runtime.test.ts test/release-runtime-windows.test.ts
 
       - name: Missing historical proof diagnostic
+        if: steps.changes.outputs.code == 'true'
         run: node --test test/windows-proof-history.test.ts
 
       - name: Source-only revert proofs and actual npm 10 refusal
+        if: steps.changes.outputs.code == 'true'
         run: node test/windows-consumers.proof.ts
 
   release-lock:
     name: Release lock compatibility
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PM_TEST_DEPTH: quick
     strategy:
       fail-fast: false
       matrix:
@@ -159,17 +254,44 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Detect code changes
+        id: changes
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          code=true
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            code=false
+            git diff --name-only --no-renames -z "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/ci-changed-paths"
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                # Executable tracker files use the same code tier in every package.
+                .agents/pm/*.mjs|.agents/pm/*.cjs|.agents/pm/*.js|.agents/pm/*.ts) code=true ;;
+                .agents/pm/*|*.md|docs/*|CHANGELOG.md|LICENSE) ;;
+                *) code=true ;;
+              esac
+            done < "$RUNNER_TEMP/ci-changed-paths"
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        if: steps.changes.outputs.code == 'true'
         with:
           node-version: ${{ matrix.node-version }}
           package-manager-cache: false
       - name: Install npm 11.21.0
+        if: steps.changes.outputs.code == 'true'
         shell: bash
         run: |
           set -euo pipefail
           npm install --global npm@11.21.0 --ignore-scripts --no-audit --no-fund
           test "$(npm --version)" = "11.21.0"
       - name: Install committed locks exactly as release tools do
+        if: steps.changes.outputs.code == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -184,16 +306,16 @@ jobs:
             rm -rf -- "$scratch"
           done
       - name: Check private runtime engines at the Node floor
-        if: ${{ matrix.node-version == '22.18.0' }}
+        if: ${{ steps.changes.outputs.code == 'true' && matrix.node-version == '22.18.0' }}
         run: npm ci --prefix .github/release-runtime --omit=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund
       - name: Check root dependency engines at the Node floor
-        if: ${{ matrix.node-version == '22.18.0' }}
+        if: ${{ steps.changes.outputs.code == 'true' && matrix.node-version == '22.18.0' }}
         run: npm ci --omit=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund
       - name: Check development dependency engines at the Node floor
-        if: ${{ matrix.node-version == '22.18.0' }}
+        if: ${{ steps.changes.outputs.code == 'true' && matrix.node-version == '22.18.0' }}
         run: npm ci --include=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund
       - name: Test provenance at the Node floor
-        if: ${{ matrix.node-version == '22.18.0' }}
+        if: ${{ steps.changes.outputs.code == 'true' && matrix.node-version == '22.18.0' }}
         run: |
           npm run build
           node --test --test-concurrency=2 test/release-provenance.test.ts

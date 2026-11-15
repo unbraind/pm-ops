@@ -1,0 +1,25 @@
+id: ops-ci-v2
+title: Split quick PR CI from exhaustive local deep gates
+description: Fleet CI v2; companion pm-cli-website-dyhg. Preserve required checks and all release evidence while removing duplicated PR release gates.
+type: Task
+status: in_progress
+priority: 2
+tags[2]: ci,performance
+created_at: "2026-11-15T20:54:18.216Z"
+updated_at: "2026-11-15T20:58:33.367Z"
+author: codex-sol
+comments[2]{created_at,author,text}:
+  "2026-11-15T20:56:02.510Z",codex-sol,"Required contexts verified: test (22), test (26); CodeQL is optional. Retain Windows consumer and release-lock platform contracts. Deep becomes four independent full gates with conditional local setup caching. No release workflows or verifier scripts changed. Latest successful main run 43729447430 returned an empty log, so historical per-test durations are unavailable."
+  "2026-11-15T20:58:30.581Z",codex-sol,"Implemented quick/full seed prefixes, integer validated harness scaling, docs identity/lifecycle/pack checks, retained Windows and exact-lock jobs. Typecheck, lint, test typecheck and strict YAML parsing passed. Workflow bootstrap regression caught missing fail-fast; fixed and focused rerun passed (1 test, 7.1 s). Documentation subset passed (4 tests, 3.2 s). Touched-file suite and bounded quick coverage are in progress. Full depth is reserved for CI Deep."
+files[6]{path,scope}:
+  .github/workflows/ci-deep.yml,project
+  .github/workflows/ci.yml,project
+  .github/workflows/codeql.yml,project
+  test/ci-tiers.test.ts,project
+  test/support/depth.ts,project
+  test/support/time.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  npm run typecheck,project,codex-sol,"2026-11-15T20:57:10.076Z",local_mutation,ci/quick-pr-tier-deep-local-tier
+docs[1]{path,scope}:
+  docs/ci-tiers.md,project
+body: ""
