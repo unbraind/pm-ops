@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026.11.15 - 2026-11-15
+
+### Dependencies
+
+- Bump taiki-e/install-action from 2.90.1 to 2.90.3 ([#280](https://github.com/unbraind/pm-ops/pull/280))
+- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#278](https://github.com/unbraind/pm-ops/pull/278))
+- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#279](https://github.com/unbraind/pm-ops/pull/279))
+
 ## 2026.11.14 - 2026-11-14
 
 ### Fixed
