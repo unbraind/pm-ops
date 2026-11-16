@@ -128,6 +128,11 @@ on:
         type: boolean
         required: false
         default: false
+      prepare-restart-count:
+        description: Internal bounded preparation restarts; callers must pass through the dispatch input
+        type: number
+        required: false
+        default: 0
 permissions: {}
 concurrency:
   group: daily-release
@@ -259,6 +264,7 @@ jobs:
       TRIGGER_SHA: ${{ github.sha }}
     outputs:
       should_release: ${{ steps.decide.outputs.should_release }}
+      restart_base: ${{ steps.refresh.outputs.restart_base }}
       tag: ${{ steps.decide.outputs.tag }}
       npm_version: ${{ steps.decide.outputs.npm_version }}
       base_sha: ${{ steps.decide.outputs.base_sha }}
@@ -364,12 +370,17 @@ jobs:
         shell: bash
         run: node "$CONTINUATION_SCRIPT" tools
       - name: Refresh release base
+        id: refresh
         shell: bash
         run: |
           set -euo pipefail
           git fetch origin main --force
           git checkout --detach origin/main
-          [[ "$(git rev-parse HEAD)" == "$TRIGGER_SHA" ]] || { echo "::error::Default branch advanced; retry at its current head."; exit 1; }
+          if [[ "$(git rev-parse HEAD)" != "$TRIGGER_SHA" ]]; then
+            printf 'restart_base=%s\n' "$TRIGGER_SHA" >> "$GITHUB_OUTPUT"
+            echo "::error::Default branch advanced; retry at its current head."
+            exit 1
+          fi
         env:
           TRIGGER_SHA: ${{ github.sha }}
       - name: Validate package inputs
@@ -719,6 +730,8 @@ jobs:
       contents: write
       pull-requests: write
       id-token: write
+    outputs:
+      restart_base: ${{ steps.release_pr.outputs.restart_base }}
     env:
       RELEASE_TIMEZONE: ${{ inputs.release-timezone }}
       NPM_PROJECT_DIR: ${{ inputs.npm-project-dir }}
@@ -879,6 +892,7 @@ jobs:
           git fetch origin main --force
           current_main_sha="$(git rev-parse origin/main)"
           if [[ "$current_main_sha" != "$RELEASE_BASE_SHA" ]]; then
+            printf 'restart_base=%s\n' "$RELEASE_BASE_SHA" >> "$GITHUB_OUTPUT"
             echo "::error::main advanced from ${RELEASE_BASE_SHA} to ${current_main_sha} while preparing the release. Retry from the new main head."
             exit 1
           fi
@@ -956,6 +970,40 @@ jobs:
           SUPERSEDED_PR_NUMBERS: ${{ needs.prepare.outputs.superseded_pr_numbers }}
         run: node "$CONTINUATION_SCRIPT" supersede
     needs: prepare
+  restart_prepare:
+    needs: [prepare, request]
+    if: >-
+      !cancelled() && inputs.release-enabled && github.ref == 'refs/heads/main' &&
+      !inputs.reconcile-only && !inputs.retire-unpublished &&
+      (needs.prepare.outputs.restart_base != '' || needs.request.outputs.restart_base != '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_CONFIG: ${{ toJSON(inputs) }}
+      RELEASE_EVENT_INPUTS: ${{ toJSON(github.event.inputs) }}
+      CALLER_WORKFLOW: ${{ github.workflow_ref }}
+      RELEASE_TIMEZONE: ${{ inputs.release-timezone }}
+      RESTART_BASE_SHA: ${{ needs.request.outputs.restart_base || needs.prepare.outputs.restart_base }}
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: ${{ inputs.node-version }}
+          package-manager-cache: false
+      - name: Checkout trusted restart tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: unbraind/pm-ops
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+      - name: Restart complete preparation at current main
+        shell: bash
+        run: node scripts/release-prepare-restart.ts
+
   release:
     if: inputs.release-enabled && github.ref == 'refs/heads/main' && contains(fromJSON('["publish","recover","complete"]'), needs.reconcile.outputs.action)
     runs-on: ubuntu-latest

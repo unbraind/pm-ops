@@ -6,6 +6,10 @@ on:
     - cron: 41 * * * *
   workflow_dispatch:
     inputs:
+      prepare-restart-count:
+        description: Internal bounded preparation restart counter
+        type: number
+        default: 0
       retire-unpublished:
         description: Retire only owned untouched unpublished intent
         type: boolean
@@ -22,6 +26,7 @@ jobs:
       issues: write
     uses: ./.github/workflows/daily-release.yml
     with:
+      prepare-restart-count: ${{ inputs.prepare-restart-count || 0 }}
       # Keep this comparison in sync with the hourly cron above when staggering schedules.
       reconcile-only: ${{ (github.event_name == 'schedule' && github.event.schedule == '41 * * * *') || inputs.retire-unpublished == true }}
       retire-unpublished: ${{ github.event_name == 'workflow_dispatch' && inputs.retire-unpublished == true }}
