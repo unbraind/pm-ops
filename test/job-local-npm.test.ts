@@ -1,3 +1,4 @@
+import { workflowGlobalNpmInstalls } from './global-npm-guard.ts';
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -9,9 +10,6 @@ import test from "node:test";
 
 /** The pinned npm version every workflow installs into a job-local prefix. */
 const pin = "11.21.0";
-
-/** Install commands that replace the npm of the shared Node installation. */
-const globalReplacers = /npm\s+(?=[^\n]*\b(?:install|i)\b)(?=[^\n]*(?:\s-g\b|--global\b))[^\n]*\bnpm@/u;
 
 /**
  * Locate the npm CLI that ships inside the running Node installation.
@@ -40,7 +38,7 @@ function npmVersion(cli: string): string {
 }
 
 /** Install the pinned npm into one prefix and resolve when the install exits. */
-function installInto(prefix: string, cwd: string): Promise<{ status: number | null; stderr: string; started: number; ended: number }> {
+function installInto(prefix: string, cwd: string, peers: string[]): Promise<{ status: number | null; stderr: string; started: number; ended: number }> {
   return new Promise((resolvePromise, rejectPromise) => {
     // The install must not inherit the surrounding npm configuration (such as
     // allow-scripts or prefix settings exported by an `npm test` wrapper):
@@ -50,17 +48,22 @@ function installInto(prefix: string, cwd: string): Promise<{ status: number | nu
     for (const [name, value] of Object.entries(process.env)) {
       if (!/^npm_config_/iu.test(name) && value !== undefined) env[name] = value;
     }
-    const started = performance.now();
     const child = spawn(process.execPath, [
-      runningNpmCli(), "install", "--prefix", prefix, `npm@${pin}`,
-      "--ignore-scripts", "--no-audit", "--no-fund", "--cache", join(cwd, "cache"),
+      resolve(import.meta.dirname, "npm-prefix-child.ts"), prefix, JSON.stringify(peers), runningNpmCli(), pin,
     ], { cwd, env, timeout: 300_000, stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
     child.stderr.on("data", chunk => {
       stderr = (stderr + String(chunk)).slice(0, 4096);
     });
     child.on("error", rejectPromise);
-    child.on("close", status => resolvePromise({ status, stderr: stderr.slice(0, 4096), started, ended: performance.now() }));
+    child.on("close", status => {
+      try {
+        const timing = JSON.parse(readFileSync(`${prefix}.timing.json`, "utf8")) as { started: number; ended: number };
+        resolvePromise({ status, stderr: stderr.slice(0, 4096), ...timing });
+      } catch {
+        rejectPromise(new Error(`install child did not record its interval (status ${status}): ${stderr}`));
+      }
+    });
   });
 }
 
@@ -89,10 +92,8 @@ test("no workflow replaces the shared global npm installation", () => {
   for (const name of readdirSync(directory).sort()) {
     if (!/\.ya?ml$/u.test(name)) continue;
     const source = readFileSync(join(directory, name), "utf8");
-    assert.doesNotMatch(source, globalReplacers, `${name} must install the pinned npm into a job-local prefix`);
+    assert.deepEqual(workflowGlobalNpmInstalls(source), [], `${name} must install the pinned npm into a job-local prefix`);
   }
-  assert.match("run: npm install -g npm@11.21.0", globalReplacers, "the audit must still detect a global npm install");
-  assert.match("run: npm i -g npm@11.21.0", globalReplacers, "the audit must still detect the short global form");
 });
 
 test("overlapping pinned installs into separate prefixes leave the shared npm untouched", { timeout: 900_000 }, async () => {
@@ -109,11 +110,11 @@ test("overlapping pinned installs into separate prefixes leave the shared npm un
   try {
     for (const round of ["cold", "warm"] as const) {
       const prefixes = [join(root, round, "first"), join(root, round, "second")];
-      const [first, second] = await Promise.all(prefixes.map(prefix => installInto(prefix, root)));
-      assert.ok(Math.max(first.started, second.started) < Math.min(first.ended, second.ended), "the two installs must overlap");
+      const [first, second] = await Promise.all(prefixes.map(prefix => installInto(prefix, root, prefixes)));
       for (const [label, result] of [["first", first], ["second", second]] as const) {
         assert.equal(result.status, 0, `${round}/${label} install failed: ${result.stderr}`);
       }
+      assert.ok(Math.max(first.started, second.started) < Math.min(first.ended, second.ended), "the child-recorded install intervals must overlap");
       for (const prefix of prefixes) {
         const pinnedCli = join(prefix, "node_modules", "npm", "bin", "npm-cli.js");
         assert.equal(npmVersion(pinnedCli), pin, `${prefix} must provide the pin`);
