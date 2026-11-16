@@ -163,7 +163,7 @@
     }
   },
   "devDependencies": {
-    "@babel/eslint-parser": "8.0.7",
+    "@babel/eslint-parser": "8.1.2",
     "@babel/plugin-syntax-typescript": "8.0.3",
     "@sigstore/protobuf-specs": "0.5.2",
     "@types/node": "26.6.6",
