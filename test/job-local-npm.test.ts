@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, mkdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -56,7 +57,7 @@ function installInto(prefix: string, cwd: string): Promise<{ status: number | nu
     ], { cwd, env, timeout: 300_000, stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
     child.stderr.on("data", chunk => {
-      stderr += chunk as string;
+      stderr = (stderr + String(chunk)).slice(0, 4096);
     });
     child.on("error", rejectPromise);
     child.on("close", status => resolvePromise({ status, stderr: stderr.slice(0, 4096), started, ended: performance.now() }));
