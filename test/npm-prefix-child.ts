@@ -1,5 +1,5 @@
 /** Synchronize real install workers and record their own install intervals. */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../subprocess.ts';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { setTimeout } from 'node:timers/promises';

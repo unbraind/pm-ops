@@ -6,10 +6,10 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-ops#284"
 created_at: "2026-11-16T14:40:51.350Z"
-updated_at: "2026-11-16T19:28:58.586Z"
+updated_at: "2026-11-16T21:54:15.264Z"
 author: pi-glm
 acceptance_criteria: "Every workflow installs the pinned npm with --prefix into a job-local directory and prepends its bin to the job path, keeping the exact-version assertion; A workflow-contract test fails if any workflow replaces the global npm; A regression test runs two overlapping pinned installs into separate prefixes against one shared Node directory and proves both stay at the pin with the shared npm untouched"
-comments[11]{created_at,author,text}:
+comments[14]{created_at,author,text}:
   "2026-11-16T15:16:48.720Z",codex-sol,"Continuation: preserving the existing uncommitted implementation. Reviewing all bootstrap paths including Windows, strengthening the overlap proof, and rerunning all required gates to completion before the first push."
   "2026-11-16T15:27:14.297Z",codex-sol,"Root cause confirmed in the workflow source: global installation of the pinned npm replaces the same Node installation used by parallel jobs on a shared toolcache. Replaced each bootstrap with a job-local prefix, published only its bin directory to the job PATH, and retained exact-pin checks including a separate subsequent-step assertion. Workflow contracts reject global npm replacement across all workflow files. No runner settings or shared tool installations were modified."
   "2026-11-16T15:29:09.237Z",codex-sol,"Additional regression evidence: install processes must have overlapping lifetimes; both cold and warm rounds share a private package cache; each prefix reports the exact pin and reaches a clean npm ci. The unchanged-shared-installation check hashes every file in the shared npm package as well as checking the CLI timestamp and version. Windows uses the same prefix form with Git Bash path conversion; global npm replacement is no longer an allowed bootstrap exception."
@@ -21,6 +21,9 @@ comments[11]{created_at,author,text}:
   "2026-11-16T17:01:02.889Z",codex-sol,"The final npm test rerun completed: 1677 tests, 1674 passed, 1 failed and 2 skipped. The new npm-isolation regression and bounded-capture inventory pass. The sole remaining failure is the existing lifecycle-policy non-vacuity fixture missing its synthetic policies.json; isolated rechecks passed all 28 tests. Follow-up ops-policy-fixture-missing tracks this separate full-suite failure. PR https://github.com/unbraind/pm-ops/pull/289 remains draft pending full validation; no broad green result is claimed."
   "2026-11-16T19:23:50.350Z",codex-sol,"Review round P: replace the workflow-wide regex with a dependency-free shell command parser and regression fixtures. Parse run scripts with existing yaml where available; preserve allowed prefix-local installs. Verify typecheck, lint or docstring, focused guard/workflow contracts and changelog checks before pushing. No review-thread actions."
   "2026-11-16T19:28:57.876Z",codex-sol,"Review round P addresses parser threads PRRT_kwDOTOTl1M64FaID and PRRT_kwDOTOTl1M64F1se with a test-only shell command parser and existing-yaml run extraction. Added 38 fixtures. Thread PRRT_kwDOTOTl1M64F1si is addressed by child ready markers, a bounded two-worker barrier, and child-written install start/end timestamps; cold and warm intervals must overlap, and the full shared-npm package hash assertion is retained. npm run typecheck, npm run build:test and npm run lint PASS. Linked guard/workflow/real-overlap command passed through pm test --run --only-last --progress: 109 pass, 0 fail/cancel/skip/todo. changelog:check initially reported a stale top heading: the existing v2026.11.15 tag has a 2026-11-16 creator date. Canonical changelog:full refreshed only that generated date; changelog:check now PASS. Full-suite certification remains with CI. Review threads remain untouched."
+  "2026-11-16T21:51:39.303Z",codex-sol,"Review round X: verified open PR 289 at c6843a6 after fast-forward pull. Checking helper capture against subprocess inventory and wrapper before edits; will preserve overlap synchronization and run focused tests and package gates."
+  "2026-11-16T21:52:47.811Z",codex-sol,"Validated PRRT_kwDOTOTl1M64GMES: the unmodified subprocess inventory fails with raw process capture: test/npm-prefix-child.ts. Switched only the helper import to ../subprocess.ts; the ready barrier and child-recorded overlap intervals remain intact."
+  "2026-11-16T21:54:14.298Z",codex-sol,"Review round X validation passed through pm test --run --only-last --progress (exit 0): node --test test/subprocess.test.ts test/job-local-npm.test.ts; npm run typecheck; npm run build:test; npm run lint; npm run changelog:check. Both cold/warm synchronized overlapping install rounds succeeded and retained the shared npm hash, timestamp and version. The original inventory failure was reproduced before the one-line import fix. No thread response or resolution was made; exact-head remote CI remains unverified."
 files[13]{path,scope}:
   .github/workflows/ci-deep.yml,project
   .github/workflows/ci.yml,project
@@ -35,13 +38,14 @@ files[13]{path,scope}:
   test/release-caller.test.ts,project
   test/release-workflow.test.ts,project
   test/runtime-npm-fixture.ts,project
-tests[6]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+tests[7]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
   "npm run typecheck && npm run lint && npm test && node --test --test-concurrency=2 test/release-workflow.test.ts test/daily-release-workflow.test.ts test/job-local-npm.test.ts && npm run changelog:check",project,1200,codex-sol,"2026-11-16T15:20:04.813Z",local_mutation,fix/job-local-npm
   "npm run typecheck && npm run lint && npm test && node --test --test-concurrency=2 test/release-workflow.test.ts test/daily-release-workflow.test.ts test/job-local-npm.test.ts && npm run changelog:check && git diff --check",project,3600,codex-sol,"2026-11-16T15:42:18.237Z",local_mutation,fix/job-local-npm
   "npm run build:test && node --test --test-concurrency=2 test/release-workflow.test.ts test/daily-release-workflow.test.ts && node --test --test-name-pattern=\"no workflow replaces\" test/job-local-npm.test.ts && npm run changelog:check",project,900,codex-sol,"2026-11-16T15:53:15.764Z",local_mutation,fix/job-local-npm
   node --test test/job-local-npm.test.ts,project,1000,codex-sol,"2026-11-16T16:05:42.878Z",local_mutation,fix/job-local-npm
   npm test,project,900,codex-sol,"2026-11-16T16:46:05.913Z",local_mutation,fix/job-local-npm
   node --test test/global-npm-guard.test.ts test/job-local-npm.test.ts test/release-workflow.test.ts test/release-caller.test.ts test/daily-release-workflow.test.ts,project,1200,codex-sol,"2026-11-16T19:25:54.028Z",local_mutation,fix/job-local-npm
+  "node --test test/subprocess.test.ts test/job-local-npm.test.ts && npm run typecheck && npm run build:test && npm run lint && npm run changelog:check",project,1200,codex-sol,"2026-11-16T21:52:50.338Z",local_mutation,fix/job-local-npm
 docs[1]{path,scope}:
   CHANGELOG.md,project
 body: ""
