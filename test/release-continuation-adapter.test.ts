@@ -139,6 +139,19 @@ function assertIntentRetained(f: ReturnType<typeof remoteFixture>): void {
   assert.equal(f.calls.filter(call => call.method !== "GET").length, 0);
 }
 
+/** Run a probe and read the adapter's workflow output. */
+async function probeOutput(f: { root: string }): Promise<string> {
+  await runReleaseContinuation("probe");
+  return readFileSync(join(f.root, "output"), "utf8");
+}
+
+/** Confirm that a retired receipt stays inactive and permits leased branch reuse. */
+async function assertRetiredBranchReusable(f: { root: string }): Promise<void> {
+  writeFileSync(join(f.root, "output"), "");
+  assert.equal(await probeOutput(f), "pending=false\n");
+  await runReleaseContinuation("retired-branch");
+}
+
 /** Prepare each real handoff format, including Rust's absent tarball and canonical empty digest. */
 function setHandoffPackageMode(f: ReturnType<typeof remoteFixture> & { handoff: string }, kind: "npm" | "github-typescript" | "rust"): void {
   f.c.npmPublish = kind === "npm"; process.env.IS_RUST = String(kind === "rust");
@@ -865,10 +878,7 @@ test("fresh daily probe retires stranded unpublished intent and admits later pre
     assert.deepEqual(parseCandidateReceipt(f.pr.body, true), f.receipt);
     assert.ok(f.state.comments.some(comment => comment.body.includes("Retired unpublished release")));
     assert.ok(!f.calls.some(call => /releases|git\/refs/.test(call.path) && call.method !== "GET"));
-    writeFileSync(join(f.root, "output"), "");
-    await runReleaseContinuation("probe");
-    assert.equal(readFileSync(join(f.root, "output"), "utf8"), "pending=false\n");
-    await runReleaseContinuation("retired-branch");
+    await assertRetiredBranchReusable(f);
   });
 });
 
@@ -1404,16 +1414,12 @@ test("current-main probe retires a registry coordinate that predates preparation
     if (attempted) f.state.comments.push({ user: { login: "github-actions[bot]" }, body: "<!-- pm-ops-publication-v1\n" + JSON.stringify({ candidate: releaseDigest(JSON.stringify(f.c)) }) + "\n-->" });
     await assert.rejects(runReleaseContinuation("verify"), /current-source identity/);
     await assert.rejects(runReleaseContinuation("attempt"), /not admitted/);
-    await runReleaseContinuation("probe");
-    assert.match(readFileSync(join(f.root, "output"), "utf8"), /pending=false\naction=occupied/);
+    assert.match(await probeOutput(f), /pending=false\naction=occupied/);
     assert.equal(parseCandidateReceipt(f.pr.body), null);
     assert.deepEqual(parseCandidateReceipt(f.pr.body, true), f.receipt);
     assert.match(f.pr.body, /before this candidate was prepared/);
     assert.equal(f.calls.filter(call => call.method !== "GET").length, 2, "only retirement comment and receipt update");
-    writeFileSync(join(f.root, "output"), "");
-    await runReleaseContinuation("probe");
-    assert.equal(readFileSync(join(f.root, "output"), "utf8"), "pending=false\n");
-    await runReleaseContinuation("retired-branch");
+    await assertRetiredBranchReusable(f);
   });
 });
 
@@ -1442,8 +1448,7 @@ test("occupied-coordinate retirement refuses ambiguous history, registry errors 
     await assert.rejects(runReleaseContinuation("probe"), /registry outage/);
     assertIntentRetained(f);
     f.state.registryUnavailable = false; process.env.TRIGGER_SHA = "9".repeat(40);
-    await runReleaseContinuation("probe");
-    assert.match(readFileSync(join(f.root, "output"), "utf8"), /pending=true/);
+    assert.match(await probeOutput(f), /pending=true/);
     assertIntentRetained(f);
   });
 });
