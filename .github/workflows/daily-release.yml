@@ -128,11 +128,6 @@ on:
         type: boolean
         required: false
         default: false
-      prepare-restart-count:
-        description: Internal bounded preparation restarts; callers must pass through the dispatch input
-        type: number
-        required: false
-        default: 0
 permissions: {}
 concurrency:
   group: daily-release
@@ -984,7 +979,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_CONFIG: ${{ toJSON(inputs) }}
-      RELEASE_EVENT_INPUTS: ${{ toJSON(github.event.inputs) }}
       CALLER_WORKFLOW: ${{ github.workflow_ref }}
       RELEASE_TIMEZONE: ${{ inputs.release-timezone }}
       RESTART_BASE_SHA: ${{ needs.request.outputs.restart_base || needs.prepare.outputs.restart_base }}

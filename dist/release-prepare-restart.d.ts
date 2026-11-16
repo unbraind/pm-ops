@@ -4,8 +4,8 @@ export interface PrepareRestartInput {
     baseSha: string;
     /** Freshly read main, used only to decide whether another preparation is needed. */
     mainSha: string;
-    /** Restarts already consumed by this daily run's dispatch chain. */
-    restartCount: number;
+    /** Bot dispatches already created today for this caller workflow. */
+    botDispatchCount: number;
     /** Live publication dates in the configured timezone enforce the daily cap. */
     publishedToday: boolean;
     /** Recovery schedules never admit fresh preparation. */
@@ -13,6 +13,6 @@ export interface PrepareRestartInput {
     /** Explicit retirement remains a separate operator transition. */
     retireUnpublished: boolean;
 }
-/** Permit two complete restarts, refusing malformed counters rather than resetting them. */
+/** Permit at most two bot-dispatched preparations per caller and release day. */
 export declare function decidePrepareRestart(input: PrepareRestartInput): "restart" | "fail" | "stop";
 //# sourceMappingURL=release-prepare-restart.d.ts.map

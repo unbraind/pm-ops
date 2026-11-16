@@ -71,9 +71,9 @@ export function releaseDigest(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-/** Bind every caller input except scheduling modes and restart count; key order is immaterial. */
+/** Bind every caller input except the scheduling-only mode; key order is immaterial. */
 export function releaseConfigDigest(inputs: Record<string, unknown>): string {
-  return releaseDigest(JSON.stringify(Object.entries(inputs).filter(([key]) => !["reconcile-only", "retire-unpublished", "prepare-restart-count"].includes(key)).sort(([a], [b]) => a < b ? -1 : 1)));
+  return releaseDigest(JSON.stringify(Object.entries(inputs).filter(([key]) => !["reconcile-only", "retire-unpublished"].includes(key)).sort(([a], [b]) => a < b ? -1 : 1)));
 }
 
 /** Read an explicit Cargo package version without crossing into a dependency or workspace table. */

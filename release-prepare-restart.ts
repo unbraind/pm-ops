@@ -4,8 +4,8 @@ export interface PrepareRestartInput {
   baseSha: string;
   /** Freshly read main, used only to decide whether another preparation is needed. */
   mainSha: string;
-  /** Restarts already consumed by this daily run's dispatch chain. */
-  restartCount: number;
+  /** Bot dispatches already created today for this caller workflow. */
+  botDispatchCount: number;
   /** Live publication dates in the configured timezone enforce the daily cap. */
   publishedToday: boolean;
   /** Recovery schedules never admit fresh preparation. */
@@ -14,11 +14,11 @@ export interface PrepareRestartInput {
   retireUnpublished: boolean;
 }
 
-/** Permit two complete restarts, refusing malformed counters rather than resetting them. */
+/** Permit at most two bot-dispatched preparations per caller and release day. */
 export function decidePrepareRestart(input: PrepareRestartInput): "restart" | "fail" | "stop" {
-  if (!Number.isSafeInteger(input.restartCount) || input.restartCount < 0 || input.restartCount > 2) {
-    throw new Error("Invalid prepare restart counter; expected an integer from 0 to 2");
+  if (!Number.isSafeInteger(input.botDispatchCount) || input.botDispatchCount < 0) {
+    throw new Error("Invalid bot dispatch history count; expected a nonnegative integer");
   }
   if (input.publishedToday || input.reconcileOnly || input.retireUnpublished) return "stop";
-  return input.baseSha !== input.mainSha && input.restartCount < 2 ? "restart" : "fail";
+  return input.baseSha !== input.mainSha && input.botDispatchCount < 2 ? "restart" : "fail";
 }

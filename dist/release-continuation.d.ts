@@ -70,7 +70,7 @@ export interface ContinuationEvidence {
 }
 /** Hash exact bytes for the artifact, notes, candidate and caller-configuration bindings. */
 export declare function releaseDigest(value: string | Uint8Array): string;
-/** Bind every caller input except scheduling modes and restart count; key order is immaterial. */
+/** Bind every caller input except the scheduling-only mode; key order is immaterial. */
 export declare function releaseConfigDigest(inputs: Record<string, unknown>): string;
 /** Read an explicit Cargo package version without crossing into a dependency or workspace table. */
 export declare function cargoPackageVersion(text: string): string;

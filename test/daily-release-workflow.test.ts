@@ -119,7 +119,7 @@ test("restart job survives failed dependencies, uses trusted tools and cannot ad
   assert.match(restart.if, /needs.prepare.outputs.restart_base != '' \|\| needs.request.outputs.restart_base != ''/);
   assert.deepEqual(restart.permissions, { contents: "read", actions: "write" });
   assert.equal(restart.env.RELEASE_CONFIG, "${{ toJSON(inputs) }}");
-  assert.equal(restart.env.RELEASE_EVENT_INPUTS, "${{ toJSON(github.event.inputs) }}");
+  assert.equal(restart.env.RELEASE_EVENT_INPUTS, undefined);
   assert.equal(restart.env.RESTART_BASE_SHA, "${{ needs.request.outputs.restart_base || needs.prepare.outputs.restart_base }}");
   const checkout = restart.steps.find(s => s.name === "Checkout trusted restart tools") as Step & { with: Record<string, unknown> };
   assert.deepEqual(checkout.with, { repository: "unbraind/pm-ops", ref: "${{ job.workflow_sha }}", "persist-credentials": false });
@@ -130,10 +130,8 @@ test("restart job survives failed dependencies, uses trusted tools and cannot ad
   assert.ok(steps.indexOf(step("Run release checks")) < steps.indexOf(step("Record immutable release candidate")));
 });
 
-test("self-caller, caller template and both migration examples pass the bounded restart counter through", () => {
-  assert.deepEqual(workflow.on.workflow_call.inputs["prepare-restart-count"], {
-    description: "Internal bounded preparation restarts; callers must pass through the dispatch input", type: "number", required: false, default: 0,
-  });
+test("unchanged callers need no restart input and retain retirement defaults", () => {
+  assert.equal(workflow.on.workflow_call.inputs["prepare-restart-count"], undefined);
   const docs = readFileSync(new URL("../docs/reusable-release.md", import.meta.url), "utf8");
   const callers = [readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8"),
     readFileSync(new URL("../templates/release-caller.yml", import.meta.url), "utf8"),
@@ -141,9 +139,9 @@ test("self-caller, caller template and both migration examples pass the bounded 
   assert.equal(callers.length, 4);
   for (const source of callers) {
     const caller = parse(source);
-    assert.equal(caller.on.workflow_dispatch.inputs["prepare-restart-count"].type, "number");
-    assert.equal(caller.on.workflow_dispatch.inputs["prepare-restart-count"].default, 0);
-    assert.equal(caller.jobs.release.with["prepare-restart-count"], "${{ inputs.prepare-restart-count || 0 }}");
+    assert.equal(caller.on.workflow_dispatch.inputs["prepare-restart-count"], undefined);
+    assert.equal(caller.jobs.release.with["prepare-restart-count"], undefined);
+    assert.equal(caller.on.workflow_dispatch.inputs["retire-unpublished"].default, false);
     assert.equal(caller.jobs.release.permissions.actions, "write");
   }
   assert.doesNotMatch(docs, /fresh preparation on the next daily run/);
@@ -322,7 +320,7 @@ test("every declared package input is typed and wired into executable jobs", () 
   for (const [name, input] of Object.entries(workflow.on.workflow_call.inputs)) {
     assert.ok(["string", "boolean", "number"].includes(input.type));
     assert.equal(typeof input.default, input.type);
-    assert.ok(jobSource.includes(`inputs.${name}`) || (name === "prepare-restart-count" && workflow.jobs.restart_prepare.env.RELEASE_CONFIG === "${{ toJSON(inputs) }}"), `unwired input ${name}`);
+    assert.ok(jobSource.includes(`inputs.${name}`), `unwired input ${name}`);
   }
   for (const hook of ["PREPARE_SCRIPT", "VERIFY_SCRIPT", "PUBLISH_SCRIPT", "BUNX_SCRIPT"]) assert.ok(steps.some(s => s.run?.includes(`$${hook}`)), hook);
   assert.match(step("Run release checks").run, /npm run "\$VERIFY_SCRIPT"/);
