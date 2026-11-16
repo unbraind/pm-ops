@@ -10,6 +10,14 @@
  * the other from the version -- and the release would fail on the divergence
  * rather than on the stale date the flag exists to remove.
  *
+ * A resumed release is the one sanctioned exception: its version day has already
+ * passed, the release step tags it today, and the release commit pins
+ * `--date-fallback <ISO day>` in place of `--date-from-version` for the days
+ * the version is pending. The pinned day is as clock-free as the flag it
+ * replaces -- it stays fixed in the committed script -- so the scan accepts
+ * either spelling, and rejects `--date-fallback` without an explicit day
+ * because that would silently fall back to the clock.
+ *
  * The analysis is separated from the I/O so the rules below are executed by the
  * test suite against fixtures rather than only against this repository, which
  * happens to satisfy them.
@@ -42,6 +50,9 @@ export const VERSION_INPUTS = ["--release-version-from-package", "--release-vers
 
 /** The flag under audit: it makes the no-tag heading version-derived. */
 export const DATE_FLAG = "--date-from-version";
+
+/** The spelling a resumed release commits instead: a pinned day for the pending heading. */
+export const FALLBACK_DATE_PATTERN = /--date-fallback(?:=|\s)"?\d{4}-\d{2}-\d{2}"?(?:\s|$)/;
 
 /** One generator invocation found in a tracked file. */
 export interface Invocation {
@@ -134,9 +145,9 @@ export function auditInvocations(sources: SourceFile[]): VerifierResult {
   const invocations = sources.flatMap(invocationsIn);
   return tallyFlaggedInvocations(
     invocations,
-    (invocation) => invocation.command.includes(DATE_FLAG)
+    (invocation) => invocation.command.includes(DATE_FLAG) || FALLBACK_DATE_PATTERN.test(invocation.command)
       ? null
-      : `${invocation.file}: a generator invocation carries a version input but not ${DATE_FLAG}: `
+      : `${invocation.file}: a generator invocation carries a version input but neither ${DATE_FLAG} nor a pinned --date-fallback day: `
         + invocation.command.trim().slice(0, 160),
     {
       noun: "generator",

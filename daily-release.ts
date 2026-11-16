@@ -41,6 +41,25 @@ export function releaseVersion(date: string): string {
   return date.replace(/^v/, "").split("-")[0].split(".").map(Number).join(".");
 }
 
+/** Parse one calendar day coordinate in YYYY.M.D form, discarding any same-day -N suffix; null when not a day. */
+function calendarDay(coordinate: string): [number, number, number] | null {
+  const match = coordinate.replace(/^v/, "").match(/^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:-\d+)?$/);
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
+/** Compare two calendar days numerically, so unpadded coordinates order correctly. */
+function dayBefore(earlier: [number, number, number], later: [number, number, number]): boolean {
+  return earlier[0] !== later[0] ? earlier[0] < later[0]
+    : earlier[1] !== later[1] ? earlier[1] < later[1]
+    : earlier[2] < later[2];
+}
+
+/** Format a calendar day coordinate as the generator's padded ISO heading date. */
+function isoDay(coordinate: string): string {
+  const day = calendarDay(coordinate);
+  return day === null ? "" : day.map((part, index) => String(part).padStart(index === 0 ? 4 : 2, "0")).join("-");
+}
+
 /** Select the newest numeric release date regardless of zero padding or tag creation order. */
 export function latestReleaseTag(tags: readonly string[]): string {
   return [...tags].sort((a, b) => releaseVersion(b).localeCompare(releaseVersion(a), "en", { numeric: true })
@@ -70,6 +89,11 @@ export function decideDailyRelease(input: DailyReleaseInput) {
     && !input.releaseTags.some(tag => releaseCoordinate(tag) === releaseCoordinate(current)) ? current : undefined;
   const version = input.packageVersion ?? pending ?? releaseVersion(input.today);
   const tag = npmVersionToTag(version);
+  const versionDay = calendarDay(version);
+  const todayDay = calendarDay(input.today);
+  // A resumed version's own day has already passed, so the release step tags it
+  // today and the changelog committed at prepare must carry the same day.
+  const headingDate = versionDay !== null && todayDay !== null && dayBefore(versionDay, todayDay) ? isoDay(input.today) : "";
   const releasedToday = input.publishedToday === true || input.releaseTags.some(tag => releaseVersion(tag) === releaseVersion(input.today));
   const versionExists = input.releaseTags.some(tag => releaseCoordinate(tag) === releaseCoordinate(version));
   const shouldRelease = !releasedToday && !versionExists && input.hasChanges && input.lastRelease?.sha !== input.mainSha;
@@ -79,6 +103,7 @@ export function decideDailyRelease(input: DailyReleaseInput) {
     action: !shouldRelease ? "skip" : existingPr ? "refresh" : "create",
     tag,
     npm_version: version,
+    heading_date: headingDate,
     base_sha: input.mainSha,
     release_branch: existingPr?.headRefName ?? `release/${tag.slice(1)}`,
     pr_number: existingPr?.number ?? "",

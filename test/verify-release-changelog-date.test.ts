@@ -51,7 +51,21 @@ test("an invocation naming the pending tag is caught, not skipped", () => {
     text: 'pm-changelog --pm-root .agents/pm --all-release-tags --version "$RELEASE_TAG" --mode replace',
   }]);
   assert.equal(result.failures.length, 1);
-  assert.match(result.failures[0], /carries a version input but not --date-from-version/);
+  assert.match(result.failures[0], /carries a version input but neither --date-from-version nor a pinned --date-fallback/);
+});
+
+test("a resumed release's pinned --date-fallback day is accepted, and only with an explicit day", () => {
+  const pinned = "pm-changelog --pm-root .agents/pm --release-version-from-package --date-fallback 2026-11-16";
+  const result = auditInvocations([{ file: "package.json", text: pinned }]);
+  assert.deepEqual(result.failures, []);
+  assert.equal(result.notes.length, 1, "the pinned day must be reported as verified");
+  // The resumed spelling the release commit writes is quoted the same way in
+  // every script, but the scan must not let the flag through without a day:
+  // that is the clock again, just spelled differently.
+  for (const invalid of ["--date-fallback", "--date-fallback=", "--date-fallback 16-11-2026", "--date-fallback=2026-11-16T12:00:00Z"]) {
+    const failed = auditInvocations([{ file: "package.json", text: `pm-changelog --release-version-from-package ${invalid}` }]);
+    assert.equal(failed.failures.length, 1, `${invalid} must be rejected`);
+  }
 });
 
 test("one line holding two invocations is judged per invocation, spaced or not", () => {

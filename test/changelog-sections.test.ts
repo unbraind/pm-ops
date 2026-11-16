@@ -48,6 +48,36 @@ function args(name: string): string[] {
   return scripts[name]!.split(" ").slice(2).map(arg => arg === "./node_modules/.bin/pm" ? pm : arg);
 }
 
+/** The workflow step this suite executes, read straight from the YAML so reverting its policy breaks the proof. */
+function changelogStepScript(): string {
+  const workflow = parse(readFileSync(resolve(".github/workflows/daily-release.yml"), "utf8")) as { jobs: { prepare: { steps: { name?: string; run?: string }[] } } };
+  const script = workflow.jobs.prepare.steps.find(step => step.name === "Generate changelog and release notes")?.run;
+  assert.ok(script);
+  return script;
+}
+
+/** Fixture npm scripts that call this repository's generator with the standing policy. */
+function releaseCommands(): Record<string, string> {
+  const generator = resolve("scripts/pm-changelog.ts");
+  const commands = Object.fromEntries(["changelog:full", "changelog:check", "release:notes"].map(name => [name,
+    [process.execPath, generator, ...args(name).filter(arg => arg !== "--include-empty")].join(" ")
+  ]));
+  commands["release:check"] = "npm run changelog:check";
+  return commands;
+}
+
+/** Release-step environment over one fixture tracker, with the resumed heading date when given. */
+function releaseStepEnv(root: string, env: NodeJS.ProcessEnv, headingDate = ""): NodeJS.ProcessEnv {
+  return { ...env, IS_RUST: "false", CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check", NOTES_SCRIPT: "release:notes", RELEASE_HEADING_DATE: headingDate, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: join(root, "summary.md"), NPM_CONFIG_USERCONFIG: "/dev/null" };
+}
+
+/** Commit the prepared release files and tag the candidate on the given day. */
+function commitAndTag(root: string, env: NodeJS.ProcessEnv, tag: string, day: string): void {
+  execFileSync("git", ["add", "--", "package.json", "CHANGELOG.md"], { cwd: root, env });
+  execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "Release fixture"], { cwd: root, env: { ...env, GIT_AUTHOR_DATE: day, GIT_COMMITTER_DATE: day } });
+  execFileSync("git", ["tag", tag], { cwd: root, env });
+}
+
 test("all 64 item-presence combinations retain one ordered section per real tag and satisfy repair's note check", () => {
   const { root, env } = tracker();
   try {
@@ -174,15 +204,10 @@ test("dependency-only release windows run the canonical changelog step without a
     assert.equal(decideDailyRelease({ ...facts, hasChanges: false }).should_release, false);
     assert.equal(decideDailyRelease({ ...facts, publishedToday: true }).should_release, false);
     const generator = resolve("scripts/pm-changelog.ts");
-    const commands = Object.fromEntries(["changelog:full", "changelog:check", "release:notes"].map(name => [name,
-      [process.execPath, generator, ...args(name).filter(arg => arg !== "--include-empty")].map(arg => `'${arg.replaceAll("'", "'\\''")}'`).join(" ")
-    ]));
-    commands["release:check"] = "npm run changelog:check";
+    const commands = releaseCommands();
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "sample-changelog", version: "2026.10.23", scripts: commands }));
-    const workflow = parse(readFileSync(resolve(".github/workflows/daily-release.yml"), "utf8")) as { jobs: { prepare: { steps: { name?: string; run?: string }[] } } };
-    const script = workflow.jobs.prepare.steps.find(step => step.name === "Generate changelog and release notes")?.run;
-    assert.ok(script);
-    const releaseEnv = { ...env, IS_RUST: "false", CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check", NOTES_SCRIPT: "release:notes", RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: join(root, "summary.md"), NPM_CONFIG_USERCONFIG: "/dev/null" };
+    const script = changelogStepScript();
+    const releaseEnv = releaseStepEnv(root, env);
     const result = runBashFixture(script, { cwd: root, env: releaseEnv, encoding: "utf8" });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     for (const file of ["CHANGELOG.md", "RELEASE_NOTES.md"]) assert.match(committedReleaseNotes(readFileSync(join(root, file), "utf8"), "2026.10.23"), /^No (?:tracked )?changes\.\n$/);
@@ -201,11 +226,57 @@ test("dependency-only release windows run the canonical changelog step without a
       assert.equal(readFileSync(join(root, "package.json"), "utf8"), before, "invalid hooks fail before the policy is written");
     }
     writeFileSync(join(root, "package.json"), prepared);
-    execFileSync("git", ["add", "package.json", "CHANGELOG.md"], { cwd: root, env });
-    execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "Release fixture"], { cwd: root, env: { ...env, GIT_AUTHOR_DATE: "2026-10-23T14:00:00Z", GIT_COMMITTER_DATE: "2026-10-23T14:00:00Z" } });
-    execFileSync("git", ["tag", "v2026.10.23"], { cwd: root, env });
+    commitAndTag(root, env, "v2026.10.23", "2026-10-23T14:00:00Z");
     execFileSync("npm", ["run", "release:check"], { cwd: root, env: releaseEnv });
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("prepare commits the heading its tag produces, for same-day and resumed releases", () => {
+  const script = changelogStepScript();
+  // The fixture starts from this repository's standing scripts, exactly as a
+  // release candidate on main does: the workflow step rewrites the date
+  // policy in place, and the release PR's own CI runs the rewritten scripts
+  // while the candidate is untagged, then main runs them again once tagged.
+  const commands = releaseCommands();
+  for (const [version, headingDate, tagDay] of [
+    ["2026.10.23", "", "2026-10-23T14:00:00Z"],
+    ["2026.10.23", "2026-10-24", "2026-10-24T12:00:00Z"],
+  ] as const) {
+    const { root, env } = tracker();
+    try {
+      releaseTags(root, env);
+      writeFileSync(join(root, "package.json"), JSON.stringify({ name: "sample-changelog", version, scripts: commands }));
+      const releaseEnv = releaseStepEnv(root, env, headingDate);
+      const result = runBashFixture(script, { cwd: root, env: releaseEnv, encoding: "utf8" });
+      assert.equal(result.status, 0, `${version} ${headingDate}: ` + result.stdout + result.stderr);
+      const prepared = readFileSync(join(root, "CHANGELOG.md"), "utf8");
+      assert.match(prepared, new RegExp(`^## ${version} - ${headingDate || "2026-10-23"}$`, "m"));
+      const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { scripts: Record<string, string> };
+      for (const name of ["changelog:full", "changelog:check", "release:notes"]) {
+        assert.equal(pkg.scripts[name]!.includes("--date-fallback"), Boolean(headingDate), `${name} keeps the ${headingDate ? "pinned" : "standing"} date policy`);
+        assert.ok(!pkg.scripts[name]!.includes("--date-from-version") || !headingDate, `${name} must not carry both date policies`);
+      }
+      // The release PR's gate runs while the candidate is untagged.
+      execFileSync("npm", ["run", "release:check"], { cwd: root, env: releaseEnv });
+      commitAndTag(root, env, `v${version}`, tagDay);
+      // Main after tagging: the gate passes with no follow-up regeneration.
+      execFileSync("npm", ["run", "release:check"], { cwd: root, env: releaseEnv });
+      const committed = readFileSync(join(root, "CHANGELOG.md"), "utf8");
+      execFileSync("npm", ["run", "changelog:full"], { cwd: root, env: releaseEnv });
+      assert.equal(readFileSync(join(root, "CHANGELOG.md"), "utf8"), committed, `${version} ${headingDate}: post-tag regeneration must equal the prepared bytes`);
+      if (headingDate) {
+        // A later same-day release restores the standing policy, so a stale
+        // pin never survives the next release commit.
+        const restored = runBashFixture(script, { cwd: root, env: { ...releaseEnv, RELEASE_HEADING_DATE: "" }, encoding: "utf8" });
+        assert.equal(restored.status, 0, restored.stdout + restored.stderr);
+        const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { scripts: Record<string, string> };
+        for (const name of ["changelog:full", "changelog:check", "release:notes"]) {
+          assert.ok(pkg.scripts[name]!.includes("--date-from-version"), `${name} must be restored to the standing policy`);
+          assert.ok(!pkg.scripts[name]!.includes("--date-fallback"), `${name} must not keep a stale pin`);
+        }
+      }
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
 });
 
 test("empty wording leaves tracked prose alone and invalid adapter options fail before writing", () => {

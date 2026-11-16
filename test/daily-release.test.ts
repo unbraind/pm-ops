@@ -31,7 +31,7 @@ test("selection finds eligible PRs beyond 30 and orders numeric dates then PR nu
 
 test("stale release PRs are rebuilt from current main; superseded cleanup lists only owned PRs", () => {
   const plan = decideDailyRelease(facts({ existingPrs: [pr(30, "release/2026.10.17"), pr(99, "release/2026.10.19", { isCrossRepository: true }), pr(50), pr(51, undefined, { author: { login: "human" } })] }));
-  assert.deepEqual(plan, { should_release: true, recovery_tag: "", action: "refresh", tag: "v2026.10.19", npm_version: "2026.10.19", base_sha: "new-main", release_branch: "release/2026.10.18", pr_number: 50, superseded_pr_numbers: "30" });
+  assert.deepEqual(plan, { should_release: true, recovery_tag: "", action: "refresh", tag: "v2026.10.19", npm_version: "2026.10.19", heading_date: "", base_sha: "new-main", release_branch: "release/2026.10.18", pr_number: 50, superseded_pr_numbers: "30" });
 });
 
 test("daily decisions skip same-day spelling variants and suffixes, unchanged trees and unchanged heads", () => {
@@ -95,6 +95,23 @@ test("canonical release names are byte-identical for the first run and resume", 
   assert.deepEqual(Buffer.from(resume.tag), Buffer.from(first.tag));
   assert.equal(first.tag, "v2026.10.05");
   assert.equal(resume.release_branch, first.release_branch);
+});
+
+test("a resumed version is stamped with the tag day; a current version keeps its own day", () => {
+  // Same-day releases keep the version-derived heading: no pinned date is
+  // written, so the standing policy (and its gate) applies unchanged.
+  for (const version of ["2026.10.19", "2026.10.19-2", "invalid"]) {
+    assert.equal(decideDailyRelease(facts({ currentPackageVersion: version })).heading_date, "", version);
+  }
+  assert.equal(decideDailyRelease(facts({ currentPackageVersion: "2026.10.18" })).heading_date, "", "a tagged version is not resumed");
+  // A resumed version's day has passed, so its heading must carry the day the
+  // release step tags - today, padded ISO, from any coordinate spelling.
+  const resumed = decideDailyRelease(facts({ today: "2026.10.06", releaseTags: ["v2026.10.04"], currentPackageVersion: "2026.10.5" }));
+  assert.equal(resumed.heading_date, "2026-10-06");
+  const unpadded = decideDailyRelease(facts({ today: "2026.8.9", releaseTags: ["v2026.08.08"], currentPackageVersion: "2026.8.8-2" }));
+  assert.equal(unpadded.heading_date, "2026-08-09");
+  const reviewed = decideDailyRelease(facts({ packageVersion: "2026.10.12" }));
+  assert.equal(reviewed.heading_date, "2026-10-19", "a maintainer-reviewed old version is tagged today");
 });
 
 test("canonical release names format the reviewed package coordinate instead of today's date", () => {
