@@ -168,6 +168,53 @@ test("actual publication dates cap daily resumption as well as reviewed package 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("prepare registry lookup distinguishes an exact version, E404 and read failures and skips Rust/package policy", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-registry-read-"));
+  try {
+    writeFileSync(join(root, "npm"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$RUNNER_TEMP/npm-calls"
+case "$1 $2 $3" in
+  "pkg get version") echo '"2026.10.17"' ;;
+  "pkg get name") echo '"fixture-package"' ;;
+  "view fixture-package@2026.10.17 version") printf '%s' "$REGISTRY_RESPONSE"; exit "$REGISTRY_STATUS" ;;
+  *) exit 9 ;;
+esac
+`);
+    chmodSync(join(root, "npm"), 0o755);
+    const plan = step("Decide release").run;
+    const lookup = plan.slice(plan.indexOf('export RELEASE_PACKAGE_VERSION=""'), plan.indexOf("# A resumed old date"));
+    assert.match(plan, /registryHasCurrentVersion: e.RELEASE_REGISTRY_HAS_CURRENT_VERSION === 'true'/);
+    const fixtures = [
+      { response: '"2026.10.17"', status: 0, expected: "true", pass: true },
+      { response: '{"error":{"code":"E404"}}', status: 1, expected: "false", pass: true },
+      { response: '{"error":{"code":"E503"}}', status: 1, pass: false },
+      { response: '{"error":{"code":"ETIMEDOUT"}}', status: 1, pass: false },
+      { response: "", status: 1, pass: false },
+      { response: "", status: 0, pass: false },
+      { response: '"wrong-version"', status: 0, pass: false },
+      { response: '{"error":{"code":"E404"}}', status: 0, pass: false },
+    ];
+    for (const fixture of fixtures) {
+      const result = runBashFixture(lookup + '\nprintf "%s" "$RELEASE_REGISTRY_HAS_CURRENT_VERSION"', { encoding: "utf8", env: {
+        ...process.env, PATH: `${root}:${process.env.PATH}`, RUNNER_TEMP: root, NPM_PROJECT_PATH: root,
+        IS_RUST: "false", VERSION_POLICY: "daily", REGISTRY_RESPONSE: fixture.response, REGISTRY_STATUS: String(fixture.status),
+      } }, ["-e", "-o", "pipefail"]);
+      assert.equal(result.status === 0, fixture.pass, result.stdout + result.stderr);
+      if (fixture.pass) assert.equal(result.stdout, fixture.expected);
+      if (fixture.status !== 0 && !fixture.pass) assert.match(result.stdout, /::error::Could not read .* from npm/);
+    }
+    assert.match(readFileSync(join(root, "npm-calls"), "utf8"), /view fixture-package@2026.10.17 version --prefer-online --json/);
+    for (const [rust, policy] of [["true", "daily"], ["false", "package"]]) {
+      writeFileSync(join(root, "npm-calls"), "");
+      const result = runBashFixture(lookup, { encoding: "utf8", env: {
+        ...process.env, PATH: `${root}:${process.env.PATH}`, RUNNER_TEMP: root, NPM_PROJECT_PATH: root, IS_RUST: rust, VERSION_POLICY: policy,
+      } }, ["-e", "-o", "pipefail"]);
+      assert.equal(result.status, 0, result.stderr);
+      assert.doesNotMatch(readFileSync(join(root, "npm-calls"), "utf8"), /view/);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("completeness audit follows release and recovery even on no-change days and exposes failures to alerting", () => {
   const audit = workflow.jobs.audit;
   assert.deepEqual(audit.needs, ["prepare", "release", "recover", "verify_bun", "reconcile", "request"]);

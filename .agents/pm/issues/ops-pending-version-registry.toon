@@ -1,0 +1,61 @@
+id: ops-pending-version-registry
+title: Skip registry-held pending versions and retire stale release candidates
+description: "Fix gh:unbraind/pm-ops#290: an untagged package version is resumed even when npm already holds it, trapping prepare and reconcile on an unpublishable candidate."
+type: Issue
+status: in_progress
+priority: 1
+tags[2]: "area:release","gh:unbraind/pm-ops#290"
+created_at: "2026-11-16T19:12:48.646Z"
+updated_at: "2026-11-16T19:19:37.956Z"
+assignee: codex-sol
+claim_principal: codex-sol
+author: codex-sol
+acceptance_criteria: "An untagged version already on npm selects today; a truly unpublished pending version resumes after rollover; tagged versions, calendar cap, package policy, hasChanges and recovery_tag retain their behavior; registry read errors fail closed; stale merged candidates retire with a clear notice or an explicit safe owner action; targeted gates pass."
+comments[5]{created_at,author,text}:
+  "2026-11-16T19:13:57.337Z",codex-sol,"Root cause: decideDailyRelease equates an untagged calendar version with unpublished intent; prepare never reads npm. Existing explicit retirement refuses every occupied npm coordinate and any attempt journal. Plan: fail-closed prepare lookup; separate automatic occupied-candidate retirement only when npm publication predates the trusted preparation run, with no tag or GitHub Release, preserving the exact retired receipt and requiring a current-main probe. This also safely handles failed attempts against a pre-existing immutable coordinate."
+  "2026-11-16T19:17:10.947Z",codex-sol,"Implementation: optional registryHasCurrentVersion preserves all other planner rules; prepare accepts only an exact successful npm version response or authoritative E404, refusing errors. Occupied retirement additionally requires registry time predating preparation, unchanged merged source, green protection, no tag/Release, and a current-main probe. Receipt retirement is confirmed before clearing pending; publication modes reject this action. Focused suite now passes 157 tests; typecheck passes. Changelog check currently reports a pre-existing release-heading date mismatch, under baseline verification."
+  "2026-11-16T19:17:52.945Z",codex-sol,"Baseline gate evidence: unchanged origin/main at c29fe88 also fails npm run changelog:check. Generated diff changes only the 2026.11.15 heading date from 2026-11-15 to 2026-11-16, matching the tagged commit date. Tracked separately as ops-release-1115-heading-drift; no unrelated changelog or tag edits in this fix."
+  "2026-11-16T19:18:51.802Z",codex-sol,"Focused coverage of the three changed TypeScript modules passes all 157 tests: daily-release.ts and release-continuation.ts each measure 100% statements/branches/functions/lines. The adapter measures 99.1% statements/lines and 99.82% branches in this bounded run; uncovered lines 427-431 are unchanged and covered by other suites. This is targeted evidence only; CI owns full-suite certification. Additional release workflow, discovery and identity contracts passed 25 tests. Lint passes after fixture quote cleanup."
+  "2026-11-16T19:19:37.956Z",codex-sol,"Final local gates: npm run build and npm run build:test PASS; npm run typecheck PASS; npm run lint PASS; node --test --test-concurrency=2 test/daily-release.test.ts test/daily-release-workflow.test.ts test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/release-workflow.test.ts test/release-discovery-evidence.test.ts test/identity-audit.test.ts PASS (182 tests, no skips). pm test ops-pending-version-registry --run --progress executed all four linked commands: three passed; npm run changelog:check failed with the independently reproduced baseline heading drift (ops-release-1115-heading-drift). Project test-result tracking is disabled, so these results are recorded in this comment without changing settings. No npm mutations or live workflow runs were performed."
+files[8]{path,scope}:
+  .github/workflows/daily-release.yml,project
+  daily-release.ts,project
+  release-continuation.ts,project
+  scripts/release-continuation.ts,project
+  test/daily-release-workflow.test.ts,project
+  test/daily-release.test.ts,project
+  test/release-continuation-adapter.test.ts,project
+  test/release-continuation.test.ts,project
+tests[4]:
+  - command: npm run typecheck
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T19:18:31.680Z"
+      source_kind: local_mutation
+      source_ref: fix/pending-version-on-registry
+  - command: npm run lint
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T19:18:32.588Z"
+      source_kind: local_mutation
+      source_ref: fix/pending-version-on-registry
+  - command: node --test --test-concurrency=2 test/daily-release.test.ts test/daily-release-workflow.test.ts test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/release-workflow.test.ts test/release-discovery-evidence.test.ts test/identity-audit.test.ts
+    scope: project
+    timeout_seconds: 180
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T19:18:33.417Z"
+      source_kind: local_mutation
+      source_ref: fix/pending-version-on-registry
+  - command: "npm run changelog:check"
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T19:18:34.219Z"
+      source_kind: local_mutation
+      source_ref: fix/pending-version-on-registry
+docs[1]{path,scope}:
+  docs/reusable-release.md,project
+body: ""

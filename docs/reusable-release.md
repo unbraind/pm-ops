@@ -269,3 +269,20 @@ After pm-csv and pm-rust pass their own unchanged gates and a controlled daily-r
 The new functions have behavioral regressions for ownership, numeric ordering, candidates beyond 30, stale PR refresh from main, unchanged trees, daily caps, reviewed versions, descriptor stamping and provenance binding. Tests parse YAML and check effective job permissions, full action pins, hook wiring, packed artifact publication, continuation commit checks, and failure-independent cleanup. Tests execute shell syntax checks and a failing superseded-close boundary. Revert proofs and exact full-gate counts are attached to `ops-reusable-daily-release`.
 
 `actionlint` v1.7.12 predates GitHub's documented `job.workflow_sha` property. The narrow `-ignore 'property "workflow_sha" is not defined'` exception is necessary for that known analyzer gap; all other expression/schema checks remain enabled. Shell blocks are also parsed with `bash -n` by the suite. No releases, tags, merges or consumer deployments are performed by this task.
+
+
+An untagged daily package version resumes only when npm returns E404 for that exact
+coordinate. Registry errors fail preparation; Rust and reviewed `package` version
+policies skip this pending-version lookup.
+
+A merged candidate whose npm coordinate lacks matching provenance can be retired
+automatically when registry publication history proves the version existed before
+the trusted preparation run began. This requires the existing candidate ownership,
+preparation, merged-source and protection proofs, no tag or GitHub Release, and a
+probe triggered at current main. The probe emits a notice, preserves the exact
+receipt under the retired marker, and permits fresh daily preparation. Recorded
+failed publication attempts do not block this path because the immutable npm
+coordinate demonstrably predates them. It never publishes, tags or deletes that
+version. Missing, invalid or newer publication timestamps retain the existing
+refusal: they cannot distinguish an unrelated artifact from delayed provenance
+for this release. Explicit `retire-unpublished` retains its stricter absence rules.

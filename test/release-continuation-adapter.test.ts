@@ -34,11 +34,11 @@ function remoteFixture() {
   const c = candidateFixture(), e = evidenceFixture(), receipt = { candidate: c, artifactId: 20 };
   const pr = { pull_request: {}, number: 42, body: candidateBody(receipt), state: "closed", mergeable_state: "blocked", merged: true, merged_at: "2026-11-06T04:00:00Z" as string | null, merge_commit_sha: e.pr.mergedSha,
     user: { login: "github-actions[bot]" }, head: { ref: e.pr.branch, sha: c.headSha, repo: { full_name: c.repository } }, base: { ref: "main", repo: { full_name: c.repository } } };
-  const run = { repository: { full_name: c.repository }, head_branch: "main", head_sha: c.baseSha, path: c.workflow, event: "schedule", conclusion: "success", run_attempt: 1, referenced_workflows: [{ path: "unbraind/pm-ops/.github/workflows/daily-release.yml@main", sha: c.toolsSha! }] };
+  const run = { created_at: "2026-11-06T03:00:00Z", repository: { full_name: c.repository }, head_branch: "main", head_sha: c.baseSha, path: c.workflow, event: "schedule", conclusion: "success", run_attempt: 1, referenced_workflows: [{ path: "unbraind/pm-ops/.github/workflows/daily-release.yml@main", sha: c.toolsSha! }] };
   const publicationRun = { ...run, head_sha: e.pr.mergedSha, referenced_workflows: [{ path: "unbraind/pm-ops/.github/workflows/daily-release.yml@refs/heads/main", sha: "8".repeat(40) }] };
   const artifact = { expired: false, workflow_run: { id: c.runId }, name: `verified-daily-release-${c.headSha}` };
   const calls: { path: string; method: string; body?: unknown }[] = [];
-  const state = { tag: null as string | null, release: false, registry: false, registryUnavailable: false, checks: ["SUCCESS"], comments: [] as { user: { login: string }; body: string }[], publishedAt: "", npmPublishedAt: "2026-11-05T12:00:00Z", main: e.mainSha, tree: c.tree, parents: [c.baseSha], pkgVersion: c.version, pkgName: c.packageName };
+  const state = { tag: null as string | null, release: false, registry: false, registryUnavailable: false, occupied: false, coordinatePublishedAt: "2026-10-12T12:00:00Z", checks: ["SUCCESS"], comments: [] as { user: { login: string }; body: string }[], publishedAt: "", npmPublishedAt: "2026-11-05T12:00:00Z", main: e.mainSha, tree: c.tree, parents: [c.baseSha], pkgVersion: c.version, pkgName: c.packageName };
   const api: ReleaseApi = async (path, method = "GET", body) => {
     calls.push({ path, method, body });
     if (method !== "GET") return {};
@@ -66,7 +66,8 @@ function remoteFixture() {
   };
   const registry = async (path: string): Promise<unknown> => {
     if (state.registryUnavailable) throw new Error("Synthetic registry outage");
-    if (path === c.packageName) return { time: { "2026.11.5": state.npmPublishedAt } };
+    if (path === c.packageName) return { time: { "2026.11.5": state.npmPublishedAt, ...(state.occupied ? { [c.version]: state.coordinatePublishedAt } : {}) } };
+    if (path === `${c.packageName}/${c.version}` && state.occupied) return { dist: { integrity: "sha512-other" } };
     if (path === `${c.packageName}/${c.version}`) return state.registry ? { dist: { integrity: c.packageIntegrity, attestations: { url: "https://registry.npmjs.org/-/fixture-proof" } } } : null;
     const payload = Buffer.from(JSON.stringify({ subject: [{ digest: { sha512: Buffer.from(c.packageIntegrity.slice(7), "base64").toString("hex") } }], predicate: { buildDefinition: { externalParameters: { workflow: { repository: "https://github.com/" + c.repository, path: c.workflow, ref: "refs/heads/main" } }, resolvedDependencies: [{ digest: { gitCommit: e.pr.mergedSha } }] }, runDetails: { metadata: { invocationId: `https://github.com/${c.repository}/actions/runs/30/attempts/1` } } } })).toString("base64");
     return { attestations: [{ predicateType: "https://slsa.dev/provenance/v1", bundle: { dsseEnvelope: { payload } } }] };
@@ -1394,4 +1395,55 @@ test("registry identity changed during publisher lookup remains unverified", asy
   };
   await assert.rejects(inspectCandidate(f.receipt, f.options, api, registry, () => ({ states: ["SUCCESS"], review: "APPROVED" })), /identity disagrees/);
   assertIntentRetained(f);
+});
+
+
+test("current-main probe retires a registry coordinate that predates preparation and keeps its audit receipt", async () => {
+  for (const attempted of [false, true]) await withAdapter(async f => {
+    f.state.occupied = true;
+    if (attempted) f.state.comments.push({ user: { login: "github-actions[bot]" }, body: "<!-- pm-ops-publication-v1\n" + JSON.stringify({ candidate: releaseDigest(JSON.stringify(f.c)) }) + "\n-->" });
+    await assert.rejects(runReleaseContinuation("verify"), /current-source identity/);
+    await assert.rejects(runReleaseContinuation("attempt"), /not admitted/);
+    await runReleaseContinuation("probe");
+    assert.match(readFileSync(join(f.root, "output"), "utf8"), /pending=false\naction=occupied/);
+    assert.equal(parseCandidateReceipt(f.pr.body), null);
+    assert.deepEqual(parseCandidateReceipt(f.pr.body, true), f.receipt);
+    assert.match(f.pr.body, /before this candidate was prepared/);
+    assert.equal(f.calls.filter(call => call.method !== "GET").length, 2, "only retirement comment and receipt update");
+    writeFileSync(join(f.root, "output"), "");
+    await runReleaseContinuation("probe");
+    assert.equal(readFileSync(join(f.root, "output"), "utf8"), "pending=false\n");
+    await runReleaseContinuation("retired-branch");
+  });
+});
+
+test("occupied-coordinate retirement refuses ambiguous history, registry errors and old deliveries", async () => {
+  for (const published of ["2026-11-06T03:00:00Z", "2026-11-06T04:00:00Z", "invalid"]) await withAdapter(async f => {
+    f.state.occupied = true; f.state.coordinatePublishedAt = published;
+    await assert.rejects(runReleaseContinuation("probe"), /identity disagrees/);
+    assertIntentRetained(f);
+  });
+  for (const history of [null, {}, { time: {} }, { time: { "2026.11.6": 123 } }]) {
+    const f = remoteFixture(); f.state.occupied = true;
+    const registry = async (path: string) => path === f.c.packageName ? history : f.registry(path);
+    await assert.rejects(inspectCandidate(f.receipt, f.options, f.api, registry, () => ({ states: ["SUCCESS"], review: "APPROVED" })), /identity disagrees/);
+    assertIntentRetained(f);
+  }
+  await withAdapter(async f => {
+    f.state.occupied = true; f.run.created_at = "invalid";
+    await assert.rejects(runReleaseContinuation("probe"), /identity disagrees/);
+    assertIntentRetained(f);
+    delete (f.run as { created_at?: string }).created_at;
+    await assert.rejects(runReleaseContinuation("probe"), /identity disagrees/);
+    assertIntentRetained(f);
+  });
+  await withAdapter(async f => {
+    f.state.occupied = true; f.state.registryUnavailable = true;
+    await assert.rejects(runReleaseContinuation("probe"), /registry outage/);
+    assertIntentRetained(f);
+    f.state.registryUnavailable = false; process.env.TRIGGER_SHA = "9".repeat(40);
+    await runReleaseContinuation("probe");
+    assert.match(readFileSync(join(f.root, "output"), "utf8"), /pending=true/);
+    assertIntentRetained(f);
+  });
 });

@@ -215,3 +215,19 @@ test("caller configuration changes retire open and merged unpublished intent but
     }
   }
 });
+
+
+test("only a proven pre-existing occupied coordinate can retire without publication", () => {
+  const c = candidateFixture(), e = evidenceFixture();
+  e.registry = "unverified"; e.registryPredatesPreparation = true;
+  for (const attempted of [false, true]) {
+    e.attempted = attempted;
+    assert.equal(decideReleaseContinuation(c, e), "occupied");
+  }
+  for (const change of [
+    { registryPredatesPreparation: false }, { tagSha: e.pr.mergedSha }, { releaseSha: e.pr.mergedSha },
+    { mergedTree: "9".repeat(40) }, { version: "2026.11.5" }, { requiredChecks: ["FAILURE"] },
+    { configDigest: "0".repeat(64) }, { artifactAvailable: false },
+  ]) assert.throws(() => decideReleaseContinuation(c, { ...e, ...change }));
+  assert.throws(() => decideReleaseContinuation({ ...c, npmPublish: false }, e), /identity disagrees/);
+});
