@@ -7,15 +7,16 @@ status: in_progress
 priority: 1
 tags[2]: ci,issue-sync
 created_at: "2026-11-16T10:42:17.543Z"
-updated_at: "2026-11-16T11:17:27.737Z"
+updated_at: "2026-11-16T11:39:10.769Z"
 deadline: "2026-11-17T00:00:00.000Z"
 author: codex-sol
 estimated_minutes: 90
 acceptance_criteria: Record the exact failed command and verify the current fix or upstream blocker without weakening tracker governance.
-comments[3]{created_at,author,text}:
+comments[4]{created_at,author,text}:
   "2026-11-16T10:49:20.653Z",codex-sol,"Run 43828148726 fails npm ci with glob 13.0.6 not satisfying 13.0.7. The original lock reproduces EUSAGE on Node 22.18.0 with bundled npm. Preserve the previous lock regeneration: glob 13.0.7 plus its resolved URL and integrity; sigstore glob 14.0.2 remains overridden. npm ci --ignore-scripts --dry-run passes on Node 22.18.0, 22.23.4 and 26.13.0. npm audit --omit=dev reports zero vulnerabilities. Package test gates must wait for the actual dependency installation to finish; early attempts without installed binaries are invalid and will be rerun."
   "2026-11-16T11:01:50.587Z",codex-sol,"Initial review receipt: the failed workflow log and current pin are documented in docs/issue-sync-2026-11-16.md. Seeded tracker validation passes through pm test --run --progress. Typecheck and lint pass. The quick package suite remains running under shared-host load; no complete passing suite is claimed.  Pinned validation exits zero but reports twelve existing completeness violations; the repaired lock passes npm ci dry-run on Node 22.18.0, 22.23.4 and 26.13.0 and production audit reports zero vulnerabilities. Publish review evidence with pending gates explicit; no scheduled success is claimed."
   "2026-11-16T11:16:56.808Z",codex-sol,"Exact-version correction: the earlier 18-planned preview used an older ambient extension and does not certify the pinned workflow. Installing pm-github 2026.11.15 locally and running the pinned CLI preview exits 1 before writes: privacy preflight reports two absolute-host-path findings in github-recovery-plan body and expected_result. No item or recovery plan was written. Keep the lockfile repair and report this separate remaining blocker; do not copy the offending content, add an allowlist or edit GitHub issues."
+  "2026-11-16T11:39:10.658Z",codex-sol,"Final bounded verification: the original lock reproduces npm ci EUSAGE on Node 22.18.0. The repaired lock passes npm ci --ignore-scripts --dry-run on Node 22.18.0, 22.23.4 and 26.13.0; production audit reports zero vulnerabilities. Typecheck, lint and changelog:check passed. The broad quick suite was stopped before completion and is excluded from passing evidence. Exact pm-github 2026.11.15 previews with both locked and current host CLIs fail closed at privacy preflight; no allowlist, source issue edit or item write was applied. Pinned validation retains twelve pre-existing completeness violations. The new item history verifies with strict exit."
 files[2]{path,scope}:
   docs/issue-sync-2026-11-16.md,project
   package-lock.json,project

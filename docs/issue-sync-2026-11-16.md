@@ -33,3 +33,7 @@ A passing plan proves completeness and identity planning, not successful writes 
 ## Validation
 
 Typecheck and lint pass. The quick package suite is still running at the initial draft. `npm audit --omit=dev` reports zero vulnerabilities. Pinned `pm validate --json` exits 0 but returns `ok: false`: twelve pre-existing completeness violations remain outside this lockfile repair. The seeded tracker command passes through `pm test --run --progress`; that exit status does not override the validation findings. Remaining gate results are recorded in the linked sync repair item. CI is not dispatched manually, and no successful scheduled rerun is claimed.
+
+## Final bounded verification receipt
+
+Final bounded verification: the original lock reproduces npm ci EUSAGE on Node 22.18.0. The repaired lock passes npm ci --ignore-scripts --dry-run on Node 22.18.0, 22.23.4 and 26.13.0; production audit reports zero vulnerabilities. Typecheck, lint and changelog:check passed. The broad quick suite was stopped before completion and is excluded from passing evidence. Exact pm-github 2026.11.15 previews with both locked and current host CLIs fail closed at privacy preflight; no allowlist, source issue edit or item write was applied. Pinned validation retains twelve pre-existing completeness violations. The new item history verifies with strict exit.
