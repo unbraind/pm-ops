@@ -1,6 +1,13 @@
 # Changelog
 
-## 2026.11.15 - 2026-11-15
+## Unreleased
+
+### Other
+
+- Split quick PR CI from exhaustive local deep gates ([ops-ci-v2](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-ci-v2.toon))
+- Release runtime discovers a non-adjacent npm CLI and pins the caller's Node for the matched CLI ([ops-3jck](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-3jck.toon))
+
+## 2026.11.15 - 2026-11-16
 
 ### Dependencies
 
