@@ -197,18 +197,22 @@ esac
     for (const fixture of fixtures) {
       const result = runBashFixture(lookup + '\nprintf "%s" "$RELEASE_REGISTRY_HAS_CURRENT_VERSION"', { encoding: "utf8", env: {
         ...process.env, PATH: `${root}:${process.env.PATH}`, RUNNER_TEMP: root, NPM_PROJECT_PATH: root,
-        IS_RUST: "false", VERSION_POLICY: "daily", REGISTRY_RESPONSE: fixture.response, REGISTRY_STATUS: String(fixture.status),
+        IS_RUST: "false", VERSION_POLICY: "daily", NPM_PUBLISH: "true", REGISTRY_RESPONSE: fixture.response, REGISTRY_STATUS: String(fixture.status),
       } }, ["-e", "-o", "pipefail"]);
       assert.equal(result.status === 0, fixture.pass, result.stdout + result.stderr);
       if (fixture.pass) assert.equal(result.stdout, fixture.expected);
       if (fixture.status !== 0 && !fixture.pass) assert.match(result.stdout, /::error::Could not read .* from npm/);
     }
     assert.match(readFileSync(join(root, "npm-calls"), "utf8"), /view fixture-package@2026.10.17 version --prefer-online --json/);
-    for (const [rust, policy] of [["true", "daily"], ["false", "package"]]) {
+    // GitHub-only callers (npm-publish: false) keep reading the package version but never query the registry,
+    // even when the registry is unreachable (REGISTRY_STATUS=1 with a non-E404 body).
+    for (const [rust, policy, publish] of [["true", "daily", "true"], ["false", "package", "true"], ["false", "daily", "false"]]) {
       writeFileSync(join(root, "npm-calls"), "");
-      const result = runBashFixture(lookup, { encoding: "utf8", env: {
+      const result = runBashFixture(lookup + '\nprintf "%s|%s" "$RELEASE_CURRENT_PACKAGE_VERSION" "$RELEASE_REGISTRY_HAS_CURRENT_VERSION"', { encoding: "utf8", env: {
         ...process.env, PATH: `${root}:${process.env.PATH}`, RUNNER_TEMP: root, NPM_PROJECT_PATH: root, IS_RUST: rust, VERSION_POLICY: policy,
+        NPM_PUBLISH: publish, REGISTRY_RESPONSE: '{"error":{"code":"E503"}}', REGISTRY_STATUS: "1",
       } }, ["-e", "-o", "pipefail"]);
+      if (publish === "false") assert.equal(result.stdout, "2026.10.17|false", "GitHub-only callers keep the pending package version");
       assert.equal(result.status, 0, result.stderr);
       assert.doesNotMatch(readFileSync(join(root, "npm-calls"), "utf8"), /view/);
     }
