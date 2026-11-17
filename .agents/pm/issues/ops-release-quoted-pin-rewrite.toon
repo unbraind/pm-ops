@@ -2,11 +2,13 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: open
+status: in_progress
 priority: 1
 tags[2]: "area:release",follow-up
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-17T21:36:53.378Z"
+updated_at: "2026-11-17T21:43:12.070Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -14,7 +16,7 @@ severity: high
 repro_steps: "Use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "The verifier accepts the shell option. The workflow leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[7]{created_at,author,text}:
+comments[9]{created_at,author,text}:
   "2026-11-17T20:49:08.758Z",codex-sol,"Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
   "2026-11-17T20:53:41.510Z",codex-sol,Red-first fixtures confirmed quoted pins passed the verifier while the prepare step left them stale and the continuation guard accepted them. The shared parser reuses the shell scanner and edits only the option source spans. The workflow exercises quoted pins across a later-day retry and the pre-publication guard.
   "2026-11-17T21:00:30.935Z",codex-sol,"Typecheck, lint, the live date verifier, and tag-backed changelog regeneration and check passed. The follow-up was recovered from its existing tracker commit with the item history intact. Full coverage and the workflow-reference test sweep are running."
@@ -22,6 +24,8 @@ comments[7]{created_at,author,text}:
   "2026-11-17T21:11:50.303Z",codex-sol,"Greptile PRRT_kwDOTOTl1M64nxQb on PR #295 maps to 1304543287232095379ddeb8dfba5fae05b3cf9a. Preparation refreshes and restores quoted date options from their shell token spans, and continuation rejects stale quoted pins against the verified merge commit day."
   "2026-11-17T21:26:38.531Z",codex-sol,The committed 27-file reference sweep passed with 1259 tests and two configured external-repository skips. The first full coverage run hit the existing five-second artifact-reader startup timeout described by ops-input-startup-timeout. The release heading fixtures and native probe passed.
   "2026-11-17T21:36:50.019Z",codex-sol,"The pinned-heading acceptance fixture ran the full npm release:check successfully, including npm run coverage at 100% statements, branches, functions and lines across 52 source files. It executed 1715 passing tests with two configured external-repository skips. Typecheck, lint, the live date verifier and tag-backed changelog regeneration and check passed. The isolated artifact-reader retry passed all six tests. The standing-policy full coverage retry is running independently."
+  "2026-11-17T21:41:39.887Z",codex-sol,"Greptile follow-up PRRT_kwDOTOTl1M64qrmO on the pushed head identified a regression for version-qualified pm-changelog package specifiers. Cover the verifier, preparation refresh and restore, and continuation check for that existing hook form."
+  "2026-11-17T21:43:12.064Z",codex-sol,"The three version-qualified regressions failed on the first pushed head and passed after adding package specifiers to generator recognition. The fixtures cover an npx version, npm exec version, and a Bun package tag, along with refresh, restore and a stale-pin refusal."
 files[12]{path,scope}:
   .github/workflows/daily-release.yml,project
   release-changelog-options.ts,project
@@ -35,7 +39,7 @@ files[12]{path,scope}:
   test/release-heading-full-gate.acceptance.ts,project
   test/release-runtime.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[11]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[12]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -47,6 +51,7 @@ tests[11]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/release-runtime.test.ts,project,codex-sol,"2026-11-17T21:09:08.446Z",local_mutation,fix/resumed-release-heading-date
   node --test --test-concurrency=1 test/regular-input.test.ts,project,codex-sol,"2026-11-17T21:36:48.504Z",local_mutation,fix/resumed-release-heading-date
   npm run docstring,project,codex-sol,"2026-11-17T21:36:48.504Z",local_mutation,fix/resumed-release-heading-date
+  node --test --test-name-pattern='version-qualified generator|date policy belongs to the command' test/verify-release-changelog-date.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T21:43:09.688Z",local_mutation,fix/resumed-release-heading-date
 docs[1]{path,scope}:
   docs/reusable-release.md,project
 body: ""

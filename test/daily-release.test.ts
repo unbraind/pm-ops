@@ -246,3 +246,9 @@ test("continuation detects stale dates immediately followed by shell separators"
     assert.throws(() => assertReleaseHeadingDate(["pm-changelog --date-fallback 2026-10-23" + suffix], "2026-10-24"), /2026-10-23.*2026-10-24.*re-prepare/);
   }
 });
+
+test("continuation rejects a stale pin on a version-qualified generator", () => {
+  const script = 'npx --yes pm-changelog@2026.11.6 --release-version-from-package "--date-fallback"=2026-11-16';
+  assertReleaseHeadingDate([script], "2026-11-16");
+  assert.throws(() => assertReleaseHeadingDate([script], "2026-11-17"), /2026-11-16.*2026-11-17.*re-prepare/);
+});

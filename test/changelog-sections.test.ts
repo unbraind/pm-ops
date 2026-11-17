@@ -370,3 +370,12 @@ test("date rewrites preserve redirections, substitutions and shell text surround
   assert.throws(() => rewriteReleaseHeadingDate(`eval 'pm-changelog "--date-fallback"=2026-10-23'`, "2026-10-24"),
     /needs an editable shell word/);
 });
+
+test("preparation refreshes and restores the date policy of a version-qualified generator", () => {
+  const command = "npx --yes pm-changelog@2026.11.6 --release-version-from-package";
+  assert.equal(rewriteReleaseHeadingDate(`${command} "--date-from-version"`, "2026-11-17"),
+    `${command} --date-fallback 2026-11-17`);
+  const pinned = `${command} '--date-fallback'="2026-11-16"`;
+  assert.equal(rewriteReleaseHeadingDate(pinned, "2026-11-17"), `${command} --date-fallback 2026-11-17`);
+  assert.equal(rewriteReleaseHeadingDate(pinned, ""), `${command} --date-from-version`);
+});

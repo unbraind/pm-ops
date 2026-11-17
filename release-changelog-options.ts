@@ -12,7 +12,8 @@ export const DATE_FLAG = "--date-from-version";
 export const FALLBACK_DATE_FLAG = "--date-fallback";
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
-const GENERATOR_PATH = /(?:^|\/)(?:pm-changelog(?:\.ts)?|dist\/cli\.js)$/;
+/** Match executables and registry package specifiers left by package runner prefixes. */
+const GENERATOR_TARGET = /^pm-changelog@[^/]+$|(?:^|\/)(?:pm-changelog(?:\.ts)?|dist\/cli\.js)$/;
 const GENERATOR_LAUNCHERS = new Set(["node", "npx", "bun", "bunx"]);
 
 /** Whether a YYYY-MM-DD string names an existing day, including years 0–99. */
@@ -29,8 +30,8 @@ export function changelogArguments(words: ShellCommand): ShellToken[] | undefine
   if (invocation === undefined) return undefined;
   const [program, ...parameters] = invocation;
   const isLauncher = GENERATOR_LAUNCHERS.has(basename(program.value));
-  const generatorAt = isLauncher ? parameters.findIndex(({ value }) => GENERATOR_PATH.test(value)) : -1;
-  if (!GENERATOR_PATH.test(program.value) && generatorAt < 0) return undefined;
+  const generatorAt = isLauncher ? parameters.findIndex(({ value }) => GENERATOR_TARGET.test(value)) : -1;
+  if (!GENERATOR_TARGET.test(program.value) && generatorAt < 0) return undefined;
   return parameters.slice(generatorAt + 1);
 }
 
