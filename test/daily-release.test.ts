@@ -1,6 +1,7 @@
 /** Behavioral regressions for the decisions executed by the shared workflow. */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { assertReleaseHeadingDate } from "../release-continuation.ts";
 import { decideDailyRelease, ownsReleasePullRequest, selectReleasePullRequests, latestReleaseTag, stampCargoVersion, releaseVersion, stampExtensionVersion, verifyPublishedProvenance, type DailyReleaseInput, type ReleasePullRequest } from "../daily-release.ts";
 
 /** Make a GitHub-shaped owned PR, overriding individual security facts per case. */
@@ -223,4 +224,15 @@ test("Cargo stamping preserves dependency and metadata versions and refuses inhe
   assert.equal(stampCargoVersion("[package]\nversion = 'old'\n", "2026.10.19"), '[package]\nversion = "2026.10.19"\n');
   assert.throws(() => stampCargoVersion('[workspace]\nversion = "x"\n', "x"), /no package table/);
   assert.throws(() => stampCargoVersion('[package]\nversion.workspace = true\n[dependencies]\nversion = "wrong table"\n', "x"), /no literal version/);
+});
+
+
+test("continuation refuses a pinned heading when the tag day follows preparation", () => {
+  assertReleaseHeadingDate(["pm-changelog --date-from-version"], "2026-10-25");
+  for (const quote of ["", '"', "'"]) for (const separator of [" ", "="]) {
+    const script = `pm-changelog --date-fallback${separator}${quote}2026-10-24${quote}`;
+    assertReleaseHeadingDate([script], "2026-10-24");
+    assert.throws(() => assertReleaseHeadingDate(["pm-changelog --date-from-version", script], "2026-10-25"), /2026-10-24.*2026-10-25.*Refusing to tag; re-prepare/);
+    assert.throws(() => assertReleaseHeadingDate([script + " && pm-changelog --date-fallback 2026-10-23"], "2026-10-24"), /re-prepare/);
+  }
 });

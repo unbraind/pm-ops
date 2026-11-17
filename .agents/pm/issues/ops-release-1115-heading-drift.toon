@@ -7,10 +7,10 @@ status: in_progress
 priority: 2
 tags[2]: "area:release","gh:unbraind/pm-ops#292"
 created_at: "2026-11-16T19:17:51.165Z"
-updated_at: "2026-11-17T09:52:04.991Z"
+updated_at: "2026-11-17T12:22:06.471Z"
 author: codex-sol
 acceptance_criteria: "Resolve the existing tagged release-heading date policy mismatch; npm run changelog:check and release date checks agree before and after rollover without changing historical tags."
-comments[19]{created_at,author,text}:
+comments[22]{created_at,author,text}:
   "2026-11-16T19:18:50.836Z",codex-sol,"Verified npm run changelog:check fails on untouched origin/main c29fe88 as well as the fix branch. Tag v2026.11.15 targets c29fe88 with commit time 2026-11-16T17:43:01Z. Regeneration changes only the first heading date from 2026-11-15 to 2026-11-16. No historical tags or changelog content were changed for #290."
   "2026-11-16T19:24:41.440Z","harness:claude-code","2026-11-16 20:0xZ (orchestrator): root cause filed as unbraind/pm-ops#292. v2026.11.15 was prepared and tagged on 11-16, prepare rendered the heading from the version (2026-11-15), and after tagging pm-changelog uses the real tag date (2026-11-16, by design per pm-changelog#120). Regenerated CHANGELOG.md in PR #291 so 'npm run changelog:check' passes on this branch (exit 0); main stays red until #291 or another regeneration merges."
   "2026-11-16T22:58:09.756Z",pi-ops-292,"Root cause (issue #292): prepare renders the pending version's heading with --date-from-version, so a resumed candidate (version day before today) is stamped with its version day. The release step then tags it today; pm-changelog by design derives a tagged window's heading from the tag commit date (pm-changelog#120), so post-tag regeneration on unchanged main renders a different day and changelog:check is red on main. The release PR's own CI passes (candidate still untagged), so the failure only appears after the merge.\n\nDesign: use the generator's existing --date-fallback flag (applies only while no release tag exists; ignored once the tag exists, so it matches post-tag invocations byte-for-byte). decideDailyRelease now outputs heading_date: today in RELEASE_TIMEZONE, padded ISO, when the version's calendar day is before today; empty for a same-day release, which is therefore unchanged. The 'Generate changelog and release notes' step, in the same in-place package.json policy rewrite that already appends --include-empty, swaps --date-from-version for --date-fallback <heading_date> in the three changelog scripts when resumed, refreshes a stale pin when a candidate is re-prepared on a later day, and restores --date-from-version when the pending version is current again. The release commit carries the pinned spelling, so the release PR's CI (untagged candidate), prepare's nested release:check and post-tag checks on main all regenerate the same bytes with no follow-up regeneration. The date verifier accepts a pinned --date-fallback day (explicit ISO day only) as an equally clock-free alternative to --date-from-version. Rust/justfile releases (CHANGELOG_DATE derived from the tag name) keep their own spelling and are not touched."
@@ -30,17 +30,32 @@ comments[19]{created_at,author,text}:
   "2026-11-17T09:39:09.112Z",codex-sol,"First full coverage suite: 1702 pass, 1 failure, 2 skip. The sole failure is the existing regular-input subprocess startup timeout, tracked separately as ops-input-startup-timeout; every AQ and reference test passed. The same timeout test passed in the rewritten-script acceptance run. Retrying direct coverage with reduced contention after that run finishes."
   "2026-11-17T09:41:13.613Z",codex-sol,"The standalone rewritten release-heading acceptance passed its entire real release:check, including coverage at 100% statements, branches, functions and lines across all 50 required sources (1703 passed, 0 failed, 2 platform skips), audit, pack and release verifiers. Direct isolated regular-input retry passed 6/6. Direct full coverage retry remains running; thresholds and full test depth are unchanged."
   "2026-11-17T09:52:02.915Z",codex-sol,"AQ final verification: all four findings fixed. Focused node --test test/changelog-sections.test.ts test/verify-release-changelog-date.test.ts test/daily-release.test.ts passed 56/56; the 4 selected new regressions passed; direct full-depth npm run coverage retry passed 1703 tests with 0 failures and 2 opt-in real-data skips, 100% in all four dimensions across 50 required sources, unchanged thresholds. The earlier platform-skip wording was incorrect: both skips are the existing configured-repository real-data checks. Typecheck, lint, duplication (0%), changelog:check and standalone rewritten release-heading release:check passed. The grep-selected reference test files all ran in coverage plus the standalone acceptance file. Initial coverage hit the unchanged watchdog in ops-input-startup-timeout; isolated retry passed 6/6. Tracker histories retain exact prefixes and protected timestamps are unchanged. Releasing the claim before final tag fetch and changelog generation; keep this item in progress for orchestrator verification."
-files[9]{path,scope}:
+  "2026-11-17T11:55:01.071Z",codex-sol,"Round AU: verified all four review threads against the current code and confirmed PR #295 remains open. Branch contains current main, so no merge commit is needed. Quoted fallback pins now refresh and restore in every hook rewrite, covering both quotes and space/equals spellings. Continuation checks the prepared heading against the current day in RELEASE_TIMEZONE before publication and again immediately before tagging. A mismatch fails with a re-prepare instruction because mutating the already protected commit and verified artifact would break the existing immutable handoff design. The decision step rejects a resumed plan with missing or empty heading_date even when installed dist is stale. Rebuilt tracked daily-release and release-continuation outputs, including declarations and maps. Five targeted behavior regressions pass; final full coverage and reference suites are running. Initial lint and test-cleanup duplication findings were corrected; thresholds remain unchanged."
+  "2026-11-17T12:14:38.764Z",codex-sol,"AU verification update: the final five-file focused command passed 182/182 tests with zero skips or failures; the six selected behavior and attestation regressions also passed. Typecheck, lint, docstring (50 sources, 378 declarations), duplication (0 clones, 0%), release-date verification and changelog:check passed. Packed npm and native Bun acceptance both passed 192 SDK/caller/attestation cases, 12 CLI JSON/TOON checks, 64 handoff cases and 256 tamper refusals. The rewritten release-heading acceptance passed its complete release:check, including coverage: 1707 passed, 0 failed, 2 existing opt-in real-data skips, with 100% statements, branches, functions and lines across all 50 required sources. The direct coverage run measured the same 100% but failed the unchanged five-second regular-input child startup watchdog already tracked by ops-input-startup-timeout; isolated retry passed 6/6. A direct full coverage retry is now running without the other test runs. The inline quoted-date regex uses equivalent hexadecimal quote escapes because literal quotes confuse the existing attestation shell audit; its gate remains unchanged and passes."
+  "2026-11-17T12:22:05.805Z",codex-sol,"Round AU final verification: direct npm run coverage retry passed with 1707 tests passed, 0 failed and 2 existing opt-in configured-repository skips. All 50 required sources measure 100% statements, branches, functions and lines; thresholds and test depth are unchanged. The first direct attempt failed only the existing regular-input startup watchdog; the isolated 6-test retry, complete rewritten release:check and final direct full coverage all passed. The focused five-file command passed 182/182; all other test files referencing the changed sources or workflow ran in full coverage, and both referenced standalone acceptance files passed. npm run build regenerated all changed tracked dist files; the compiled daily-release decision independently returns the resumed heading_date. Typecheck, lint, docstring, duplication (0%), release-date verification and changelog:check passed. Both quoted spellings refresh and restore across every hook; continuation refuses a stale pinned day using RELEASE_TIMEZONE and requires fresh protected preparation because its commit and verified artifact are immutable. PR #295 and its four review threads were only read. Releasing this claim with the item still in progress; all tracker writes end before the final tag fetch and changelog generation."
+files[21]{path,scope}:
   .github/workflows/daily-release.yml,project
   CHANGELOG.md,project
   daily-release.ts,project
+  dist/daily-release.d.ts,project
+  dist/daily-release.d.ts.map,project
+  dist/daily-release.js,project
+  dist/daily-release.js.map,project
+  dist/release-continuation.d.ts,project
+  dist/release-continuation.d.ts.map,project
+  dist/release-continuation.js,project
+  dist/release-continuation.js.map,project
+  release-continuation.ts,project
   scripts/pm-changelog.ts,project
+  scripts/release-continuation.ts,project
   scripts/verify-release-changelog-date.ts,project
   test/changelog-sections.test.ts,project
+  test/daily-release-workflow.test.ts,project
   test/daily-release.test.ts,project
+  test/release-continuation-adapter.test.ts,project
   test/release-heading-full-gate.acceptance.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[13]:
+tests[16]:
   - command: npm run typecheck
     scope: project
     provenance:
@@ -136,6 +151,27 @@ tests[13]:
     provenance:
       author: codex-sol
       created_at: "2026-11-17T09:18:39.046Z"
+      source_kind: local_mutation
+      source_ref: fix/resumed-release-heading-date
+  - command: node --test --test-name-pattern='continuation refuses|decision fails closed|continuation checks|heading-date continuation|preparation rewrites every' test/daily-release.test.ts test/changelog-sections.test.ts test/daily-release-workflow.test.ts test/release-continuation-adapter.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-17T11:55:06.348Z"
+      source_kind: local_mutation
+      source_ref: fix/resumed-release-heading-date
+  - command: node --test test/daily-release.test.ts test/verify-release-changelog-date.test.ts test/changelog-sections.test.ts test/daily-release-workflow.test.ts test/release-continuation-adapter.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-17T11:55:08.973Z"
+      source_kind: local_mutation
+      source_ref: fix/resumed-release-heading-date
+  - command: node test/continuation-selection.acceptance.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-17T11:55:11.730Z"
       source_kind: local_mutation
       source_ref: fix/resumed-release-heading-date
 docs[1]{path,scope}:

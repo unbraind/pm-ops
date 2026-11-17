@@ -1452,3 +1452,37 @@ test("occupied-coordinate retirement refuses ambiguous history, registry errors 
     assertIntentRetained(f);
   });
 });
+
+
+test("heading-date continuation uses RELEASE_TIMEZONE and refuses stale or missing hooks", async t => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-06T23:30:00Z") });
+  const root = mkdtempSync(join(tmpdir(), "continuation-heading-"));
+  const env = { NPM_PROJECT_PATH: root, RELEASE_TIMEZONE: "Europe/Vienna", CHANGELOG_SCRIPT: "generate", CHANGELOG_CHECK_SCRIPT: "check", NOTES_SCRIPT: "notes" };
+  const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
+  Object.assign(process.env, env);
+  try {
+    const script = 'pm-changelog --date-fallback "2026-11-07"';
+    const write = (scripts: unknown) => writeFileSync(join(root, "package.json"), JSON.stringify({ scripts }));
+    write({ generate: script, check: script, notes: script });
+    await runReleaseContinuation("heading-date");
+    process.env.RELEASE_TIMEZONE = "UTC";
+    await assert.rejects(runReleaseContinuation("heading-date"), /2026-11-07.*2026-11-06.*re-prepare/);
+    process.env.RELEASE_TIMEZONE = "Europe/Vienna";
+    write({ generate: script, check: script, notes: "pm-changelog --date-fallback '2026-11-06'" });
+    await assert.rejects(runReleaseContinuation("heading-date"), /2026-11-06.*2026-11-07.*re-prepare/);
+    for (const bad of [undefined, null, 1, "", " "]) {
+      write({ generate: script, check: script, notes: bad });
+      await assert.rejects(runReleaseContinuation("heading-date"), /Missing changelog hook: notes/);
+    }
+    write(undefined);
+    await assert.rejects(runReleaseContinuation("heading-date"), /Missing changelog hook: generate/);
+  } finally {
+    Object.keys(env).forEach(key => {
+      const saved = previous[key];
+      if (saved !== undefined) process.env[key] = saved;
+      else delete process.env[key];
+    });
+    rmSync(root, { recursive: true, force: true });
+    t.mock.timers.reset();
+  }
+});

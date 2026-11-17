@@ -514,6 +514,11 @@ jobs:
             releaseTags: readFileSync(process.argv[3], 'utf8').split('\n').filter(Boolean),
             lastRelease: e.RELEASE_LAST_TAG ? { tag: e.RELEASE_LAST_TAG, sha: e.RELEASE_LAST_SHA } : null,
           });
+          // A stale installed dist must never silently omit the resumed date.
+          const isoDay = value => value.replace(/^v/, '').split('-')[0].split('.').map((part, i) => part.padStart(i === 0 ? 4 : 2, '0')).join('-');
+          if (plan.should_release && isoDay(plan.npm_version) < isoDay(e.RELEASE_TODAY) && !plan.heading_date) {
+            throw new Error('Resumed release decision returned no heading_date; rebuild or upgrade the release tools before preparing.');
+          }
           for (const [key, value] of Object.entries(plan)) console.log(key + '=' + value);
           NODE
       - name: Generate recovery notes
@@ -614,7 +619,7 @@ jobs:
           const headingDate = (process.env.RELEASE_HEADING_DATE || '').trim();
           if (headingDate && !/^\d{4}-\d{2}-\d{2}$/.test(headingDate)) throw new Error('Release heading date must be YYYY-MM-DD, received ' + JSON.stringify(headingDate));
           const versionDateFlag = '--date-from-version';
-          const pinnedDateFlag = /--date-fallback(?:=|\s+)\d{4}-\d{2}-\d{2}(?=\s|$)/g;
+          const pinnedDateFlag = /--date-fallback(?:=|\s+)([\x22\x27]?)(\d{4}-\d{2}-\d{2})\1(?=\s|$)/g;
           for (const name of new Set([process.env.CHANGELOG_SCRIPT, process.env.CHANGELOG_CHECK_SCRIPT, process.env.NOTES_SCRIPT])) {
             let script = pkg.scripts?.[name];
             if (typeof script !== 'string' || !script.trim()) throw new Error('Missing changelog hook: ' + name);
@@ -1178,6 +1183,10 @@ jobs:
             [[ -z "$script" || "$script" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$ ]] || { echo '::error::Hooks must be npm script names.'; exit 1; }
           done
           printf 'NPM_PROJECT_PATH=%s\n' "$project" >> "$GITHUB_ENV"
+      - name: Check prepared heading day before publication
+        if: steps.continue.outputs.action == 'publish' && !inputs.rust
+        shell: bash
+        run: node "$CONTINUATION_SCRIPT" heading-date
       - name: Verify npm will accept this workflow's OIDC identity
         if: steps.continue.outputs.action == 'publish' && inputs.npm-publish
         shell: bash
@@ -1368,6 +1377,8 @@ jobs:
             echo "::notice::${release_tag} is already on origin at the verified commit; nothing to push."
             exit 0
           fi
+          # Recheck after publication too: it may have crossed midnight.
+          if [[ "$IS_RUST" != true ]]; then node "$CONTINUATION_SCRIPT" heading-date; fi
           if git rev-parse --verify --quiet "refs/tags/${release_tag}" > /dev/null; then
             existing_sha="$(git rev-list -n 1 "$release_tag")"
             current_sha="$(git rev-parse HEAD)"

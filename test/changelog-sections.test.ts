@@ -309,6 +309,10 @@ test("preparation rewrites every date policy without consuming a following flag"
     ["--date-from-version", "2026-10-24", "--date-fallback 2026-10-24"],
     ["--date-fallback 2026-10-22", "2026-10-24", "--date-fallback 2026-10-24"],
     ["--date-fallback=2026-10-22", "", "--date-from-version"],
+    ...['"', "'"].flatMap(quote => [" ", "="].flatMap(separator => [
+      [`--date-fallback${separator}${quote}2026-10-22${quote}`, "2026-10-24", "--date-fallback 2026-10-24"],
+      [`--date-fallback${separator}${quote}2026-10-22${quote}`, "", "--date-from-version"],
+    ])),
   ]) {
     const root = mkdtempSync(join(tmpdir(), "hook-policy-"));
     try {

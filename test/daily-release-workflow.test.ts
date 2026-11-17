@@ -922,3 +922,55 @@ test("publication provenance expectation comes from the executing job independen
     assert.doesNotMatch(JSON.stringify(job.env), /job\.workflow_ref|signer_workflow/);
   }
 });
+
+
+test("decision fails closed when installed release tools omit a resumed heading_date", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-heading-decision-"));
+  try {
+    const module = join(root, "decision.cjs"), output = join(root, "output");
+    writeFileSync(join(root, "prs.json"), "[]");
+    writeFileSync(join(root, "tags"), "");
+    const plan = step("Decide release").run;
+    const decision = plan.slice(plan.indexOf('node --input-type=module - "$release_prs_file"'));
+    for (const [version, heading, release, pass] of [
+      ["2026.10.24", undefined, true, false], ["2026.10.24", "", true, false],
+      ["2026.10.24", "2026-10-25", true, true], ["2026.10.25", undefined, true, true],
+      ["2026.10.24", undefined, false, true],
+    ] as const) {
+      writeFileSync(module, "exports.decideDailyRelease = () => (" + JSON.stringify({ npm_version: version, heading_date: heading, should_release: release }) + ");");
+      writeFileSync(output, "");
+      const result = runBashFixture('release_prs_file="$PR_FILE"\ntags_file="$TAG_FILE"\n' + decision, { cwd: root, encoding: "utf8", env: {
+        ...process.env, PM_OPS_MODULE: module, PR_FILE: join(root, "prs.json"), TAG_FILE: join(root, "tags"), GITHUB_OUTPUT: output, RELEASE_TODAY: "2026.10.25",
+      } });
+      assert.equal(result.status === 0, pass, result.stdout + result.stderr);
+      if (!pass) {
+        assert.match(result.stderr, /Resumed release decision returned no heading_date/);
+        assert.equal(readFileSync(output, "utf8"), "", "no partial decision may escape");
+      }
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("continuation checks the prepared day before publication and again before creating or pushing a tag", () => {
+  const steps = workflow.jobs.release.steps;
+  assert.ok(steps.indexOf(step("Check prepared heading day before publication")) < steps.indexOf(step("Publish npm package")));
+  assert.match(step("Check prepared heading day before publication").if!, /!inputs.rust/);
+  assert.equal(step("Check prepared heading day before publication").run, 'node "$CONTINUATION_SCRIPT" heading-date');
+  const tag = step("Push release tag").run;
+  assert.ok(tag.indexOf('node "$CONTINUATION_SCRIPT" heading-date') < tag.indexOf('git tag "$release_tag"'));
+  assert.ok(tag.indexOf('node "$CONTINUATION_SCRIPT" heading-date') < tag.indexOf('git push origin'));
+  const root = mkdtempSync(join(tmpdir(), "release-heading-tag-"));
+  try {
+    writeFileSync(join(root, "git"), '#!/bin/sh\nprintf "%s\n" "$*" >> "$GIT_CALLS"\ncase "$1" in rev-parse) printf "verified-main\n" ;; esac\n');
+    chmodSync(join(root, "git"), 0o755);
+    writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { changelog: 'pm-changelog --date-fallback "2000-01-01"' } }));
+    const result = runBashFixture(tag, { cwd: root, encoding: "utf8", env: {
+      ...process.env, PATH: `${root}:${process.env.PATH}`, GIT_CALLS: join(root, "git-calls"), IS_RUST: "false", RELEASE_TAG: "v2000.01.01",
+      CONTINUATION_SCRIPT: fileURLToPath(new URL("../scripts/release-continuation.ts", import.meta.url)), NPM_PROJECT_PATH: root,
+      CHANGELOG_SCRIPT: "changelog", CHANGELOG_CHECK_SCRIPT: "changelog", NOTES_SCRIPT: "changelog", RELEASE_TIMEZONE: "Europe/Vienna",
+    } });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Refusing to tag; re-prepare/);
+    assert.doesNotMatch(readFileSync(join(root, "git-calls"), "utf8"), /^(tag|push) /m);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

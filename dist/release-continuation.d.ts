@@ -82,6 +82,8 @@ export declare function ownsContinuationPr(pr: ContinuationPr, repository: strin
 export declare function validateReleaseCandidate(candidate: ReleaseCandidate): void;
 /** Bind downloaded handoff bytes before any publication, recovery, hook or completion effect. */
 export declare function verifyReleaseHandoff(candidate: ReleaseCandidate, manifest: string, notes: Uint8Array, packageBytes: Uint8Array): void;
+/** Refuse tagging a prepared pin on another day; changing reviewed artifacts requires fresh preparation. */
+export declare function assertReleaseHeadingDate(scripts: readonly string[], today: string): void;
 /** Identity evidence shared by publication and explicit non-publishing retirement. */
 export type RetirementEvidence = Pick<ContinuationEvidence, "repository" | "defaultBranch" | "workflow" | "pr" | "registry" | "attempted" | "tagSha" | "releaseSha">;
 /** Cancel owned unpublished intent even when its obsolete preparation evidence is unavailable. */

@@ -7,7 +7,7 @@ import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "./
 import { originalPublicationSigner, verifyRegistryProvenance, type ProvenanceIdentity, type verifySigstoreBundle } from "../release-provenance.ts";
 import { pathToFileURL } from "node:url";
 import {
-  cargoPackageVersion, decideReleaseContinuation, decideUnpublishedRetirement, ownsContinuationPr, releaseConfigDigest, releaseDigest, validateReleaseCandidate, verifyReleaseHandoff,
+  assertReleaseHeadingDate, cargoPackageVersion, decideReleaseContinuation, decideUnpublishedRetirement, ownsContinuationPr, releaseConfigDigest, releaseDigest, validateReleaseCandidate, verifyReleaseHandoff,
   type ContinuationEvidence, type ContinuationPr, type ReleaseCandidate,
 } from "../release-continuation.ts";
 
@@ -423,6 +423,16 @@ async function reconcilePostHook(receipt: CandidateReceipt, pr: RestPr, reposito
 
 /** Invoke one bounded workflow transition; every schedule starts with discovery, never preparation. */
 export async function runReleaseContinuation(mode: string | undefined, verifyProvenance?: typeof verifySigstoreBundle): Promise<void> {
+  if (mode === "heading-date") {
+    const pkg = JSON.parse(readFileSync(join(required("NPM_PROJECT_PATH"), "package.json"), "utf8")) as { scripts: Record<string, string> };
+    const scripts = ["CHANGELOG_SCRIPT", "CHANGELOG_CHECK_SCRIPT", "NOTES_SCRIPT"].map(key => {
+      const name = required(key), script = pkg.scripts?.[name];
+      if (typeof script !== "string" || !script.trim()) throw new Error("Missing changelog hook: " + name);
+      return script;
+    });
+    assertReleaseHeadingDate(scripts, day(new Date().toISOString(), required("RELEASE_TIMEZONE")));
+    return;
+  }
   if (mode === "tools") {
     const prefix = mkdtempSync(join(required("RUNNER_TEMP"), "pm-ops-tools-"));
     const module = installReleaseTools(process.env.RELEASE_TOOLS_ROOT || workflowToolsRoot, prefix, required("PM_OPS_VERSION"));

@@ -52,6 +52,7 @@ export declare function decideDailyRelease(input: DailyReleaseInput): {
     action: string;
     tag: string;
     npm_version: string;
+    heading_date: string;
     base_sha: string;
     release_branch: string;
     pr_number: number;
