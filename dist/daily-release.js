@@ -27,6 +27,7 @@ export function decideDailyRelease(input) {
     const existingPr = candidates[0];
     const current = input.currentPackageVersion;
     const pending = current && /^\d{4}\.\d{1,2}\.\d{1,2}(-\d+)?$/.test(current)
+        && !input.registryHasCurrentVersion
         && !input.releaseTags.some(tag => releaseCoordinate(tag) === releaseCoordinate(current)) ? current : undefined;
     const version = input.packageVersion ?? pending ?? releaseVersion(input.today);
     const tag = npmVersionToTag(version);

@@ -60,6 +60,8 @@ export interface ContinuationEvidence {
   tagSha: string | null;
   releaseSha: string | null;
   registry: "absent" | "verified" | "unverified";
+  /** Registry publication predates the trusted preparation run, so this candidate cannot own it. */
+  registryPredatesPreparation?: boolean;
   attempted: boolean;
   publishedToday: boolean;
   /** Explicit operator-only recovery; never grants publication permission. */
@@ -133,7 +135,7 @@ export function decideUnpublishedRetirement(c: ReleaseCandidate, e: RetirementEv
 }
 
 /** Plan from authoritative metadata; verifyReleaseHandoff binds bytes before executing the plan. */
-export function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEvidence): "pending" | "refresh" | "publish" | "recover" | "complete" | "stranded" | "retire" {
+export function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEvidence): "pending" | "refresh" | "publish" | "recover" | "complete" | "stranded" | "retire" | "occupied" {
   assertContinuationIdentity(c, e);
   if (e.retireUnpublished === true) return decideUnpublishedRetirement(c, e);
   if (e.run.repository !== c.repository || e.run.branch !== c.defaultBranch || e.run.sha !== c.baseSha || e.run.workflow !== c.workflow
@@ -148,6 +150,8 @@ export function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEv
   const changedSource = e.mergedTree !== c.tree || e.mergedParents.length !== 1 || e.mergedParents[0] !== c.baseSha || e.version !== c.version;
   if (e.requiredChecks.length === 0 || e.requiredChecks.some(state => state !== "SUCCESS")
     || !["APPROVED", ""].includes(e.reviewDecision)) throw new Error("Required protection proof is missing or not green; use reconcile-only with retire-unpublished for verified untouched intent");
+  if (c.npmPublish && !changedSource && e.registry === "unverified" && e.registryPredatesPreparation === true
+    && e.tagSha === null && e.releaseSha === null) return "occupied";
   if ((e.tagSha !== null && e.tagSha !== e.pr.mergedSha) || (e.releaseSha !== null && (e.releaseSha !== e.pr.mergedSha || e.tagSha === null))
     || e.registry === "unverified") throw new Error("Live publication identity disagrees");
   if (changedSource) {

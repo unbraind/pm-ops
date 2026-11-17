@@ -241,7 +241,7 @@ verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mai
     return { action, pr, mainSha: main.object.sha, toolsSha: c.toolsSha ?? c.baseSha, signerWorkflow: "" };
   }
   const run = await api(`${repo}/actions/runs/${c.runId}/attempts/${c.runAttempt}`) as {
-    repository: { full_name: string }; head_branch: string; head_sha: string; path: string; event: string; run_attempt: number; referenced_workflows?: { path: string; sha: string }[];
+    repository: { full_name: string }; head_branch: string; head_sha: string; path: string; event: string; run_attempt: number; created_at?: string; referenced_workflows?: { path: string; sha: string }[];
   } | null;
   if (!run) throw new Error("Untrusted or expired preparation artifact: preparation run is unavailable");
   const referenced = run.referenced_workflows?.filter(item => item.path.startsWith("unbraind/pm-ops/.github/workflows/daily-release.yml@")) ?? [];
@@ -274,6 +274,14 @@ verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mai
     registry = published.state;
     signerWorkflow = published.signerWorkflow ?? signerWorkflow;
   } else registry = tagSha ? "verified" : "absent";
+  let registryPredatesPreparation = false;
+  if (pr.merged && !configChanged && c.npmPublish && registry === "unverified") {
+    const history = await readRegistry(encodeURIComponent(c.packageName)) as { time?: Record<string, string> } | null;
+    const published = history?.time?.[c.version];
+    // Missing or invalid timestamps never authorize retirement of ambiguous publication.
+    registryPredatesPreparation = typeof published === "string" && typeof run.created_at === "string"
+      && Date.parse(published) < Date.parse(run.created_at);
+  }
   const comments = pr.merged || configChanged ? await pages<{ user: { login: string }; body: string }>(api, `${repo}/issues/${pr.number}/comments`) : [];
   const attempts = comments.filter(comment => comment.user.login === "github-actions[bot]" && comment.body.startsWith(attemptMarker))
     .map(comment => JSON.parse(comment.body.slice(attemptMarker.length, -4)) as { candidate: string });
@@ -294,7 +302,7 @@ verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mai
     run: { repository: run.repository.full_name, branch: run.head_branch, sha: run.head_sha, workflow: normalizeWorkflowPath(run.path, options.repository, metadata.default_branch, c.baseSha), event: run.event, conclusion: prepared, attempt: run.run_attempt },
     artifactAvailable: artifact?.expired === false && artifact.workflow_run?.id === c.runId && artifact.name === `verified-daily-release-${c.headSha}`,
     mergedTree: merged?.tree.sha ?? "", mergedParents: merged?.parents.map(parent => parent.sha) ?? [], requiredChecks: protection.states, reviewDecision: protection.review,
-    version, tagSha, releaseSha: release ? tagSha : null, registry, attempted, publishedToday,
+    version, tagSha, releaseSha: release ? tagSha : null, registry, registryPredatesPreparation, attempted, publishedToday,
   });
   return { action, pr, mainSha: main.object.sha, toolsSha, signerWorkflow };
 }
@@ -507,10 +515,13 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
   const result = await inspectCandidate(receipt, options, githubApi, registryJson, requiredProtection, verifyProvenance);
   if (result.action === "pending" || result.action === "refresh") process.stdout.write(`Release PR #${result.pr.number}: ${await releaseWaitReason(result.pr.number, receipt.candidate.headSha, repository)}\n`);
   let retired = false;
-  if ((result.action === "stranded" || result.action === "retire") && mode === "probe") {
+  if ((result.action === "stranded" || result.action === "retire" || result.action === "occupied") && mode === "probe") {
     if (options.triggerSha === result.mainSha) {
       if (result.pr.state === "open" && !result.pr.merged) execFileSync("gh", ["pr", "merge", String(result.pr.number), "--repo", repository, "--disable-auto"], { stdio: "inherit" });
-      await retireReceipt(result.pr, repository, unpublishedRetirementReason(receipt.candidate, result.action === "retire"), githubApi);
+      const reason = result.action === "occupied"
+        ? `Retired release ${receipt.candidate.tag}: npm already held ${receipt.candidate.packageName}@${receipt.candidate.version} before this candidate was prepared, without matching provenance. Fresh daily preparation is required; npm and tags were left untouched.`
+        : unpublishedRetirementReason(receipt.candidate, result.action === "retire");
+      await retireReceipt(result.pr, repository, reason, githubApi);
       if (result.pr.state === "open") {
         await githubApi(`repos/${repository}/pulls/${result.pr.number}`, "PATCH", { state: "closed" });
         const closed = await githubApi(`repos/${repository}/pulls/${result.pr.number}`) as RestPr;
@@ -519,7 +530,8 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
       }
       retired = true;
     }
-    process.stdout.write("::warning::Release intent is stranded; " + (retired ? "unpublished receipt retired for fresh daily preparation." : "wait for a run triggered at current main before retirement.") + "\n");
+    if (result.action === "occupied") process.stdout.write("::notice::Pre-existing npm coordinate " + receipt.candidate.packageName + "@" + receipt.candidate.version + "; " + (retired ? "candidate retired for fresh daily preparation; npm and tags were left untouched." : "wait for a run triggered at current main before retirement.") + "\n");
+    else process.stdout.write("::warning::Release intent is stranded; " + (retired ? "unpublished receipt retired for fresh daily preparation." : "wait for a run triggered at current main before retirement.") + "\n");
   }
   if (mode === "verify" && !["publish", "recover", "complete"].includes(result.action)) throw new Error("Publication requires admitted current-source identity");
   output("pending", result.action === "refresh" || retired ? "false" : "true");
