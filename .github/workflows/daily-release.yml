@@ -420,6 +420,7 @@ jobs:
         id: decide
         env:
           GH_TOKEN: ${{ github.token }}
+          NPM_PUBLISH: ${{ inputs.npm-publish }}
         shell: bash
         run: |
           set -euo pipefail
@@ -445,9 +446,25 @@ jobs:
           export RELEASE_HAS_CHANGES=true
           export RELEASE_PACKAGE_VERSION=""
           export RELEASE_CURRENT_PACKAGE_VERSION=""
+          export RELEASE_REGISTRY_HAS_CURRENT_VERSION=false
           export RELEASE_PUBLISHED_TODAY=false
           if [[ "$IS_RUST" != true && "$VERSION_POLICY" == daily ]]; then
             RELEASE_CURRENT_PACKAGE_VERSION="$(cd "$NPM_PROJECT_PATH" && npm pkg get version | tr -d '"')"
+          fi
+          # GitHub-only callers (npm-publish: false) never consult npm: a registry outage must not stop their
+          # preparation, and an unrelated npm coordinate must not discard their pending version.
+          if [[ "$IS_RUST" != true && "$VERSION_POLICY" == daily && "${NPM_PUBLISH:-}" == true ]]; then
+            pkg_name="$(cd "$NPM_PROJECT_PATH" && npm pkg get name | tr -d '"')"
+            if registry_version="$(npm view "${pkg_name}@${RELEASE_CURRENT_PACKAGE_VERSION}" version --prefer-online --json)"; then
+              # A successful but empty/malformed response is not proof of existence.
+              node --input-type=module -e 'if (JSON.parse(process.argv[1]) !== process.argv[2]) process.exit(1)' "$registry_version" "$RELEASE_CURRENT_PACKAGE_VERSION"
+              export RELEASE_REGISTRY_HAS_CURRENT_VERSION=true
+            elif node --input-type=module -e 'if (JSON.parse(process.argv[1]).error?.code !== "E404") process.exit(1)' "$registry_version"; then
+              export RELEASE_REGISTRY_HAS_CURRENT_VERSION=false
+            else
+              echo "::error::Could not read ${pkg_name}@${RELEASE_CURRENT_PACKAGE_VERSION} from npm; refusing to infer whether the pending version exists. Retry when the registry is reachable."
+              exit 1
+            fi
           fi
           if [[ "$VERSION_POLICY" == package ]]; then
             export RELEASE_PACKAGE_VERSION="$(cd "$NPM_PROJECT_PATH" && npm pkg get version | tr -d '"')"
@@ -486,6 +503,7 @@ jobs:
             existingPrs: prs, mainSha: e.RELEASE_MAIN_SHA, today: e.RELEASE_TODAY,
             packageVersion: e.RELEASE_PACKAGE_VERSION || undefined, publishedToday: e.RELEASE_PUBLISHED_TODAY === 'true',
             currentPackageVersion: e.RELEASE_CURRENT_PACKAGE_VERSION || undefined,
+            registryHasCurrentVersion: e.RELEASE_REGISTRY_HAS_CURRENT_VERSION === 'true',
             hasChanges: e.RELEASE_HAS_CHANGES === 'true',
             releaseTags: readFileSync(process.argv[3], 'utf8').split('\n').filter(Boolean),
             lastRelease: e.RELEASE_LAST_TAG ? { tag: e.RELEASE_LAST_TAG, sha: e.RELEASE_LAST_SHA } : null,
