@@ -7,10 +7,12 @@ status: in_progress
 priority: 2
 tags[2]: "area:release","gh:unbraind/pm-ops#292"
 created_at: "2026-11-16T19:17:51.165Z"
-updated_at: "2026-11-17T03:45:44.732Z"
+updated_at: "2026-11-17T08:17:31.656Z"
+assignee: pi-claude
+claim_principal: pi-claude
 author: codex-sol
 acceptance_criteria: "Resolve the existing tagged release-heading date policy mismatch; npm run changelog:check and release date checks agree before and after rollover without changing historical tags."
-comments[12]{created_at,author,text}:
+comments[13]{created_at,author,text}:
   "2026-11-16T19:18:50.836Z",codex-sol,"Verified npm run changelog:check fails on untouched origin/main c29fe88 as well as the fix branch. Tag v2026.11.15 targets c29fe88 with commit time 2026-11-16T17:43:01Z. Regeneration changes only the first heading date from 2026-11-15 to 2026-11-16. No historical tags or changelog content were changed for #290."
   "2026-11-16T19:24:41.440Z","harness:claude-code","2026-11-16 20:0xZ (orchestrator): root cause filed as unbraind/pm-ops#292. v2026.11.15 was prepared and tagged on 11-16, prepare rendered the heading from the version (2026-11-15), and after tagging pm-changelog uses the real tag date (2026-11-16, by design per pm-changelog#120). Regenerated CHANGELOG.md in PR #291 so 'npm run changelog:check' passes on this branch (exit 0); main stays red until #291 or another regeneration merges."
   "2026-11-16T22:58:09.756Z",pi-ops-292,"Root cause (issue #292): prepare renders the pending version's heading with --date-from-version, so a resumed candidate (version day before today) is stamped with its version day. The release step then tags it today; pm-changelog by design derives a tagged window's heading from the tag commit date (pm-changelog#120), so post-tag regeneration on unchanged main renders a different day and changelog:check is red on main. The release PR's own CI passes (candidate still untagged), so the failure only appears after the merge.\n\nDesign: use the generator's existing --date-fallback flag (applies only while no release tag exists; ignored once the tag exists, so it matches post-tag invocations byte-for-byte). decideDailyRelease now outputs heading_date: today in RELEASE_TIMEZONE, padded ISO, when the version's calendar day is before today; empty for a same-day release, which is therefore unchanged. The 'Generate changelog and release notes' step, in the same in-place package.json policy rewrite that already appends --include-empty, swaps --date-from-version for --date-fallback <heading_date> in the three changelog scripts when resumed, refreshes a stale pin when a candidate is re-prepared on a later day, and restores --date-from-version when the pending version is current again. The release commit carries the pinned spelling, so the release PR's CI (untagged candidate), prepare's nested release:check and post-tag checks on main all regenerate the same bytes with no follow-up regeneration. The date verifier accepts a pinned --date-fallback day (explicit ISO day only) as an equally clock-free alternative to --date-from-version. Rust/justfile releases (CHANGELOG_DATE derived from the tag name) keep their own spelling and are not touched."
@@ -23,6 +25,7 @@ comments[12]{created_at,author,text}:
   "2026-11-17T03:11:30.189Z",codex-sol,The complete worktree coverage run encountered the existing 5000 ms input-reader child startup watchdog in test/regular-input.test.ts; this is tracked separately as ops-input-startup-timeout and is outside the heading/date repair. Awaiting the final coverage percentages and focused retry; no complete green coverage gate is claimed yet.
   "2026-11-17T03:20:19.969Z",codex-sol,"Complete worktree npm run coverage measures 100% statements, branches, functions and lines for every measured file, including daily-release.ts. Suite result was 1676 passed, 2 failed, 2 skipped: the existing input-startup watchdog (ops-input-startup-timeout), and a capture-inventory violation in the new acceptance fixture. Fixed the latter by importing the existing bounded subprocess adapter; all 9 subprocess tests now pass, followed by typecheck, lint and 0% duplication. Restarted the corrected full rewritten-script release gate with supported quick depth and 3x test watchdog scaling; the fixed 5000 ms input-reader test is unchanged."
   "2026-11-17T03:45:43.667Z",codex-sol,"Corrected rewritten-script acceptance completed: its real release:check ran the full coverage suite against package.json scripts pinned by the workflow. All measured files are 100% statements/branches/functions/lines; 1677 tests pass, 1 fails, 2 skip. The sole failure is the pre-existing fixed 5000 ms regular-input child startup watchdog, independently reproduced and tracked as ops-input-startup-timeout. The new capture-inventory issue is fixed and passes in this full run. Focused heading/date suites (43 + 8 tests), subprocess suite (9 tests), typecheck, lint, duplication (0%), docstring, actual changelog:check and the release-date verifier pass. The four pre-existing generated dist files were restored byte-for-byte and will remain unstaged."
+  "2026-11-17T08:17:26.311Z",pi-claude,"Round on the open review thread for scripts/verify-release-changelog-date.ts (line 55) plus the origin/main merge.\n\nMerge: merged origin/main (fb68e7d) into fix/resumed-release-heading-date. The add/add conflicts on the tracker item (.toon) and its history stream resolved to this branch's side after verifying with cmp that main's 4-line history is a byte-exact prefix of this branch's 39-line history; no history line was edited or reordered. The auto-merged .github/workflows/daily-release.yml, daily-release.ts and test/daily-release.test.ts were reviewed: main's registry-held pending-version skip and the restart-prepare wiring are intact and compose with this branch's heading policy. pm health --strict-exit initially failed with merge_driver_configuration_drift (the 5 merge-driver keys pointed at a foreign pm-cli); rerunning merge install through the repository-pinned ./node_modules/.bin/pm (the same binary CI Deep uses) repointed them at the repository's pinned dependency and pm health --strict-exit then exits 0 with only advisory warnings (stale/unowned/idle in-progress items).\n\nFix: the pinned --date-fallback day is now validated against the real calendar, not just its shape. FALLBACK_DATE_PATTERN captures the day and a new isRealCalendarDay helper round-trips the components through UTC (setUTCFullYear, avoiding the 1900s two-digit-year mapping in Date.UTC) and compares them back, so 2026-02-30, 2026-13-01, 2026-04-31 and the non-leap 2026-02-29 are rejected in both the space and '=' spellings while the leap-year 2028-02-29 stays accepted; the audit reports a distinct 'day does not exist on the calendar' defect for a shape-correct impossible day.\n\ndist/: no rebuild committed. The repository's only dist-parity enforcement is the daily-release workflow's 'Pack verified release' step (git diff --exit-code and the dist/ porcelain check after the release's own build), which runs on main's release candidate, not on a PR branch; PR CI rebuilds before testing and never compares against the committed build, so no PR-branch gate requires it. The build artifacts produced by running the coverage gate were reverted. Tracked dist/ still predates this branch's daily-release.ts helpers; follow-up item ops-b2bs records that the first post-merge release pack step would fail until dist is rebuilt on main."
 files[9]{path,scope}:
   .github/workflows/daily-release.yml,project
   CHANGELOG.md,project
@@ -33,7 +36,7 @@ files[9]{path,scope}:
   test/daily-release.test.ts,project
   test/release-heading-full-gate.acceptance.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[10]:
+tests[12]:
   - command: npm run typecheck
     scope: project
     provenance:
@@ -108,6 +111,20 @@ tests[10]:
     provenance:
       author: codex-sol
       created_at: "2026-11-17T03:20:14.623Z"
+      source_kind: local_mutation
+      source_ref: fix/resumed-release-heading-date
+  - command: node --test test/verify-release-changelog-date.test.ts
+    scope: project
+    provenance:
+      author: pi-claude
+      created_at: "2026-11-17T08:17:29.745Z"
+      source_kind: local_mutation
+      source_ref: fix/resumed-release-heading-date
+  - command: node scripts/verify-release-changelog-date.ts
+    scope: project
+    provenance:
+      author: pi-claude
+      created_at: "2026-11-17T08:17:31.406Z"
       source_kind: local_mutation
       source_ref: fix/resumed-release-heading-date
 body: ""

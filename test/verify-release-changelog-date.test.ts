@@ -20,6 +20,7 @@ import {
   stripComment,
   invocationsIn,
   generateHeading,
+  isRealCalendarDay,
   main,
   runIfMain,
   report,
@@ -70,6 +71,30 @@ test("a resumed release's pinned --date-fallback day is accepted, and only with 
   for (const invalid of ["--date-fallback", "--date-fallback=", "--date-fallback 16-11-2026", "--date-fallback=2026-11-16T12:00:00Z"]) {
     const failed = auditInvocations([{ file: "package.json", text: manifest(`pm-changelog --release-version-from-package ${invalid}`) }]);
     assert.equal(failed.failures.length, 1, `${invalid} must be rejected`);
+  }
+});
+
+test("a pinned --date-fallback day must exist on the calendar, not merely be shaped like one", () => {
+  // The regression CodeRabbit found: `2026-02-30` passes the shape regex and
+  // therefore the audit, yet no calendar ever produces that heading. Both
+  // spellings -- space and `=` -- are held to the same rule.
+  for (const day of ["2026-02-30", "2026-13-01", "2026-04-31", "2026-02-29"]) {
+    for (const spelling of [`--date-fallback ${day}`, `--date-fallback=${day}`]) {
+      const result = auditInvocations([{ file: "package.json", text: manifest(`pm-changelog --release-version-from-package ${spelling}`) }]);
+      assert.equal(result.failures.length, 1, `${spelling} pins a day that must be rejected`);
+      assert.match(result.failures[0], new RegExp(`does not exist on the calendar \\(${day}\\)`));
+      assert.equal(isRealCalendarDay(day), false, `${day} must not be a calendar day`);
+    }
+  }
+
+  // A leap year's February 29 is a real day and stays accepted: rejecting it
+  // would break the resumed release this pinned spelling exists for.
+  const leap = "2028-02-29";
+  assert.equal(isRealCalendarDay(leap), true);
+  for (const spelling of [`--date-fallback ${leap}`, `--date-fallback=${leap}`]) {
+    const result = auditInvocations([{ file: "package.json", text: manifest(`pm-changelog --release-version-from-package ${spelling}`) }]);
+    assert.deepEqual(result.failures, [], `${spelling} pins a real day and must be accepted`);
+    assert.equal(result.notes.length, 1);
   }
 });
 

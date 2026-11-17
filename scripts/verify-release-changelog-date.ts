@@ -16,7 +16,9 @@
  * the version is pending. The pinned day is as clock-free as the flag it
  * replaces -- it stays fixed in the committed script -- so the scan accepts
  * either spelling, and rejects `--date-fallback` without an explicit day
- * because that would silently fall back to the clock.
+ * because that would silently fall back to the clock, and rejects a pinned
+ * day that does not exist on the calendar because a heading dated
+ * `2026-02-30` proves the pin was never checked against one.
  *
  * The analysis is separated from the I/O so the rules below are executed by the
  * test suite against fixtures rather than only against this repository, which
@@ -51,8 +53,34 @@ export const VERSION_INPUTS = ["--release-version-from-package", "--release-vers
 /** The flag under audit: it makes the no-tag heading version-derived. */
 export const DATE_FLAG = "--date-from-version";
 
-/** The spelling a resumed release commits instead: a pinned day for the pending heading. */
-export const FALLBACK_DATE_PATTERN = /--date-fallback(?:=|\s)"?\d{4}-\d{2}-\d{2}"?(?:\s|$)/;
+/** The spelling a resumed release commits instead: a pinned day for the pending heading.
+ *
+ * The day is captured so the audit can check it against the real calendar: a
+ * day that is shaped correctly but does not exist -- `2026-02-30` -- would pin
+ * a heading no calendar ever produces, and accepting it on shape alone would
+ * make the gate prove less than it appears to. */
+export const FALLBACK_DATE_PATTERN = /--date-fallback(?:=|\s)"?(\d{4}-\d{2}-\d{2})"?(?:\s|$)/;
+
+/**
+ * Whether a `YYYY-MM-DD` day exists on the real calendar.
+ *
+ * A shape check cannot tell `2026-02-30` from a day anyone could actually
+ * write. JavaScript normalizes an out-of-range month or day into the following
+ * month, so round-tripping the components through UTC and comparing them back
+ * is the calendar test: month 13 and February 29 on a non-leap year both come
+ * back changed, while a leap year's February 29 survives intact. The components
+ * are set with `setUTCFullYear` rather than passed to `Date.UTC`, which maps
+ * two-digit years into the 1900s and would misjudge `0099-02-28`.
+ *
+ * @param day - The captured day, as `YYYY-MM-DD`.
+ * @returns Whether that day exists on the calendar.
+ */
+export function isRealCalendarDay(day: string): boolean {
+  const [year, month, date] = day.split("-").map(Number);
+  const round = new Date(0);
+  round.setUTCFullYear(year, month - 1, date);
+  return round.getUTCFullYear() === year && round.getUTCMonth() === month - 1 && round.getUTCDate() === date;
+}
 
 /** One generator invocation found in a tracked file. */
 export interface Invocation {
@@ -150,10 +178,20 @@ export function auditInvocations(sources: SourceFile[]): VerifierResult {
   const invocations = sources.flatMap(invocationsIn);
   return tallyFlaggedInvocations(
     invocations,
-    (invocation) => invocation.command.includes(DATE_FLAG) || FALLBACK_DATE_PATTERN.test(invocation.command)
-      ? null
-      : `${invocation.file}: a generator invocation carries a version input but neither ${DATE_FLAG} nor a pinned --date-fallback day: `
-        + invocation.command.trim().slice(0, 160),
+    (invocation) => {
+      if (invocation.command.includes(DATE_FLAG)) return null;
+      const pinned = FALLBACK_DATE_PATTERN.exec(invocation.command);
+      if (pinned === null) {
+        return `${invocation.file}: a generator invocation carries a version input but neither ${DATE_FLAG} nor a pinned --date-fallback day: `
+          + invocation.command.trim().slice(0, 160);
+      }
+      // The shape matched, so the day is pinned; the calendar decides whether
+      // the pin is a day the generator could ever render.
+      const day = pinned[1];
+      return isRealCalendarDay(day) ? null
+        : `${invocation.file}: a pinned --date-fallback day does not exist on the calendar (${day}): `
+          + invocation.command.trim().slice(0, 160);
+    },
     {
       noun: "generator",
       flag: DATE_FLAG,
