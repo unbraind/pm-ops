@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.11.17 - 2026-11-17
+
+### Dependencies
+
+- Bump the dependencies group across 1 directory with 2 updates ([#296](https://github.com/unbraind/pm-ops/pull/296))
+
 ## 2026.11.15 - 2026-11-16
 
 ### Dependencies
