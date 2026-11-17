@@ -7,10 +7,10 @@ status: in_progress
 priority: 1
 tags[2]: "area:release","gh:unbraind/pm-ops#286"
 created_at: "2026-11-16T19:47:45.672Z"
-updated_at: "2026-11-17T02:00:11.347Z"
+updated_at: "2026-11-17T02:21:49.898Z"
 author: codex-sol
 acceptance_criteria: "Advanced main restarts full build, verification, changelog and candidate preparation without caller changes; at most two bot workflow_dispatch runs per caller on main per release calendar day; owner dispatches ignored; publishedToday blocks restart; history/read/pagination errors fail closed with an explicit workflow error; dispatch sends only ref main and never retirement inputs; configuration digest unchanged; reconcile-only, retirement and recovery remain unchanged; unit and workflow contracts cover history, default retirement and permissions."
-comments[11]{created_at,author,text}:
+comments[13]{created_at,author,text}:
   "2026-11-16T19:49:29.476Z",codex-sol,"Root cause: prepare requires its refreshed main to equal the original trigger SHA, and request separately rejects a changed prepared base after runner queueing. Both correctly reject stale artifacts but lose the daily opportunity. Choose bounded caller workflow_dispatch (maximum two restarts), because a prepare-only loop cannot cover the separate request queue. Existing callers grant actions: write. A dedicated restart job retains read-only prepare and uses trusted workflow tools; redispatch preserves original dispatch inputs and increments prepare-restart-count. Each new run performs complete preparation at its new trigger SHA. Live GitHub publication dates block restarts after publishedToday. Scheduling counter is excluded from the durable configuration digest. Evidence: GitHub documents workflow_dispatch as a GITHUB_TOKEN recursion exception and Actions write as the dispatch endpoint permission. PR #291 is open; this work starts from main c29fe88 and is independent of its pending npm version logic."
   "2026-11-16T19:54:08.505Z",codex-sol,"Implementation: both existing refusal guards emit the rejected base before failing. A separate restart_prepare job runs despite failed/skipped dependencies, reads live current main and complete paginated publication dates, then redispatches the caller on main with all original workflow_dispatch inputs and counter +1. Two restarts maximum; malformed or dropped counters fail closed. Existing prepare/read and request/write permissions and recovery code are preserved. The caller template, self-pilot and migration examples now declare and forward the counter; consumer adoption requires that small caller change as well as the released workflow pin. Rejected attempts stay failed with a restart summary. Initial focused run found three old contract assumptions (only string/boolean inputs and installation in all new jobs); adjusted contracts to include numeric inputs and prove restart_prepare performs no npm installation. Typecheck, test-source typecheck and lint passed; expanded targeted regressions and changelog verification are running."
   "2026-11-16T19:55:21.576Z",codex-sol,"Expanded targeted regressions passed: 99 tests, zero failures or skips. The unmodified changelog gate exposed a one-line existing date mismatch: v2026.11.15 was committed/tagged on 2026-11-16, while its rendered heading still said 2026-11-15. Regeneration changes only that heading to the actual tag-commit date; no release content or version changes. This small generated correction is included so the required changelog gate can pass. Added fail-closed validation of malformed publication-date responses before final linked gates."
@@ -22,6 +22,8 @@ comments[11]{created_at,author,text}:
   "2026-11-16T20:10:13.259Z",codex-sol,"Revision committed as 81a1876db4d7043e1a584ce459b002c88ca72851 on the existing PR #293 branch, on top of 9ea21d7 without rewriting history. All required targeted gates passed (104 tests, zero failed or skipped); PR body will describe history-based bounds and no caller migration. Releasing the claim for orchestrator verification; item remains in progress and must not be closed here. Remaining verification: remote CI and orchestrator review; no live restart was dispatched during development."
   "2026-11-17T01:46:21.440Z",codex-sol,"Review AB: verified original actor precedence is reversed and the executable CLI block lacks coverage. Will fix actor attribution and cover parsing, summary output, refusal exits, and file-level uncovered branches without changing thresholds."
   "2026-11-17T02:00:10.125Z",codex-sol,"Review AB verified and fixed PRRT_kwDOTOTl1M64NWTK and PRRT_kwDOTOTl1M64NWTd: original actor wins over rerun actor; owner-rerun regression refuses a third bot dispatch. CLI environment parsing, summary/stdout and failure exits now covered, including actual subprocess invocations. File-level focused report is 100/100/100/100; direct npm run coverage passes unchanged per-file 100 thresholds. Typecheck, build:test, lint, changelog:check and release regression tests pass. Linked touched tests pass 13/13. The initial linked coverage duplicate timed out at its snapshotted 120-second default; stored timeout corrected to 1200 seconds. Direct full coverage is the completion evidence. Pagination remains bounded by the stable 1000-record total, with a ten-page regression."
+  "2026-11-17T02:00:37.546Z",codex-sol,"Correction to preceding result: the completed direct coverage report is 100/100/100/100 for every source file, but its overall exit was 1: the subprocess inventory refused the new test raw child_process import. Replacing it with the repository bounded subprocess adapter and rerunning that regression plus coverage. The earlier passing claim was premature; it is superseded by this correction."
+  "2026-11-17T02:21:46.809Z",codex-sol,"Final AB evidence: corrected the subprocess fixture to use the bounded repository adapter; the linked restart/subprocess regression passes 22/22. Typecheck, lint, build:test and changelog:check pass. Final restart adapter passes per-file c8 checks at 100 statements, lines, branches and functions without threshold changes. The earlier complete npm run coverage measured every file at 100/100/100/100 but failed only the now-fixed capture inventory assertion (1688 pass, 1 fail, 2 platform skips). Its subsequent full rerun through PM timed out after 1200 seconds, before a final report; this is incomplete full-suite evidence, not a pass. CI must certify the complete final suite."
 files[10]{path,scope}:
   .github/workflows/daily-release.yml,project
   .github/workflows/release.yml,project
@@ -33,7 +35,7 @@ files[10]{path,scope}:
   test/daily-release-workflow.test.ts,project
   test/release-continuation.test.ts,project
   test/release-prepare-restart.test.ts,project
-tests[8]:
+tests[9]:
   - command: npm run typecheck
     scope: project
     provenance:
@@ -91,6 +93,13 @@ tests[8]:
     provenance:
       author: codex-sol
       created_at: "2026-11-17T01:52:17.856Z"
+      source_kind: local_mutation
+      source_ref: fix/restart-prepare-on-advance
+  - command: node --test test/release-prepare-restart.test.ts test/subprocess.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-17T02:10:50.164Z"
       source_kind: local_mutation
       source_ref: fix/restart-prepare-on-advance
 docs[2]{path,scope}:

@@ -4,7 +4,7 @@ import test from "node:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../subprocess.ts";
 import { decidePrepareRestart, type PrepareRestartInput } from "../release-prepare-restart.ts";
 import { releaseConfigDigest } from "../release-continuation.ts";
 import { runPrepareRestartCli, restartPreparation, type PrepareRestartOptions } from "../scripts/release-prepare-restart.ts";
