@@ -53,11 +53,21 @@ jobs:
       - name: Bun version
         run: bun --version
 
+      # Job-local prefix install: parallel jobs on one runner host share the
+      # Node installation in the toolcache, and a global install replaces the
+      # shared npm under a sibling job's feet mid-install.
       - name: Install npm 11.21.0
+        shell: bash
         run: |
           set -euo pipefail
-          npm install --global npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          npm install --prefix "$RUNNER_TEMP/npm-11.21.0" npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          echo "$RUNNER_TEMP/npm-11.21.0/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/npm-11.21.0/node_modules/.bin:$PATH"
           test "$(npm --version)" = "11.21.0"
+
+      - name: Verify job-local npm version
+        shell: bash
+        run: test "$(npm --version)" = "11.21.0"
 
       - name: Install dependencies
         run: npm ci

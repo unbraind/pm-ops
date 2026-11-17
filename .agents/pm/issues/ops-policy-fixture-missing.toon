@@ -1,0 +1,16 @@
+id: ops-policy-fixture-missing
+title: Lifecycle policy drift fixture intermittently lacks its policy file in the full suite
+description: "Two broad runs fail the non-vacuity installed-policy test with ENOENT for the synthetic schema/policies.json fixture, while the isolated policy and input-reader recheck passes all 28 tests. The latest full run reports 1674 passed, 1 failed and 2 skipped. The bounded npm-isolation regression passes. This is separate from the global npm toolcache race."
+type: Issue
+status: open
+priority: 2
+tags: []
+created_at: "2026-11-16T17:00:59.362Z"
+updated_at: "2026-11-16T17:01:01.205Z"
+author: codex-sol
+acceptance_criteria: "Reproduce the missing synthetic policy fixture from the broad suite; determine whether initialization, teardown or concurrent fixtures cause the missing file; restore deterministic non-vacuity coverage without weakening assertions; complete the full quick tier and the isolated policy tests"
+files[1]{path,scope}:
+  test/verify-lifecycle-policy.test.ts,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/verify-lifecycle-policy.test.ts,project,240,codex-sol,"2026-11-16T17:01:01.147Z",local_mutation,fix/job-local-npm
+body: ""

@@ -75,11 +75,21 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2.2.0
 
+      # Job-local prefix install: parallel jobs on one runner host share the
+      # Node installation in the toolcache, and a global install replaces the
+      # shared npm under a sibling job's feet mid-install.
       - name: Install npm 11.21.0
+        shell: bash
         run: |
           set -euo pipefail
-          npm install --global npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          npm install --prefix "$RUNNER_TEMP/npm-11.21.0" npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          echo "$RUNNER_TEMP/npm-11.21.0/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/npm-11.21.0/node_modules/.bin:$PATH"
           test "$(npm --version)" = "11.21.0"
+
+      - name: Verify job-local npm version
+        shell: bash
+        run: test "$(npm --version)" = "11.21.0"
 
       - name: Install dependencies
         run: npm ci
@@ -193,14 +203,21 @@ jobs:
 
       - name: Install npm 11.21.0
         if: steps.changes.outputs.code == 'true'
-        # Keep the selected Node installation on npm 11 even when a consumer
-        # deliberately ignores the runner's user npm configuration.
+        # Keep the selected npm job-local on Windows as well.
         shell: bash
         run: |
           set -euo pipefail
-          node_prefix="$(node -p 'require("node:path").dirname(process.execPath)')"
-          npm install --global --prefix "$node_prefix" npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          npm install --prefix "$RUNNER_TEMP/npm-11.21.0" npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          echo "$RUNNER_TEMP/npm-11.21.0/node_modules/.bin" >> "$GITHUB_PATH"
+          npm_bin="$RUNNER_TEMP/npm-11.21.0/node_modules/.bin"
+          if [[ "${RUNNER_OS:-}" == "Windows" ]]; then npm_bin="$(cygpath -u "$npm_bin")"; fi
+          export PATH="$npm_bin:$PATH"
           test "$(npm --version)" = "11.21.0"
+
+      - name: Verify job-local npm version
+        if: steps.changes.outputs.code == 'true'
+        shell: bash
+        run: test "$(npm --version)" = "11.21.0"
 
       - name: Install dependencies
         if: steps.changes.outputs.code == 'true'
@@ -283,13 +300,23 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           package-manager-cache: false
+      # Job-local prefix install: parallel jobs on one runner host share the
+      # Node installation in the toolcache, and a global install replaces the
+      # shared npm under a sibling job's feet mid-install.
       - name: Install npm 11.21.0
         if: steps.changes.outputs.code == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          npm install --global npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          npm install --prefix "$RUNNER_TEMP/npm-11.21.0" npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          echo "$RUNNER_TEMP/npm-11.21.0/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/npm-11.21.0/node_modules/.bin:$PATH"
           test "$(npm --version)" = "11.21.0"
+      - name: Verify job-local npm version
+        if: steps.changes.outputs.code == 'true'
+        shell: bash
+        run: test "$(npm --version)" = "11.21.0"
+
       - name: Install committed locks exactly as release tools do
         if: steps.changes.outputs.code == 'true'
         shell: bash

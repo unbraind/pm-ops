@@ -71,11 +71,9 @@ export function assertNoNpmInstalls(script: string): void {
   assert.deepEqual(npmInstalls(script), [], "reconciliation must not install npm packages");
 }
 
-/** Permit exactly the pinned npm bootstrap, including the Windows Node prefix. */
+/** Permit exactly the pinned npm bootstrap into a job-local prefix. */
 export function assertPinnedNpmBootstrap(script: string): void {
   const installs = npmInstalls(script);
   assert.equal(installs.length, 1, "only the pinned npm install is allowed");
-  const words = installs[0];
-  const prefix = words[3] === "--prefix" ? ["--prefix", "$node_prefix"] : [];
-  assert.deepEqual(words, ["npm", "install", words[2] === "--global" ? "--global" : "-g", ...prefix, "npm@11.21.0", "--ignore-scripts", "--no-audit", "--no-fund"], "only the pinned npm install is allowed");
+  assert.deepEqual(installs[0], ["npm", "install", "--prefix", "$RUNNER_TEMP/npm-11.21.0", "npm@11.21.0", "--ignore-scripts", "--no-audit", "--no-fund"], "only the pinned npm install is allowed");
 }
