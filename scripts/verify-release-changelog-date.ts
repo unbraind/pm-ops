@@ -59,7 +59,7 @@ export const DATE_FLAG = "--date-from-version";
  * day that is shaped correctly but does not exist -- `2026-02-30` -- would pin
  * a heading no calendar ever produces, and accepting it on shape alone would
  * make the gate prove less than it appears to. */
-export const FALLBACK_DATE_PATTERN = /--date-fallback(?:=|\s)"?(\d{4}-\d{2}-\d{2})"?(?:\s|$)/;
+export const FALLBACK_DATE_PATTERN = /--date-fallback(?:=|\s+)(["']?)(\d{4}-\d{2}-\d{2})\1(?=\s|$|[&;|)])/;
 
 /**
  * Whether a `YYYY-MM-DD` day exists on the real calendar.
@@ -201,7 +201,7 @@ export function auditInvocations(sources: SourceFile[]): VerifierResult {
       }
       // The shape matched, so the day is pinned; the calendar decides whether
       // the pin is a day the generator could ever render.
-      const day = pinned[1];
+      const day = pinned[2];
       return isRealCalendarDay(day) ? null
         : `${invocation.file}: a pinned --date-fallback day does not exist on the calendar (${day}): `
           + invocation.command.trim().slice(0, 160);

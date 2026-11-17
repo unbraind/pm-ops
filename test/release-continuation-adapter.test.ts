@@ -3,7 +3,7 @@ import "./provenance-trust-fixture.ts";
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { spawnSync } from "../subprocess.ts";
+import { execFileSync, spawnSync } from "../subprocess.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -1454,13 +1454,17 @@ test("occupied-coordinate retirement refuses ambiguous history, registry errors 
 });
 
 
-test("heading-date continuation uses RELEASE_TIMEZONE and refuses stale or missing hooks", async t => {
-  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-06T23:30:00Z") });
+test("heading-date continuation uses the verified merge committer day despite publication after midnight", async t => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-08T04:00:00Z") });
   const root = mkdtempSync(join(tmpdir(), "continuation-heading-"));
   const env = { NPM_PROJECT_PATH: root, RELEASE_TIMEZONE: "Europe/Vienna", CHANGELOG_SCRIPT: "generate", CHANGELOG_CHECK_SCRIPT: "check", NOTES_SCRIPT: "notes" };
   const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
   Object.assign(process.env, env);
   try {
+    execFileSync("git", ["init", "--quiet"], { cwd: root });
+    execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "--allow-empty", "-m", "Verified merge"], {
+      cwd: root, env: { ...process.env, GIT_AUTHOR_DATE: "2026-11-05T12:00:00Z", GIT_COMMITTER_DATE: "2026-11-06T23:30:00Z" },
+    });
     const script = 'pm-changelog --date-fallback "2026-11-07"';
     const write = (scripts: unknown) => writeFileSync(join(root, "package.json"), JSON.stringify({ scripts }));
     write({ generate: script, check: script, notes: script });

@@ -1,12 +1,12 @@
 id: ops-b2bs
-title: "Tracked dist output predates the merged daily-release source changes, so the first post-merge release pack step fails"
+title: Confirm the daily release commits the rebuilt dist/ before its pack check
 description: "The resumed-release heading branch changed daily-release.ts (the calendar-day heading helpers) without rebuilding the tracked dist/ output, and merging main carried main's dist forward. No PR-branch gate enforces dist parity: CI and the quick release gate rebuild before running tests and never compare against the committed build. The daily-release workflow's 'Pack verified release' step enforces parity only on main's release candidate, via git diff --exit-code -- . and the dist/ porcelain check after the release's own release:check build, so the first daily release after this merge would fail there until dist is rebuilt and committed."
 type: Issue
 status: closed
 priority: 2
 tags[2]: "area:build","area:release"
 created_at: "2026-11-17T08:17:21.282Z"
-updated_at: "2026-11-17T08:19:44.044Z"
+updated_at: "2026-11-17T15:02:21.976Z"
 closed_at: "2026-11-17T08:19:43.995Z"
 completed_at: "2026-11-17T08:19:43.995Z"
 author: pi-claude

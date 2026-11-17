@@ -309,6 +309,10 @@ test("preparation rewrites every date policy without consuming a following flag"
     ["--date-from-version", "2026-10-24", "--date-fallback 2026-10-24"],
     ["--date-fallback 2026-10-22", "2026-10-24", "--date-fallback 2026-10-24"],
     ["--date-fallback=2026-10-22", "", "--date-from-version"],
+    ...["&&true", ";true"].flatMap(suffix => [
+      ["--date-fallback 2026-10-23" + suffix, "2026-10-24", "--date-fallback 2026-10-24" + suffix],
+      ["--date-fallback 2026-10-23" + suffix, "", "--date-from-version" + suffix],
+    ]),
     ...['"', "'"].flatMap(quote => [" ", "="].flatMap(separator => [
       [`--date-fallback${separator}${quote}2026-10-22${quote}`, "2026-10-24", "--date-fallback 2026-10-24"],
       [`--date-fallback${separator}${quote}2026-10-22${quote}`, "", "--date-from-version"],
@@ -327,7 +331,7 @@ test("preparation rewrites every date policy without consuming a following flag"
       assert.equal(result.status, 0, result.stdout + result.stderr);
       const prepared = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { scripts: typeof hooks };
       assert.equal(prepared.scripts["changelog:full"], `${call(expected!)} && ${call(expected!)}`);
-      assert.equal(prepared.scripts["changelog:check"], `${call(heading ? expected! : "--date-from-version")} && ${call(expected!)}`);
+      assert.equal(prepared.scripts["changelog:check"], `${call(heading ? "--date-fallback " + heading : "--date-from-version")} && ${call(expected!)}`);
       assert.equal(prepared.scripts["release:notes"], `${call(expected!)} --date-fallback --include-empty`);
     } finally { rmSync(root, { recursive: true, force: true }); }
   }

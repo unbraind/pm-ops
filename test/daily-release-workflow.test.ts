@@ -951,26 +951,54 @@ test("decision fails closed when installed release tools omit a resumed heading_
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("continuation checks the prepared day before publication and again before creating or pushing a tag", () => {
+test("continuation enforces the merge day before publish and still tags after midnight or during recovery", () => {
   const steps = workflow.jobs.release.steps;
-  assert.ok(steps.indexOf(step("Check prepared heading day before publication")) < steps.indexOf(step("Publish npm package")));
-  assert.match(step("Check prepared heading day before publication").if!, /!inputs.rust/);
-  assert.equal(step("Check prepared heading day before publication").run, 'node "$CONTINUATION_SCRIPT" heading-date');
+  const check = step("Check prepared heading day before publication");
+  assert.ok(steps.indexOf(check) < steps.indexOf(step("Publish npm package")));
+  assert.equal(check.if, "steps.continue.outputs.action == 'publish' && !inputs.rust");
+  assert.equal(check.run, 'node "$CONTINUATION_SCRIPT" heading-date');
   const tag = step("Push release tag").run;
-  assert.ok(tag.indexOf('node "$CONTINUATION_SCRIPT" heading-date') < tag.indexOf('git tag "$release_tag"'));
-  assert.ok(tag.indexOf('node "$CONTINUATION_SCRIPT" heading-date') < tag.indexOf('git push origin'));
-  const root = mkdtempSync(join(tmpdir(), "release-heading-tag-"));
-  try {
-    writeFileSync(join(root, "git"), '#!/bin/sh\nprintf "%s\n" "$*" >> "$GIT_CALLS"\ncase "$1" in rev-parse) printf "verified-main\n" ;; esac\n');
-    chmodSync(join(root, "git"), 0o755);
-    writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { changelog: 'pm-changelog --date-fallback "2000-01-01"' } }));
-    const result = runBashFixture(tag, { cwd: root, encoding: "utf8", env: {
-      ...process.env, PATH: `${root}:${process.env.PATH}`, GIT_CALLS: join(root, "git-calls"), IS_RUST: "false", RELEASE_TAG: "v2000.01.01",
-      CONTINUATION_SCRIPT: fileURLToPath(new URL("../scripts/release-continuation.ts", import.meta.url)), NPM_PROJECT_PATH: root,
-      CHANGELOG_SCRIPT: "changelog", CHANGELOG_CHECK_SCRIPT: "changelog", NOTES_SCRIPT: "changelog", RELEASE_TIMEZONE: "Europe/Vienna",
-    } });
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /Refusing to tag; re-prepare/);
-    assert.doesNotMatch(readFileSync(join(root, "git-calls"), "utf8"), /^(tag|push) /m);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  for (const [action, mergeDay, pinDay, allowed] of [
+    ["publish", "2026-10-24", "2026-10-24", true],
+    ["recover", "2026-10-25", "2026-10-24", true],
+    ["publish", "2026-10-25", "2026-10-24", false],
+  ] as const) {
+    const root = mkdtempSync(join(tmpdir(), "release-heading-tag-"));
+    try {
+      const remote = join(root, "origin.git"), project = join(root, "project");
+      mkdirSync(project);
+      execFileSync("git", ["init", "--quiet", "--bare", remote]);
+      execFileSync("git", ["init", "--quiet", project]);
+      const env = {
+        ...process.env, IS_RUST: "false", RELEASE_TAG: "v2026.10.23",
+        CONTINUATION_SCRIPT: fileURLToPath(new URL("../scripts/release-continuation.ts", import.meta.url)), NPM_PROJECT_PATH: project,
+        CHANGELOG_SCRIPT: "changelog", CHANGELOG_CHECK_SCRIPT: "changelog", NOTES_SCRIPT: "changelog", RELEASE_TIMEZONE: "Europe/Vienna",
+        GIT_AUTHOR_DATE: "2026-10-23T12:00:00Z", GIT_COMMITTER_DATE: `${mergeDay}T22:30:00+02:00`,
+      };
+      const git = (...args: string[]) => execFileSync("git", args, { cwd: project, env, encoding: "utf8" }).trim();
+      writeFileSync(join(project, "package.json"), JSON.stringify({ scripts: { changelog: `pm-changelog --date-fallback '${pinDay}'` } }));
+      git("add", "package.json");
+      git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "Verified merge");
+      const verified = git("rev-parse", "HEAD");
+      git("remote", "add", "origin", remote);
+      git("push", "--quiet", "origin", "HEAD:refs/heads/main");
+      // A normal publication must pass the check. Recovery bypasses it because
+      // npm already accepted the artifact. The wall clock is after both days.
+      assert.ok(Date.now() > Date.parse(`${mergeDay}T23:59:59+02:00`));
+      if (action === "publish") {
+        const before = runBashFixture(check.run, { cwd: project, encoding: "utf8", env });
+        assert.equal(before.status === 0, allowed, before.stdout + before.stderr);
+        if (!allowed) {
+          assert.match(before.stderr, /2026-10-24.*2026-10-25.*Refusing to publish/);
+          assert.equal(git("ls-remote", "--tags", "origin"), "");
+          continue;
+        }
+      }
+      const result = runBashFixture(tag, { cwd: project, encoding: "utf8", env });
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      assert.equal(git("rev-list", "-n", "1", env.RELEASE_TAG), verified);
+      assert.match(git("ls-remote", "--tags", "origin"), new RegExp(`^${verified}\\s+refs/tags/${env.RELEASE_TAG}$`));
+      if (action === "recover") assert.match(result.stdout, /::warning::.*continuing to tag/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
 });

@@ -47,12 +47,12 @@ export function verifyReleaseHandoff(candidate, manifest, notes, packageBytes) {
     if (`sha512-${createHash("sha512").update(packageBytes).digest("base64")}` !== candidate.packageIntegrity)
         throw new Error("Stale package integrity");
 }
-/** Refuse tagging a prepared pin on another day; changing reviewed artifacts requires fresh preparation. */
-export function assertReleaseHeadingDate(scripts, today) {
+/** Refuse publication when the verified merge day differs from the prepared pin. */
+export function assertReleaseHeadingDate(scripts, mergeDay) {
     for (const script of scripts) {
-        for (const pin of script.matchAll(/--date-fallback(?:=|\s+)(["']?)(\d{4}-\d{2}-\d{2})\1(?=\s|$)/g)) {
-            if (pin[2] !== today)
-                throw new Error(`Prepared release heading day ${pin[2]} differs from current release day ${today}. Refusing to tag; re-prepare the candidate for the current day. The reviewed commit and verified artifact cannot be rewritten during continuation.`);
+        for (const pin of script.matchAll(/--date-fallback(?:=|\s+)(["']?)(\d{4}-\d{2}-\d{2})\1(?=\s|$|[&;|)])/g)) {
+            if (pin[2] !== mergeDay)
+                throw new Error(`Prepared release heading day ${pin[2]} differs from verified merge commit day ${mergeDay}. Refusing to publish; re-prepare the candidate for the merge day. The reviewed commit and verified artifact cannot be rewritten during continuation.`);
         }
     }
 }

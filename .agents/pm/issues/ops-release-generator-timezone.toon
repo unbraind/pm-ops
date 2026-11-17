@@ -1,0 +1,15 @@
+id: ops-release-generator-timezone
+title: Align tagged changelog headings with the configured release timezone
+description: "Follow-up from Round AX on ops-release-1115-heading-drift. Installed pm-changelog 2026.11.6 dates tagged headings from the literal committer-date prefix, whereas the requested continuation guard uses the verified merge commit day in RELEASE_TIMEZONE. A synthetic commit at 2026-11-06T23:30:00Z resolves to 2026-11-07 in Europe/Vienna, but resolveReleaseContext for a tag on that commit returns 2026-11-06 even when dateFallback is 2026-11-07. This separate offset-boundary mismatch remains outside the heading-check correction. Decide and align the generator and release timezone contract before claiming complete timezone-boundary convergence."
+type: Issue
+status: open
+priority: 2
+tags[1]: "area:release"
+created_at: "2026-11-17T15:02:27.928Z"
+updated_at: "2026-11-17T15:02:41.120Z"
+author: codex-sol
+acceptance_criteria: A real tagged-commit regression at a UTC/configured-timezone day boundary proves the prepared heading and post-tag regeneration agree; retain stable historical tag dates and never gate already accepted artifacts on heading validation.
+files[2]{path,scope}:
+  scripts/pm-changelog.ts,project
+  scripts/release-continuation.ts,project
+body: ""
