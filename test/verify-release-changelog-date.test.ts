@@ -35,9 +35,14 @@ import { isMainInvocation } from "../scripts/main-invocation.ts";
 
 const FLAGGED = `pm-changelog --pm-root .agents/pm --release-version-from-package ${DATE_FLAG}`;
 
+/** Encode actual script values so tests exercise the manifest boundary. */
+function manifest(command: string): string {
+  return JSON.stringify({ scripts: { changelog: command } });
+}
+
 test("every version-input spelling is recognised, because pm-changelog accepts all three", () => {
   for (const input of VERSION_INPUTS) {
-    const found = invocationsIn({ file: "package.json", text: `pm-changelog ${input} v2026.1.2` });
+    const found = invocationsIn({ file: "package.json", text: manifest(`pm-changelog ${input} v2026.1.2`) });
     assert.equal(found.length, 1, `${input} must be recognised as a version input`);
   }
 });
@@ -56,22 +61,36 @@ test("an invocation naming the pending tag is caught, not skipped", () => {
 
 test("a resumed release's pinned --date-fallback day is accepted, and only with an explicit day", () => {
   const pinned = "pm-changelog --pm-root .agents/pm --release-version-from-package --date-fallback 2026-11-16";
-  const result = auditInvocations([{ file: "package.json", text: pinned }]);
+  const result = auditInvocations([{ file: "package.json", text: manifest(pinned) }]);
   assert.deepEqual(result.failures, []);
   assert.equal(result.notes.length, 1, "the pinned day must be reported as verified");
   // The resumed spelling the release commit writes is quoted the same way in
   // every script, but the scan must not let the flag through without a day:
   // that is the clock again, just spelled differently.
   for (const invalid of ["--date-fallback", "--date-fallback=", "--date-fallback 16-11-2026", "--date-fallback=2026-11-16T12:00:00Z"]) {
-    const failed = auditInvocations([{ file: "package.json", text: `pm-changelog --release-version-from-package ${invalid}` }]);
+    const failed = auditInvocations([{ file: "package.json", text: manifest(`pm-changelog --release-version-from-package ${invalid}`) }]);
     assert.equal(failed.failures.length, 1, `${invalid} must be rejected`);
   }
+});
+
+test("a pinned final argument before another JSON script is audited after decoding", () => {
+  const text = JSON.stringify({
+    description: "pm-changelog --version ignored outside scripts",
+    scripts: {
+      changelog: "pm-changelog --release-version-from-package --date-fallback 2026-11-16",
+      next: "echo next",
+    },
+  }, null, 2);
+  assert.match(text, /--date-fallback 2026-11-16",/);
+  assert.deepEqual(auditInvocations([{ file: "package.json", text }]).failures, []);
+  assert.equal(invocationsIn({ file: "package.json", text }).length, 1);
+  assert.throws(() => invocationsIn({ file: "package.json", text: "invalid JSON" }), SyntaxError);
 });
 
 test("one line holding two invocations is judged per invocation, spaced or not", () => {
   const unflagged = "pm-changelog --pm-root . --release-version-from-package";
   for (const separator of [" && ", "&&", " || ", "||", "; ", ";"]) {
-    const result = auditInvocations([{ file: "package.json", text: `${FLAGGED}${separator}${unflagged}` }]);
+    const result = auditInvocations([{ file: "package.json", text: manifest(`${FLAGGED}${separator}${unflagged}`) }]);
     assert.equal(
       result.failures.length,
       1,
@@ -84,13 +103,13 @@ test("an unspaced pipe is treated as part of an argument, not as a separator", (
   // Splitting there would separate a version input from its own flag and
   // report a defect that is not present.
   const piped = `pm-changelog --release-version-from-package ${DATE_FLAG} --tag-pattern "^v(2026|2027)"`;
-  assert.deepEqual(auditInvocations([{ file: "package.json", text: piped }]).failures, []);
+  assert.deepEqual(auditInvocations([{ file: "package.json", text: manifest(piped) }]).failures, []);
 });
 
 test("a mention of the flag on a non-invoking line cannot cover for an unflagged invocation", () => {
   const result = auditInvocations([{
     file: "package.json",
-    text: `pm-changelog --release-version-from-package\necho "the date comes from ${DATE_FLAG}"`,
+    text: manifest(`pm-changelog --release-version-from-package\necho "the date comes from ${DATE_FLAG}"`),
   }]);
   assert.equal(result.failures.length, 1);
 });
@@ -98,7 +117,7 @@ test("a mention of the flag on a non-invoking line cannot cover for an unflagged
 test("a mention inside a comment is not an invocation", () => {
   const result = auditInvocations([
     { file: ".github/workflows/release.yml", text: "  # pm-changelog --release-version-from-package explains the flag" },
-    { file: "package.json", text: FLAGGED },
+    { file: "package.json", text: manifest(FLAGGED) },
   ]);
   assert.deepEqual(result.failures, []);
   assert.equal(result.notes.length, 1, "the comment-only file must not be reported as verified");
@@ -244,12 +263,12 @@ test("an unquoted trailing comment cannot supply the flag the command is missing
   // A substring check cannot tell a comment from an argument, so a comment
   // mentioning the flag satisfies the very check it complains about.
   const commented = `pm-changelog --release-version-from-package --stdout  # ${DATE_FLAG} belongs here`;
-  const result = auditInvocations([{ file: "package.json", text: commented }]);
+  const result = auditInvocations([{ file: "package.json", text: manifest(commented) }]);
   assert.equal(result.failures.length, 1, "the comment must not stand in for the flag");
 
   // A `#` inside quotes is an argument: these invocations pass URLs with one.
   const quoted = `pm-changelog --release-version-from-package ${DATE_FLAG} --item-url-base "https://example.test/#anchor"`;
-  assert.deepEqual(auditInvocations([{ file: "package.json", text: quoted }]).failures, []);
+  assert.deepEqual(auditInvocations([{ file: "package.json", text: manifest(quoted) }]).failures, []);
 
   assert.equal(stripComment('cmd --flag "a # b" # trailing'), 'cmd --flag "a # b" ');
   assert.equal(stripComment("cmd --flag 'a # b'"), "cmd --flag 'a # b'");
@@ -285,5 +304,5 @@ test("changelog arrays use the last whole-file declaration even after an invocat
 test("a backslash continuation is one logical command, not fragments", () => {
   const text = `pm-changelog \\\n  --release-version-from-package \\\n  ${DATE_FLAG}`;
   assert.equal(joinContinuations(text).split("\n").length, 1);
-  assert.deepEqual(auditInvocations([{ file: "package.json", text }]).failures, []);
+  assert.deepEqual(auditInvocations([{ file: "package.json", text: manifest(text) }]).failures, []);
 });

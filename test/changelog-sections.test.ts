@@ -48,6 +48,14 @@ function args(name: string): string[] {
   return scripts[name]!.split(" ").slice(2).map(arg => arg === "./node_modules/.bin/pm" ? pm : arg);
 }
 
+/** Match fixture tag and completion days to the date policy selected by preparation. */
+function headingDay(version: string): string {
+  const command = args("changelog:full");
+  const fallback = command.findIndex(arg => arg === "--date-fallback" || arg.startsWith("--date-fallback="));
+  if (fallback >= 0) return command[fallback]!.split("=")[1] ?? command[fallback + 1]!;
+  return version.split("-")[0]!.split(".").map((part, index) => part.padStart(index === 0 ? 4 : 2, "0")).join("-");
+}
+
 /** The workflow step this suite executes, read straight from the YAML so reverting its policy breaks the proof. */
 function changelogStepScript(): string {
   const workflow = parse(readFileSync(resolve(".github/workflows/daily-release.yml"), "utf8")) as { jobs: { prepare: { steps: { name?: string; run?: string }[] } } };
@@ -61,6 +69,7 @@ function releaseCommands(): Record<string, string> {
   const generator = resolve("scripts/pm-changelog.ts");
   const commands = Object.fromEntries(["changelog:full", "changelog:check", "release:notes"].map(name => [name,
     [process.execPath, generator, ...args(name).filter(arg => arg !== "--include-empty")].join(" ")
+      .replace(/--date-fallback(?:=|\s)\S+/, "--date-from-version")
   ]));
   commands["release:check"] = "npm run changelog:check";
   return commands;
@@ -151,11 +160,13 @@ test("release commits stay current after tagging, including empty and same-day r
   const { root, env } = tracker();
   try {
     releaseTags(root, env);
-    for (const [version, completed, committed] of [
-      ["2026.10.23", "2026-10-23T13:00:00Z", "2026-10-23T14:00:00Z"],
-      ["2026.10.23-1", "2026-10-23T15:00:00Z", "2026-10-23T16:00:00Z"],
-      ["2026.10.24", "", "2026-10-24T12:00:00Z"],
+    for (const [version, completedTime, committedTime] of [
+      ["2026.10.23", "13:00:00Z", "14:00:00Z"],
+      ["2026.10.23-1", "15:00:00Z", "16:00:00Z"],
+      ["2026.10.24", "", "18:00:00Z"],
     ]) {
+      const completed = completedTime ? `${headingDay(version!)}T${completedTime}` : "";
+      const committed = `${headingDay(version!)}T${committedTime}`;
       writeFileSync(join(root, "package.json"), JSON.stringify({ name: "sample-changelog", version }));
       if (completed) execFileSync(process.execPath, [pm, "create", "task", `Shipped in ${version}`, "--id", `sample-${version!.replaceAll(".", "-")}`, "--status", "closed", "--close-reason", "Fixture complete", "--completed-at", completed], { cwd: root, env });
       assert.equal(runChangelog(args("changelog:full"), root, env), 0);
@@ -172,7 +183,7 @@ test("release commits stay current after tagging, including empty and same-day r
       assert.doesNotMatch(before, /^## Unreleased$/m);
       assert.match(committedReleaseNotes(before, version!), completed ? /Shipped in/ : /^No tracked changes\.\n$/);
     }
-    execFileSync(process.execPath, [pm, "create", "task", "Work completed after the tag", "--id", "sample-later", "--status", "closed", "--close-reason", "Fixture complete", "--completed-at", "2026-10-24T13:00:00Z"], { cwd: root, env });
+    execFileSync(process.execPath, [pm, "create", "task", "Work completed after the tag", "--id", "sample-later", "--status", "closed", "--close-reason", "Fixture complete", "--completed-at", `${headingDay("2026.10.24")}T19:00:00Z`], { cwd: root, env });
     assert.equal(runChangelog(args("changelog:full"), root, env), 0);
     const later = readFileSync(join(root, "CHANGELOG.md"), "utf8");
     assert.match(later, /^## Unreleased\n\n### Other\n\n- Work completed after the tag/m);

@@ -114,6 +114,21 @@ test("a resumed version is stamped with the tag day; a current version keeps its
   assert.equal(reviewed.heading_date, "2026-10-19", "a maintainer-reviewed old version is tagged today");
 });
 
+test("heading-date comparisons handle year and month rollovers, future days and non-calendar inputs", () => {
+  for (const [version, today, expected] of [
+    ["2025.12.31", "2026.1.1", "2026-01-01"],
+    ["2027.1.1", "2026.12.31", ""],
+    ["2026.9.30", "2026.10.1", "2026-10-01"],
+    ["2026.11.1", "2026.10.31", ""],
+    ["2026.10.20", "2026.10.19", ""],
+    ["1.2.3", "2026.10.19", ""],
+    ["2026.10.18", "invalid", ""],
+  ]) {
+    const plan = decideDailyRelease(facts({ packageVersion: version, today: today! }));
+    assert.equal(plan.heading_date, expected, `${version} against ${today}`);
+  }
+});
+
 test("canonical release names format the reviewed package coordinate instead of today's date", () => {
   const plan = decideDailyRelease(facts({ packageVersion: "2026.8.9-2" }));
   assert.equal(plan.tag, "v2026.08.09-2");

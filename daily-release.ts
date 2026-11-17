@@ -54,10 +54,9 @@ function dayBefore(earlier: [number, number, number], later: [number, number, nu
     : earlier[2] < later[2];
 }
 
-/** Format a calendar day coordinate as the generator's padded ISO heading date. */
-function isoDay(coordinate: string): string {
-  const day = calendarDay(coordinate);
-  return day === null ? "" : day.map((part, index) => String(part).padStart(index === 0 ? 4 : 2, "0")).join("-");
+/** Format an already parsed calendar day as the generator's padded ISO heading date. */
+function isoDay(day: [number, number, number]): string {
+  return day.map((part, index) => String(part).padStart(index === 0 ? 4 : 2, "0")).join("-");
 }
 
 /** Select the newest numeric release date regardless of zero padding or tag creation order. */
@@ -93,7 +92,7 @@ export function decideDailyRelease(input: DailyReleaseInput) {
   const todayDay = calendarDay(input.today);
   // A resumed version's own day has already passed, so the release step tags it
   // today and the changelog committed at prepare must carry the same day.
-  const headingDate = versionDay !== null && todayDay !== null && dayBefore(versionDay, todayDay) ? isoDay(input.today) : "";
+  const headingDate = versionDay !== null && todayDay !== null && dayBefore(versionDay, todayDay) ? isoDay(todayDay) : "";
   const releasedToday = input.publishedToday === true || input.releaseTags.some(tag => releaseVersion(tag) === releaseVersion(input.today));
   const versionExists = input.releaseTags.some(tag => releaseCoordinate(tag) === releaseCoordinate(version));
   const shouldRelease = !releasedToday && !versionExists && input.hasChanges && input.lastRelease?.sha !== input.mainSha;

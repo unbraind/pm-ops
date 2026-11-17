@@ -102,7 +102,12 @@ export function stripComment(command: string): string {
  * @returns The invocations found, in file order.
  */
 export function invocationsIn(source: SourceFile): Invocation[] {
-  const text = joinContinuations(source.text);
+  // JSON punctuation and escaping are not shell syntax. Audit only decoded
+  // script values so a final argument is not followed by the JSON comma.
+  const commands = source.file === "package.json"
+    ? Object.values((JSON.parse(source.text) as { scripts?: Record<string, string> }).scripts ?? {}).join("\n")
+    : source.text;
+  const text = joinContinuations(commands);
   const arrays = bashArrays(text);
   const found: Invocation[] = [];
   for (const raw of text.split("\n")) {
