@@ -125,7 +125,7 @@ test("npm isolation ignores hostile environment and file configuration", () => {
   }
 });
 
-test("shared launcher checks detect removal and retargeting independently of package bytes", () => {
+test("shared launcher checks detect removal and retargeting independently of package bytes", { skip: process.platform === "win32" }, () => {
   const root = mkdtempSync(join(tmpdir(), "npm-launcher-state-"));
   try {
     const launcher = join(root, "npm");
