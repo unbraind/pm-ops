@@ -1,10 +1,16 @@
 # Changelog
 
-## 2026.11.17 - 2026-11-17
+## Unreleased
 
 ### Closed
 
 - Closed: Confirm the daily release commits the rebuilt dist/ before its pack check ([ops-b2bs](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-b2bs.toon))
+
+## 2026.11.17 - 2026-11-17
+
+### Dependencies
+
+- Bump the dependencies group across 1 directory with 2 updates ([#296](https://github.com/unbraind/pm-ops/pull/296))
 
 ## 2026.11.15 - 2026-11-16
 
