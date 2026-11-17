@@ -1,9 +1,13 @@
 /** Test restart admission and the real dispatch adapter against synthetic GitHub run history. */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { decidePrepareRestart, type PrepareRestartInput } from "../release-prepare-restart.ts";
 import { releaseConfigDigest } from "../release-continuation.ts";
-import { restartPreparation, type PrepareRestartOptions } from "../scripts/release-prepare-restart.ts";
+import { runPrepareRestartCli, restartPreparation, type PrepareRestartOptions } from "../scripts/release-prepare-restart.ts";
 import type { ReleaseApi } from "../scripts/release-continuation.ts";
 
 const oldHead = "a".repeat(40), newHead = "b".repeat(40);
@@ -78,15 +82,15 @@ test("two or more bot dispatches refuse with the existing main-advanced diagnost
   }
 });
 
-test("owner dispatches are ignored, triggering_actor takes precedence, and actor is the fallback", async () => {
+test("an owner rerun preserves the original bot dispatch and triggering_actor is only a fallback", async () => {
   const { api, calls } = fixture([
     { id: 1, triggering_actor: { login: "owner" }, actor: { login: "github-actions[bot]" } },
-    { id: 2, actor: { login: "owner" } },
+    { id: 2, actor: { login: "owner" }, triggering_actor: { login: "github-actions[bot]" } },
     { id: 3, triggering_actor: { login: "owner" } },
     { id: 4, triggering_actor: null, actor: { login: "github-actions[bot]" } },
   ]);
-  assert.match(await restartPreparation(options(), api), /Restart 2\/2/);
-  assert.deepEqual(calls.at(-1)?.body, { ref: "main" });
+  await assert.rejects(restartPreparation(options(), api), /2\/2 bot dispatches today/);
+  assert.ok(calls.every(call => call.method === "GET"));
 });
 
 test("history pagination counts bots on later pages and refuses incomplete or inconsistent evidence", async () => {
@@ -106,6 +110,12 @@ test("history pagination counts bots on later pages and refuses incomplete or in
     await assert.rejects(restartPreparation(options(), async (path, ...args) => path.includes("/runs?") && path.endsWith("page=2") ? later : api(path, ...args)), /::error::.*(history|pagination)/);
     assert.ok(calls.every(call => call.method === "GET"));
   }
+});
+
+test("the complete 1000-run boundary returns on page ten without an extra read", async () => {
+  const { api, calls } = fixture(Array.from({ length: 1000 }, (_, id) => ({ id: id + 1, actor: { login: "owner" } })));
+  assert.match(await restartPreparation(options(), api), /Restart 1\/2/);
+  assert.equal(calls.filter(call => call.path.includes("/runs?")).length, 10);
 });
 
 test("complete owner-only history across pages permits a restart while an unchanged head refuses", async () => {
@@ -171,4 +181,61 @@ test("recovery and retirement remain read-free and malformed identity or publica
     await assert.rejects(restartPreparation(options(), async (path, ...args) => path.includes("/releases?") ? releases : api(path, ...args)), /Unreadable publication dates/);
     assert.ok(calls.every(call => call.method === "GET"));
   }
+});
+
+test("CLI parses environment, prints and appends summary, and reports failure exits", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "restart-cli-"));
+  const env = { GITHUB_REPOSITORY: "example/package", CALLER_WORKFLOW: options().workflowRef,
+    RESTART_BASE_SHA: oldHead, RELEASE_CONFIG: '{"reconcile-only":true}', GITHUB_STEP_SUMMARY: join(dir, "summary") };
+  let out = "", err = "", failed = false;
+  const io = { out: (text: string) => { out += text; }, err: (text: string) => { err += text; }, fail: () => { failed = true; } };
+  try {
+    for (const config of ['{"reconcile-only":true}', "{"]) {
+      const result = spawnSync(process.execPath, ["scripts/release-prepare-restart.ts"], { encoding: "utf8",
+        env: { ...process.env, ...env, RELEASE_CONFIG: config } });
+      assert.equal(result.status, config === "{" ? 1 : 0);
+      assert.match(config === "{" ? result.stderr : result.stdout, config === "{" ? /JSON/ : /Recovery mode/);
+    }
+    await runPrepareRestartCli(env, fixture().api, io);
+    assert.match(out, /Recovery mode/);
+    assert.equal(readFileSync(env.GITHUB_STEP_SUMMARY, "utf8"), out.repeat(2));
+    assert.equal(failed, false);
+    for (const bad of [{}, { ...env, RELEASE_CONFIG: "{" }, { ...env, RELEASE_CONFIG: "{}", RELEASE_TIMEZONE: "invalid" }]) {
+      await runPrepareRestartCli(bad, fixture().api, io);
+      assert.equal(failed, true); failed = false;
+    }
+    assert.match(err, /Unexpected prepare restart identity/);
+    assert.match(err, /JSON/);
+    await runPrepareRestartCli(env, fixture().api, { ...io, out: () => { throw "output failed"; } });
+    assert.match(err, /output failed/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("identity, main, history and publication guards reject each malformed boundary", async () => {
+  for (const patch of [{ repository: "bad" }, { workflowRef: options().workflowRef.replace("@refs/heads/main", "@refs/heads/dev") },
+    { workflowRef: "example/package/other.yml@refs/heads/main" }, { baseSha: "bad" }]) {
+    await assert.rejects(restartPreparation({ ...options(), ...patch }, fixture().api), /Unexpected prepare restart identity/);
+  }
+  for (const main of [null, {}, { object: { sha: "bad" } }]) {
+    await assert.rejects(restartPreparation(options(), async () => main), /Unreadable current main/);
+  }
+  for (const result of [
+    { total_count: -1, workflow_runs: [] }, { total_count: 0, workflow_runs: {} },
+    { total_count: 101, workflow_runs: Array(101).fill({}) },
+    { total_count: 1, workflow_runs: [null] }, { total_count: 1, workflow_runs: [{ id: 0, actor: { login: "owner" } }] },
+    { total_count: 1, workflow_runs: [{ id: 1, actor: { login: 3 } }] },
+    { total_count: 1, workflow_runs: [{ id: 1, actor: { login: "" } }] },
+    { total_count: 0, workflow_runs: [{ id: 1, actor: { login: "owner" } }] },
+  ]) {
+    const { api } = fixture();
+    await assert.rejects(restartPreparation(options(), async (path, ...args) => path.includes("/runs?") ? result : api(path, ...args)), /history/);
+  }
+  for (const releases of [[null], [{ draft: false, published_at: 42 }], [{ draft: false, published_at: "bad" }]]) {
+    const { api } = fixture();
+    await assert.rejects(restartPreparation(options(), async (path, ...args) => path.includes("/releases?") ? releases : api(path, ...args)), /publication dates/);
+  }
+  const { api } = fixture();
+  await assert.rejects(restartPreparation(options(), async (path, ...args) => path.includes("/releases?")
+    ? Array.from({ length: 100 }, () => ({ draft: true, published_at: null })) : api(path, ...args)), /Publication evidence exceeds/);
+  await assert.rejects(restartPreparation(options(), async () => { throw "non-Error failure"; }), /non-Error failure/);
 });

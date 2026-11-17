@@ -31,7 +31,11 @@ function releaseDayStart(now: string, calendar: Intl.DateTimeFormat): string {
 async function botDispatchesToday(path: string, api: ReleaseApi): Promise<number> {
   let total: number | undefined, count = 0;
   const seen = new Set<number>();
-  for (let page = 1; page <= 10; page++) {
+  // Each continuing page adds 100 unique IDs toward a stable total capped at 1000.
+  // The tenth page therefore returns or refuses; no unreachable eleventh-page guard is needed.
+  let page = 0;
+  while (true) {
+    page++;
     const result = await api(`${path}&per_page=100&page=${page}`) as {
       total_count: number;
       workflow_runs: { id: number; triggering_actor?: { login?: string } | null; actor?: { login?: string } | null }[];
@@ -41,7 +45,7 @@ async function botDispatchesToday(path: string, api: ReleaseApi): Promise<number
       || result.workflow_runs.length > 100) throw new Error("Unreadable or truncated caller run history");
     total = result.total_count;
     for (const run of result.workflow_runs) {
-      const login = run?.triggering_actor?.login ?? run?.actor?.login;
+      const login = run?.actor?.login ?? run?.triggering_actor?.login;
       if (!run || !Number.isSafeInteger(run.id) || run.id < 1 || seen.has(run.id) || typeof login !== "string" || !login) {
         throw new Error("Unreadable or duplicated caller run history");
       }
@@ -51,7 +55,6 @@ async function botDispatchesToday(path: string, api: ReleaseApi): Promise<number
     if (seen.size === total) return count;
     if (seen.size > total || result.workflow_runs.length < 100) throw new Error("Incomplete caller run history pagination");
   }
-  throw new Error("Caller run history exceeds the bounded pagination limit");
 }
 
 /** Check live publication evidence and the daily bot bound, then dispatch without caller inputs. */
@@ -100,16 +103,23 @@ export async function restartPreparation(options: PrepareRestartOptions, api: Re
   catch (error) { throw new Error(`::error::Prepare restart refused: ${error instanceof Error ? error.message : String(error)}`); }
 }
 
-if (isMainInvocation(process.argv, import.meta.url)) {
+/** Parse trusted environment and report the executable result through the supplied process ports. */
+export async function runPrepareRestartCli(
+  env: NodeJS.ProcessEnv = process.env,
+  api: ReleaseApi = githubApi,
+  io = { out: (text: string) => { process.stdout.write(text); }, err: (text: string) => { process.stderr.write(text); },
+    fail: () => { process.exitCode = 1; } },
+): Promise<void> {
   try {
-    const env = process.env;
     const message = await restartPreparation({ repository: env.GITHUB_REPOSITORY ?? "", workflowRef: env.CALLER_WORKFLOW ?? "",
       baseSha: env.RESTART_BASE_SHA ?? "", config: JSON.parse(env.RELEASE_CONFIG ?? "{}"),
-      timezone: env.RELEASE_TIMEZONE ?? "Europe/Vienna", now: new Date().toISOString() });
-    process.stdout.write(message + "\n");
+      timezone: env.RELEASE_TIMEZONE ?? "Europe/Vienna", now: new Date().toISOString() }, api);
+    io.out(message + "\n");
     appendFileSync(env.GITHUB_STEP_SUMMARY!, message + "\n");
   } catch (error) {
-    process.stderr.write((error instanceof Error ? error.message : String(error)) + "\n");
-    process.exitCode = 1;
+    io.err((error instanceof Error ? error.message : String(error)) + "\n");
+    io.fail();
   }
 }
+
+if (isMainInvocation(process.argv, import.meta.url)) await runPrepareRestartCli();
