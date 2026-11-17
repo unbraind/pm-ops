@@ -3,13 +3,11 @@ title: Release 2026.11.15 changelog heading drifts after rollover publication
 description: "Baseline origin/main fails npm run changelog:check. CHANGELOG.md says 2026.11.15 - 2026-11-15, while tag v2026.11.15 points at the November 16 release commit. The pinned generator derives the tagged heading from commit time, regenerating 2026-11-16. Confirmed on unchanged origin/main while fixing #290."
 type: Issue
 pm_format_version: 2
-status: in_progress
+status: open
 priority: 2
 tags[2]: "area:release","gh:unbraind/pm-ops#292"
 created_at: "2026-11-16T19:17:51.165Z"
-updated_at: "2026-11-17T08:17:31.656Z"
-assignee: pi-claude
-claim_principal: pi-claude
+updated_at: "2026-11-17T08:17:47.988Z"
 author: codex-sol
 acceptance_criteria: "Resolve the existing tagged release-heading date policy mismatch; npm run changelog:check and release date checks agree before and after rollover without changing historical tags."
 comments[13]{created_at,author,text}:
