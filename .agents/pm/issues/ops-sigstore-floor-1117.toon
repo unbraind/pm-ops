@@ -1,0 +1,21 @@
+id: ops-sigstore-floor-1117
+title: Keep sigstore updates compatible with the Node 22.18 floor
+description: Ignore sigstore major updates whose dependency engines exclude the supported runtime floor.
+type: Issue
+status: in_progress
+priority: 1
+tags[1]: "gh:unbraind/pm-ops#262"
+created_at: "2026-11-17T18:26:55.092Z"
+updated_at: "2026-11-17T18:39:11.374Z"
+author: codex-sol
+repro_steps: Install the sigstore 5 lock on Node 22.18.0 with engine-strict.
+expected_result: Dependency updates support engines.node >=22.18.0.
+actual_result: @npmcli/agent 5.0.2 requires Node ^22.22.2 or newer supported majors.
+comments[2]{created_at,author,text}:
+  "2026-11-17T18:31:24.227Z",codex-sol,"Job 133848393245 fails engine-strict on @npmcli/agent 5.0.2: requires ^22.22.2 || ^24.15.0 || >=26.0.0, actual Node 22.18.0. package.json declares >=22.18.0, so sigstore 5 is incompatible. Keep sigstore 4 and ignore semver-major updates rather than raising the supported floor."
+  "2026-11-17T18:39:00.917Z",codex-sol,"Validation: npm run typecheck and npm run lint pass. The release-runtime Windows/workflow selection passes 46/46 directly and 46/46 through pm test. The existing release lock installs on actual Node 22.18.0 using npm ci --include=dev --ignore-scripts --legacy-peer-deps --engine-strict --no-audit --no-fund. No engine floor or dependency lock was raised."
+files[1]{path,scope}:
+  .github/dependabot.yml,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/release-runtime.test.ts test/release-runtime-windows.test.ts test/daily-release-workflow.test.ts,project,600,codex-sol,"2026-11-17T18:34:38.218Z",local_mutation,fix/deps-ops-1117
+body: ""
