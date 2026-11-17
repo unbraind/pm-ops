@@ -976,7 +976,7 @@ test("continuation enforces the merge day before publish and still tags after mi
         GIT_AUTHOR_DATE: "2026-10-23T12:00:00Z", GIT_COMMITTER_DATE: `${mergeDay}T22:30:00+02:00`,
       };
       const git = (...args: string[]) => execFileSync("git", args, { cwd: project, env, encoding: "utf8" }).trim();
-      writeFileSync(join(project, "package.json"), JSON.stringify({ scripts: { changelog: `pm-changelog --date-fallback '${pinDay}'` } }));
+      writeFileSync(join(project, "package.json"), JSON.stringify({ scripts: { changelog: `pm-changelog "--date-fallback" '${pinDay}'` } }));
       git("add", "package.json");
       git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "Verified merge");
       const verified = git("rev-parse", "HEAD");

@@ -1,6 +1,8 @@
 /** Dependency-free decisions for durable release intents and runner-free reconciliation. */
 import { createHash } from "node:crypto";
 
+export { assertReleaseHeadingDate } from "./release-changelog-options.ts";
+
 /** Immutable candidate prepared by a trusted default-branch workflow. */
 export interface ReleaseCandidate {
   schema: 1;
@@ -115,15 +117,6 @@ export function verifyReleaseHandoff(candidate: ReleaseCandidate, manifest: stri
   if (releaseDigest(notes) !== candidate.notesSha256) throw new Error("Stale release notes");
   if (releaseDigest(packageBytes) !== candidate.packageSha256) throw new Error("Stale package artifact");
   if (`sha512-${createHash("sha512").update(packageBytes).digest("base64")}` !== candidate.packageIntegrity) throw new Error("Stale package integrity");
-}
-
-/** Refuse publication when the verified merge day differs from the prepared pin. */
-export function assertReleaseHeadingDate(scripts: readonly string[], mergeDay: string): void {
-  for (const script of scripts) {
-    for (const pin of script.matchAll(/--date-fallback(?:=|\s+)(["']?)(\d{4}-\d{2}-\d{2})\1(?=\s|$|[&;|)])/g)) {
-      if (pin[2] !== mergeDay) throw new Error(`Prepared release heading day ${pin[2]} differs from verified merge commit day ${mergeDay}. Refusing to publish; re-prepare the candidate for the merge day. The reviewed commit and verified artifact cannot be rewritten during continuation.`);
-    }
-  }
 }
 
 /** Identity evidence shared by publication and explicit non-publishing retirement. */

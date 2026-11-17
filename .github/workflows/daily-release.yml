@@ -608,48 +608,8 @@ jobs:
             # The tree-change decision already admitted this release. Dependency
             # and workflow changes still need notes without a closed tracker item.
             # Persist the same policy for nested release:check and post-tag checks.
-            node --input-type=module <<'NODE'
-          import {readFileSync, writeFileSync} from 'node:fs';
-          const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-          let changed = false;
-          // A resumed version is tagged today, so its heading must carry the
-          // tag's day rather than the version's. The generator's --date-fallback
-          // applies only while no tag exists, so the release commit pins it here
-          // and the spelling stays inert on main once the tag exists.
-          const headingDate = (process.env.RELEASE_HEADING_DATE || '').trim();
-          if (headingDate && !/^\d{4}-\d{2}-\d{2}$/.test(headingDate)) throw new Error('Release heading date must be YYYY-MM-DD, received ' + JSON.stringify(headingDate));
-          const versionDateFlag = '--date-from-version';
-          const pinnedDateFlag = /--date-fallback(?:=|\s+)([\x22\x27]?)(\d{4}-\d{2}-\d{2})\1(?=\s|$|[&;|)])/g;
-          for (const name of new Set([process.env.CHANGELOG_SCRIPT, process.env.CHANGELOG_CHECK_SCRIPT, process.env.NOTES_SCRIPT])) {
-            let script = pkg.scripts?.[name];
-            if (typeof script !== 'string' || !script.trim()) throw new Error('Missing changelog hook: ' + name);
-            if (!script.split(/\s+/).includes('--include-empty')) {
-              script += ' --include-empty';
-              changed = true;
-              // The release commit carries this package.json edit; say so instead of changing consumer config silently.
-              console.log('::notice::Release commit appends --include-empty to package.json script "' + name + '" so later changelog checks agree with this dependency-only release.');
-            }
-            if (headingDate) {
-              if (script.includes(versionDateFlag)) {
-                script = script.replaceAll(versionDateFlag, '--date-fallback ' + headingDate);
-                changed = true;
-                console.log('::notice::Release commit pins package.json script "' + name + '" to --date-fallback ' + headingDate + ' because the resumed version is tagged today, so post-tag checks regenerate the same heading.');
-              }
-              if (script.search(pinnedDateFlag) !== -1) {
-                script = script.replace(pinnedDateFlag, '--date-fallback ' + headingDate);
-                changed = true;
-                console.log('::notice::Release commit refreshes package.json script "' + name + '" to --date-fallback ' + headingDate + ' for the day this resumed version is tagged.');
-              }
-            } else if (script.search(pinnedDateFlag) !== -1) {
-              script = script.replace(pinnedDateFlag, versionDateFlag);
-              changed = true;
-              // Restore the standing policy once the pending version is current again; the previous release's pinned date no longer applies.
-              console.log('::notice::Release commit restores --date-from-version in package.json script "' + name + '"; the pending version is current again.');
-            }
-            pkg.scripts[name] = script;
-          }
-          if (changed) writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-          NODE
+            RELEASE_TOOLS="${CONTINUATION_SCRIPT%/scripts/*}"
+            node "$RELEASE_TOOLS/scripts/prepare-release-changelog.ts"
             npm run "$CHANGELOG_SCRIPT" -- --include-empty
             npm run "$CHANGELOG_CHECK_SCRIPT" -- --include-empty
             npm run --silent "$NOTES_SCRIPT" -- --include-empty > "$RUNNER_TEMP/RELEASE_NOTES.md"

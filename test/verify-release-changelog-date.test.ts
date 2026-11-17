@@ -390,10 +390,12 @@ test("manifest scripts must be an object and only string commands are scanned", 
 });
 
 test("fallback dates accept matching shell quotes and adjacent separators", () => {
-  for (const quote of ["", "'", '"']) for (const assignment of [" ", "="]) for (const suffix of ["", "&&true", ";true", "|cat", ")"]) {
-    const flag = `--date-fallback${assignment}${quote}2026-10-23${quote}${suffix}`;
-    const result = auditInvocations([{ file: "package.json", text: manifest(`pm-changelog --release-version-from-package ${flag}`) }]);
-    assert.deepEqual(result.failures, [], flag);
+  for (const nameQuote of ["", "'", '"']) for (const valueQuote of ["", "'", '"']) {
+    for (const assignment of [" ", "="]) for (const suffix of ["", "&&true", ";true", "|cat", ")"]) {
+      const flag = `${nameQuote}--date-fallback${nameQuote}${assignment}${valueQuote}2026-10-23${valueQuote}${suffix}`;
+      const result = auditInvocations([{ file: "package.json", text: manifest(`pm-changelog --release-version-from-package ${flag}`) }]);
+      assert.deepEqual(result.failures, [], flag);
+    }
   }
   for (const flag of ["--date-fallback '2026-02-30'", `--date-fallback '2026-10-23"`, `--date-fallback "2026-10-23'`, "--date-fallback '2026-10-23", '--date-fallback 2026-10-23"']) {
     const result = auditInvocations([{ file: "package.json", text: manifest(`pm-changelog --release-version-from-package ${flag}`) }]);

@@ -283,11 +283,20 @@ export function tokenizeCommands(text, depth = 0) {
     return scanShellCommands(text, depth, false);
 }
 /**
+ * Find commands and retain source offsets for words that can be edited in place.
+ * Words reconstructed from evaluator arguments or decoded escapes may have no
+ * direct source span. The commands are still returned for verification.
+ */
+export function tokenizeCommandsWithSpans(text) {
+    const spans = new WeakMap();
+    return { commands: scanShellCommands(text, 0, false, undefined, spans), spans };
+}
+/**
  * Scan public tokens or collect lexical children without entering their scopes.
  * Arithmetic mode suppresses operand commands while retaining executable children.
  * The public entry retains its existing signature and token object contract.
  */
-function scanShellCommands(text, depth, arithmetic, children) {
+function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0) {
     if (depth > 8)
         return [];
     const commands = [];
@@ -300,6 +309,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
     let multipleWords = false;
     let startsQuoted = false;
     let started = false;
+    let wordStart = 0;
     /** An incomplete quoted word cannot prove the remaining executable source. */
     let unterminated = false;
     /** Conditional operands are words, including regex metacharacters. */
@@ -314,12 +324,13 @@ function scanShellCommands(text, depth, arithmetic, children) {
     // each search resumes past its last match, including an absent end sentinel.
     let parameterClose = -1;
     let parameterAt = -1;
-    const endWord = () => {
+    const endWord = (end) => {
         if (!started)
             return;
         const token = unresolved ? { value, quoted, unresolved, startsQuoted } : { value, quoted, startsQuoted };
         if (quoted && multipleWords)
             token.multipleWords = true;
+        spans?.set(token, { start: offset + wordStart, end: offset + end });
         const caseState = cases.at(-1);
         const keyword = !token.quoted && token.unresolved !== true;
         if (caseState === "pattern") {
@@ -345,14 +356,16 @@ function scanShellCommands(text, depth, arithmetic, children) {
         startsQuoted = false;
         started = false;
     };
-    const endCommand = () => {
-        endWord();
+    const endCommand = (end) => {
+        endWord(end);
         if (command.length > 0)
             commands.push(command);
         command = [];
     };
     for (let index = 0; index < text.length; index += 1) {
         const character = text[index];
+        if (!started)
+            wordStart = index;
         if (!started && text.startsWith("[[", index) && isBraceBoundary(text[index + 2])
             && commandName(command) === undefined) {
             conditional = true;
@@ -360,7 +373,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
         if (conditional && !started && text.startsWith("]]", index) && isBraceBoundary(text[index + 2])) {
             value = "]]";
             started = true;
-            endCommand();
+            endCommand(index + 2);
             conditional = false;
             index += 1;
             continue;
@@ -368,7 +381,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
         if (character === "#" && !started) {
             const newline = text.indexOf("\n", index);
             index = newline === -1 ? text.length : newline;
-            endCommand();
+            endCommand(index);
             continue;
         }
         if (character === "\\") {
@@ -527,13 +540,13 @@ function scanShellCommands(text, depth, arithmetic, children) {
             multipleWords = true;
         }
         if (character === " " || character === "\t" || character === "\r") {
-            endWord();
+            endWord(index);
             continue;
         }
         if (conditional && isOperatorStart(character)) {
             // Conditional control operators separate operands, never commands.
             if (!regexOperand && (character === "&" || character === "|")) {
-                endWord();
+                endWord(index);
                 continue;
             }
             // Only substitutions above introduce executable children in [[ ... ]].
@@ -542,17 +555,17 @@ function scanShellCommands(text, depth, arithmetic, children) {
             continue;
         }
         if (cases.at(-1) === "pattern" && value === "esac" && !quoted && isOperatorStart(character))
-            endWord();
+            endWord(index);
         if (cases.at(-1) === "pattern") {
             if (character === ")") {
-                endCommand();
+                endCommand(index);
                 cases[cases.length - 1] = "body";
             }
             else if (character === "(" && !started) {
                 // Bash permits an optional opening parenthesis before an arm pattern.
             }
             else if (character === "|" || character === "\n")
-                endWord();
+                endWord(index);
             else {
                 value += character;
                 started = true;
@@ -560,7 +573,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
             continue;
         }
         if (cases.at(-1) === "body" && character === ";" && (text[index + 1] === ";" || text[index + 1] === "&")) {
-            endCommand();
+            endCommand(index);
             cases[cases.length - 1] = "pattern";
             index += text[index + 1] === ";" && text[index + 2] === "&" ? 2 : 1;
             continue;
@@ -572,7 +585,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
                 const child = readSubstitution(text, index, 1);
                 nested.push({ start: index, end: child.end, text: child.inner, arithmetic: text[index + 1] === "(", subshell: true });
                 index = child.end - 1;
-                endCommand();
+                endCommand(index);
                 continue;
             }
             // `{` and `}` are reserved WORDS, not metacharacters: they delimit a
@@ -603,7 +616,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
                 started = true;
                 continue;
             }
-            endCommand();
+            endCommand(index);
             continue;
         }
         value += character;
@@ -611,7 +624,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
             startsQuoted = false;
         started = true;
     }
-    endCommand();
+    endCommand(text.length);
     if (unterminated || conditional || arrayAssignment || cases.length > 0)
         commands.push([{ value: "$", quoted: false, unresolved: true, startsQuoted: false }]);
     if (arithmetic)
@@ -620,8 +633,11 @@ function scanShellCommands(text, depth, arithmetic, children) {
         children.push(...nested);
         return commands;
     }
-    for (const body of nested)
-        commands.push(...scanShellCommands(body.text, depth + 1, body.arithmetic));
+    for (const body of nested) {
+        const start = body.start + (text[body.start] === "`" ? 1 : 2);
+        const childSpans = text.startsWith(body.text, start) ? spans : undefined;
+        commands.push(...scanShellCommands(body.text, depth + 1, body.arithmetic, undefined, childSpans, offset + start));
+    }
     for (const found of [...commands]) {
         // A YAML key's value is shell text, and it may arrive as ONE quoted word:
         // `run: "npm publish"` leaves a single token holding the whole command, so

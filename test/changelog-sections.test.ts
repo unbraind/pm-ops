@@ -12,6 +12,7 @@ import { verify as verifySections } from "../scripts/verify-release-changelog-se
 import { parse } from "yaml";
 import { decideDailyRelease } from "../daily-release.ts";
 import { runBashFixture } from "./bash-fixture.ts";
+import { rewriteReleaseHeadingDate } from "../release-changelog-options.ts";
 
 /** Read the actual repository commands so reverting their policy breaks the proof. */
 const scripts = (JSON.parse(readFileSync(resolve("package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
@@ -76,7 +77,7 @@ function releaseCommands(): Record<string, string> {
 
 /** Release-step environment over one fixture tracker, with the resumed heading date when given. */
 function releaseStepEnv(root: string, env: NodeJS.ProcessEnv, headingDate = ""): NodeJS.ProcessEnv {
-  return { ...env, IS_RUST: "false", CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check", NOTES_SCRIPT: "release:notes", RELEASE_HEADING_DATE: headingDate, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: join(root, "summary.md"), NPM_CONFIG_USERCONFIG: "/dev/null" };
+  return { ...env, IS_RUST: "false", CONTINUATION_SCRIPT: resolve("scripts/release-continuation.ts"), CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check", NOTES_SCRIPT: "release:notes", RELEASE_HEADING_DATE: headingDate, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: join(root, "summary.md"), NPM_CONFIG_USERCONFIG: "/dev/null" };
 }
 
 /** Commit the prepared release files and tag the candidate on the given day. */
@@ -223,6 +224,10 @@ test("dependency-only release windows run the canonical changelog step without a
     for (const file of ["CHANGELOG.md", "RELEASE_NOTES.md"]) assert.match(committedReleaseNotes(readFileSync(join(root, file), "utf8"), "2026.10.23"), /^No (?:tracked )?changes\.\n$/);
     execFileSync("npm", ["run", "release:check"], { cwd: root, env: releaseEnv });
     const prepared = readFileSync(join(root, "package.json"), "utf8");
+    const invalidDate = runBashFixture(script, { cwd: root, env: { ...releaseEnv, RELEASE_HEADING_DATE: "tomorrow" }, encoding: "utf8" });
+    assert.notEqual(invalidDate.status, 0);
+    assert.match(invalidDate.stderr, /Release heading date must be YYYY-MM-DD/);
+    assert.equal(readFileSync(join(root, "package.json"), "utf8"), prepared);
     assert.equal(runBashFixture(script, { cwd: root, env: releaseEnv, encoding: "utf8" }).status, 0);
     assert.equal(readFileSync(join(root, "package.json"), "utf8"), prepared, "preparation is idempotent");
     for (const value of [undefined, "", " ", 42]) {
@@ -250,7 +255,7 @@ test("prepare commits the heading its tag produces, for same-day and resumed rel
   const commands = releaseCommands();
   for (const [version, headingDate, tagDay] of [
     ["2026.10.23", "", "2026-10-23T14:00:00Z"],
-    ["2026.10.23", "2026-10-24", "2026-10-24T12:00:00Z"],
+    ["2026.10.23", "2026-10-24", "2026-10-26T12:00:00Z"],
   ] as const) {
     const { root, env } = tracker();
     try {
@@ -265,6 +270,19 @@ test("prepare commits the heading its tag produces, for same-day and resumed rel
       for (const name of ["changelog:full", "changelog:check", "release:notes"]) {
         assert.equal(pkg.scripts[name]!.includes("--date-fallback"), Boolean(headingDate), `${name} keeps the ${headingDate ? "pinned" : "standing"} date policy`);
         assert.ok(!pkg.scripts[name]!.includes("--date-from-version") || !headingDate, `${name} must not carry both date policies`);
+      }
+      if (headingDate) {
+        // Retry the same untagged version after a day rolls over.
+        const nextDay = tagDay.slice(0, 10);
+        const quotedHooks = Object.fromEntries(Object.entries(pkg.scripts).map(([name, command]) => [
+          name, command.replace("--date-fallback " + headingDate, name === "changelog:check"
+            ? `'--date-fallback'="${headingDate}"` : `"--date-fallback" '${headingDate}'`),
+        ]));
+        writeFileSync(join(root, "package.json"), JSON.stringify({ ...pkg, version, scripts: quotedHooks }));
+        const refreshed = runBashFixture(script, { cwd: root, env: { ...releaseEnv, RELEASE_HEADING_DATE: nextDay }, encoding: "utf8" });
+        assert.equal(refreshed.status, 0, refreshed.stdout + refreshed.stderr);
+        assert.match(committedReleaseNotes(readFileSync(join(root, "CHANGELOG.md"), "utf8"), version), /^No tracked changes/);
+        assert.match(readFileSync(join(root, "CHANGELOG.md"), "utf8"), /^## 2026\.10\.23 - 2026-10-26$/m);
       }
       // The release PR's gate runs while the candidate is untagged.
       execFileSync("npm", ["run", "release:check"], { cwd: root, env: releaseEnv });
@@ -304,11 +322,19 @@ test("fixture heading days use the explicitly selected date policy", () => {
 
 test("preparation rewrites every date policy without consuming a following flag", () => {
   const step = changelogStepScript();
-  const script = step.slice(step.indexOf("node --input-type=module"), step.indexOf("\nNODE") + 5);
+  const script = step.split("\n").filter(line =>
+    line.includes("RELEASE_TOOLS=") || line.includes('node "$RELEASE_TOOLS/')).join("\n");
+  assert.match(script, /prepare-release-changelog\.ts/);
   for (const [policy, heading, expected] of [
     ["--date-from-version", "2026-10-24", "--date-fallback 2026-10-24"],
     ["--date-fallback 2026-10-22", "2026-10-24", "--date-fallback 2026-10-24"],
     ["--date-fallback=2026-10-22", "", "--date-from-version"],
+    [`"--date-fallback" '2026-10-22'`, "2026-10-24", "--date-fallback 2026-10-24"],
+    [`'--date-fallback'="2026-10-22"`, "", "--date-from-version"],
+    [`"--date-fallback=2026-10-22"`, "2026-10-24", "--date-fallback 2026-10-24"],
+    [`"--date-from-version"`, "2026-10-24", "--date-fallback 2026-10-24"],
+    [`--item-url-base "https://example.test/ --date-fallback=2026-10-22" --date-from-version`, "2026-10-24",
+      `--item-url-base "https://example.test/ --date-fallback=2026-10-22" --date-fallback 2026-10-24`],
     ...["&&true", ";true"].flatMap(suffix => [
       ["--date-fallback 2026-10-23" + suffix, "2026-10-24", "--date-fallback 2026-10-24" + suffix],
       ["--date-fallback 2026-10-23" + suffix, "", "--date-from-version" + suffix],
@@ -335,4 +361,12 @@ test("preparation rewrites every date policy without consuming a following flag"
       assert.equal(prepared.scripts["release:notes"], `${call(expected!)} --date-fallback --include-empty`);
     } finally { rmSync(root, { recursive: true, force: true }); }
   }
+});
+
+test("date rewrites preserve redirections, substitutions and shell text surrounding the option", () => {
+  const script = 'heading=$(pm-changelog "--date-fallback" 2>/dev/null "2026-10-23"); echo "$heading"';
+  assert.equal(rewriteReleaseHeadingDate(script, "2026-10-24"),
+    'heading=$(pm-changelog --date-fallback 2026-10-24 2>/dev/null ); echo "$heading"');
+  assert.throws(() => rewriteReleaseHeadingDate(`eval 'pm-changelog "--date-fallback"=2026-10-23'`, "2026-10-24"),
+    /needs an editable shell word/);
 });

@@ -29,11 +29,10 @@
 import { readRegularText } from "../regular-input.ts";
 import { execFileSync } from "../subprocess.ts";
 import { existsSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   bashArrays,
-  commandCandidates,
   expandArrays,
   joinContinuations,
   tokenizeCommands,
@@ -43,6 +42,9 @@ import {
 } from "./shell-command-scan.ts";
 import { isMainInvocation } from "./main-invocation.ts";
 import { tallyFlaggedInvocations } from "../invocation-audit.ts";
+import { changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions } from "../release-changelog-options.ts";
+
+export { DATE_FLAG, isRealCalendarDay } from "../release-changelog-options.ts";
 
 /** Every spelling that tells the generator which version it is rendering.
  *
@@ -52,42 +54,6 @@ import { tallyFlaggedInvocations } from "../invocation-audit.ts";
  * package-derived spelling skipped exactly the release-time invocations it was
  * written to protect. */
 export const VERSION_INPUTS = ["--release-version-from-package", "--release-version", "--version"] as const;
-
-/** The flag under audit: it makes the no-tag heading version-derived. */
-export const DATE_FLAG = "--date-from-version";
-
-/** The option a resumed release commits in place of the version-derived flag. */
-const FALLBACK_DATE_FLAG = "--date-fallback";
-
-/** Shape required before checking whether a pinned day exists on the calendar. */
-const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
-
-/** Shell entry points for the generator binary, the local launcher and the compiled CLI. */
-const GENERATOR_PATH = /(?:^|\/)(?:pm-changelog(?:\.ts)?|dist\/cli\.js)$/;
-
-/** Executables that run the generator through a script or package binary. */
-const GENERATOR_LAUNCHERS = new Set(["node", "npx", "bun", "bunx"]);
-
-/**
- * Whether a `YYYY-MM-DD` day exists on the real calendar.
- *
- * A shape check cannot tell `2026-02-30` from a day anyone could actually
- * write. JavaScript normalizes an out-of-range month or day into the following
- * month, so round-tripping the components through UTC and comparing them back
- * is the calendar test: month 13 and February 29 on a non-leap year both come
- * back changed, while a leap year's February 29 survives intact. The components
- * are set with `setUTCFullYear` rather than passed to `Date.UTC`, which maps
- * two-digit years into the 1900s and would misjudge `0099-02-28`.
- *
- * @param day - The captured day, as `YYYY-MM-DD`.
- * @returns Whether that day exists on the calendar.
- */
-export function isRealCalendarDay(day: string): boolean {
-  const [year, month, date] = day.split("-").map(Number);
-  const round = new Date(0);
-  round.setUTCFullYear(year, month - 1, date);
-  return round.getUTCFullYear() === year && round.getUTCMonth() === month - 1 && round.getUTCDate() === date;
-}
 
 /** One generator invocation found in a tracked file. */
 export interface Invocation {
@@ -170,13 +136,8 @@ export function invocationsIn(source: SourceFile): Invocation[] {
     const commands = tokenizeCommands(command);
     const malformed = commands.some((words) => words.length === 1 && words[0].unresolved && words[0].value === "$");
     for (const words of commands) {
-      const invocation = commandCandidates(words)[0];
-      if (invocation === undefined) continue;
-      const [program, ...parameters] = invocation;
-      const isLauncher = GENERATOR_LAUNCHERS.has(basename(program.value));
-      const generatorAt = isLauncher ? parameters.findIndex(({ value }) => GENERATOR_PATH.test(value)) : -1;
-      if (!GENERATOR_PATH.test(program.value) && generatorAt < 0) continue;
-      const args = parameters.slice(generatorAt + 1);
+      const args = changelogArguments(words);
+      if (args === undefined) continue;
       if (!args.some(({ value }) => VERSION_INPUTS.some((flag) => value === flag || value.startsWith(flag + "=")))) continue;
       found.push({ file: source.file, command, args, malformed });
     }
@@ -202,21 +163,17 @@ export function auditInvocations(sources: SourceFile[]): VerifierResult {
     ({ file, command, args, malformed }) => {
       const excerpt = command.trim().slice(0, 160);
       if (malformed) return `${file}: malformed shell arguments in generator invocation: ${excerpt}`;
-      let hasPin = false;
-      for (const [index, token] of args.entries()) {
-        const separate = token.value === FALLBACK_DATE_FLAG;
-        if (!separate && !token.value.startsWith(FALLBACK_DATE_FLAG + "=")) continue;
-        const operand = separate ? args[index + 1] : token;
-        const day = separate ? operand?.value : token.value.slice(FALLBACK_DATE_FLAG.length + 1);
-        if (operand?.unresolved || day === undefined || !ISO_DAY.test(day)) {
+      let hasPolicy = false;
+      for (const option of readReleaseDateOptions(args)) {
+        if (option.kind === "missing-day") {
           return `${file}: every ${FALLBACK_DATE_FLAG} must pin an explicit YYYY-MM-DD day: ${excerpt}`;
         }
-        if (!isRealCalendarDay(day)) {
-          return `${file}: a pinned ${FALLBACK_DATE_FLAG} day does not exist on the calendar (${day}): ${excerpt}`;
+        if (option.kind === "invalid-day") {
+          return `${file}: a pinned ${FALLBACK_DATE_FLAG} day does not exist on the calendar (${option.day}): ${excerpt}`;
         }
-        hasPin = true;
+        hasPolicy = true;
       }
-      if (hasPin || args.some(({ value, unresolved }) => value === DATE_FLAG && !unresolved)) return null;
+      if (hasPolicy) return null;
       return `${file}: a generator invocation carries a version input but neither ${DATE_FLAG} nor a pinned ${FALLBACK_DATE_FLAG} day: ${excerpt}`;
     },
     {

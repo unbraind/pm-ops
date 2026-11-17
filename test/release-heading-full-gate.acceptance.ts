@@ -34,7 +34,7 @@ try {
   const releaseEnv = {
     ...env, IS_RUST: "false", CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check",
     NOTES_SCRIPT: "release:notes", RELEASE_HEADING_DATE: "2026-11-17", RUNNER_TEMP: root,
-    GITHUB_STEP_SUMMARY: join(root, "summary.md"),
+    GITHUB_STEP_SUMMARY: join(root, "summary.md"), CONTINUATION_SCRIPT: join(candidate, "scripts/release-continuation.ts"),
   };
   const prepared = runBashFixture(generation.run, { cwd: candidate, env: releaseEnv, encoding: "utf8" });
   assert.equal(prepared.status, 0, prepared.stdout + prepared.stderr);

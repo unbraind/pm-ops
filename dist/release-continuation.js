@@ -1,5 +1,6 @@
 /** Dependency-free decisions for durable release intents and runner-free reconciliation. */
 import { createHash } from "node:crypto";
+export { assertReleaseHeadingDate } from "./release-changelog-options.js";
 /** Hash exact bytes for the artifact, notes, candidate and caller-configuration bindings. */
 export function releaseDigest(value) {
     return createHash("sha256").update(value).digest("hex");
@@ -46,15 +47,6 @@ export function verifyReleaseHandoff(candidate, manifest, notes, packageBytes) {
         throw new Error("Stale package artifact");
     if (`sha512-${createHash("sha512").update(packageBytes).digest("base64")}` !== candidate.packageIntegrity)
         throw new Error("Stale package integrity");
-}
-/** Refuse publication when the verified merge day differs from the prepared pin. */
-export function assertReleaseHeadingDate(scripts, mergeDay) {
-    for (const script of scripts) {
-        for (const pin of script.matchAll(/--date-fallback(?:=|\s+)(["']?)(\d{4}-\d{2}-\d{2})\1(?=\s|$|[&;|)])/g)) {
-            if (pin[2] !== mergeDay)
-                throw new Error(`Prepared release heading day ${pin[2]} differs from verified merge commit day ${mergeDay}. Refusing to publish; re-prepare the candidate for the merge day. The reviewed commit and verified artifact cannot be rewritten during continuation.`);
-        }
-    }
 }
 /** Bind every transition to the freshly read same-repository bot branch and exact candidate head. */
 function assertContinuationIdentity(c, e) {

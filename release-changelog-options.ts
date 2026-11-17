@@ -1,0 +1,101 @@
+/** Read and rewrite pm-changelog date policies using the shared shell scanner. */
+import { basename } from "node:path";
+import {
+  commandCandidates, tokenizeCommands, tokenizeCommandsWithSpans,
+  type ShellCommand, type ShellToken, type ShellTokenSpan,
+} from "./shell-scan.ts";
+
+/** The flag that makes an untagged heading version-derived. */
+export const DATE_FLAG = "--date-from-version";
+
+/** The option that pins the heading day of a resumed release. */
+export const FALLBACK_DATE_FLAG = "--date-fallback";
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const GENERATOR_PATH = /(?:^|\/)(?:pm-changelog(?:\.ts)?|dist\/cli\.js)$/;
+const GENERATOR_LAUNCHERS = new Set(["node", "npx", "bun", "bunx"]);
+
+/** Whether a YYYY-MM-DD string names an existing day, including years 0–99. */
+export function isRealCalendarDay(day: string): boolean {
+  const [year, month, date] = day.split("-").map(Number);
+  const round = new Date(0);
+  round.setUTCFullYear(year, month - 1, date);
+  return round.getUTCFullYear() === year && round.getUTCMonth() === month - 1 && round.getUTCDate() === date;
+}
+
+/** Return the arguments of a recognized pm-changelog command or launcher. */
+export function changelogArguments(words: ShellCommand): ShellToken[] | undefined {
+  const invocation = commandCandidates(words)[0];
+  if (invocation === undefined) return undefined;
+  const [program, ...parameters] = invocation;
+  const isLauncher = GENERATOR_LAUNCHERS.has(basename(program.value));
+  const generatorAt = isLauncher ? parameters.findIndex(({ value }) => GENERATOR_PATH.test(value)) : -1;
+  if (!GENERATOR_PATH.test(program.value) && generatorAt < 0) return undefined;
+  return parameters.slice(generatorAt + 1);
+}
+
+type DateOption =
+  | { kind: "version" | "missing-day"; first: ShellToken; last: ShellToken }
+  | { kind: "pin" | "invalid-day"; first: ShellToken; last: ShellToken; day: string };
+
+/** Decode each date option and retain its first and last shell words for edits. */
+export function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[] {
+  const options: DateOption[] = [];
+  for (const [index, token] of args.entries()) {
+    if (token.value === DATE_FLAG && !token.unresolved) {
+      options.push({ kind: "version", first: token, last: token });
+      continue;
+    }
+    const separate = token.value === FALLBACK_DATE_FLAG;
+    if (!separate && !token.value.startsWith(FALLBACK_DATE_FLAG + "=")) continue;
+    const operand = separate ? args[index + 1] : token;
+    const day = separate ? operand?.value : token.value.slice(FALLBACK_DATE_FLAG.length + 1);
+    if (day === undefined || operand?.unresolved || !ISO_DAY.test(day)) {
+      options.push({ kind: "missing-day", first: token, last: token });
+      continue;
+    }
+    options.push({ kind: isRealCalendarDay(day) ? "pin" : "invalid-day", first: token, last: operand!, day });
+  }
+  return options;
+}
+
+/** Read date options only from commands that actually invoke the generator. */
+function hookDateOptions(commands: ShellCommand[]): DateOption[] {
+  return commands.flatMap(words => readReleaseDateOptions(changelogArguments(words) ?? []));
+}
+
+/** Refuse publication when the verified merge day differs from a prepared pin. */
+export function assertReleaseHeadingDate(scripts: readonly string[], mergeDay: string): void {
+  for (const script of scripts) {
+    for (const option of hookDateOptions(tokenizeCommands(script))) {
+      if ((option.kind === "pin" || option.kind === "invalid-day") && option.day !== mergeDay) {
+        throw new Error(`Prepared release heading day ${option.day} differs from verified merge commit day ${mergeDay}. Refusing to publish; re-prepare the candidate for the merge day. The reviewed commit and verified artifact cannot be rewritten during continuation.`);
+      }
+    }
+  }
+}
+
+/** Refresh the inline pins, or restore the standing policy for a current version. */
+export function rewriteReleaseHeadingDate(script: string, headingDate: string): string {
+  const { commands, spans } = tokenizeCommandsWithSpans(script);
+  const edits = new Map<number, ShellTokenSpan & { text: string }>();
+  const replacement = headingDate ? FALLBACK_DATE_FLAG + " " + headingDate : DATE_FLAG;
+  for (const option of hookDateOptions(commands)) {
+    if (option.kind !== "pin" && !(option.kind === "version" && headingDate)) continue;
+    const first = spans.get(option.first);
+    const last = spans.get(option.last);
+    if (!first || !last) throw new Error("Release heading date option needs an editable shell word in the changelog hook");
+    // A redirection between the option and its operand can be dropped from
+    // argv by commandCandidates. Preserve it when rewriting the source.
+    if (option.first !== option.last && !/^(?:[ \t\r]|\\\n)*$/.test(script.slice(first.end, last.start))) {
+      edits.set(last.start, { ...last, text: "" });
+      edits.set(first.start, { ...first, text: replacement });
+    } else {
+      edits.set(first.start, { start: first.start, end: last.end, text: replacement });
+    }
+  }
+  for (const { start, end, text } of [...edits.values()].sort((a, b) => b.start - a.start)) {
+    script = script.slice(0, start) + text + script.slice(end);
+  }
+  return script;
+}

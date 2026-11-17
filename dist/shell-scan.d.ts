@@ -92,6 +92,22 @@ interface ShellChildRegion {
  * @returns Every simple command found, outermost first.
  */
 export declare function tokenizeCommands(text: string, depth?: number): ShellCommand[];
+/** Half-open source offsets for a shell word before quote removal. */
+export interface ShellTokenSpan {
+    /** The first source character of the word. */
+    start: number;
+    /** The first source character after the word. */
+    end: number;
+}
+/**
+ * Find commands and retain source offsets for words that can be edited in place.
+ * Words reconstructed from evaluator arguments or decoded escapes may have no
+ * direct source span. The commands are still returned for verification.
+ */
+export declare function tokenizeCommandsWithSpans(text: string): {
+    commands: ShellCommand[];
+    spans: WeakMap<ShellToken, ShellTokenSpan>;
+};
 /**
  * Protect lexical child state from parent structural scans and expansion.
  *
