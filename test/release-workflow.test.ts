@@ -185,6 +185,21 @@ test("the npm upgrade cannot be skipped and fails closed on the version it actua
   assert.match(step, /set -euo pipefail/);
 });
 
+/** Exempt exactly one approved write, then inspect the entire publication interval. */
+function assertOnlyPinnedPathWrite(interval: string): void {
+  const approved = /^ *echo "\$RUNNER_TEMP\/npm-11\.21\.0\/node_modules\/\.bin" >> "\$GITHUB_PATH" *$/m;
+  assert.match(interval, approved, "the approved bootstrap must publish its job-local bin directory");
+  assert.doesNotMatch(interval.replace(approved, ""), /GITHUB_PATH/);
+}
+
+test("extra bootstrap GITHUB_PATH writes fail the publication contract", () => {
+  const bootstrap = executable(stepSource("Use an npm that supports trusted publishing"));
+  assertOnlyPinnedPathWrite(bootstrap);
+  const extra = '          echo "/tmp/older-npm" >> "$GITHUB_PATH"\n';
+  assert.throws(() => assertOnlyPinnedPathWrite(bootstrap + extra), /GITHUB_PATH/);
+  assert.throws(() => assertOnlyPinnedPathWrite(bootstrap + bootstrap), /GITHUB_PATH/);
+});
+
 test("nothing between the upgrade and the publish step can put an older npm back", () => {
   // Keeping the 11.x upgrade and then installing npm 10 later leaves trusted
   // publishing broken while every check above still passes.
@@ -216,15 +231,9 @@ test("nothing between the upgrade and the publish step can put an older npm back
   assert.doesNotMatch(between, /uses:\s*actions\/setup-node/);
   // Prepending a directory to GITHUB_PATH changes which npm later steps resolve
   // without installing anything, so it defeats an install-time check entirely.
-  // Only the pinned-install step itself may prepend, and only the directory of
-  // the npm it just installed; anything else still fails at review time rather
-  // than at publication time.
-  const releaseJob = releaseJobSource();
-  const setupAt = releaseJob.indexOf("- name: Use an npm that supports trusted publishing");
-  const setupRest = releaseJob.slice(setupAt + 1);
-  const setupEnd = setupAt + 1 + setupRest.search(/^ {6}- name:/m);
-  const afterUpgrade = executable(releaseJob.slice(setupEnd, releaseJob.indexOf("- name: Install optional hook dependencies")));
-  assert.doesNotMatch(afterUpgrade, /GITHUB_PATH/);
+  // Exempt only the single approved write, including the rest of the bootstrap
+  // in the scan. Exempting that whole step would hide a second PATH prepend.
+  assertOnlyPinnedPathWrite(between);
 });
 
 test("no run script in the release job interpolates workflow context", () => {

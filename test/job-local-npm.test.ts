@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { spawnSync } from "../subprocess.ts";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, mkdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, writeFileSync, mkdirSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -83,6 +83,31 @@ function npmDigest(cli: string): string {
   return hash.digest("hex");
 }
 
+/** Capture the launcher itself, rather than only the package it resolves to. */
+function launcherState(launcher: string): { exists: boolean; link: string | null } {
+  return { exists: existsSync(launcher), link: lstatSync(launcher).isSymbolicLink() ? readlinkSync(launcher) : null };
+}
+
+test("shared launcher checks detect removal and retargeting independently of package bytes", () => {
+  const root = mkdtempSync(join(tmpdir(), "npm-launcher-state-"));
+  try {
+    const launcher = join(root, "npm");
+    const target = join(root, "npm-cli.js");
+    writeFileSync(target, "synthetic npm CLI");
+    symlinkSync(target, launcher);
+    const original = launcherState(launcher);
+    unlinkSync(launcher);
+    assert.throws(() => launcherState(launcher), /ENOENT/);
+    const other = join(root, "other-cli.js");
+    writeFileSync(other, "synthetic npm CLI");
+    symlinkSync(other, launcher);
+    assert.notDeepEqual(launcherState(launcher), original);
+    assert.equal(readFileSync(target, "utf8"), "synthetic npm CLI");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("no workflow replaces the shared global npm installation", () => {
   // Parallel jobs on one runner host share the Node installation in the
   // toolcache. A global npm install replaces the shared npm while a sibling
@@ -103,6 +128,9 @@ test("overlapping pinned installs into separate prefixes leave the shared npm un
   // installation's npm must be bit-for-bit untouched. The second round repeats
   // the overlap from a warm package cache.
   const cli = runningNpmCli();
+  const launcher = join(dirname(process.execPath), "npm");
+  const sharedLauncher = launcherState(launcher);
+  assert.equal(sharedLauncher.exists, true, "the original shared launcher must exist");
   const sharedVersion = npmVersion(cli);
   const sharedMtime = statSync(cli).mtimeMs;
   const sharedDigest = npmDigest(cli);
@@ -126,10 +154,11 @@ test("overlapping pinned installs into separate prefixes leave the shared npm un
         const clean = spawnSync(process.execPath, [pinnedCli, "ci", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: consumer, encoding: "utf8", env: Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^npm_config_/iu.test(name))) });
         assert.equal(clean.status, 0, clean.stderr);
       }
+      assert.deepEqual(launcherState(launcher), sharedLauncher, `${round}: the shared npm launcher must retain its existence and link target`);
+      assert.equal(npmVersion(cli), sharedVersion, `${round}: the shared npm must keep its original version`);
+      assert.equal(statSync(cli).mtimeMs, sharedMtime, `${round}: the shared npm must stay untouched`);
+      assert.equal(npmDigest(cli), sharedDigest, `${round}: the entire shared npm package must remain byte-identical`);
     }
-    assert.equal(npmVersion(cli), sharedVersion, "the shared npm must keep its original version");
-    assert.equal(statSync(cli).mtimeMs, sharedMtime, "the shared npm must stay untouched");
-    assert.equal(npmDigest(cli), sharedDigest, "the entire shared npm package must remain byte-identical");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
