@@ -433,8 +433,10 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
     // The workflow has detached HEAD at the tree-verified merge commit. The
     // generator dates tags by that commit's committer timestamp (%cI), never
     // by publication time or the time the tag ref is written.
-    const mergedAt = execFileSync("git", ["show", "-s", "--format=%cI", "HEAD", "--"], { cwd: required("NPM_PROJECT_PATH"), encoding: "utf8" }).trim();
-    assertReleaseHeadingDate(scripts, day(mergedAt, required("RELEASE_TIMEZONE")));
+    const commitTimestamp = execFileSync("git", ["log", "-1", "--format=%cI", "HEAD"], { cwd: required("NPM_PROJECT_PATH"), encoding: "utf8" }).trim();
+    // pm-changelog 2026.11.6: dist/release-context.js:496,554-558.
+    // Preserve the committer offset by taking the literal date prefix.
+    assertReleaseHeadingDate(scripts, commitTimestamp.slice(0, 10));
     return;
   }
   if (mode === "tools") {

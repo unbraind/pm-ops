@@ -2,11 +2,12 @@
  * Kept outside the unit-test glob because release:check itself runs that suite. */
 import assert from "node:assert/strict";
 import { execFileSync } from "../subprocess.ts";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { parse } from "yaml";
 import { runBashFixture } from "./bash-fixture.ts";
+import { mirrorTrackedSnapshot } from "./release-heading-snapshot-fixture.ts";
 
 const source = process.cwd();
 const root = mkdtempSync(join(tmpdir(), "release-heading-full-gate-"));
@@ -24,12 +25,7 @@ try {
   execFileSync("git", ["remote", "set-url", "origin", origin], { cwd: candidate, env });
   // Include the current, reviewable source and tracker edits rather than testing
   // only the last commit. Generated output is rebuilt by the gate.
-  const files = execFileSync("git", ["ls-files", "-z"], { cwd: source, env, encoding: "utf8" }).split("\0").filter(Boolean);
-  files.push("test/release-heading-full-gate.acceptance.ts");
-  for (const file of files) {
-    mkdirSync(dirname(join(candidate, file)), { recursive: true });
-    copyFileSync(join(source, file), join(candidate, file));
-  }
+  mirrorTrackedSnapshot(source, candidate, env);
   symlinkSync(resolve(source, "node_modules"), join(candidate, "node_modules"), "junction");
   const manifest = JSON.parse(readFileSync(join(candidate, "package.json"), "utf8")) as { scripts: Record<string, string> };
   assert.match(manifest.scripts["release:check"]!, /npm run coverage/);

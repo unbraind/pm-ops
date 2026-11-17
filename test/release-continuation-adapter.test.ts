@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { parse } from "yaml";
+import { resolveReleaseContext } from "pm-changelog";
 import { assertNoNpmInstalls } from "./npm-bootstrap-contract.ts";
 import { candidateFixture, evidenceFixture } from "./release-continuation-fixture.ts";
 import { releaseConfigDigest, releaseDigest } from "../release-continuation.ts";
@@ -1454,7 +1455,7 @@ test("occupied-coordinate retirement refuses ambiguous history, registry errors 
 });
 
 
-test("heading-date continuation uses the verified merge committer day despite publication after midnight", async t => {
+test("heading-date continuation mirrors the generator at the committer offset despite publication after midnight", async t => {
   t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-08T04:00:00Z") });
   const root = mkdtempSync(join(tmpdir(), "continuation-heading-"));
   const env = { NPM_PROJECT_PATH: root, RELEASE_TIMEZONE: "Europe/Vienna", CHANGELOG_SCRIPT: "generate", CHANGELOG_CHECK_SCRIPT: "check", NOTES_SCRIPT: "notes" };
@@ -1462,18 +1463,27 @@ test("heading-date continuation uses the verified merge committer day despite pu
   Object.assign(process.env, env);
   try {
     execFileSync("git", ["init", "--quiet"], { cwd: root });
-    execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "--allow-empty", "-m", "Verified merge"], {
-      cwd: root, env: { ...process.env, GIT_AUTHOR_DATE: "2026-11-05T12:00:00Z", GIT_COMMITTER_DATE: "2026-11-06T23:30:00Z" },
-    });
     const script = 'pm-changelog --date-fallback "2026-11-07"';
     const write = (scripts: unknown) => writeFileSync(join(root, "package.json"), JSON.stringify({ scripts }));
-    write({ generate: script, check: script, notes: script });
-    await runReleaseContinuation("heading-date");
-    process.env.RELEASE_TIMEZONE = "UTC";
-    await assert.rejects(runReleaseContinuation("heading-date"), /2026-11-07.*2026-11-06.*re-prepare/);
-    process.env.RELEASE_TIMEZONE = "Europe/Vienna";
-    write({ generate: script, check: script, notes: "pm-changelog --date-fallback '2026-11-06'" });
-    await assert.rejects(runReleaseContinuation("heading-date"), /2026-11-06.*2026-11-07.*re-prepare/);
+    for (const [timestamp, expectedDay] of [
+      ["2026-11-06T23:30:00Z", "2026-11-06"],
+      ["2026-11-07T00:30:00+01:00", "2026-11-07"],
+    ]) {
+      execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "Verified merge"], {
+        cwd: root, env: { ...process.env, GIT_AUTHOR_DATE: "2026-11-05T12:00:00Z", GIT_COMMITTER_DATE: timestamp },
+      });
+      execFileSync("git", ["tag", "-f", "v2026.11.5"], { cwd: root });
+      assert.equal(resolveReleaseContext({ cwd: root, version: "2026.11.5", dateFallback: "2026-11-07" }).date, expectedDay);
+      const pin = `pm-changelog --date-fallback '${expectedDay}'`;
+      write({ generate: pin, check: pin, notes: pin });
+      for (const timezone of ["Europe/Vienna", "UTC"]) {
+        process.env.RELEASE_TIMEZONE = timezone;
+        await runReleaseContinuation("heading-date");
+      }
+      const wrongDay = expectedDay === "2026-11-06" ? "2026-11-07" : "2026-11-06";
+      write({ generate: pin, check: pin, notes: `pm-changelog --date-fallback ${wrongDay}` });
+      await assert.rejects(runReleaseContinuation("heading-date"), new RegExp(`${wrongDay}.*${expectedDay}.*re-prepare`));
+    }
     for (const bad of [undefined, null, 1, "", " "]) {
       write({ generate: script, check: script, notes: bad });
       await assert.rejects(runReleaseContinuation("heading-date"), /Missing changelog hook: notes/);
