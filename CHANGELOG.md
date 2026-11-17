@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Global npm update guard mistakes comment words and redirect targets for packages ([ops-global-update-operands](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-global-update-operands.toon))
+
 ## 2026.11.15 - 2026-11-16
 
 ### Dependencies
