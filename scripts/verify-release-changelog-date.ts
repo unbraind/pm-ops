@@ -29,12 +29,15 @@
 import { readRegularText } from "../regular-input.ts";
 import { execFileSync } from "../subprocess.ts";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   bashArrays,
+  commandCandidates,
   expandArrays,
   joinContinuations,
+  tokenizeCommands,
+  type ShellToken,
   type SourceFile,
   type VerifierResult,
 } from "./shell-command-scan.ts";
@@ -53,13 +56,17 @@ export const VERSION_INPUTS = ["--release-version-from-package", "--release-vers
 /** The flag under audit: it makes the no-tag heading version-derived. */
 export const DATE_FLAG = "--date-from-version";
 
-/** The spelling a resumed release commits instead: a pinned day for the pending heading.
- *
- * The day is captured so the audit can check it against the real calendar: a
- * day that is shaped correctly but does not exist -- `2026-02-30` -- would pin
- * a heading no calendar ever produces, and accepting it on shape alone would
- * make the gate prove less than it appears to. */
-export const FALLBACK_DATE_PATTERN = /--date-fallback(?:=|\s+)(["']?)(\d{4}-\d{2}-\d{2})\1(?=\s|$|[&;|)])/;
+/** The option a resumed release commits in place of the version-derived flag. */
+const FALLBACK_DATE_FLAG = "--date-fallback";
+
+/** Shape required before checking whether a pinned day exists on the calendar. */
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Shell entry points for the generator binary, the local launcher and the compiled CLI. */
+const GENERATOR_PATH = /(?:^|\/)(?:pm-changelog(?:\.ts)?|dist\/cli\.js)$/;
+
+/** Executables that run the generator through a script or package binary. */
+const GENERATOR_LAUNCHERS = new Set(["node", "npx", "bun", "bunx"]);
 
 /**
  * Whether a `YYYY-MM-DD` day exists on the real calendar.
@@ -86,8 +93,12 @@ export function isRealCalendarDay(day: string): boolean {
 export interface Invocation {
   /** File the invocation was found in. */
   file: string;
-  /** The logical command, with continuations joined and arrays expanded. */
+  /** The source line, with continuations joined and arrays expanded. */
   command: string;
+  /** The generator's shell arguments, with quoting removed. */
+  args: ShellToken[];
+  /** The shell scanner could not finish parsing the source line. */
+  malformed: boolean;
 }
 
 /**
@@ -155,23 +166,19 @@ export function invocationsIn(source: SourceFile): Invocation[] {
   for (const raw of text.split("\n")) {
     if (/^\s*#/.test(raw)) continue;
     if (!/pm-changelog|dist\/cli\.js/.test(raw)) continue;
-    // Split on shell separators AFTER expanding arrays. One line can hold
-    // several invocations -- a package.json script chaining two generator calls
-    // with `&&` is the common case -- and judging the line as a whole lets a
-    // flagged call cover for an unflagged one beside it.
-    //
-    // `&&`, `||` and `;` need no surrounding whitespace to separate commands,
-    // and `flagged&&unflagged` is valid shell: requiring whitespace left the
-    // two calls in one segment where the first one's flag covered the second.
-    // A bare `|` is only treated as a separator when whitespace-delimited,
-    // because an unspaced pipe is far more likely to be inside an argument --
-    // an alternation in a regex, say -- and splitting there would separate a
-    // version input from its own flag and report a defect that is not present.
-    for (const raw_segment of expandArrays(raw, arrays).split(/\s*(?:&&|\|\||;)\s*|\s\|\s/)) {
-      const segment = stripComment(raw_segment);
-      if (!/pm-changelog|dist\/cli\.js/.test(segment)) continue;
-      if (!VERSION_INPUTS.some((flag) => segment.includes(flag))) continue;
-      found.push({ file: source.file, command: segment });
+    const command = stripComment(expandArrays(raw, arrays));
+    const commands = tokenizeCommands(command);
+    const malformed = commands.some((words) => words.length === 1 && words[0].unresolved && words[0].value === "$");
+    for (const words of commands) {
+      const invocation = commandCandidates(words)[0];
+      if (invocation === undefined) continue;
+      const [program, ...parameters] = invocation;
+      const isLauncher = GENERATOR_LAUNCHERS.has(basename(program.value));
+      const generatorAt = isLauncher ? parameters.findIndex(({ value }) => GENERATOR_PATH.test(value)) : -1;
+      if (!GENERATOR_PATH.test(program.value) && generatorAt < 0) continue;
+      const args = parameters.slice(generatorAt + 1);
+      if (!args.some(({ value }) => VERSION_INPUTS.some((flag) => value === flag || value.startsWith(flag + "=")))) continue;
+      found.push({ file: source.file, command, args, malformed });
     }
   }
   return found;
@@ -192,19 +199,25 @@ export function auditInvocations(sources: SourceFile[]): VerifierResult {
   const invocations = sources.flatMap(invocationsIn);
   return tallyFlaggedInvocations(
     invocations,
-    (invocation) => {
-      if (invocation.command.includes(DATE_FLAG)) return null;
-      const pinned = FALLBACK_DATE_PATTERN.exec(invocation.command);
-      if (pinned === null) {
-        return `${invocation.file}: a generator invocation carries a version input but neither ${DATE_FLAG} nor a pinned --date-fallback day: `
-          + invocation.command.trim().slice(0, 160);
+    ({ file, command, args, malformed }) => {
+      const excerpt = command.trim().slice(0, 160);
+      if (malformed) return `${file}: malformed shell arguments in generator invocation: ${excerpt}`;
+      let hasPin = false;
+      for (const [index, token] of args.entries()) {
+        const separate = token.value === FALLBACK_DATE_FLAG;
+        if (!separate && !token.value.startsWith(FALLBACK_DATE_FLAG + "=")) continue;
+        const operand = separate ? args[index + 1] : token;
+        const day = separate ? operand?.value : token.value.slice(FALLBACK_DATE_FLAG.length + 1);
+        if (operand?.unresolved || day === undefined || !ISO_DAY.test(day)) {
+          return `${file}: every ${FALLBACK_DATE_FLAG} must pin an explicit YYYY-MM-DD day: ${excerpt}`;
+        }
+        if (!isRealCalendarDay(day)) {
+          return `${file}: a pinned ${FALLBACK_DATE_FLAG} day does not exist on the calendar (${day}): ${excerpt}`;
+        }
+        hasPin = true;
       }
-      // The shape matched, so the day is pinned; the calendar decides whether
-      // the pin is a day the generator could ever render.
-      const day = pinned[2];
-      return isRealCalendarDay(day) ? null
-        : `${invocation.file}: a pinned --date-fallback day does not exist on the calendar (${day}): `
-          + invocation.command.trim().slice(0, 160);
+      if (hasPin || args.some(({ value, unresolved }) => value === DATE_FLAG && !unresolved)) return null;
+      return `${file}: a generator invocation carries a version input but neither ${DATE_FLAG} nor a pinned ${FALLBACK_DATE_FLAG} day: ${excerpt}`;
     },
     {
       noun: "generator",

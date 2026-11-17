@@ -48,6 +48,18 @@ test("every version-input spelling is recognised, because pm-changelog accepts a
   }
 });
 
+test("only generator commands with a version input are audited", () => {
+  const command = [
+    "GENERATOR=pm-changelog",
+    "pm-changelog --stdout",
+    "echo pm-changelog --version",
+    "heading=$(pm-changelog --version=v2026.11.16 --date-fallback 2026-11-16)",
+  ].join("\n");
+  const source = { file: "package.json", text: manifest(command) };
+  assert.equal(invocationsIn(source).length, 1);
+  assert.deepEqual(auditInvocations([source]).failures, []);
+});
+
 test("an invocation naming the pending tag is caught, not skipped", () => {
   // The regression Greptile found: the scan matched only the package-derived
   // spelling, so a workflow passing --version "$RELEASE_TAG" was invisible and
@@ -71,6 +83,39 @@ test("a resumed release's pinned --date-fallback day is accepted, and only with 
   for (const invalid of ["--date-fallback", "--date-fallback=", "--date-fallback 16-11-2026", "--date-fallback=2026-11-16T12:00:00Z"]) {
     const failed = auditInvocations([{ file: "package.json", text: manifest(`pm-changelog --release-version-from-package ${invalid}`) }]);
     assert.equal(failed.failures.length, 1, `${invalid} must be rejected`);
+  }
+});
+
+test("date-fallback text inside another shell argument cannot supply the pin", () => {
+  for (const value of [
+    "https://example.test/--date-fallback=2026-11-16",
+    '"https://example.test/ --date-fallback=2026-11-16"',
+    '"https://example.test/; --date-fallback=2026-11-16"',
+  ]) {
+    const command = `pm-changelog --release-version-from-package --item-url-base ${value}`;
+    const result = auditInvocations([{ file: "package.json", text: manifest(command) }]);
+    assert.equal(result.failures.length, 1, value);
+    assert.match(result.failures[0], /neither --date-from-version nor a pinned --date-fallback/);
+  }
+});
+
+test("every date-fallback option must pin a real day", () => {
+  const command = "pm-changelog --release-version-from-package --date-fallback 2026-11-16";
+  const audit = (suffix: string) => auditInvocations([{ file: "package.json", text: manifest(`${command} ${suffix}`) }]);
+  for (const suffix of ["--date-fallback", "--date-fallback= --date-from-version", '--date-fallback "$RELEASE_DAY"']) {
+    const result = audit(suffix);
+    assert.equal(result.failures.length, 1, suffix);
+  }
+  assert.match(audit("--date-fallback=2026-02-30").failures[0], /does not exist on the calendar/);
+  assert.deepEqual(audit(`"--date-fallback" '2026-11-17' --date-fallback="2026-11-18"`).failures, []);
+});
+
+test("the date policy belongs to the command that runs the generator", () => {
+  for (const launcher of ["npx pm-changelog", "./dist/cli.js", "node --enable-source-maps dist/cli.js"]) {
+    const command = `${launcher} --version=v2026.11.16 --item-url-base 'https://example.test/a;b'`;
+    const audit = (suffix: string) => auditInvocations([{ file: "package.json", text: manifest(`${command} ${suffix}`) }]);
+    assert.equal(audit("&& echo --date-fallback=2026-11-16").failures.length, 1, launcher);
+    assert.deepEqual(audit('--date-fallback="2026-11-16"').failures, [], launcher);
   }
 });
 
