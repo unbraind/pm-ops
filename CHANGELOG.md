@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Closed
+
+- Closed: Tracked dist output predates the merged daily-release source changes, so the first post-merge release pack step fails ([ops-b2bs](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-b2bs.toon))
+
 ## 2026.11.15 - 2026-11-16
 
 ### Dependencies
