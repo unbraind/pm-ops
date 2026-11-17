@@ -1519,6 +1519,7 @@ jobs:
           fi
           echo "npm $active can exchange an OIDC token for a registry credential."
       - name: Verify job-local npm version
+        if: ${{ steps.npm_setup.outcome == 'success' }}
         shell: bash
         run: test "$(npm --version)" = "11.21.0"
 

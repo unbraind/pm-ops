@@ -741,6 +741,8 @@ test("failure reporting attempts its script after bootstrap or dependency instal
   const setup = workflow.jobs.alert.steps.find(s => s.id === "npm_setup")!;
   const report = step("Report release failure");
   assert.equal(setup["continue-on-error"], true);
+  const verify = workflow.jobs.alert.steps.find(s => s.name === "Verify job-local npm version")!;
+  assert.equal(verify.if, "${{ steps.npm_setup.outcome == 'success' }}");
   assert.equal(report.if, "${{ !cancelled() }}");
   assert.equal(report.env?.NPM_READY, "${{ steps.npm_setup.outcome == 'success' }}");
   const root = mkdtempSync(join(tmpdir(), "release-alert-failure-"));
