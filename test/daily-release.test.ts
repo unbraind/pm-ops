@@ -64,6 +64,26 @@ test("untagged main metadata resumes its exact version across midnight while tag
   assert.equal(decideDailyRelease(facts({ currentPackageVersion: "2026.10.17", publishedToday: true })).should_release, false);
 });
 
+test("only unpublished untagged versions resume; registry-held versions use today's coordinate", () => {
+  for (const version of ["2026.10.17", "2026.8.9-2"]) {
+    for (const registryHasCurrentVersion of [true, false]) {
+      const input = facts({ currentPackageVersion: version, registryHasCurrentVersion });
+      const plan = decideDailyRelease(input);
+      assert.equal(plan.npm_version, registryHasCurrentVersion ? "2026.10.19" : version);
+      assert.equal(plan.should_release, true);
+      assert.equal(decideDailyRelease({ ...input, packageVersion: "2026.10.12" }).npm_version, "2026.10.12");
+      assert.equal(decideDailyRelease({ ...input, releaseTags: ["v2026.10.19"] }).should_release, false);
+      assert.equal(decideDailyRelease({ ...input, publishedToday: true }).should_release, false);
+      assert.equal(decideDailyRelease({ ...input, hasChanges: false }).should_release, false);
+      assert.equal(decideDailyRelease({ ...input, mainSha: "old-main" }).recovery_tag, "v2026.10.18");
+    }
+  }
+  for (const registryHasCurrentVersion of [true, false]) {
+    const input = facts({ currentPackageVersion: "2026.8.9-2", releaseTags: ["v2026.08.09-2"], registryHasCurrentVersion });
+    assert.equal(decideDailyRelease(input).npm_version, "2026.10.19");
+  }
+});
+
 test("canonical release names pad single-digit months and days on the first run", () => {
   const plan = decideDailyRelease(facts({ today: "2026.8.9", releaseTags: ["v2026.08.08"] }));
   assert.equal(plan.tag, "v2026.08.09");

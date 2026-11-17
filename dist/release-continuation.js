@@ -83,6 +83,9 @@ export function decideReleaseContinuation(c, e) {
     if (e.requiredChecks.length === 0 || e.requiredChecks.some(state => state !== "SUCCESS")
         || !["APPROVED", ""].includes(e.reviewDecision))
         throw new Error("Required protection proof is missing or not green; use reconcile-only with retire-unpublished for verified untouched intent");
+    if (c.npmPublish && !changedSource && e.registry === "unverified" && e.registryPredatesPreparation === true
+        && e.tagSha === null && e.releaseSha === null)
+        return "occupied";
     if ((e.tagSha !== null && e.tagSha !== e.pr.mergedSha) || (e.releaseSha !== null && (e.releaseSha !== e.pr.mergedSha || e.tagSha === null))
         || e.registry === "unverified")
         throw new Error("Live publication identity disagrees");
