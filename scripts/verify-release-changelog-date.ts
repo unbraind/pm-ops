@@ -132,9 +132,23 @@ export function stripComment(command: string): string {
 export function invocationsIn(source: SourceFile): Invocation[] {
   // JSON punctuation and escaping are not shell syntax. Audit only decoded
   // script values so a final argument is not followed by the JSON comma.
-  const commands = source.file === "package.json"
-    ? Object.values((JSON.parse(source.text) as { scripts?: Record<string, string> }).scripts ?? {}).join("\n")
-    : source.text;
+  let commands = source.text;
+  if (source.file === "package.json") {
+    let manifest: unknown;
+    try {
+      manifest = JSON.parse(source.text);
+    } catch (error) {
+      throw new Error(`${source.file}: invalid JSON`, { cause: error });
+    }
+    if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
+      throw new Error(`${source.file}: manifest must be an object`);
+    }
+    const { scripts = {} } = manifest as { scripts?: unknown };
+    if (scripts === null || typeof scripts !== "object" || Array.isArray(scripts)) {
+      throw new Error(`${source.file}: scripts must be an object`);
+    }
+    commands = Object.values(scripts).filter((value): value is string => typeof value === "string").join("\n");
+  }
   const text = joinContinuations(commands);
   const arrays = bashArrays(text);
   const found: Invocation[] = [];

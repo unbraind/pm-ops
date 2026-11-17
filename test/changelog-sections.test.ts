@@ -49,8 +49,7 @@ function args(name: string): string[] {
 }
 
 /** Match fixture tag and completion days to the date policy selected by preparation. */
-function headingDay(version: string): string {
-  const command = args("changelog:full");
+function headingDay(version: string, command: string[]): string {
   const fallback = command.findIndex(arg => arg === "--date-fallback" || arg.startsWith("--date-fallback="));
   if (fallback >= 0) return command[fallback]!.split("=")[1] ?? command[fallback + 1]!;
   return version.split("-")[0]!.split(".").map((part, index) => part.padStart(index === 0 ? 4 : 2, "0")).join("-");
@@ -165,8 +164,8 @@ test("release commits stay current after tagging, including empty and same-day r
       ["2026.10.23-1", "15:00:00Z", "16:00:00Z"],
       ["2026.10.24", "", "18:00:00Z"],
     ]) {
-      const completed = completedTime ? `${headingDay(version!)}T${completedTime}` : "";
-      const committed = `${headingDay(version!)}T${committedTime}`;
+      const completed = completedTime ? `${headingDay(version!, args("changelog:full"))}T${completedTime}` : "";
+      const committed = `${headingDay(version!, args("changelog:full"))}T${committedTime}`;
       writeFileSync(join(root, "package.json"), JSON.stringify({ name: "sample-changelog", version }));
       if (completed) execFileSync(process.execPath, [pm, "create", "task", `Shipped in ${version}`, "--id", `sample-${version!.replaceAll(".", "-")}`, "--status", "closed", "--close-reason", "Fixture complete", "--completed-at", completed], { cwd: root, env });
       assert.equal(runChangelog(args("changelog:full"), root, env), 0);
@@ -183,7 +182,7 @@ test("release commits stay current after tagging, including empty and same-day r
       assert.doesNotMatch(before, /^## Unreleased$/m);
       assert.match(committedReleaseNotes(before, version!), completed ? /Shipped in/ : /^No tracked changes\.\n$/);
     }
-    execFileSync(process.execPath, [pm, "create", "task", "Work completed after the tag", "--id", "sample-later", "--status", "closed", "--close-reason", "Fixture complete", "--completed-at", `${headingDay("2026.10.24")}T19:00:00Z`], { cwd: root, env });
+    execFileSync(process.execPath, [pm, "create", "task", "Work completed after the tag", "--id", "sample-later", "--status", "closed", "--close-reason", "Fixture complete", "--completed-at", `${headingDay("2026.10.24", args("changelog:full"))}T19:00:00Z`], { cwd: root, env });
     assert.equal(runChangelog(args("changelog:full"), root, env), 0);
     const later = readFileSync(join(root, "CHANGELOG.md"), "utf8");
     assert.match(later, /^## Unreleased\n\n### Other\n\n- Work completed after the tag/m);
@@ -294,4 +293,38 @@ test("empty wording leaves tracked prose alone and invalid adapter options fail 
   assert.equal(describeEmptyReleases("# Changelog\n\n## 1.0.0 - 2026-01-01\n\n- No changes.\n"), "# Changelog\n\n## 1.0.0 - 2026-01-01\n\n- No changes.\n");
   for (const invalid of [["--output"], ["--mode", "--check"], ["--mode", "invalid"]]) assert.throws(() => runChangelog(invalid));
   assert.throws(() => runChangelog(["--github-step-summary"], process.cwd(), {}), /requires GITHUB_STEP_SUMMARY/);
+});
+
+
+test("fixture heading days use the explicitly selected date policy", () => {
+  assert.equal(headingDay("2026.10.23", ["--date-from-version"]), "2026-10-23");
+  assert.equal(headingDay("2026.10.23", ["--date-fallback", "2026-10-24"]), "2026-10-24");
+  assert.equal(headingDay("2026.10.23", ["--date-fallback=2026-10-25"]), "2026-10-25");
+});
+
+test("preparation rewrites every date policy without consuming a following flag", () => {
+  const step = changelogStepScript();
+  const script = step.slice(step.indexOf("node --input-type=module"), step.indexOf("\nNODE") + 5);
+  for (const [policy, heading, expected] of [
+    ["--date-from-version", "2026-10-24", "--date-fallback 2026-10-24"],
+    ["--date-fallback 2026-10-22", "2026-10-24", "--date-fallback 2026-10-24"],
+    ["--date-fallback=2026-10-22", "", "--date-from-version"],
+  ]) {
+    const root = mkdtempSync(join(tmpdir(), "hook-policy-"));
+    try {
+      const call = (flag: string) => `pm-changelog --release-version-from-package ${flag} --include-empty`;
+      const hooks = {
+        "changelog:full": `${call(policy!)} && ${call(policy!)}`,
+        "changelog:check": `${call("--date-from-version")} && ${call(policy!)}`,
+        "release:notes": `${call(policy!)} --date-fallback --include-empty`,
+      };
+      writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: hooks }));
+      const result = runBashFixture(script, { cwd: root, env: releaseStepEnv(root, process.env, heading), encoding: "utf8" });
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      const prepared = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { scripts: typeof hooks };
+      assert.equal(prepared.scripts["changelog:full"], `${call(expected!)} && ${call(expected!)}`);
+      assert.equal(prepared.scripts["changelog:check"], `${call(heading ? expected! : "--date-from-version")} && ${call(expected!)}`);
+      assert.equal(prepared.scripts["release:notes"], `${call(expected!)} --date-fallback --include-empty`);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
 });

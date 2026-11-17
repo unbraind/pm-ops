@@ -109,7 +109,7 @@ test("a pinned final argument before another JSON script is audited after decodi
   assert.match(text, /--date-fallback 2026-11-16",/);
   assert.deepEqual(auditInvocations([{ file: "package.json", text }]).failures, []);
   assert.equal(invocationsIn({ file: "package.json", text }).length, 1);
-  assert.throws(() => invocationsIn({ file: "package.json", text: "invalid JSON" }), SyntaxError);
+  assert.throws(() => invocationsIn({ file: "package.json", text: "invalid JSON" }), /package\.json: invalid JSON/);
 });
 
 test("one line holding two invocations is judged per invocation, spaced or not", () => {
@@ -330,4 +330,16 @@ test("a backslash continuation is one logical command, not fragments", () => {
   const text = `pm-changelog \\\n  --release-version-from-package \\\n  ${DATE_FLAG}`;
   assert.equal(joinContinuations(text).split("\n").length, 1);
   assert.deepEqual(auditInvocations([{ file: "package.json", text: manifest(text) }]).failures, []);
+});
+
+
+test("manifest scripts must be an object and only string commands are scanned", () => {
+  for (const scripts of [null, 42, "invalid", [], true]) {
+    assert.throws(() => invocationsIn({ file: "package.json", text: JSON.stringify({ scripts }) }), /package\.json: scripts must be an object/);
+  }
+  for (const value of [null, [], 42, "invalid"]) {
+    assert.throws(() => invocationsIn({ file: "package.json", text: JSON.stringify(value) }), /package\.json: manifest must be an object/);
+  }
+  const text = JSON.stringify({ scripts: { valid: FLAGGED, number: 42, nested: [FLAGGED], object: { command: FLAGGED }, nil: null } });
+  assert.equal(invocationsIn({ file: "package.json", text }).length, 1);
 });

@@ -614,7 +614,7 @@ jobs:
           const headingDate = (process.env.RELEASE_HEADING_DATE || '').trim();
           if (headingDate && !/^\d{4}-\d{2}-\d{2}$/.test(headingDate)) throw new Error('Release heading date must be YYYY-MM-DD, received ' + JSON.stringify(headingDate));
           const versionDateFlag = '--date-from-version';
-          const pinnedDateFlag = /--date-fallback(?:=\S+|\s\S+)/;
+          const pinnedDateFlag = /--date-fallback(?:=|\s+)\d{4}-\d{2}-\d{2}(?=\s|$)/g;
           for (const name of new Set([process.env.CHANGELOG_SCRIPT, process.env.CHANGELOG_CHECK_SCRIPT, process.env.NOTES_SCRIPT])) {
             let script = pkg.scripts?.[name];
             if (typeof script !== 'string' || !script.trim()) throw new Error('Missing changelog hook: ' + name);
@@ -626,15 +626,16 @@ jobs:
             }
             if (headingDate) {
               if (script.includes(versionDateFlag)) {
-                script = script.replace(versionDateFlag, '--date-fallback ' + headingDate);
+                script = script.replaceAll(versionDateFlag, '--date-fallback ' + headingDate);
                 changed = true;
                 console.log('::notice::Release commit pins package.json script "' + name + '" to --date-fallback ' + headingDate + ' because the resumed version is tagged today, so post-tag checks regenerate the same heading.');
-              } else if (pinnedDateFlag.test(script)) {
+              }
+              if (script.search(pinnedDateFlag) !== -1) {
                 script = script.replace(pinnedDateFlag, '--date-fallback ' + headingDate);
                 changed = true;
                 console.log('::notice::Release commit refreshes package.json script "' + name + '" to --date-fallback ' + headingDate + ' for the day this resumed version is tagged.');
               }
-            } else if (pinnedDateFlag.test(script)) {
+            } else if (script.search(pinnedDateFlag) !== -1) {
               script = script.replace(pinnedDateFlag, versionDateFlag);
               changed = true;
               // Restore the standing policy once the pending version is current again; the previous release's pinned date no longer applies.
