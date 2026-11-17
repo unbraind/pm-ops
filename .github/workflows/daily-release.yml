@@ -284,7 +284,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          # Job-local prefix install: parallel jobs on one runner host share the
+          # Node installation in the toolcache, and a global install replaces
+          # the shared npm under a sibling job's feet mid-install.
+          npm install --prefix "$RUNNER_TEMP/npm-11.21.0" npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          echo "$RUNNER_TEMP/npm-11.21.0/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/npm-11.21.0/node_modules/.bin:$PATH"
           active="$(npm --version)"
           [[ "$active" == "11.21.0" ]] || { echo "::error::Expected npm 11.21.0, got $active"; exit 1; }
           required="11.5.1"
@@ -293,6 +298,10 @@ jobs:
             exit 1
           fi
           echo "npm $active can exchange an OIDC token for a registry credential."
+      - name: Verify job-local npm version
+        shell: bash
+        run: test "$(npm --version)" = "11.21.0"
+
       - name: Resolve pm-ops release version
         shell: bash
         env:
@@ -415,7 +424,7 @@ jobs:
           components: llvm-tools-preview
       - name: Install Rust gate tools
         if: inputs.rust
-        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39
+        uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21
         with:
           tool: just,cargo-llvm-cov,cargo-audit
       - name: Install dependencies
@@ -1051,7 +1060,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          # Job-local prefix install: parallel jobs on one runner host share the
+          # Node installation in the toolcache, and a global install replaces
+          # the shared npm under a sibling job's feet mid-install.
+          npm install --prefix "$RUNNER_TEMP/npm-11.21.0" npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          echo "$RUNNER_TEMP/npm-11.21.0/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/npm-11.21.0/node_modules/.bin:$PATH"
           active="$(npm --version)"
           [[ "$active" == "11.21.0" ]] || { echo "::error::Expected npm 11.21.0, got $active"; exit 1; }
           required="11.5.1"
@@ -1060,6 +1074,10 @@ jobs:
             exit 1
           fi
           echo "npm $active can exchange an OIDC token for a registry credential."
+      - name: Verify job-local npm version
+        shell: bash
+        run: test "$(npm --version)" = "11.21.0"
+
       - name: Checkout publishing base
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -1424,7 +1442,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          # Job-local prefix install: parallel jobs on one runner host share the
+          # Node installation in the toolcache, and a global install replaces
+          # the shared npm under a sibling job's feet mid-install.
+          npm install --prefix "$RUNNER_TEMP/npm-11.21.0" npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          echo "$RUNNER_TEMP/npm-11.21.0/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/npm-11.21.0/node_modules/.bin:$PATH"
           active="$(npm --version)"
           [[ "$active" == "11.21.0" ]] || { echo "::error::Expected npm 11.21.0, got $active"; exit 1; }
           required="11.5.1"
@@ -1433,6 +1456,10 @@ jobs:
             exit 1
           fi
           echo "npm $active can exchange an OIDC token for a registry credential."
+      - name: Verify job-local npm version
+        shell: bash
+        run: test "$(npm --version)" = "11.21.0"
+
       - name: Audit release completeness
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1478,7 +1505,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          # Job-local prefix install: parallel jobs on one runner host share the
+          # Node installation in the toolcache, and a global install replaces
+          # the shared npm under a sibling job's feet mid-install.
+          npm install --prefix "$RUNNER_TEMP/npm-11.21.0" npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          echo "$RUNNER_TEMP/npm-11.21.0/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/npm-11.21.0/node_modules/.bin:$PATH"
           active="$(npm --version)"
           [[ "$active" == "11.21.0" ]] || { echo "::error::Expected npm 11.21.0, got $active"; exit 1; }
           required="11.5.1"
@@ -1487,6 +1519,11 @@ jobs:
             exit 1
           fi
           echo "npm $active can exchange an OIDC token for a registry credential."
+      - name: Verify job-local npm version
+        if: ${{ steps.npm_setup.outcome == 'success' }}
+        shell: bash
+        run: test "$(npm --version)" = "11.21.0"
+
       - name: Report release failure
         if: ${{ !cancelled() }}
         env:
@@ -1558,7 +1595,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          # Job-local prefix install: parallel jobs on one runner host share the
+          # Node installation in the toolcache, and a global install replaces
+          # the shared npm under a sibling job's feet mid-install.
+          npm install --prefix "$RUNNER_TEMP/npm-11.21.0" npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          echo "$RUNNER_TEMP/npm-11.21.0/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/npm-11.21.0/node_modules/.bin:$PATH"
           active="$(npm --version)"
           [[ "$active" == "11.21.0" ]] || { echo "::error::Expected npm 11.21.0, got $active"; exit 1; }
           required="11.5.1"
@@ -1567,6 +1609,10 @@ jobs:
             exit 1
           fi
           echo "npm $active can exchange an OIDC token for a registry credential."
+      - name: Verify job-local npm version
+        shell: bash
+        run: test "$(npm --version)" = "11.21.0"
+
       - name: Checkout existing tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -1708,7 +1754,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          # Job-local prefix install: parallel jobs on one runner host share the
+          # Node installation in the toolcache, and a global install replaces
+          # the shared npm under a sibling job's feet mid-install.
+          npm install --prefix "$RUNNER_TEMP/npm-11.21.0" npm@11.21.0 --ignore-scripts --no-audit --no-fund
+          echo "$RUNNER_TEMP/npm-11.21.0/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/npm-11.21.0/node_modules/.bin:$PATH"
           active="$(npm --version)"
           [[ "$active" == "11.21.0" ]] || { echo "::error::Expected npm 11.21.0, got $active"; exit 1; }
           required="11.5.1"
@@ -1717,6 +1768,11 @@ jobs:
             exit 1
           fi
           echo "npm $active can exchange an OIDC token for a registry credential."
+      - name: Verify job-local npm version
+        if: inputs.bunx-script != '' && steps.verify_bun.outcome == 'success'
+        shell: bash
+        run: test "$(npm --version)" = "11.21.0"
+
       - name: Run optional caller bunx acceptance
         if: inputs.bunx-script != '' && steps.verify_bun.outcome == 'success'
         env:

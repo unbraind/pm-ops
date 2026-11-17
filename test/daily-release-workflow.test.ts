@@ -701,7 +701,8 @@ test("every installing reusable job pins npm while reconciliation stays installa
       assert.equal(job.steps[setup].if, undefined);
     }
     assertPinnedNpmBootstrap(job.steps[setup].run!);
-    assert.match(job.steps[setup].run!, /npm install -g npm@11\.21\.0 --ignore-scripts --no-audit --no-fund/);
+    assert.match(job.steps[setup].run!, /npm install --prefix "\$RUNNER_TEMP\/npm-11\.21\.0" npm@11\.21\.0 --ignore-scripts --no-audit --no-fund/);
+    assert.match(job.steps[setup].run!, /echo "\$RUNNER_TEMP\/npm-11\.21\.0\/node_modules\/.bin" >> "\$GITHUB_PATH"/);
     assert.match(job.steps[setup].run!, /\[\[ "\$active" == "11\.21\.0" \]\]/);
   }
 });
@@ -727,6 +728,7 @@ test("every reusable and CI npm setup refuses failed installs and wrong active v
         for (const [active, status, success] of [["11.21.0", "0", true], ["10.9.3", "0", false], ["11.22.0", "0", false], ["11.21.0", "7", false]] as const) {
           const result = runBashFixture(setup.run!, { encoding: "utf8", env: {
             PATH: `${root}:${process.env.PATH}`, ACTIVE_NPM: active, INSTALL_STATUS: status,
+            RUNNER_TEMP: root, GITHUB_PATH: join(root, "github-path"),
           } });
           assert.equal(result.status === 0, success, `${file}/${name}/${active}/${status}: ${result.stderr}`);
         }
@@ -739,6 +741,8 @@ test("failure reporting attempts its script after bootstrap or dependency instal
   const setup = workflow.jobs.alert.steps.find(s => s.id === "npm_setup")!;
   const report = step("Report release failure");
   assert.equal(setup["continue-on-error"], true);
+  const verify = workflow.jobs.alert.steps.find(s => s.name === "Verify job-local npm version")!;
+  assert.equal(verify.if, "${{ steps.npm_setup.outcome == 'success' }}");
   assert.equal(report.if, "${{ !cancelled() }}");
   assert.equal(report.env?.NPM_READY, "${{ steps.npm_setup.outcome == 'success' }}");
   const root = mkdtempSync(join(tmpdir(), "release-alert-failure-"));
