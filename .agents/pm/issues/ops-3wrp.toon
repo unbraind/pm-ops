@@ -6,10 +6,12 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-ops#284"
 created_at: "2026-11-16T14:40:51.350Z"
-updated_at: "2026-11-17T05:30:29.635Z"
+updated_at: "2026-11-17T07:47:39.520Z"
+assignee: pi-guard-1117aj
+claim_principal: pi-guard-1117aj
 author: pi-glm
 acceptance_criteria: "Every workflow installs the pinned npm with --prefix into a job-local directory and prepends its bin to the job path, keeping the exact-version assertion; A workflow-contract test fails if any workflow replaces the global npm; A regression test runs two overlapping pinned installs into separate prefixes against one shared Node directory and proves both stay at the pin with the shared npm untouched"
-comments[19]{created_at,author,text}:
+comments[20]{created_at,author,text}:
   "2026-11-16T15:16:48.720Z",codex-sol,"Continuation: preserving the existing uncommitted implementation. Reviewing all bootstrap paths including Windows, strengthening the overlap proof, and rerunning all required gates to completion before the first push."
   "2026-11-16T15:27:14.297Z",codex-sol,"Root cause confirmed in the workflow source: global installation of the pinned npm replaces the same Node installation used by parallel jobs on a shared toolcache. Replaced each bootstrap with a job-local prefix, published only its bin directory to the job PATH, and retained exact-pin checks including a separate subsequent-step assertion. Workflow contracts reject global npm replacement across all workflow files. No runner settings or shared tool installations were modified."
   "2026-11-16T15:29:09.237Z",codex-sol,"Additional regression evidence: install processes must have overlapping lifetimes; both cold and warm rounds share a private package cache; each prefix reports the exact pin and reaches a clean npm ci. The unchanged-shared-installation check hashes every file in the shared npm package as well as checking the CLI timestamp and version. Windows uses the same prefix form with Git Bash path conversion; global npm replacement is no longer an allowed bootstrap exception."
@@ -29,6 +31,7 @@ comments[19]{created_at,author,text}:
   "2026-11-17T03:39:08.872Z",pi-claude,"Round AF follow-up on the fail-closed guard, from the pm-ado review threads PRRT_kwDOUMUq1864PGRG and PRRT_kwDOUMUq1864P73_ and the identical pm-lint threads PRRT_kwDOVHTnEc64QBn2, PRRT_kwDOVHTnEc64QBn6 and PRRT_kwDOVHTnEc64QBn7; this repository carries the same guard with the direct YAML dependency. All three findings were reproduced against the guard source first: a prefix bootstrap followed by '&& npm install -g npm@11.19.0', 'npm install -gpld npm@11.19.0' and step env NPM_CONFIG_GLOBAL=true were all accepted by the previous code.\n\n1. Segment-scoped prefix exception: run scripts now split into command segments at unquoted ;, &, | and newlines. The scanner tracks quote state across lines and $( … ) substitutions (which nest a fresh quoting context even inside double quotes), skips comments and here-document bodies (the workflow-scoped test in this repository uses here-documents, which are now skipped as non-delimiting text), and any script that cannot be delimited (unbalanced quote or substitution) fails closed as 'undelimitable command line'. The job-local prefix exception only covers the segment carrying it; rejected fixtures add 'npm install --prefix \"$RUNNER_TEMP/npm-11.19.0\" npm@11.19.0 && npm install -g npm@11.19.0' and 'npm install --prefix \"$RUNNER_TEMP/npm-local\" npm@11.19.0; npm install -g npm@11.19.0'. Approved bootstrap fixtures stay accepted.\n2. Combined short flags: any single-dash letter cluster containing g now marks global (rejected: 'npm install -gpld npm@11.19.0', 'npm install -dg npm@11.19.0'); 'npm install -D pnpm' and 'npm install -gpld pnpm' stay accepted.\n3. Workflow, job and step env compose for each step run, the step scope taking precedence; npm reads npm_config_* keys case-insensitively. npm_config_global set to anything other than false/0/empty, npm_config_location=global, a ${{ … }} expression value, or an unreadable env scope or entry forces every npm install in that run global unless its own segment carries a job-local prefix. Fixtures cover step env flow mapping, job env flow and block styles, workflow env, expression values, location=global, step-override (job \"true\" + step \"false\" accepted) and accepted \"false\"/\"0\"/\"\" values.\n\nGates: guard suite 62 passed; the workflow-scoped job-local-npm test ('no workflow replaces the shared global npm installation') passed, its subprocess-based pinned-install integration test is unchanged and left to CI; typecheck, test build, lint, duplication and changelog:check passed. Every workflow in the repository still scans clean; the ../subprocess.ts wrapper in the job-local tests is untouched. Full-suite certification remains with CI."
   "2026-11-17T05:22:28.806Z",codex-sol,"Round AH: implement conservative run-wide global configuration and markers, install-family aliases, redirect-safe prefix segmentation, and comment-free effective prefix exemptions. Preserve all existing rejected fixtures and approved bootstrap workflows; verify required package gates before releasing the claim. No review-thread mutations."
   "2026-11-17T05:30:27.259Z",codex-sol,"Round AH verification: 133 tests passed with zero failures, cancellations or skips (102 guard fixtures, release-workflow contracts, real cold/warm job-local npm overlap regression, and subprocess adapter tests). npm run build, npm run build:test, npm run typecheck, npm run lint, npm run duplication, npm run changelog:check and git diff --check passed. Threads PRRT_kwDOTOTl1M64Qoco, PRRT_kwDOTOTl1M64Q1tC, PRRT_kwDOTOTl1M64Q1tH, PRRT_kwDOTOTl1M64Q1tK and PRRT_kwDOTOTl1M64Q1tQ are addressed. Run-wide configuration and markers, installing aliases, redirect preservation and comment-free effective prefix exemptions match the companion copies. All earlier rejected fixtures and approved bootstrap workflows are retained. The subprocess.ts wrapper remains in use. Protected item dates are unchanged. Exact-head CI remains pending; no review-thread actions, publishing or merges."
+  "2026-11-17T07:47:37.131Z",pi-guard-1117aj,"Round AJ: replaced the guard's per-segment shell parser with a line-based fail-closed rule, identical to the other fleet repositories: logical lines only (continuations joined, newline-only splits), comment and here-document text scanned like any other text, install family extended with update/up/upgrade/udpate, markers covering single-dash g clusters, global-containing tokens, -L with any value and two-plus-letter prefixes of global/location, npm config set/set as a run-wide global signal (narrowed to a set token: a read-only 'npm config get globalconfig' line tripped the broader form), operands naming npm by substring or computed form (tarball URLs, x@npm:npm), exemptions restricted to exact approved bootstrap lines, and step-level rejection of GITHUB_ENV npm_config_* writes and global/location npmrc writes. The hand-rolled workflow extractor now consumes inert job-level sequence values such as needs lists, which the repository's daily release workflow uses; every workflow still scans clean. No test code spawns processes, so the subprocess wrapper was not needed."
 files[13]{path,scope}:
   .github/workflows/ci-deep.yml,project
   .github/workflows/ci.yml,project
@@ -43,7 +46,7 @@ files[13]{path,scope}:
   test/release-caller.test.ts,project
   test/release-workflow.test.ts,project
   test/runtime-npm-fixture.ts,project
-tests[11]:
+tests[13]:
   - command: "npm run typecheck && npm run lint && npm test && node --test --test-concurrency=2 test/release-workflow.test.ts test/daily-release-workflow.test.ts test/job-local-npm.test.ts && npm run changelog:check"
     scope: project
     timeout_seconds: 1200
@@ -129,6 +132,20 @@ tests[11]:
     provenance:
       author: codex-sol
       created_at: "2026-11-17T05:26:14.671Z"
+      source_kind: local_mutation
+      source_ref: fix/job-local-npm
+  - command: "node --test test/global-npm-guard.test.ts test/release-workflow.test.ts && npm run typecheck && npm run lint && npm run duplication && npm run changelog:check"
+    scope: project
+    provenance:
+      author: pi-guard-1117aj
+      created_at: "2026-11-17T07:47:38.149Z"
+      source_kind: local_mutation
+      source_ref: fix/job-local-npm
+  - command: node --test --test-name-pattern 'no workflow replaces' test/job-local-npm.test.ts
+    scope: project
+    provenance:
+      author: pi-guard-1117aj
+      created_at: "2026-11-17T07:47:39.420Z"
       source_kind: local_mutation
       source_ref: fix/job-local-npm
 docs[2]{path,scope}:
