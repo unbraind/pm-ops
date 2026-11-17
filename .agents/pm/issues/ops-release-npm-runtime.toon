@@ -2,13 +2,19 @@ id: ops-release-npm-runtime
 title: Release and CI install Dependabot locks with the same pinned npm
 description: Daily Release run 42412827958 failed before publishing because trusted tool and audit installs used npm 10.9.3 from Node 22.18.0 against the 091124b lock. Standardize release and CI on exact npm 11.21.0 before any locked install.
 type: Issue
-status: in_progress
+status: closed
 priority: 1
 tags[1]: "gh:unbraind/pm-ops#260"
 created_at: "2026-11-07T23:40:56.448Z"
-updated_at: "2026-11-09T09:47:04.110Z"
+updated_at: "2026-11-17T01:56:36.056Z"
+closed_at: "2026-11-16T20:43:40.418Z"
+completed_at: "2026-11-16T20:43:40.418Z"
 author: pi-agent
 acceptance_criteria: "Inventory every workflow and script npm install with before and after runtimes; Pin and verify npm before trusted tool, provenance and caller installs while retaining node-version and ignore-scripts; PR CI executes the exact release production install against both committed locks; Document passing fixed and failing npm 10.9.3 runs against the unchanged 091124b fixture; Focused tests and typecheck pass; CI is the full gate; docs explain the caller runtime"
+repro_steps: 1. Daily Release run 42412827958 on Node 22.18.0 (bundled npm 10.9.3). 2. Trusted tool and audit installs run before the pinned npm is installed. 3. npm 10.9.3 refuses the 091124b Dependabot lock and the run fails before publishing.
+resolution: Fixed by #260 (edd5d94).
+expected_result: "Every release and CI locked install runs with the exact pinned npm 11.21.0, so Dependabot locks install on Node 22.18.0."
+actual_result: "On main since #260: workflows install npm 11.21.0 before npm ci, and later daily releases installed Dependabot locks without the 10.9.3 refusal."
 comments[50]{created_at,author,text}:
   "2026-11-07T23:40:58.995Z",pi-agent,"Repro: on main 091124b (Dependabot #254), npm 10.9.3 ci --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund reports EUSAGE: glob@13.0.6 does not satisfy glob@13.0.7. Reported npm 11.17.0 succeeds. CI already selects 11.21.0; release selects 11.19.0 only after tool bootstrap, while audit/alert/recover/Bun hooks inherit bundled npm. Plan: pin packageManager to 11.21.0, install and verify it immediately after setup-node in all reusable jobs, add isolated exact-command root/private PR CI smoke checks, retain lock bytes and lifecycle suppression."
   "2026-11-07T23:44:59.543Z",pi-agent,"Revert proof: immutable 091124b package.json/package-lock.json fixtures on real Node 22.18.0: exact npm ci --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund exits 1 with npm 10.9.3 (EUSAGE; glob@13.0.6 does not satisfy glob@13.0.7), exits 0 with npm 11.21.0 (5 production packages). Private provenance fixture passes with both npm versions (52 packages). All four runs preserve the lock SHA-256. In a disposable source copy, retaining new tests/manifests but restoring only both workflows to 091124b gives 0/3 pass and 3 failures; restoring fixed workflows gives 3/3 pass, no skips. Original worktree is never reverted. npm 11.21.0 engine range ^20.17.0 || >=22.9.0 admits the Node 22.18.0 default."
@@ -89,4 +95,5 @@ tests[12]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
 docs[2]{path,scope}:
   docs/release-migration.md,project
   docs/reusable-release.md,project
+close_reason: "Delivered by #260 \"Make release and CI install Dependabot lockfiles with pinned npm\" (merged as edd5d94, head 1a48114): release and CI install the exact pinned npm 11.21.0 before any locked install."
 body: ""

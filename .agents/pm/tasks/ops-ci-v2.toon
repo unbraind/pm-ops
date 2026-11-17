@@ -2,18 +2,24 @@ id: ops-ci-v2
 title: Split quick PR CI from exhaustive local deep gates
 description: Fleet CI v2; companion pm-cli-website-dyhg. Preserve required checks and all release evidence while removing duplicated PR release gates.
 type: Task
-status: in_progress
+status: closed
 priority: 2
 tags[2]: ci,performance
 created_at: "2026-11-15T20:54:18.216Z"
-updated_at: "2026-11-15T21:08:32.667Z"
+updated_at: "2026-11-17T01:57:59.599Z"
+closed_at: "2026-11-16T20:34:14.655Z"
+completed_at: "2026-11-16T20:34:14.655Z"
 author: codex-sol
-comments[5]{created_at,author,text}:
+resolution: Implemented and merged in #283 (0615405).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #283 as 0615405; checks successful at head c2a97fc: CodeQL, Release lock compatibility (22.18.0), Release lock compatibility (26), codeql, test (22), test (26), windows-consumers (22), windows-consumers (26)."
+comments[6]{created_at,author,text}:
   "2026-11-15T20:56:02.510Z",codex-sol,"Required contexts verified: test (22), test (26); CodeQL is optional. Retain Windows consumer and release-lock platform contracts. Deep becomes four independent full gates with conditional local setup caching. No release workflows or verifier scripts changed. Latest successful main run 43729447430 returned an empty log, so historical per-test durations are unavailable."
   "2026-11-15T20:58:30.581Z",codex-sol,"Implemented quick/full seed prefixes, integer validated harness scaling, docs identity/lifecycle/pack checks, retained Windows and exact-lock jobs. Typecheck, lint, test typecheck and strict YAML parsing passed. Workflow bootstrap regression caught missing fail-fast; fixed and focused rerun passed (1 test, 7.1 s). Documentation subset passed (4 tests, 3.2 s). Touched-file suite and bounded quick coverage are in progress. Full depth is reserved for CI Deep."
   "2026-11-15T21:01:29.488Z",codex-sol,"Recovered historical logs through the archive API. Main Node 26 npm gate 4m04s and Bun 4m15s; Node 22 npm 4m18s and Bun 4m19s. Slowest tests: real tarball mutation fuzz 42.2s, installed CLI routing 27.2s, publish indirection 26.6s, witness 500-case model 26.3s. Local quick witness model 13.2s (different hardware, not a speedup claim). Initial touched suite: 93/94 in 195.5s; its bootstrap failure was corrected and focused rerun passed. The docs path also retains packed compatibility acceptance because it reads a docs example."
   "2026-11-15T21:01:54.436Z",codex-sol,Final workflow contract rerun passed 35/35 in 47.6s. Each touched packed-acceptance entrypoint rejects invalid scale before fixture setup or child execution; fractional scale 1.5 rounds a 1ms harness deadline to 2ms. No product time budgets were scaled. Quick coverage remains running within its 20-minute cap.
   "2026-11-15T21:08:32.666Z",codex-sol,"PR 283 initial head 2940c81: test (22) passed in 3m26s and test (26) failed in 7m15s wall time from jobs created_at to completed_at. Node 26 quick coverage met all four unchanged 100% thresholds across 48 source files. Failure was the attestation verifier rejecting matrix-expanded executable syntax in ci-deep; replaced it with mutually exclusive literal npm/Bun steps, leaving verifier scripts unchanged. Added workflow contract assertions; focused test and attestation verifier pass. Stopped redundant local quick coverage after hosted coverage passed; no full local depth ran. Final head CI remains pending."
+  "2026-11-17T01:57:59.599Z",pi-glm,"Review round AC ancestry verification: the #283 merge commit 0615405 is first contained by tag v2026.11.15, matching the expectation. Applying release 2026.11.15 is deferred: regeneration then drops the three published Dependencies bullets from the 2026.11.15 section. Release attribution waits for pm-changelog#362; the field remains unset and the changelog is unchanged."
 files[6]{path,scope}:
   .github/workflows/ci-deep.yml,project
   .github/workflows/ci.yml,project
@@ -26,4 +32,5 @@ tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_TEST_DEPTH=quick node --test --test-concurrency=2 test/ci-tiers.test.ts test/daily-release-workflow.test.ts test/compatibility-evidence.test.ts test/compatibility-ranges.test.ts test/compatibility-reasons.test.ts test/diagnostic-witnesses.test.ts test/reverification-plans.test.ts test/duplication-glob-unions.test.ts test/release-repair.test.ts,project,codex-sol,"2026-11-15T21:01:27.024Z",local_mutation,ci/quick-pr-tier-deep-local-tier
 docs[1]{path,scope}:
   docs/ci-tiers.md,project
+close_reason: "Delivered by #283 \"ci: add quick PR checks and independent full-depth deep jobs\" (merged as 0615405). Checks successful at the PR head c2a97fc: CodeQL, Release lock compatibility (22.18.0), Release lock compatibility (26), codeql, test (22), test (26), windows-consumers (22), windows-consumers (26)."
 body: ""
