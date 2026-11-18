@@ -4,8 +4,13 @@
 
 ### Fixed
 
-- Global npm update guard mistakes comment words and redirect targets for packages ([ops-global-update-operands](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-global-update-operands.toon))
 - Verify the clean trusted release-tool build before daily release planning ([ops-b2bs](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-b2bs.toon))
+
+## 2026.11.18 - 2026-11-18
+
+### Fixed
+
+- Global npm update guard mistakes comment words and redirect targets for packages ([ops-global-update-operands](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-global-update-operands.toon))
 
 ## 2026.11.17 - 2026-11-17
 

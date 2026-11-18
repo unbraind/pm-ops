@@ -238,6 +238,7 @@ test("release hook context changes are refused once at the entry point and after
     ["PM_PATH=docs npm run relay", "PM_PATH assignment"],
     ["PM_PATH=docs; npm run relay", "PM_PATH assignment"],
     ["exec -c npm run relay", "exec -c"],
+    ["exec -lc npm run relay", "exec -lc"],
     ["export npm_config_ignore_scripts=true; npm run relay", "export npm_config_ignore_scripts"],
     ["unset NPM_CONFIG_IGNORE_SCRIPTS; npm run relay", "unset NPM_CONFIG_IGNORE_SCRIPTS"],
     ["cd docs && npm run relay", "cd"],
@@ -275,6 +276,8 @@ test("canonical hook paths retain their directory, generator arguments and model
   const writer = "pm-changelog " + standing + " --pm-arg --pm-cwd --title cd";
   for (const second of [
     "env TZ=UTC timeout 60 npm run --ignore-scripts writer",
+    "exec -l npm run writer",
+    "exec -a release-hook npm run writer",
     "npm run writer -- --title=--prefix",
     "echo 'export PM_PATH=docs'; npm run writer",
     "npm run writer; cd docs",

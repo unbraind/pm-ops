@@ -1062,7 +1062,7 @@ export function releaseHookCommand(input: ShellCommand, context?: ReleaseContext
         return words.slice(start);
       }
       if ((wrapper === "env" && /^(?:-$|-[iu]|--(?:ignore-environment|unset)(?:=|$))/.test(flag))
-        || (wrapper === "exec" && /^-[cl]*c[cl]*$/.test(flag))) {
+        || (wrapper === "exec" && RELEASE_WRAPPERS.exec.test(flag) && flag.includes("c"))) {
         context?.push({ construct: wrapper + " " + flag });
       }
       const options = PREFIX_OPTIONS_WITH_OPERAND.get(wrapper);
