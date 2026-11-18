@@ -1,7 +1,7 @@
 /** Read and rewrite pm-changelog date policies using the shared shell scanner. */
 import { basename } from "node:path";
 import {
-  commandCandidates, tokenizeCommands, tokenizeCommandsWithSpans,
+  commandCandidates, isShellEvaluator, tokenizeCommands, tokenizeCommandsWithSpans,
   type ShellCommand, type ShellToken, type ShellTokenSpan,
 } from "./shell-scan.ts";
 
@@ -24,26 +24,37 @@ export function isRealCalendarDay(day: string): boolean {
   return round.getUTCFullYear() === year && round.getUTCMonth() === month - 1 && round.getUTCDate() === date;
 }
 
-/** Return the arguments of a recognized pm-changelog command or launcher. */
+/** Return the generator's arguments, or refuse a possible hook behind an unknown wrapper. */
 export function changelogArguments(words: ShellCommand): ShellToken[] | undefined {
   const invocation = commandCandidates(words)[0];
   if (invocation === undefined) return undefined;
   const [program, ...parameters] = invocation;
-  const isLauncher = GENERATOR_LAUNCHERS.has(basename(program.value));
+  const name = basename(program.value);
+  const isLauncher = GENERATOR_LAUNCHERS.has(name);
   const generatorAt = isLauncher ? parameters.findIndex(({ value }) => GENERATOR_TARGET.test(value)) : -1;
-  if (!GENERATOR_TARGET.test(program.value) && generatorAt < 0) return undefined;
-  return parameters.slice(generatorAt + 1);
+  if (GENERATOR_TARGET.test(program.value) || generatorAt >= 0) return parameters.slice(generatorAt + 1);
+  // The shell scanner emits evaluated text separately. Its synthetic readings
+  // can start with an evaluator option such as -c. Prints carry data only.
+  if (isShellEvaluator(name) || program.value.startsWith("-") || name === "echo" || name === "printf") return undefined;
+  const target = parameters.find(({ value }) => value.includes("pm-changelog") || GENERATOR_TARGET.test(value));
+  if (target !== undefined) {
+    throw new Error(`Unrecognized wrapper ${JSON.stringify(program.value)} before possible pm-changelog command ${JSON.stringify(target.value)}`);
+  }
+  return undefined;
 }
 
 type DateOption =
   | { kind: "version" | "missing-day"; first: ShellToken; last: ShellToken }
   | { kind: "pin" | "invalid-day"; first: ShellToken; last: ShellToken; day: string };
 
-/** Decode each date option and retain its first and last shell words for edits. */
+/** Decode literal date options and retain their shell words for edits. */
 export function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[] {
   const options: DateOption[] = [];
   for (const [index, token] of args.entries()) {
-    if (token.value === DATE_FLAG && !token.unresolved) {
+    if (token.unresolved && token.value.startsWith("-")) {
+      throw new Error(`Unresolved option word in pm-changelog hook: ${JSON.stringify(token.value)}`);
+    }
+    if (token.value === DATE_FLAG) {
       options.push({ kind: "version", first: token, last: token });
       continue;
     }

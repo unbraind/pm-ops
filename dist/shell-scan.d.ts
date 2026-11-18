@@ -60,6 +60,8 @@ export interface ShellToken {
 }
 /** One simple command: the words it would run, in order. */
 export type ShellCommand = ShellToken[];
+/** Whether this program's shell text is scanned recursively. */
+export declare function isShellEvaluator(program: string): boolean;
 /** A lexical child region, before any parent binding is expanded. */
 interface ShellChildRegion {
     /** First character of the opening delimiter. */

@@ -346,7 +346,7 @@ test("preparation rewrites every date policy without consuming a following flag"
   ]) {
     const root = mkdtempSync(join(tmpdir(), "hook-policy-"));
     try {
-      const call = (flag: string) => `pm-changelog --release-version-from-package ${flag} --include-empty`;
+      const call = (flag: string) => `timeout --signal=KILL 5m pm-changelog --release-version-from-package ${flag} --include-empty`;
       const hooks = {
         "changelog:full": `${call(policy!)} && ${call(policy!)}`,
         "changelog:check": `${call("--date-from-version")} && ${call(policy!)}`,
@@ -378,4 +378,23 @@ test("preparation refreshes and restores the date policy of a version-qualified 
   const pinned = `${command} '--date-fallback'="2026-11-16"`;
   assert.equal(rewriteReleaseHeadingDate(pinned, "2026-11-17"), `${command} --date-fallback 2026-11-17`);
   assert.equal(rewriteReleaseHeadingDate(pinned, ""), `${command} --date-from-version`);
+});
+
+test("preparation pins and restores wrapped changelog hooks", () => {
+  for (const wrapper of ["timeout 60", "timeout --signal=KILL 5m", "nice -n 5"]) {
+    const command = `${wrapper} pm-changelog --release-version-from-package`;
+    const standing = `${command} --date-from-version`;
+    const pinned = `${command} --date-fallback 2026-11-17`;
+    assert.equal(rewriteReleaseHeadingDate(standing, "2026-11-17"), pinned);
+    assert.equal(rewriteReleaseHeadingDate(pinned, ""), standing);
+  }
+  assert.throws(() => rewriteReleaseHeadingDate("custom-wrapper pm-changelog --date-from-version", "2026-11-17"),
+    /unrecognized wrapper/i);
+});
+
+test("preparation refuses an unresolved option instead of erasing the substitution", () => {
+  const command = 'pm-changelog --release-version-from-package --date-fallback$(printf x) 2026-11-16';
+  for (const day of ["2026-11-17", ""]) {
+    assert.throws(() => rewriteReleaseHeadingDate(command, day), /unresolved option word/i);
+  }
 });

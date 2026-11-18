@@ -252,3 +252,18 @@ test("continuation rejects a stale pin on a version-qualified generator", () => 
   assertReleaseHeadingDate([script], "2026-11-16");
   assert.throws(() => assertReleaseHeadingDate([script], "2026-11-17"), /2026-11-16.*2026-11-17.*re-prepare/);
 });
+
+test("continuation checks wrapped changelog hooks against the merge day", () => {
+  for (const wrapper of ["timeout 60", "timeout --signal=KILL 5m", "nice -n 5"]) {
+    const script = `${wrapper} pm-changelog --release-version-from-package --date-fallback 2026-11-16`;
+    assertReleaseHeadingDate([script], "2026-11-16");
+    assert.throws(() => assertReleaseHeadingDate([script], "2026-11-17"), /2026-11-16.*2026-11-17.*re-prepare/);
+  }
+  assert.throws(() => assertReleaseHeadingDate(["custom-wrapper pm-changelog --date-from-version"], "2026-11-17"),
+    /unrecognized wrapper/i);
+});
+
+test("continuation refuses an unresolved changelog option even when the apparent pin matches", () => {
+  const script = 'pm-changelog --release-version-from-package --date-fallback$(printf x) 2026-11-16';
+  assert.throws(() => assertReleaseHeadingDate([script], "2026-11-16"), /unresolved option word/i);
+});

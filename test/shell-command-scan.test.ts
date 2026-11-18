@@ -13,13 +13,19 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-import { bashArrayDeclarations, bashArrays, dedentRunBlocks, expandArrays, joinContinuations, tokenizeCommands } from "../shell-scan.ts";
+import { bashArrayDeclarations, bashArrays, commandArguments, commandName, dedentRunBlocks, expandArrays, joinContinuations, tokenizeCommands } from "../shell-scan.ts";
 import { auditPublishAttestation, publishInvocationsIn } from "../attestation.ts";
 import { isMainInvocation } from "../scripts/main-invocation.ts";
 
 test("quoted YAML command values are recursively tokenized", () => {
   const commands = tokenizeCommands('run: "npm publish --access public"');
   assert.ok(commands.some((command) => command.map((token) => token.value).join(" ") === "npm publish --access public"));
+});
+
+test("the command prefix ends after each timeout's duration", () => {
+  const [tokens] = tokenizeCommands('timeout -k 2s 60 timeout --foreground "$LIMIT" npm --version');
+  assert.equal(commandName(tokens!), "npm");
+  assert.deepEqual(commandArguments(tokens!).map(({ value }) => value), ["--version"]);
 });
 
 test("an unknown array reference is left in place rather than erased", () => {

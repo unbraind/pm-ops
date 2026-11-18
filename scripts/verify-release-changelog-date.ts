@@ -65,6 +65,10 @@ export interface Invocation {
   args: ShellToken[];
   /** The shell scanner could not finish parsing the source line. */
   malformed: boolean;
+  /** The command or its option words could not be resolved. */
+  problem?: string;
+  /** The parsed heading-date policies on the invocation. */
+  options: ReturnType<typeof readReleaseDateOptions>;
 }
 
 /**
@@ -132,14 +136,20 @@ export function invocationsIn(source: SourceFile): Invocation[] {
   for (const raw of text.split("\n")) {
     if (/^\s*#/.test(raw)) continue;
     if (!/pm-changelog|dist\/cli\.js/.test(raw)) continue;
+    if (/\.ya?ml$/.test(source.file) && /^\s*(?:-\s+)?(?:description|name|uses):\s/.test(raw)) continue;
     const command = stripComment(expandArrays(raw, arrays));
     const commands = tokenizeCommands(command);
     const malformed = commands.some((words) => words.length === 1 && words[0].unresolved && words[0].value === "$");
     for (const words of commands) {
-      const args = changelogArguments(words);
-      if (args === undefined) continue;
-      if (!args.some(({ value }) => VERSION_INPUTS.some((flag) => value === flag || value.startsWith(flag + "=")))) continue;
-      found.push({ file: source.file, command, args, malformed });
+      try {
+        const args = changelogArguments(words);
+        if (args === undefined) continue;
+        const options = readReleaseDateOptions(args);
+        if (!args.some(({ value }) => VERSION_INPUTS.some((flag) => value === flag || value.startsWith(flag + "=")))) continue;
+        found.push({ file: source.file, command, args, malformed, options });
+      } catch (error) {
+        found.push({ file: source.file, command, args: [], malformed, options: [], problem: String(error) });
+      }
     }
   }
   return found;
@@ -160,11 +170,12 @@ export function auditInvocations(sources: SourceFile[]): VerifierResult {
   const invocations = sources.flatMap(invocationsIn);
   return tallyFlaggedInvocations(
     invocations,
-    ({ file, command, args, malformed }) => {
+    ({ file, command, options, malformed, problem }) => {
       const excerpt = command.trim().slice(0, 160);
+      if (problem !== undefined) return `${file}: ${problem}: ${excerpt}`;
       if (malformed) return `${file}: malformed shell arguments in generator invocation: ${excerpt}`;
       let hasPolicy = false;
-      for (const option of readReleaseDateOptions(args)) {
+      for (const option of options) {
         if (option.kind === "missing-day") {
           return `${file}: every ${FALLBACK_DATE_FLAG} must pin an explicit YYYY-MM-DD day: ${excerpt}`;
         }

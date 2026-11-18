@@ -5,7 +5,7 @@ export declare const DATE_FLAG = "--date-from-version";
 export declare const FALLBACK_DATE_FLAG = "--date-fallback";
 /** Whether a YYYY-MM-DD string names an existing day, including years 0–99. */
 export declare function isRealCalendarDay(day: string): boolean;
-/** Return the arguments of a recognized pm-changelog command or launcher. */
+/** Return the generator's arguments, or refuse a possible hook behind an unknown wrapper. */
 export declare function changelogArguments(words: ShellCommand): ShellToken[] | undefined;
 type DateOption = {
     kind: "version" | "missing-day";
@@ -17,7 +17,7 @@ type DateOption = {
     last: ShellToken;
     day: string;
 };
-/** Decode each date option and retain its first and last shell words for edits. */
+/** Decode literal date options and retain their shell words for edits. */
 export declare function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[];
 /** Refuse publication when the verified merge day differs from a prepared pin. */
 export declare function assertReleaseHeadingDate(scripts: readonly string[], mergeDay: string): void;

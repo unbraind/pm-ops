@@ -122,6 +122,52 @@ test("the date policy belongs to the command that runs the generator", () => {
   }
 });
 
+test("the verifier audits changelog hooks behind supported wrappers", () => {
+  for (const wrapper of [
+    "timeout 60", "timeout --signal=KILL 5m", "timeout --signal KILL 5m", "nice -n 5",
+    'timeout -- "$LIMIT"', "env TZ=UTC", 'env "TZ=UTC"', "command", "exec", "exec -a alias",
+    "stdbuf -oL", "npx", "bunx", "npm exec --", "time",
+    "time timeout 1.5s nice -n 5 env TZ=UTC npm exec --",
+  ]) {
+    const text = `${wrapper} pm-changelog --release-version-from-package`;
+    const audit = (command: string) => auditInvocations([{ file: "package.json", text: manifest(command) }]);
+    assert.deepEqual(audit(`${text} ${DATE_FLAG}`).failures, [], wrapper);
+    assert.match(audit(`${FLAGGED}\n${text}`).failures[0] ?? "", /carries a version input but neither/);
+  }
+});
+
+test("workflow labels and print arguments are data while shell payloads are audited", () => {
+  const text = [
+    "description: pm-changelog generation npm script",
+    "- name: Check pm-changelog",
+    'printf "%s\\n" pm-changelog',
+    `run: sh -c '${FLAGGED}'`,
+  ].join("\n");
+  const result = auditInvocations([{ file: ".github/workflows/release.yml", text }]);
+  assert.deepEqual(result.failures, []);
+  assert.equal(result.notes.length, 1);
+});
+
+test("the verifier names an unrecognized wrapper even when another hook is valid", () => {
+  for (const command of [
+    `custom-wrapper ./node_modules/.bin/pm-changelog --version 2026.11.16 ${DATE_FLAG}`,
+    `timeout 60 custom-wrapper 'pm-changelog --version 2026.11.16 ${DATE_FLAG}'`,
+  ]) {
+    const result = auditInvocations([{ file: "package.json", text: manifest(`${FLAGGED}\n${command}`) }]);
+    assert.equal(result.failures.length, 1, command);
+    assert.match(result.failures[0], /unrecognized wrapper.*custom-wrapper.*pm-changelog/i);
+  }
+});
+
+test("the verifier refuses unresolved option words even with a literal date policy", () => {
+  for (const flag of ['--date-fallback$(printf x) 2026-11-16', '--date-fallback=2026-11-16$(printf x)',
+    '--date-from-version$(printf x)', '--other$(printf x)']) {
+    const result = auditInvocations([{ file: "package.json", text: manifest(`${FLAGGED} ${flag}`) }]);
+    assert.equal(result.failures.length, 1, flag);
+    assert.match(result.failures[0], /unresolved option word/i);
+  }
+});
+
 test("a pinned --date-fallback day must exist on the calendar, not merely be shaped like one", () => {
   // The regression CodeRabbit found: `2026-02-30` passes the shape regex and
   // therefore the audit, yet no calendar ever produces that heading. Both

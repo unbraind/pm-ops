@@ -1481,7 +1481,7 @@ test("heading-date continuation mirrors the generator at the committer offset de
         await runReleaseContinuation("heading-date");
       }
       const wrongDay = expectedDay === "2026-11-06" ? "2026-11-07" : "2026-11-06";
-      write({ generate: pin, check: pin, notes: `pm-changelog --date-fallback ${wrongDay}` });
+      write({ generate: pin, check: pin, notes: `timeout 60 pm-changelog --date-fallback ${wrongDay}` });
       await assert.rejects(runReleaseContinuation("heading-date"), new RegExp(`${wrongDay}.*${expectedDay}.*re-prepare`));
     }
     for (const bad of [undefined, null, 1, "", " "]) {

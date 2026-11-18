@@ -172,6 +172,7 @@ const PREFIX_OPTIONS_WITH_OPERAND = new Map([
   ["yarn", new Set(["-p", "--package", "--cwd"])],
   ["bunx", new Set(["-p", "--package"])],
   ["env", new Set(["-u", "--unset", "-C", "--chdir"])],
+  ["exec", new Set(["-a"])],
   ["sudo", new Set(["-u", "--user", "-g", "--group", "-p", "--prompt", "-h", "--host", "-r", "--role", "-t", "--type", "-C", "--close-from", "-D", "--chdir", "-R", "--chroot", "-U", "--other-user"])],
   ["doas", new Set(["-u", "-C"])],
   ["nice", new Set(["-n", "--adjustment"])],
@@ -205,6 +206,11 @@ function basename(word: string): string {
  * The command-prefix scan exposes BusyBox sh/ash applets as these shell names.
  */
 const SHELL_EVALUATORS = new Set(["eval", "bash", "sh", "dash", "zsh", "ksh", "mksh", "ash", "yash", "posh"]);
+
+/** Whether this program's shell text is scanned recursively. */
+export function isShellEvaluator(program: string): boolean {
+  return SHELL_EVALUATORS.has(program);
+}
 
 /** True when the character ends a word outside of quotes. */
 function isOperatorStart(character: string): boolean {
@@ -684,7 +690,7 @@ function scanShellCommands(
     // evaluator at all.
     for (const candidate of commandCandidates(found)) {
       const name = commandName(candidate);
-      if (name === undefined || !SHELL_EVALUATORS.has(name)) continue;
+      if (name === undefined || !isShellEvaluator(name)) continue;
       const words = candidate.slice(1).map((argument) => argument.value);
       // The shell joins an evaluator's words with a space and evaluates the
       // result, so `eval "npm pub" "lish"` runs a publish that scanning each
@@ -819,7 +825,7 @@ function scanCommandPrefix(command: ShellCommand): PrefixScan {
   let lastPrefix: string | undefined;
   while (index < command.length) {
     const token = command[index]!;
-    if (!token.startsQuoted && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(token.value)) {
+    if ((!token.startsQuoted || lastPrefix === "env") && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(token.value)) {
       index += 1;
       continue;
     }
@@ -859,6 +865,13 @@ function scanCommandPrefix(command: ShellCommand): PrefixScan {
       if (lastPrefix !== undefined && PREFIX_OPTIONS_WITH_OPERAND.get(lastPrefix)?.has(token.value) === true) {
         index += 1;
       }
+      continue;
+    }
+    // timeout consumes one positional duration after its options, then the
+    // command begins. The duration can itself come from a shell expansion.
+    if (lastPrefix === "timeout") {
+      lastPrefix = undefined;
+      index += 1;
       continue;
     }
     // The YAML `run` key carries executable shell text as its value:
