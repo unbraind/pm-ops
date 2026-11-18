@@ -206,10 +206,11 @@ test("preparation and continuation refuse date overrides and alternate npm exec 
     ["pm-changelog " + standing + " --date 2026-11-16", /Explicit --date overrides/],
     ["pm-changelog --version 2026.11.16 --date-fallback 2026-11-17 --date=2026-11-16", /Explicit --date overrides/],
     ['pm-changelog --version "$npm_package_version" --date-fallback 2026-11-17', /Unresolved --version operand/],
-    ["npm exec --workspace=docs -- pm-changelog " + standing, /Unsupported npm exec options/],
-    ["npm exec -w docs -- pm-changelog " + standing, /Unsupported npm exec options/],
-    ["npm exec --prefix=docs -- pm-changelog " + standing, /Unsupported npm exec options/],
-    ["npm exec --workspaces -- pm-changelog " + standing, /Unsupported npm exec options/],
+    ["npm exec --workspace=docs -- pm-changelog " + standing, /context change npm exec --workspace/],
+    ["npm exec -w docs -- pm-changelog " + standing, /context change npm exec -w/],
+    ["npm exec --prefix=docs -- pm-changelog " + standing, /context change npm exec --prefix/],
+    ["npm exec --workspaces -- pm-changelog " + standing, /context change npm exec --workspaces/],
+    ["npm exec --script-shell sh -- pm-changelog " + standing, /Unsupported npm exec options/],
   ] as const) {
     const scripts = new Map([["hook", command]]);
     assert.throws(() => rewriteReleaseHookDates(scripts, ["hook"], day), diagnostic);
@@ -218,6 +219,85 @@ test("preparation and continuation refuse date overrides and alternate npm exec 
   }
   assert.doesNotThrow(() => assertReleaseHookHeadingDate(
     new Map([["hook", "npm exec -- pm-changelog " + standing]]), ["hook"], day, "2026.11.17"));
+});
+
+test("release hook context changes are refused once at the entry point and after two forwards", () => {
+  const generator = "pm-changelog " + standing;
+  for (const [command, construct] of [
+    ["nohup npm run relay", "nohup"],
+    ["timeout 60 nohup npm run relay", "nohup"],
+    ["env -u npm_config_ignore_scripts npm run relay", "env -u"],
+    ["env --unset=npm_config_ignore_scripts npm run relay", "env --unset"],
+    ["env -i npm run relay", "env -i"],
+    ["env npm_config_ignore_scripts=true npm run relay", "env npm_config_ignore_scripts"],
+    ["env 'PM_PATH=docs' npm run relay", "env PM_PATH"],
+    ["PM_PATH=docs npm run relay", "PM_PATH assignment"],
+    ["PM_PATH=docs; npm run relay", "PM_PATH assignment"],
+    ["exec -c npm run relay", "exec -c"],
+    ["export npm_config_ignore_scripts=true; npm run relay", "export npm_config_ignore_scripts"],
+    ["unset NPM_CONFIG_IGNORE_SCRIPTS; npm run relay", "unset NPM_CONFIG_IGNORE_SCRIPTS"],
+    ["cd docs && npm run relay", "cd"],
+    ["CDPATH=docs cd docs && npm run relay", "cd"],
+    ["command cd docs && npm run missing-locally", "cd"],
+    ["export PM_PATH=docs; cd docs; npm run missing-locally", "cd"],
+    ["pushd docs >/dev/null; npm run relay", "pushd"],
+    ["npm --prefix docs run relay", "--prefix"],
+    ["npm run relay --prefix=docs", "--prefix"],
+    ["npm run --workspace docs relay", "--workspace"],
+    ["pnpm -Cdocs run relay", "-Cdocs"],
+    ["env -C docs npm run relay", "env -C"],
+    ["npm --prefix docs exec -- " + generator, "--prefix"],
+    [generator + " --pm-cwd docs", "--pm-cwd"],
+    ["npm run relay -- --pm-cwd=docs", "--pm-cwd"],
+  ]) {
+    for (const nested of [false, true]) {
+      const scripts = nested
+        ? { hook: "npm run first", first: "npm run second", second: command, relay: "npm run writer", writer: generator }
+        : { hook: command, relay: "npm run writer", writer: generator };
+      const map = new Map(Object.entries(scripts));
+      const checkRefusal = (error: unknown) => error instanceof Error
+        && error.message.includes(construct) && error.message.includes("Use a direct pm-changelog");
+      assert.throws(() => resolveChangelogHooks(scripts, ["hook"]), checkRefusal, command);
+      assert.throws(() => rewriteReleaseHookDates(map, ["hook"], day), checkRefusal, command);
+      assert.throws(() => assertReleaseHookHeadingDate(map, ["hook"], day, "2026.11.17"), checkRefusal, command);
+      const result = auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts }) }]);
+      assert.equal(result.failures.length, 1, command);
+      assert.ok(checkRefusal(new Error(result.failures[0])), result.failures[0]);
+    }
+  }
+});
+
+test("canonical hook paths retain their directory, generator arguments and modeled lifecycle settings", () => {
+  const writer = "pm-changelog " + standing + " --pm-arg --pm-cwd --title cd";
+  for (const second of [
+    "env TZ=UTC timeout 60 npm run --ignore-scripts writer",
+    "npm run writer -- --title=--prefix",
+    "echo 'export PM_PATH=docs'; npm run writer",
+    "npm run writer; cd docs",
+    "env -u PM_PATH echo helper; npm run writer",
+  ]) {
+    const scripts = { hook: "npm run first", first: "npm run second", second, writer };
+    const map = resolveChangelogHooks(scripts, ["hook"]);
+    assertReleaseHookHeadingDate(map, ["hook"], day, "2026.11.17");
+    assert.match(rewriteReleaseHookDates(map, ["hook"], day).get("writer")!, /--date-fallback 2026-11-17/);
+    assert.deepEqual(auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts }) }]).failures, []);
+  }
+});
+
+test("opaque wrappers can reach a writer through other opaque forwards", () => {
+  const scripts = { hook: "nohup npm run first", first: "npm run second", second: "nohup npm run writer", writer: "pm-changelog " + standing };
+  assert.throws(() => resolveChangelogHooks(scripts, ["hook"]), /"nohup".*Use a direct/);
+  assert.throws(() => resolveChangelogHooks({ ...scripts, second: "cd docs && npm run nested-only" }, ["hook"]), /"nohup".*Use a direct/);
+});
+
+test("implicit empty lifecycle scripts are skipped at release roots and in forwards", () => {
+  const hook = "changelog:full";
+  const scripts = { [hook]: "npm run writer", ["pre" + hook]: "", ["post" + hook]: "", writer: "pm-changelog " + standing, prewriter: "", postwriter: "" };
+  const map = resolveChangelogHooks(scripts, [hook]);
+  assert.deepEqual([...map.keys()], [hook, "writer"]);
+  assert.match(rewriteReleaseHookDates(new Map(Object.entries(scripts)), [hook], day).get("writer")!, /--date-fallback 2026-11-17/);
+  assertReleaseHookHeadingDate(new Map(Object.entries(scripts)), [hook], day, "2026.11.17");
+  assert.throws(() => resolveChangelogHooks(scripts, ["pre" + hook]), /Missing changelog hook/);
 });
 
 test("preparation refuses an invalid replacement before changing any manifest script", t => {
@@ -275,9 +355,11 @@ test("the public shell scanner still returns editable spans in literal substitut
 test("literal here-document data is never rewritten and opaque executable bodies are refused", () => {
   const body = "pm-changelog --version v2026.11.16";
   const sibling = "pm-changelog " + standing;
-  const data = "cat <<'END'\n" + body + "\nEND";
-  assert.deepEqual(auditInvocations([workflow(data + "\n" + sibling)]).failures, []);
-  assert.equal(includeEmptyReleaseSections(data), data);
+  for (const opener of ["cat <<'END'", "cat <<'END' # ignore <<BAD pm-changelog"]) {
+    const data = opener + "\n" + body + "\nEND";
+    assert.deepEqual(auditInvocations([workflow(data + "\n" + sibling)]).failures, []);
+    assert.equal(includeEmptyReleaseSections(data), data);
+  }
   for (const script of ["sh <<'END'\n" + body + "\nEND", "cat <<END\n$(" + body + ")\nEND"]) {
     assert.throws(() => includeEmptyReleaseSections(script), /Here-document.*Use a direct/);
   }

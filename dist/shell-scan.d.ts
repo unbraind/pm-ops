@@ -182,8 +182,19 @@ export declare function commandName(input: ShellCommand): string | undefined;
 export declare function commandCandidates(input: ShellCommand): ShellCommand[];
 /** Read the first executable command, retaining Bun's run subcommand so callers can resolve scripts. */
 export declare function packageScriptCommand(input: ShellCommand): ShellCommand | undefined;
+/** Options that can select a project other than the release hook's own manifest. */
+export declare const RELEASE_PROJECT_OPTION: RegExp;
+/** Environment names whose values can change npm or the generator's behavior. */
+export declare const RELEASE_CONTEXT_VARIABLE: RegExp;
+/** A context change discovered at a wrapper, runner, or shell boundary. */
+export interface ReleaseContextChange {
+    /** The option or command to name in the refusal. */
+    construct: string;
+    /** The command can select a manifest beyond the one available to the resolver. */
+    directory?: boolean;
+}
 /** Locate a release command using only wrappers with explicit argv boundaries. */
-export declare function releaseHookCommand(input: ShellCommand): ShellCommand | undefined;
+export declare function releaseHookCommand(input: ShellCommand, context?: ReleaseContextChange[]): ShellCommand | undefined;
 /**
  * List a command's arguments -- everything after its program name.
  *

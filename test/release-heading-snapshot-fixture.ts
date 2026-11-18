@@ -3,11 +3,21 @@ import { copyFileSync, lstatSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { execFileSync } from "../subprocess.ts";
 
+/** A tracked path is also absent when a regular file replaces an ancestor. */
+function snapshotEntry(path: string) {
+  try {
+    return lstatSync(path, { throwIfNoEntry: false });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOTDIR") throw error;
+    return undefined;
+  }
+}
+
 /** Remove obsolete clone files before copying the source's existing tracked files. */
 export function mirrorTrackedSnapshot(source: string, candidate: string, env: NodeJS.ProcessEnv): void {
   const tracked = (cwd: string) => execFileSync("git", ["ls-files", "-z"], { cwd, env, encoding: "utf8" }).split("\0").filter(Boolean);
   const files = new Set(tracked(source).filter(file => {
-    const entry = lstatSync(join(source, file), { throwIfNoEntry: false });
+    const entry = snapshotEntry(join(source, file));
     if (entry?.isSymbolicLink()) throw new Error("Cannot mirror tracked symbolic link: " + file);
     return entry?.isFile();
   }));
@@ -16,7 +26,7 @@ export function mirrorTrackedSnapshot(source: string, candidate: string, env: No
   }
   for (const file of files) {
     const destination = join(candidate, file);
-    const previous = lstatSync(destination, { throwIfNoEntry: false });
+    const previous = snapshotEntry(destination);
     if (previous?.isDirectory() || previous?.isSymbolicLink()) rmSync(destination, { recursive: true });
     mkdirSync(dirname(destination), { recursive: true });
     copyFileSync(join(source, file), destination);

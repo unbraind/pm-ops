@@ -42,7 +42,7 @@ import { tallyFlaggedInvocations } from "../invocation-audit.ts";
 import { executableShellBodies } from "../attestation.ts";
 import { hasVersionInput, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, visitChangelogScriptCommands } from "../release-changelog-options.ts";
 
-import { parseReleaseHook, refuseHook } from "../release-hook-grammar.ts";
+import { describeReleaseContextChange, parseReleaseHook, refuseHook } from "../release-hook-grammar.ts";
 
 export { DATE_FLAG, VERSION_INPUTS, isRealCalendarDay } from "../release-changelog-options.ts";
 
@@ -146,16 +146,11 @@ function addConfiguredHooks(text: string, entries: Set<string>): void {
 /** Flag a nested workflow command without following its forwards into the root manifest. */
 function inspectProjectStep(file: string, text: string, line: number, directory: unknown): Invocation[] {
   const { commands, spans } = parseReleaseHook(text);
-  return commands.flatMap(words => {
-    try {
-      if (!needsReleaseProject(words)) return [];
-      refuseHook(`Unsupported workflow working-directory ${JSON.stringify(directory)} for a potential release hook. Run the hook from the root package directory`);
-    } catch (error) {
-      const start = spans.get(words[0])!.start;
-      const end = spans.get(words.at(-1)!)!.end;
-      return [{ file, line, command: text.slice(start, end), args: [], options: [], problem: (error as Error).message }];
-    }
-  });
+  const words = commands.find(command => needsReleaseProject(command));
+  if (!words) return [];
+  return inspectCommand(words, {
+    file, line, command: text.slice(spans.get(words[0])!.start, spans.get(words.at(-1)!)!.end),
+  }, new Set(), describeReleaseContextChange(`working-directory ${JSON.stringify(directory)}`));
 }
 
 /** Workflow forwards and manifest forwards share the same effective argument graph. */
@@ -180,19 +175,20 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
       }
     }
   }
-  visitChangelogScriptCommands(scripts, ({ name, names, text, words, effective, spans }) => {
+  visitChangelogScriptCommands(scripts, ({ name, names, text, words, effective, spans, contextProblem }) => {
     const first = spans.get(words[0])!.start;
     const last = spans.get(words.at(-1)!)!.end;
     const file = origins.get(name) ?? "package.json";
     const line = file === "package.json" ? text.slice(0, first).split("\n").length : undefined;
-    found.push(...inspectCommand(effective, { file, line, command: text.slice(first, last) }, names));
+    found.push(...inspectCommand(effective, { file, line, command: text.slice(first, last) }, names, contextProblem));
   }, undefined, undefined, entryPoints);
   return found;
 }
 
 /** Extract the date policy and retain any diagnostic for this command. */
-function inspectCommand(words: ShellCommand, source: Pick<Invocation, "file" | "line" | "command">, scriptNames: ReadonlySet<string>): Invocation[] {
+function inspectCommand(words: ShellCommand, source: Pick<Invocation, "file" | "line" | "command">, scriptNames: ReadonlySet<string>, contextProblem?: string): Invocation[] {
   try {
+    if (contextProblem) refuseHook(contextProblem);
     const args = changelogArguments(words, scriptNames);
     if (args === undefined) return [];
     if (!hasVersionInput(args)) return [];

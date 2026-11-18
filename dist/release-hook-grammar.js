@@ -24,6 +24,10 @@ export function literalOptionName(word) {
 export function refuseHook(construct) {
     throw new Error(construct + ". Use a direct pm-changelog invocation with literal option names and one date policy, or npm run <script> -- <args>.");
 }
+/** Describe a context the release manifest cannot represent. */
+export function describeReleaseContextChange(construct) {
+    return "Unsupported release hook context change " + construct + ". Run the generator from the root package directory";
+}
 /** Split only on unquoted shell list operators. Never execute or recursively guess a payload. */
 export function parseReleaseHook(text) {
     const commands = [];
@@ -32,6 +36,7 @@ export function parseReleaseHook(text) {
     let words = [];
     const piped = new Set();
     let heredoc = -1;
+    let heredocComment = -1;
     let i = 0;
     while (i < text.length) {
         const ch = text[i];
@@ -48,6 +53,8 @@ export function parseReleaseHook(text) {
                 // Only an unquoted opener seen by this lexer can introduce data. A
                 // line resembling an opener inside a multiline title stays literal.
                 const lines = text.slice(heredoc).split("\n");
+                if (heredocComment >= 0)
+                    lines[0] = lines[0].slice(0, heredocComment - heredoc);
                 const bodies = heredocBodyLines(lines);
                 const expansions = heredocExpansionLines(lines);
                 const start = i + 1;
@@ -67,6 +74,7 @@ export function parseReleaseHook(text) {
                 }
                 i = end;
                 heredoc = -1;
+                heredocComment = -1;
                 continue;
             }
             i += text.startsWith("&&", i) || text.startsWith("||", i) ? 2 : 1;
@@ -81,6 +89,8 @@ export function parseReleaseHook(text) {
             continue;
         }
         if (ch === "#") {
+            if (heredoc >= 0)
+                heredocComment = i;
             const newline = text.indexOf("\n", i);
             i = newline < 0 ? text.length : newline;
             continue;

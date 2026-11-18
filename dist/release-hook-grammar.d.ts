@@ -7,6 +7,8 @@ export declare function mentionsGenerator(word: ShellToken): boolean;
 export declare function literalOptionName(word: ShellToken): string | undefined;
 /** One actionable diagnostic across verification, preparation and continuation. */
 export declare function refuseHook(construct: string): never;
+/** Describe a context the release manifest cannot represent. */
+export declare function describeReleaseContextChange(construct: string): string;
 /** Split only on unquoted shell list operators. Never execute or recursively guess a payload. */
 export declare function parseReleaseHook(text: string): {
     commands: ShellCommand[];

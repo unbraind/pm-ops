@@ -1025,13 +1025,27 @@ const RELEASE_WRAPPERS: Readonly<Record<string, RegExp>> = {
 };
 
 /** Options that can select a project other than the release hook's own manifest. */
-const NPM_EXEC_PROJECT_OPTION = /^(?:-w(?:.+)?|--(?:workspace|(?:no-)?workspaces|(?:no-)?include-workspace-root|prefix)(?:=|$))/;
+export const RELEASE_PROJECT_OPTION = /^(?:-[Cw]|--(?:prefix|cwd|dir|chdir|filter|workspace|(?:no-)?workspaces|(?:no-)?include-workspace-root)(?:=|$))/;
+
+/** Environment names whose values can change npm or the generator's behavior. */
+export const RELEASE_CONTEXT_VARIABLE = /^(?:npm_config_|pm_)[\w]+(?=\+?=|$)/i;
+
+/** A context change discovered at a wrapper, runner, or shell boundary. */
+export interface ReleaseContextChange {
+  /** The option or command to name in the refusal. */
+  construct: string;
+  /** The command can select a manifest beyond the one available to the resolver. */
+  directory?: boolean;
+}
 
 /** Locate a release command using only wrappers with explicit argv boundaries. */
-export function releaseHookCommand(input: ShellCommand): ShellCommand | undefined {
+export function releaseHookCommand(input: ShellCommand, context?: ReleaseContextChange[]): ShellCommand | undefined {
   const words = withoutRedirections(input);
   let i = 0;
-  while (i < words.length && !words[i].startsQuoted && /^[A-Za-z_][A-Za-z_0-9]*=/.test(words[i].value)) i++;
+  while (i < words.length && !words[i].startsQuoted && /^[A-Za-z_]\w*\+?=/.test(words[i].value)) {
+    const variable = RELEASE_CONTEXT_VARIABLE.exec(words[i++].value)?.[0];
+    if (variable) context?.push({ construct: variable + " assignment" });
+  }
   while (i < words.length) {
     const token = words[i];
     const name = basename(token.value);
@@ -1043,14 +1057,24 @@ export function releaseHookCommand(input: ShellCommand): ShellCommand | undefine
     while (i < words.length && words[i].value.startsWith("-")) {
       const flag = words[i++].value;
       if (flag === "--") break;
-      // A different working directory can select another manifest or changelog.
-      if (wrapper === "env" && (flag === "-C" || flag.split("=")[0] === "--chdir")) return words.slice(start);
-      if (wrapper === "npm" && NPM_EXEC_PROJECT_OPTION.test(flag)) return words.slice(start);
+      if ((wrapper === "env" || wrapper === "npm" || wrapper === "npx" || wrapper === "bunx") && RELEASE_PROJECT_OPTION.test(flag)) {
+        context?.push({ construct: (wrapper === "npm" ? "npm exec" : wrapper) + " " + flag, directory: true });
+        return words.slice(start);
+      }
+      if ((wrapper === "env" && /^(?:-$|-[iu]|--(?:ignore-environment|unset)(?:=|$))/.test(flag))
+        || (wrapper === "exec" && /^-[cl]*c[cl]*$/.test(flag))) {
+        context?.push({ construct: wrapper + " " + flag });
+      }
       const options = PREFIX_OPTIONS_WITH_OPERAND.get(wrapper);
       if (options?.has(flag)) i++;
       else if (!options?.has(flag.split("=")[0]) && !RELEASE_WRAPPERS[wrapper].test(flag)) return words.slice(start);
     }
-    if (wrapper === "env") while (/^[A-Za-z_][A-Za-z_0-9]*=/.test(words[i]?.value ?? "")) i++;
+    if (wrapper === "env") {
+      while (/^[A-Za-z_][A-Za-z_0-9]*=/.test(words[i]?.value ?? "")) {
+        const variable = RELEASE_CONTEXT_VARIABLE.exec(words[i++].value)?.[0];
+        if (variable) context?.push({ construct: "env " + variable + " assignment" });
+      }
+    }
     if (wrapper === "timeout") i++;
   }
   return i < words.length ? words.slice(i) : undefined;

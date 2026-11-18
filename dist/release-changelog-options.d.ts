@@ -14,7 +14,7 @@ export declare function releaseCommitDay(timestamp: string): string;
 /** Resolve the same invocation graph used by preparation and continuation, including comment-only hooks. */
 export declare function resolveChangelogHooks(scripts: Record<string, unknown> | undefined, hooks: readonly string[]): Map<string, string>;
 /** Whether a non-root step could run a generator or delegate to its local package scripts. */
-export declare function needsReleaseProject(words: ShellCommand): boolean;
+export declare function needsReleaseProject(words: ShellCommand, names?: ReadonlySet<string>): boolean;
 /** Read generator arguments during an audit, where only declared forwards are trusted. */
 export declare function changelogArguments(words: ShellCommand, scriptNames: ReadonlySet<string>): ShellToken[] | undefined;
 /** One command in a decoded manifest script, with its source and effective argv. */
@@ -33,6 +33,8 @@ export interface ChangelogScriptCommand {
     forwardedSeparators: ShellToken[];
     /** Source offsets for editable words from this script. */
     spans: WeakMap<ShellToken, ShellTokenSpan>;
+    /** Context refusal for an audit that collects diagnostics instead of throwing. */
+    contextProblem?: string;
 }
 /** Scan local scripts in invocation order and join forwarded argv at its actual destination. */
 export declare function visitChangelogScriptCommands(scripts: ReadonlyMap<string, string>, inspect: (entry: ChangelogScriptCommand) => void, hooks?: readonly string[], resolved?: Map<string, string>, entryPoints?: ReadonlySet<string>): void;

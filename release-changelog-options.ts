@@ -9,10 +9,10 @@
  */
 import { basename } from "node:path";
 import {
-  releaseHookCommand,
-  type ShellCommand, type ShellToken, type ShellTokenSpan,
+  RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand,
+  type ReleaseContextChange, type ShellCommand, type ShellToken, type ShellTokenSpan,
 } from "./shell-scan.ts";
-import { mentionsGenerator, hookSyntaxProblem, literalOptionName, parseReleaseHook, refuseHook } from "./release-hook-grammar.ts";
+import { describeReleaseContextChange, mentionsGenerator, hookSyntaxProblem, literalOptionName, parseReleaseHook, refuseHook } from "./release-hook-grammar.ts";
 
 /** The flag that makes an untagged heading version-derived. */
 export const DATE_FLAG = "--date-from-version";
@@ -163,11 +163,6 @@ function lifecycleEnvironment(words: ShellCommand, program: ShellToken): string 
   return setting;
 }
 
-/** Expand a runner invocation. npm executes lifecycle siblings once without forwarded arguments. */
-function scriptSequence(name: string, names: ReadonlySet<string>, lifecycle = false): string[] {
-  return lifecycle ? [`pre${name}`, name, `post${name}`].filter(script => script === name || names.has(script)) : [name];
-}
-
 /** Resolve the same invocation graph used by preparation and continuation, including comment-only hooks. */
 export function resolveChangelogHooks(scripts: Record<string, unknown> | undefined, hooks: readonly string[]): Map<string, string> {
   const all = new Map(Object.entries(scripts ?? {}).map(([key, value]) => [key, typeof value === "string" ? value : ""]));
@@ -185,10 +180,101 @@ function isPackageAdmin(program: ShellToken, parameters: ShellCommand): boolean 
 }
 
 /** Detect a literal script runner and generator-writing target inside an opaque command. */
-function referencesWriter(words: ShellCommand, scriptNames?: ReadonlySet<string>): boolean {
+function scriptReferenceWords(words: ShellCommand): string[] {
   const nested = words.flatMap(word => word.value.split(/[^\w.:-]+/));
-  return scriptNames instanceof HookScriptNames && nested.some(word => SCRIPT_RUNNERS.has(word))
-    && nested.some(word => word === "run" || word === "run-script") && nested.some(word => scriptNames.mayInvoke(word));
+  return nested.some(word => SCRIPT_RUNNERS.has(word)) && nested.some(word => word === "run" || word === "run-script") ? nested : [];
+}
+
+/** Follow script references even in a chain that contains opaque commands. */
+function referencesWriter(words: ShellCommand, scriptNames?: ReadonlySet<string>, seen?: Set<string>): boolean {
+  return scriptNames instanceof HookScriptNames && scriptReferenceWords(words).some(word => scriptNames.mayInvoke(word, seen));
+}
+
+/** Recognize direct generator invocations and the supported Node/Bun adapters. */
+function generatorCommand(invocation: ShellCommand): ShellCommand | undefined {
+  const [program, ...parameters] = invocation;
+  if (GENERATOR_TARGET.test(program.value)) return invocation;
+  const name = basename(program.value);
+  if (name !== "node" && name !== "bun") return undefined;
+  let index = name === "bun" && parameters[0]?.value === "run" ? 1 : 0;
+  while (parameters[index]?.value === "--enable-source-maps" || BUN_LOCAL_RUN_SWITCHES.has(parameters[index]?.value)) index++;
+  const file = parameters[index];
+  if (file && !file.unresolved && GENERATOR_TARGET.test(file.value)) return parameters.slice(index);
+  return undefined;
+}
+
+/** Look for a reachable generator without interpreting an opaque command as executable argv. */
+function canReachGenerator(words: ShellCommand, names?: ReadonlySet<string>, seen?: Set<string>): boolean {
+  const invocation = releaseHookCommand(words);
+  if (!invocation) return hookSyntaxProblem(words) !== undefined && words.some(mentionsGenerator);
+  const [program, ...parameters] = invocation;
+  const name = basename(program.value);
+  if (DATA_CONSUMERS.has(name) || isPackageAdmin(program, parameters)) return false;
+  const forward = scriptForward(name, parameters, names);
+  if (forward?.target && names instanceof HookScriptNames) {
+    return names.sequence(forward.target, forward.lifecycle !== false).some(target => names.canGenerate(target, seen))
+      || forward.args.some(mentionsGenerator);
+  }
+  return generatorCommand(invocation) !== undefined || words.some(mentionsGenerator) || referencesWriter(words, names, seen);
+}
+
+/** Project selectors on runners precede the delimiter that separates generator arguments. */
+function runnerProjectOption([program, ...args]: ShellCommand): string | undefined {
+  const name = basename(program.value);
+  if (!SCRIPT_RUNNERS.has(name)) return undefined;
+  const separator = args.findIndex(word => word.value === "--");
+  const flags = separator < 0 ? args : args.slice(0, separator);
+  if (!flags.some(word => isScriptForward(name, word.value) || (name === "npm" && word.value === "exec"))) return undefined;
+  return flags.find(word => RELEASE_PROJECT_OPTION.test(word.value))?.value;
+}
+
+/** Shell edits apply to later commands in this script and to their descendants. */
+function shellContextChange(words: ShellCommand): ReleaseContextChange | undefined {
+  const first = words.findIndex(word => word.quoted || !/^(?:if|then|elif|else|do|\{|!)$/.test(word.value));
+  if (first < 0) return undefined;
+  const inner = words.slice(first);
+  const command = /^(?:command$|time$|[A-Za-z_]\w*\+?=)/.test(inner[0].value) ? releaseHookCommand(inner) ?? inner : inner;
+  const [program, ...args] = command;
+  const name = basename(program.value);
+  if (/^(?:cd|pushd|popd)$/.test(name)) return { construct: name, directory: true };
+  if (name === "export" || name === "unset") {
+    const variable = args.map(word => RELEASE_CONTEXT_VARIABLE.exec(word.value)?.[0]).find(Boolean);
+    if (variable) return { construct: name + " " + variable };
+  }
+  if (command.every(word => !word.startsQuoted && /^[A-Za-z_]\w*\+?=/.test(word.value))) {
+    const variable = RELEASE_CONTEXT_VARIABLE.exec(program.value)?.[0]
+      ?? args.map(word => RELEASE_CONTEXT_VARIABLE.exec(word.value)?.[0]).find(Boolean);
+    if (variable) return { construct: variable + " assignment" };
+  }
+  return undefined;
+}
+
+/** Find context changes made for a single invocation. */
+function commandContextChanges(words: ShellCommand): ReleaseContextChange[] {
+  const context: ReleaseContextChange[] = [];
+  const invocation = releaseHookCommand(words, context);
+  const project = invocation && runnerProjectOption(invocation);
+  if (project) context.push({ construct: project, directory: true });
+  const generator = invocation && generatorCommand(invocation);
+  if (generator) {
+    const args = generator.slice(1);
+    if (optionPositions(args).some(index => args[index].value.split("=", 1)[0] === "--pm-cwd")) context.push({ construct: "--pm-cwd", directory: true });
+  }
+  return context;
+}
+
+/** Remember directory changes even when an earlier edit affected only the environment. */
+function nextShellContext(words: ShellCommand, preceding?: ReleaseContextChange): ReleaseContextChange | undefined {
+  const change = shellContextChange(words);
+  return change?.directory ? change : preceding ?? change;
+}
+
+/** Apply one context rule to the shell path and the effective argv at each script depth. */
+function releaseContextProblem(words: ShellCommand, names?: ReadonlySet<string>, preceding?: ReleaseContextChange): string | undefined {
+  const changes = commandContextChanges(words);
+  if (preceding) changes.unshift(preceding);
+  const change = changes.find(context => context.directory ? needsReleaseProject(words, names) : canReachGenerator(words, names));
+  return change && describeReleaseContextChange(change.construct);
 }
 
 /** Return the generator word and arguments, or refuse a possible hook behind an unknown wrapper. */
@@ -213,10 +299,6 @@ function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<stri
     && ["pre", "post"].some(prefix => scriptNames.canGenerate(prefix + forward.target))) {
     refuseHook("Configuration-dependent pnpm lifecycle writer for " + JSON.stringify(forward.target));
   }
-  if (forward?.target && forward.lifecycle === undefined && scriptNames instanceof HookScriptNames && scriptNames.mayInvoke(forward.target)) {
-    const setting = lifecycleEnvironment(words, program);
-    if (setting !== undefined && !BOOLEAN_VALUE.test(setting)) refuseHook("Nonliteral npm lifecycle setting, use npm run --ignore-scripts or npm run");
-  }
   if (forward?.unsupported && (mentions || (forward.target && scriptNames instanceof HookScriptNames && scriptNames.mayInvoke(forward.target)))) {
     refuseHook("Unsupported npm run option or positional argument " + JSON.stringify(forward.unsupported) + " before --");
   }
@@ -224,14 +306,8 @@ function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<stri
   const [subcommand] = parameters;
   if (isPackageAdmin(program, parameters)) return undefined;
   if (program.unresolved && mentionsGenerator(program)) refuseHook("Indirect pm-changelog executable " + JSON.stringify(program.value));
-  if (GENERATOR_TARGET.test(program.value)) return invocation;
-  if (name === "node" || name === "bun") {
-    let index = 0;
-    if (name === "bun" && subcommand?.value === "run") index++;
-    while (parameters[index]?.value === "--enable-source-maps" || BUN_LOCAL_RUN_SWITCHES.has(parameters[index]?.value)) index++;
-    const file = parameters[index];
-    if (file && !file.unresolved && GENERATOR_TARGET.test(file.value)) return parameters.slice(index);
-  }
+  const generator = generatorCommand(invocation);
+  if (generator) return generator;
   if (name === "npm" && subcommand?.value === "exec" && mentions) {
     refuseHook("Unsupported npm exec options before pm-changelog. Use npm exec -- pm-changelog in the current project");
   }
@@ -252,34 +328,47 @@ class HookScriptNames extends Set<string> {
     this.scripts = scripts;
   }
 
+  /** npm skips empty implicit lifecycle scripts and passes args only to main. */
+  sequence(name: string, lifecycle: boolean): string[] {
+    return lifecycle ? [`pre${name}`, name, `post${name}`].filter(script => script === name || this.scripts.get(script)?.trim()) : [name];
+  }
+
   /** An opaque npm invocation may run the named script and both lifecycle siblings. */
-  mayInvoke(name: string): boolean {
-    return this.has(name) && scriptSequence(name, this, true).some(script => this.canGenerate(script));
+  mayInvoke(name: string, seen = new Set<string>()): boolean {
+    return this.has(name) && this.sequence(name, true).some(script => this.canGenerate(script, seen));
   }
 
   /** Follow literal script references without recursively evaluating the wrapper's shell payload. */
   canGenerate(name: string, seen = new Set<string>()): boolean {
     if (!this.has(name) || seen.has(name)) return false;
     seen.add(name);
-    return parseReleaseHook(this.scripts.get(name)!).commands.some(words => {
-      const command = releaseHookCommand(words);
-      if (!command) return false;
-      const [program, ...parameters] = command;
-      if (DATA_CONSUMERS.has(basename(program.value)) || isPackageAdmin(program, parameters)) return false;
-      const forward = scriptForward(basename(program.value), parameters, this);
-      if (forward?.target) return scriptSequence(forward.target, this, forward.lifecycle !== false).some(target => this.canGenerate(target, seen));
-      return words.some(mentionsGenerator);
-    });
+    let preceding: ReleaseContextChange | undefined;
+    for (const words of parseReleaseHook(this.scripts.get(name)!).commands) {
+      if (canReachGenerator(words, this, seen)) return true;
+      if ((preceding?.directory || commandContextChanges(words).some(context => context.directory))
+        && maySelectUnresolvedScript(words, this)) return true;
+      preceding = nextShellContext(words, preceding);
+    }
+    return false;
   }
 }
 
-/** Whether a non-root step could run a generator or delegate to its local package scripts. */
-export function needsReleaseProject(words: ShellCommand): boolean {
+/** A project change can resolve a literal script missing from the inspected manifest. */
+function maySelectUnresolvedScript(words: ShellCommand, names?: ReadonlySet<string>): boolean {
   const invocation = releaseHookCommand(words);
   if (!invocation) return false;
-  const [program, ...args] = invocation;
-  const forward = scriptForward(basename(program.value), args);
-  return forward?.target !== undefined || changelogInvocation(words) !== undefined;
+  const [program, ...parameters] = invocation;
+  if (DATA_CONSUMERS.has(basename(program.value)) || isPackageAdmin(program, parameters)) return false;
+  return words.some((word, index) => {
+    if (word.unresolved || !SCRIPT_RUNNERS.has(basename(word.value))) return false;
+    const forward = scriptForward(basename(word.value), words.slice(index + 1), names);
+    return (forward?.target !== undefined && !names?.has(forward.target)) || runnerProjectOption(words.slice(index)) !== undefined;
+  });
+}
+
+/** Whether a non-root step could run a generator or delegate to its local package scripts. */
+export function needsReleaseProject(words: ShellCommand, names?: ReadonlySet<string>): boolean {
+  return canReachGenerator(words, names) || maySelectUnresolvedScript(words, names);
 }
 
 /** Read generator arguments during an audit, where only declared forwards are trusted. */
@@ -303,6 +392,8 @@ export interface ChangelogScriptCommand {
   forwardedSeparators: ShellToken[];
   /** Source offsets for editable words from this script. */
   spans: WeakMap<ShellToken, ShellTokenSpan>;
+  /** Context refusal for an audit that collects diagnostics instead of throwing. */
+  contextProblem?: string;
 }
 
 /** Identify the original command that would receive argv appended by a script runner. */
@@ -374,6 +465,7 @@ export function visitChangelogScriptCommands(
       if (!recipients.has(name)) recipients.set(name, commandReceivingArguments(text, commands, spans));
       recipient = recipients.get(name);
     }
+    let preceding: ReleaseContextChange | undefined;
     for (const words of commands) {
       const effective = words === recipient ? [...words, ...args] : words;
       const forward = forwardToScript(effective);
@@ -381,6 +473,13 @@ export function visitChangelogScriptCommands(
       // it, but the generator only accepts named options.
       const separators = effective.filter(token => forwardedSeparators.has(token));
       const argv = forward ? effective : effective.filter(token => !forwardedSeparators.has(token));
+      const contextProblem = releaseContextProblem(argv, names, preceding);
+      preceding = nextShellContext(effective, preceding);
+      if (contextProblem) {
+        if (hooks) refuseHook(contextProblem);
+        inspect({ name, names, text, words, effective: argv, spans, forwardedSeparators: separators, contextProblem });
+        return;
+      }
       inspect({ name, names, text, words, effective: argv, spans, forwardedSeparators: separators });
       if (forward) {
         if (forward.target === undefined) {
@@ -390,7 +489,7 @@ export function visitChangelogScriptCommands(
         if (!names.has(forward.target) && (forward.optional || !hooks)) continue;
         if (forward.forwardedSeparator) forwardedSeparators.add(forward.forwardedSeparator);
         const enabled = forward.lifecycle ?? lifecycle;
-        const sequence = scriptSequence(forward.target, names, forward.runner !== "npm" || enabled);
+        const sequence = names.sequence(forward.target, forward.runner !== "npm" || enabled);
         for (const target of sequence) {
           visit(target, target === forward.target ? forward.args : [], [...parents, name], enabled);
         }
@@ -399,7 +498,7 @@ export function visitChangelogScriptCommands(
   }
 
   if (hooks) {
-    for (const hook of hooks) for (const name of scriptSequence(hook, names, true)) visit(name, [], []);
+    for (const hook of hooks) for (const name of names.sequence(hook, true)) visit(name, [], []);
     return;
   }
   for (const { commands } of parsed.values()) {
@@ -410,12 +509,23 @@ export function visitChangelogScriptCommands(
   }
   for (const name of names) {
     if (entryPoints.has(name) || !targeted.has(name)) {
-      for (const entry of scriptSequence(name, names, entryPoints.has(name))) visit(entry, [], []);
+      for (const entry of names.sequence(name, entryPoints.has(name))) visit(entry, [], []);
     }
   }
   // A disconnected cycle has no root. Its own commands still need auditing.
   for (const name of names) {
     if (!visited.has(name)) visit(name, [], []);
+  }
+}
+
+/** Check standalone commands against the same context rule before reading their options. */
+function* standaloneHookCommands(commands: ShellCommand[], names?: ReadonlySet<string>): Generator<ShellCommand> {
+  let preceding: ReleaseContextChange | undefined;
+  for (const words of commands) {
+    const problem = releaseContextProblem(words, names, preceding);
+    if (problem) refuseHook(problem);
+    yield words;
+    preceding = nextShellContext(words, preceding);
   }
 }
 
@@ -522,7 +632,7 @@ function assertHeadingOptions(words: ShellCommand, mergeDay: string, packageVers
 /** Refuse publication when a standalone generator's heading differs from the verified merge day. */
 export function assertReleaseHeadingDate(scripts: readonly string[], mergeDay: string, packageVersion?: string, scriptNames?: ReadonlySet<string>): void {
   for (const script of scripts) {
-    for (const words of parseReleaseHook(script).commands) assertHeadingOptions(words, mergeDay, packageVersion, scriptNames);
+    for (const words of standaloneHookCommands(parseReleaseHook(script).commands, scriptNames)) assertHeadingOptions(words, mergeDay, packageVersion, scriptNames);
   }
 }
 
@@ -545,7 +655,7 @@ function applyHookEdits(script: string, edits: Iterable<HookEdit>): string {
 export function includeEmptyReleaseSections(script: string, scriptNames?: ReadonlySet<string>): string {
   const { commands, spans } = parseReleaseHook(script);
   const edits = new Map<number, HookEdit>();
-  for (const words of commands) {
+  for (const words of standaloneHookCommands(commands, scriptNames)) {
     const invocation = changelogInvocation(words, scriptNames);
     if (invocation === undefined || optionPositions(invocation.slice(1)).some(i => invocation[i + 1].value === INCLUDE_EMPTY_FLAG)) continue;
     const token = invocation.at(-1)!;
@@ -571,7 +681,8 @@ export function rewriteReleaseHeadingDate(script: string, headingDate: string, s
   validateReplacementDay(headingDate);
   const { commands, spans } = parseReleaseHook(script);
   const source = { text: script, spans, edits: new Map<number, HookEdit>() };
-  rewriteDateOptions(commands.flatMap(words => hookDateOptions(changelogInvocation(words, scriptNames)?.slice(1) ?? [])), headingDate, () => source);
+  const options = [...standaloneHookCommands(commands, scriptNames)].flatMap(words => hookDateOptions(changelogInvocation(words, scriptNames)?.slice(1) ?? []));
+  rewriteDateOptions(options, headingDate, () => source);
   return applyHookEdits(script, source.edits.values());
 }
 

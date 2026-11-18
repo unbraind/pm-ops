@@ -56,6 +56,16 @@ test("candidate snapshot replaces a tracked directory with a staged regular file
   assert.equal(readFileSync(join(candidate, "replaced"), "utf8"), "new contents\n");
 });
 
+test("a tracked child under a directory replaced by an untracked file is absent", t => {
+  const { source, candidate, env, git } = snapshotFixture(t, ["replaced/child.txt", "keep.txt"]);
+  rmSync(join(source, "replaced"), { recursive: true });
+  writeFileSync(join(source, "replaced"), "untracked replacement\n");
+  mirrorTrackedSnapshot(source, candidate, env);
+  assert.deepEqual(git(candidate, "ls-files", "-z").toString().split("\0").filter(Boolean), ["keep.txt"]);
+  assert.equal(existsSync(join(candidate, "replaced/child.txt")), false);
+  assert.equal(readFileSync(join(source, "replaced"), "utf8"), "untracked replacement\n");
+});
+
 test("an untracked directory replacing an indexed file is absent from the candidate", t => {
   const { source, candidate, env } = snapshotFixture(t, ["item"]);
   rmSync(join(source, "item"));
