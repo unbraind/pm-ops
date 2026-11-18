@@ -12,7 +12,9 @@ import {
   RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand,
   type ReleaseContextChange, type ShellCommand, type ShellToken, type ShellTokenSpan,
 } from "./shell-scan.ts";
-import { describeReleaseContextChange, mentionsGenerator, hookSyntaxProblem, literalOptionName, parseReleaseHook, refuseHook } from "./release-hook-grammar.ts";
+import {
+  describeReleaseContextChange, mentionsGenerator, hookSyntaxProblem, isIsolatedReleaseCommand, literalOptionName, parseReleaseHook, refuseHook,
+} from "./release-hook-grammar.ts";
 
 /** The flag that makes an untagged heading version-derived. */
 export const DATE_FLAG = "--date-from-version";
@@ -21,6 +23,7 @@ export const DATE_FLAG = "--date-from-version";
 export const FALLBACK_DATE_FLAG = "--date-fallback";
 
 const OVERRIDE_DATE_FLAG = "--date";
+const UNTIL_FLAG = "--until";
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 /** Match executables and registry package specifiers left by package runner prefixes. */
 const GENERATOR_TARGET = /^pm-changelog@[^/]+$|(?:^|\/)(?:pm-changelog(?:\.ts)?|dist\/cli\.js)$/;
@@ -56,7 +59,7 @@ const VALUE_OPTIONS = new Set([
   "--audit-receipts", "-i", "-o", "--body-preview", OVERRIDE_DATE_FLAG, FALLBACK_DATE_FLAG, "--exclude-tag", "--exclude-tags",
   "--format", "--group-by", "--input", "--item-ref-style", "--item-url-base", "--limit", "--mode", "--output",
   "--pm-arg", "--pm-bin", "--pm-cwd", "--pm-root", "--release-tag-pattern", "--release-version", "--entry-from",
-  "--section-by", "--since", "--since-version", "--status", "--statuses", "--title", "--until", "--version",
+  "--section-by", "--since", "--since-version", "--status", "--statuses", "--title", UNTIL_FLAG, "--version",
 ]);
 const INCLUDE_EMPTY_FLAG = "--include-empty";
 const MAX_SCRIPT_FORWARDS = 8;
@@ -281,9 +284,9 @@ function commandContextChanges(words: ShellCommand): ReleaseContextChange[] {
   return context;
 }
 
-/** Remember directory changes even when an earlier edit affected only the environment. */
-function nextShellContext(words: ShellCommand, preceding?: ReleaseContextChange): ReleaseContextChange | undefined {
-  const change = shellContextChange(words);
+/** Carry persistent shell changes forward and prefer directory edits over variable edits. */
+function nextShellContext(words: ShellCommand, preceding?: ReleaseContextChange, effective = words): ReleaseContextChange | undefined {
+  const change = isIsolatedReleaseCommand(words) ? undefined : shellContextChange(effective);
   return change?.directory ? change : preceding ?? change;
 }
 
@@ -499,7 +502,7 @@ export function visitChangelogScriptCommands(
       const separators = effective.filter(token => forwardedSeparators.has(token));
       const argv = forward ? effective : effective.filter(token => !forwardedSeparators.has(token));
       const contextProblem = checkContext ? releaseContextProblem(argv, names, preceding) : undefined;
-      if (checkContext) preceding = nextShellContext(effective, preceding);
+      if (checkContext) preceding = nextShellContext(words, preceding, effective);
       if (contextProblem) {
         if (hooks) refuseHook(contextProblem);
         inspect({ name, names, text, words, effective: argv, spans, forwardedSeparators: separators, contextProblem });
@@ -641,11 +644,12 @@ function versionHeadingDay(version: string | undefined): string {
 /** Compare the options on one generator command with the verified merge day. */
 function assertHeadingOptions(words: ShellCommand, mergeDay: string, packageVersion?: string, names?: ReadonlySet<string>): void {
   const args = changelogInvocation(words, names)?.slice(1) ?? [];
+  const positions = optionPositions(args);
   for (const option of hookDateOptions(args)) {
     let day: string;
     if (option.kind === "version") {
       let version = packageVersion;
-      for (const i of optionPositions(args)) {
+      for (const i of positions) {
         const [flag, inline] = args[i].value.split("=");
         if (flag === "--version" || flag === "--release-version") version = inline ?? args[i + 1]?.value;
       }
@@ -653,6 +657,20 @@ function assertHeadingOptions(words: ShellCommand, mergeDay: string, packageVers
     } else day = option.day;
     if (day !== mergeDay) {
       throw new Error(`Prepared release heading day ${day} differs from verified merge commit day ${mergeDay}. ${RETIRE_UNPUBLISHED}`);
+    }
+  }
+  // In this mode the generator uses --until as the pending release timestamp.
+  if (!hasVersionInput(args) || !positions.some(i => args[i].value === "--all-release-tags")) return;
+  for (const i of positions) {
+    const token = args[i];
+    const [flag] = token.value.split("=", 1);
+    if (flag !== UNTIL_FLAG) continue;
+    const cutoff = token.value === flag ? args[i + 1]?.value : token.value.slice(flag.length + 1);
+    if (!cutoff || !isRealCalendarDay(cutoff)) {
+      throw new Error(`Invalid --until operand for a versioned --all-release-tags hook, expected a real YYYY-MM-DD day. Remove --until or set it to ${mergeDay}. ${RETIRE_UNPUBLISHED}`);
+    }
+    if (cutoff !== mergeDay) {
+      throw new Error(`The --until day ${cutoff} overrides the prepared release heading day ${mergeDay}. Remove --until or set it to ${mergeDay}. ${RETIRE_UNPUBLISHED}`);
     }
   }
 }

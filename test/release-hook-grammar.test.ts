@@ -7,7 +7,7 @@ import test from "node:test";
 import { stringify } from "yaml";
 import { execFileSync } from "../subprocess.ts";
 import {
-  assertReleaseHookHeadingDate, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHookDates,
+  assertReleaseHeadingDate, assertReleaseHookHeadingDate, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHookDates,
 } from "../release-changelog-options.ts";
 import { fixedOptionName, tokenizeCommands, tokenizeCommandsWithSpans, commandName, packageScriptCommand, releaseHookCommand } from "../shell-scan.ts";
 import { auditInvocations } from "../scripts/verify-release-changelog-date.ts";
@@ -201,6 +201,28 @@ test("continuation compares the version actually supplied to the generator", () 
   assert.throws(() => check("--title $TITLE --release-version-from-package"), /multiword expansion/);
 });
 
+test("continuation checks the pending heading cutoff for versioned all-release-tags hooks", () => {
+  const command = `pm-changelog --all-release-tags --release-version-from-package --date-fallback ${day}`;
+  const check = (script: string) => assertReleaseHookHeadingDate(new Map([["hook", script]]), ["hook"], day);
+  for (const cutoff of [`--until '${day}'`, `"--until"="${day}"`]) {
+    assert.doesNotThrow(() => check(`${command} ${cutoff}`));
+  }
+  for (const cutoff of ["--until", "--until=", "--until=2026-02-30", '--until "$CUTOFF"', '--until="$CUTOFF"']) {
+    assert.throws(() => check(`${command} ${cutoff}`), /Invalid --until operand.*real YYYY-MM-DD.*retire-unpublished/);
+  }
+  const conflict = /--until day 2026-11-16.*heading day 2026-11-17.*Remove --until.*retire-unpublished/;
+  assert.throws(() => check(`${command} --until 2026-11-16`), conflict);
+  assert.throws(() => assertReleaseHookHeadingDate(new Map([
+    ["hook", "npm run writer -- --until 2026-11-16"], ["writer", command],
+  ]), ["hook"], day), conflict);
+  assert.throws(() => assertReleaseHeadingDate([
+    "pm-changelog --all-release-tags " + standing + " --until=2026-11-16",
+  ], day, "2026.11.17"), conflict);
+  assert.doesNotThrow(() => check(`${command.replace(" --all-release-tags", "")} --until 2026-11-16`));
+  assert.doesNotThrow(() => check(`${command} --pm-arg --until=2026-11-16`));
+  assert.doesNotThrow(() => check(`${command.replace("--all-release-tags", "--pm-arg --all-release-tags")} --until 2026-11-16`));
+});
+
 test("preparation and continuation refuse date overrides and alternate npm exec projects", () => {
   for (const [command, diagnostic] of [
     ["pm-changelog " + standing + " --date 2026-11-16", /Explicit --date overrides/],
@@ -295,6 +317,36 @@ test("canonical hook paths retain their directory, generator arguments and model
 
 test("standalone option rewriting also refuses a changed execution context", () => {
   assert.throws(() => includeEmptyReleaseSections("cd docs && pm-changelog " + standing), /context change cd.*Use a direct/);
+});
+
+test("directory changes remain local to pipeline stages and subshells", () => {
+  const writer = "pm-changelog " + standing;
+  const pinned = writer.replace("--date-from-version", "--date-fallback " + day);
+  for (const prefix of [
+    "cd docs | cat; ",
+    "cd docs |& cat; ",
+    "printf docs |\ncd docs; ",
+    "(cd docs); ",
+    "(echo prepare; cd docs; (echo nested); echo done); ",
+    "if (echo prepare; cd docs; echo done); then echo ready; fi; ",
+  ]) {
+    const hook = prefix + writer;
+    const map = resolveChangelogHooks({ hook }, ["hook"]);
+    assert.equal(rewriteReleaseHookDates(map, ["hook"], day).get("hook"), prefix + pinned);
+    assertReleaseHookHeadingDate(map, ["hook"], day, "2026.11.17");
+    assertReleaseHeadingDate([hook], day, "2026.11.17");
+    assert.equal(includeEmptyReleaseSections(hook), hook + " --include-empty");
+    assert.deepEqual(auditInvocations([workflow(hook)]).failures, [], hook);
+  }
+  for (const prefix of ["cd docs && ", "cd docs; echo helper | cat; ", "cd docs; (echo helper); "]) {
+    const hook = prefix + writer;
+    assert.throws(() => resolveChangelogHooks({ hook }, ["hook"]), /context change cd/);
+    assert.throws(() => assertReleaseHeadingDate([hook], day, "2026.11.17"), /context change cd/);
+  }
+  const piped = `cd docs | ${writer} | cat`;
+  assertReleaseHeadingDate([piped], day, "2026.11.17");
+  assert.deepEqual(auditInvocations([workflow(piped)]).failures, []);
+  assert.throws(() => resolveChangelogHooks({ hook: `(echo start; ${writer}; echo done)` }, ["hook"]), /Shell grouping/);
 });
 
 test("opaque wrappers can reach a writer through other opaque forwards", () => {

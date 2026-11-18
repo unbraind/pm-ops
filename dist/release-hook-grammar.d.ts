@@ -1,4 +1,6 @@
 import { type ShellCommand, type ShellToken, type ShellTokenSpan } from "./shell-scan.ts";
+/** Whether shell edits in this command are local to a pipeline stage or subshell. */
+export declare function isIsolatedReleaseCommand(words: ShellCommand): boolean;
 /** Return the first unsupported construct in the command. */
 export declare function hookSyntaxProblem(words: ShellCommand): string | undefined;
 /** Literal generator references and shell words referencing a local generator binding. */

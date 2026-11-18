@@ -9,6 +9,12 @@ import { heredocBodyLines, heredocExpansionLines, releaseHookCommand, type Shell
 const problems = new WeakMap<ShellToken, string>();
 const indirectTargets = new WeakSet<ShellToken>();
 const optionNames = new WeakMap<ShellToken, string>();
+const isolatedCommands = new WeakSet<ShellCommand>();
+
+/** Whether shell edits in this command are local to a pipeline stage or subshell. */
+export function isIsolatedReleaseCommand(words: ShellCommand): boolean {
+  return isolatedCommands.has(words);
+}
 
 /** Return the first unsupported construct in the command. */
 export function hookSyntaxProblem(words: ShellCommand): string | undefined {
@@ -42,8 +48,24 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
   const bindings = new Set<string>();
   let words: ShellCommand = [];
   const piped = new Set<ShellCommand>();
+  let subshellDepth = 0;
+  let inSubshell = false;
   let heredoc = -1;
   let heredocComment = -1;
+
+  /** Retain unsupported subshell commands for inspection without propagating their edits. */
+  function finishCommand(): void {
+    if (words.length > 0) {
+      if (inSubshell) {
+        isolatedCommands.add(words);
+        if (!hookSyntaxProblem(words)) problems.set(words[0], "Shell grouping or substitution");
+      }
+      commands.push(words);
+    }
+    words = [];
+    inSubshell = subshellDepth > 0;
+  }
+
   let i = 0;
   while (i < text.length) {
     const ch = text[i];
@@ -51,9 +73,8 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
       if (words.length) {
         if (ch === "&" && text[i + 1] !== "&") problems.set(words[0], "Shell background or descriptor operator &");
         if (ch === "|" && text[i + 1] !== "|") piped.add(words);
-        commands.push(words);
       }
-      words = [];
+      finishCommand();
       if (ch === "\n" && heredoc >= 0) {
         // Only an unquoted opener seen by this lexer can introduce data. A
         // line resembling an opener inside a multiline title stays literal.
@@ -80,7 +101,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
         heredocComment = -1;
         continue;
       }
-      i += text.startsWith("&&", i) || text.startsWith("||", i) ? 2 : 1;
+      i += /^(?:&&|\|[|&])/.test(text.slice(i, i + 2)) ? 2 : 1;
       continue;
     }
     if (/\s/.test(ch)) { i++; continue; }
@@ -124,7 +145,14 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
       if (!quote && char === "<" && text[i] === "<") heredoc = text.lastIndexOf("\n", i - 1) + 1;
       if (!quote && /[<>]/.test(char) && !/^\d*$/.test(value) && !/^\d*[<>]/.test(value)) problem = "Attached shell redirection";
       if (!quote && /[*?]/.test(char)) { unresolved = true; splits = true; }
-      if (!quote && /[()]/.test(char)) problem ??= "Shell grouping or substitution";
+      if (!quote && /[()]/.test(char)) {
+        problem ??= "Shell grouping or substitution";
+        if (subshellDepth > 0 || (char === "(" && i === start + 1
+          && words.every(word => !word.quoted && /^(?:if|then|elif|else|do|\{|!|time|-p)$/.test(word.value)))) {
+          inSubshell = true;
+          subshellDepth += char === "(" ? 1 : -1;
+        }
+      }
       value += char;
     }
     if (quote) problem = "malformed shell arguments (unterminated quote)";
@@ -140,11 +168,12 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
     spans.set(token, { start, end: i });
     words.push(token);
   }
-  if (words.length) commands.push(words);
+  finishCommand();
   // A pipe to an interpreter can turn printed generator text into a command.
   // Keep the ordinary output-filter pipeline used by release workflows.
   let upstream: ShellCommand[] = [];
   for (const command of commands) {
+    if (upstream.length || piped.has(command)) isolatedCommands.add(command);
     if (upstream.length) {
       const sink = releaseHookCommand(command)?.[0];
       if (!sink || sink.unresolved || !/^(?:cat|awk|sed|grep|head|tail|cut|tr|sort|uniq|wc)$/.test(basename(sink.value))) {
