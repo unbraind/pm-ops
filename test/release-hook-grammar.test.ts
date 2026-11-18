@@ -284,6 +284,10 @@ test("canonical hook paths retain their directory, generator arguments and model
   }
 });
 
+test("standalone option rewriting also refuses a changed execution context", () => {
+  assert.throws(() => includeEmptyReleaseSections("cd docs && pm-changelog " + standing), /context change cd.*Use a direct/);
+});
+
 test("opaque wrappers can reach a writer through other opaque forwards", () => {
   const scripts = { hook: "nohup npm run first", first: "npm run second", second: "nohup npm run writer", writer: "pm-changelog " + standing };
   assert.throws(() => resolveChangelogHooks(scripts, ["hook"]), /"nohup".*Use a direct/);
