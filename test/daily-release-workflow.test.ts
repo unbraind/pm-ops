@@ -166,7 +166,8 @@ test("planning calls the measured TypeScript module and keeps PR payloads in fil
 test("prepare rebuilds and checks the trusted planner before loading it", () => {
   const prepare = workflow.jobs.prepare.steps;
   const build = step("Verify trusted release tool build");
-  const guard = prepare.indexOf(step("Enforce continuation runtime floor"));
+  const guard = prepare.findIndex(step => step.name === "Enforce continuation runtime floor");
+  assert.ok(guard >= 0, "prepare must enforce the continuation runtime floor");
   assert.ok(prepare.indexOf(build) > guard);
   assert.ok(prepare.indexOf(build) < prepare.indexOf(step("Install pinned release tools")));
   assert.ok(prepare.indexOf(step("Install pinned release tools")) < prepare.indexOf(step("Decide release")));
@@ -174,7 +175,7 @@ test("prepare rebuilds and checks the trusted planner before loading it", () => 
   assert.equal(build["continue-on-error"], undefined);
   assert.match(build.run, /cd "\$\{CONTINUATION_SCRIPT%\/scripts\/\*\}"/);
   assert.match(build.run, /npm ci .*--ignore-scripts/);
-  assert.match(build.run, /npm run build\s+git diff --exit-code -- dist\//);
+  assert.match(build.run, /rm -rf -- dist\/\s+npm run build\s+git diff --exit-code -- dist\//);
   assert.match(build.run, /git status --porcelain=v1 --untracked-files=all --ignored=matching -- dist\//);
 });
 
@@ -1015,7 +1016,7 @@ test("continuation enforces the merge day before publish and still tags after mi
         assert.equal(before.status === 0, allowed, before.stdout + before.stderr);
         if (!allowed) {
           const preparedDay = pinDay ?? "2026-10-23";
-          assert.ok(before.stderr.includes(`Prepared release heading day ${preparedDay} differs from verified merge commit day ${mergeDay}. Refusing to publish; re-prepare`),
+          assert.ok(before.stderr.includes(`Prepared release heading day ${preparedDay} differs from verified merge commit day ${mergeDay}. Refusing to publish. Manually dispatch the workflow with retire-unpublished`),
             before.stderr);
           assert.equal(git("ls-remote", "--tags", "origin"), "");
           continue;

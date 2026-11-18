@@ -27,18 +27,19 @@ import {
   resolveGenerator,
   verify,
 } from "../scripts/verify-release-changelog-date.ts";
-import {
-  bashArrays,
-  expandArrays,
-  joinContinuations,
-} from "../scripts/shell-command-scan.ts";
-import { isMainInvocation } from "../scripts/main-invocation.ts";
+import { joinContinuations } from "../scripts/shell-command-scan.ts";
 
 const FLAGGED = `pm-changelog --pm-root .agents/pm --release-version-from-package ${DATE_FLAG}`;
 
 /** Encode actual script values so tests exercise the manifest boundary. */
 function manifest(command: string): string {
   return JSON.stringify({ scripts: { changelog: command } });
+}
+
+/** Embed shell in a real GitHub Actions literal scalar, including physical newlines. */
+function workflowRun(command: string): string {
+  return "jobs:\n  release:\n    steps:\n      - name: Check pm-changelog\n        run: |\n"
+    + command.split("\n").map(line => "          " + line).join("\n");
 }
 
 test("every version-input spelling is recognised, because pm-changelog accepts all three", () => {
@@ -53,7 +54,7 @@ test("only generator commands with a version input are audited", () => {
     "GENERATOR=pm-changelog",
     "pm-changelog --stdout",
     "echo pm-changelog --version",
-    "heading=$(pm-changelog --version=v2026.11.16 --date-fallback 2026-11-16)",
+    "pm-changelog --version=v2026.11.16 --date-fallback 2026-11-16",
   ].join("\n");
   const source = { file: "package.json", text: manifest(command) };
   assert.equal(invocationsIn(source).length, 1);
@@ -66,7 +67,7 @@ test("an invocation naming the pending tag is caught, not skipped", () => {
   // its missing flag went unreported.
   const result = auditInvocations([{
     file: ".github/workflows/release.yml",
-    text: 'pm-changelog --pm-root .agents/pm --all-release-tags --version "$RELEASE_TAG" --mode replace',
+    text: workflowRun('pm-changelog --pm-root .agents/pm --all-release-tags --version "$RELEASE_TAG" --mode replace'),
   }]);
   assert.equal(result.failures.length, 1);
   assert.match(result.failures[0], /carries a version input but neither --date-from-version nor a pinned --date-fallback/);
@@ -124,7 +125,7 @@ test("the date policy belongs to the command that runs the generator", () => {
 
 test("the verifier audits changelog hooks behind supported wrappers", () => {
   for (const wrapper of [
-    "timeout 60", "timeout --signal=KILL 5m", "timeout --signal KILL 5m", "nice -n 5",
+    "timeout 60", "timeout --signal=KILL 5m", 'timeout "--signal" TERM 60', "timeout --signal KILL 5m", "nice -n 5",
     'timeout -- "$LIMIT"', "env TZ=UTC", 'env "TZ=UTC"', "command", "exec", "exec -a alias",
     "stdbuf -oL", "npx", "bunx", "npm exec --", "time",
     "time timeout 1.5s nice -n 5 env TZ=UTC npm exec --",
@@ -136,13 +137,8 @@ test("the verifier audits changelog hooks behind supported wrappers", () => {
   }
 });
 
-test("workflow labels and print arguments are data while shell payloads are audited", () => {
-  const text = [
-    "description: pm-changelog generation npm script",
-    "- name: Check pm-changelog",
-    'printf "%s\\n" pm-changelog',
-    `run: sh -c '${FLAGGED}'`,
-  ].join("\n");
+test("workflow step labels and printf arguments are data", () => {
+  const text = workflowRun('printf "%s" pm-changelog\n' + FLAGGED);
   const result = auditInvocations([{ file: ".github/workflows/release.yml", text }]);
   assert.deepEqual(result.failures, []);
   assert.equal(result.notes.length, 1);
@@ -181,7 +177,7 @@ test("package administration and quoted values on fixed non-date options are acc
   assert.deepEqual(auditInvocations([{ file: "package.json", text: manifest(text) }]).failures, []);
   for (const command of ['npm$(printf x) install pm-changelog', 'npm install$(printf x) pm-changelog', 'npm run pm-changelog']) {
     assert.match(auditInvocations([{ file: "package.json", text: manifest(`${FLAGGED}\n${command}`) }]).failures[0],
-      /unrecognized wrapper/i);
+      /unrecognized wrapper|substitution/i);
   }
 });
 
@@ -311,8 +307,8 @@ test("a shell segment that runs something else is not judged as a generator invo
   // The release workflow pipes the generator's output through awk and sed; only
   // the segment that runs the generator carries the contract this gate audits.
   const text = `pm-changelog --release-version-from-package ${DATE_FLAG} --stdout | awk '/^## /' | sed -n '1p'`;
-  assert.deepEqual(auditInvocations([{ file: ".github/workflows/release.yml", text }]).failures, []);
-  assert.equal(auditInvocations([{ file: ".github/workflows/release.yml", text }]).notes.length, 1);
+  assert.deepEqual(auditInvocations([{ file: ".github/workflows/release.yml", text: workflowRun(text) }]).failures, []);
+  assert.equal(auditInvocations([{ file: ".github/workflows/release.yml", text: workflowRun(text) }]).notes.length, 1);
 });
 
 test("the behavioural half passes only when the flag changes the heading", () => {
@@ -432,29 +428,13 @@ test("an unquoted trailing comment cannot supply the flag the command is missing
   assert.equal(stripComment("#leading"), "");
 });
 
-test("a shared bash options array is expanded into each invocation that uses it", () => {
-  // Declared once so the invocations cannot drift, with the effect that the
-  // invocation line itself carries almost no flags.
-  const text = [
-    'common=(',
-    '  --pm-root .agents/pm',
-    `  --version "$RELEASE_TAG"`,
-    `  ${DATE_FLAG}`,
-    ')',
-    './node_modules/.bin/pm-changelog "${common[@]}" --mode replace',
-  ].join("\n");
-  assert.deepEqual(auditInvocations([{ file: ".github/workflows/release.yml", text }]).failures, []);
-
-  const withoutFlag = text.replace(`  ${DATE_FLAG}\n`, "");
-  assert.equal(auditInvocations([{ file: ".github/workflows/release.yml", text: withoutFlag }]).failures.length, 1);
-});
-
-test("changelog arrays use the last whole-file declaration even after an invocation", () => {
-  const source = { file: "release.sh", text: [
-    "common=()", 'pm-changelog --release-version-from-package "${common[@]}"', `common=(${DATE_FLAG})`,
-  ].join("\n") };
-  assert.deepEqual(auditInvocations([source]).failures, []);
-  assert.equal(auditInvocations([{ ...source, text: source.text + "\ncommon=()" }]).failures.length, 1);
+test("array expansions cannot silently supply or replace a release policy", () => {
+  const command = 'common=(--date-from-version)\npm-changelog "${common[@]}"';
+  for (const text of [command, command + " --release-version-from-package", command + "\ncommon=()"]) {
+    const result = auditInvocations([{ file: ".github/workflows/release.yml", text: workflowRun(text) }]);
+    assert.equal(result.failures.length, 1);
+    assert.match(result.failures[0], /array expansion.*Use a direct pm-changelog/i);
+  }
 });
 
 test("a backslash continuation is one logical command, not fragments", () => {
@@ -472,7 +452,7 @@ test("decoded scripts retain multiline quoted arguments and report their command
   assert.match(auditInvocations([missing]).failures[0], /^package\.json:2: .*neither/);
   const unclosed = { ...source, text: manifest(`echo ready\n${FLAGGED} "line one\nline two`) };
   assert.match(auditInvocations([unclosed]).failures[0], /^package\.json:2: malformed/);
-  const malformedWorkflow = { file: ".github/workflows/release.yml", text: `run: ${FLAGGED} "unclosed` };
+  const malformedWorkflow = { file: ".github/workflows/release.yml", text: workflowRun(FLAGGED + ' "unclosed') };
   assert.match(auditInvocations([malformedWorkflow]).failures[0], /release\.yml: malformed/);
 });
 
@@ -529,7 +509,7 @@ test("manifest scripts must be an object and only string commands are scanned", 
 
 test("fallback dates accept matching shell quotes and adjacent separators", () => {
   for (const nameQuote of ["", "'", '"']) for (const valueQuote of ["", "'", '"']) {
-    for (const assignment of [" ", "="]) for (const suffix of ["", "&&true", ";true", "|cat", ")"]) {
+    for (const assignment of [" ", "="]) for (const suffix of ["", "&&true", ";true", "|cat"]) {
       const flag = `${nameQuote}--date-fallback${nameQuote}${assignment}${valueQuote}2026-10-23${valueQuote}${suffix}`;
       const result = auditInvocations([{ file: "package.json", text: manifest(`pm-changelog --release-version-from-package ${flag}`) }]);
       assert.deepEqual(result.failures, [], flag);

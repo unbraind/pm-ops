@@ -444,7 +444,7 @@ test("date edits retain source ownership when a caller supplies the fallback ope
   });
   scripts.set("hook", "eval 'pnpm run changes -- --date-from-version'");
   scripts.set("changes", "pm-changelog");
-  assert.throws(() => rewriteReleaseHookDates(scripts, ["hook"], ""), /separator needs an editable shell word/);
+  assert.throws(() => rewriteReleaseHookDates(scripts, ["hook"], ""), /Unrecognized wrapper.*eval.*Use a direct/);
 });
 
 test("empty wording leaves tracked prose alone and invalid adapter options fail before writing", () => {
@@ -493,7 +493,7 @@ test("preparation rewrites every date policy without consuming a following flag"
       const hooks = {
         "changelog:full": `${call(policy!)} && ${call(policy!)}`,
         "changelog:check": `${call("--date-from-version")} && ${call(policy!)}`,
-        "release:notes": `${call(policy!)} --date-fallback --include-empty`,
+        "release:notes": `${call(policy!)} --stdout`,
       };
       writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: hooks }));
       const result = runBashFixture(script, { cwd: root, env: releaseStepEnv(root, process.env, heading), encoding: "utf8" });
@@ -501,17 +501,17 @@ test("preparation rewrites every date policy without consuming a following flag"
       const prepared = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { scripts: typeof hooks };
       assert.equal(prepared.scripts["changelog:full"], `${call(expected!)} && ${call(expected!)}`);
       assert.equal(prepared.scripts["changelog:check"], `${call(heading ? "--date-fallback " + heading : "--date-from-version")} && ${call(expected!)}`);
-      assert.equal(prepared.scripts["release:notes"], `${call(expected!)} --date-fallback --include-empty`);
+      assert.equal(prepared.scripts["release:notes"], `${call(expected!)} --stdout`);
     } finally { rmSync(root, { recursive: true, force: true }); }
   }
 });
 
-test("date rewrites preserve redirections, substitutions and shell text surrounding the option", () => {
-  const script = 'heading=$(pm-changelog "--date-fallback" 2>/dev/null "2026-10-23"); echo "$heading"';
-  assert.equal(rewriteReleaseHeadingDate(script, "2026-10-24"),
-    'heading=$(pm-changelog --date-fallback 2026-10-24 2>/dev/null ); echo "$heading"');
-  assert.throws(() => rewriteReleaseHeadingDate(`eval 'pm-changelog "--date-fallback"=2026-10-23'`, "2026-10-24"),
-    /needs an editable shell word/);
+test("date edits preserve redirections and explicitly refuse evaluated shell", () => {
+  const command = 'pm-changelog "--date-fallback" 2>/dev/null "2026-10-23"';
+  assert.equal(rewriteReleaseHeadingDate(command, "2026-10-24"), 'pm-changelog --date-fallback 2026-10-24 2>/dev/null ');
+  for (const source of [`heading=$(${command})`, `eval '${command}'`]) {
+    assert.throws(() => rewriteReleaseHeadingDate(source, "2026-10-24"), /Use a direct pm-changelog/);
+  }
 });
 
 test("preparation refreshes and restores the date policy of a version-qualified generator", () => {
@@ -571,9 +571,8 @@ test("preparation adds empty-section policy to each generator and preserves shel
     execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env: releaseStepEnv(root, process.env) });
     assert.equal(readFileSync(path, "utf8"), prepared);
   } finally { rmSync(root, { recursive: true, force: true }); }
-  assert.equal(includeEmptyReleaseSections("out=$(pm-changelog --stdout); echo \"$out\""),
-    "out=$(pm-changelog --stdout --include-empty); echo \"$out\"");
-  assert.throws(() => includeEmptyReleaseSections("eval 'pm-changelog --stdout'"), /needs an editable shell word/);
+  assert.throws(() => includeEmptyReleaseSections("out=$(pm-changelog --stdout)"), /substitution.*Use a direct/i);
+  assert.throws(() => includeEmptyReleaseSections("eval 'pm-changelog --stdout'"), /Unrecognized wrapper.*Use a direct/);
 });
 
 test("preparation follows two forwards and keeps an already-flagged shared generator unchanged", () => {
@@ -648,7 +647,7 @@ test("the publication heading check validates standing calendar coordinates with
   for (const version of [undefined, "1.0.0", "0099.1.2", "2026.2.30"]) {
     assert.throws(() => assertReleaseHeadingDate([standing], "2026-01-02", version), /valid calendar version/);
   }
-  assert.doesNotThrow(() => assertReleaseHeadingDate(["pm-changelog --date-fallback"], "2026-01-02"));
+  assert.throws(() => assertReleaseHeadingDate(["pm-changelog --date-fallback"], "2026-01-02"), /Invalid --date-fallback/);
   assert.doesNotThrow(() => assertReleaseHeadingDate(["pm-changelog --date-fallback 2026-01-02"], "2026-01-02"));
 });
 

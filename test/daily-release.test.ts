@@ -244,28 +244,28 @@ test("continuation refuses a pinned heading when the merge day follows preparati
   for (const nameQuote of ["", '"', "'"]) for (const valueQuote of ["", '"', "'"]) for (const separator of [" ", "="]) {
     const script = `pm-changelog ${nameQuote}--date-fallback${nameQuote}${separator}${valueQuote}2026-10-24${valueQuote}`;
     assertReleaseHeadingDate([script], "2026-10-24");
-    assert.throws(() => assertReleaseHeadingDate([standing, script], "2026-10-25", "2026.10.25"), /2026-10-24.*2026-10-25.*Refusing to publish; re-prepare/);
-    assert.throws(() => assertReleaseHeadingDate([script + " && pm-changelog --date-fallback 2026-10-23"], "2026-10-24"), /re-prepare/);
+    assert.throws(() => assertReleaseHeadingDate([standing, script], "2026-10-25", "2026.10.25"), /2026-10-24.*2026-10-25.*Refusing to publish. Manually dispatch the workflow with retire-unpublished/);
+    assert.throws(() => assertReleaseHeadingDate([script + " && pm-changelog --date-fallback 2026-10-23"], "2026-10-24"), /retire-unpublished/);
   }
 });
 
 test("continuation detects stale dates immediately followed by shell separators", () => {
-  for (const suffix of ["&&true", ";true", "|cat", ")"]) {
-    assert.throws(() => assertReleaseHeadingDate(["pm-changelog --date-fallback 2026-10-23" + suffix], "2026-10-24"), /2026-10-23.*2026-10-24.*re-prepare/);
+  for (const suffix of ["&&true", ";true", "|cat"]) {
+    assert.throws(() => assertReleaseHeadingDate(["pm-changelog --date-fallback 2026-10-23" + suffix], "2026-10-24"), /2026-10-23.*2026-10-24.*retire-unpublished/);
   }
 });
 
 test("continuation rejects a stale pin on a version-qualified generator", () => {
   const script = 'npx --yes pm-changelog@2026.11.6 --release-version-from-package "--date-fallback"=2026-11-16';
   assertReleaseHeadingDate([script], "2026-11-16");
-  assert.throws(() => assertReleaseHeadingDate([script], "2026-11-17"), /2026-11-16.*2026-11-17.*re-prepare/);
+  assert.throws(() => assertReleaseHeadingDate([script], "2026-11-17"), /2026-11-16.*2026-11-17.*retire-unpublished/);
 });
 
 test("continuation checks wrapped changelog hooks against the merge day", () => {
   for (const wrapper of ["timeout 60", "timeout --signal=KILL 5m", "nice -n 5"]) {
     const script = `${wrapper} pm-changelog --release-version-from-package --date-fallback 2026-11-16`;
     assertReleaseHeadingDate([script], "2026-11-16");
-    assert.throws(() => assertReleaseHeadingDate([script], "2026-11-17"), /2026-11-16.*2026-11-17.*re-prepare/);
+    assert.throws(() => assertReleaseHeadingDate([script], "2026-11-17"), /2026-11-16.*2026-11-17.*retire-unpublished/);
   }
   assert.throws(() => assertReleaseHeadingDate(["custom-wrapper pm-changelog --date-from-version"], "2026-11-17"),
     /unrecognized wrapper/i);
@@ -279,5 +279,5 @@ test("continuation refuses an unresolved changelog option even when the apparent
 test("continuation accepts quoted values on fixed non-date options", () => {
   const script = 'pm-changelog --date-fallback 2026-11-16 --item-url-base="$ITEM_URL_BASE"';
   assertReleaseHeadingDate([script], "2026-11-16");
-  assert.throws(() => assertReleaseHeadingDate([script], "2026-11-17"), /2026-11-16.*2026-11-17.*re-prepare/);
+  assert.throws(() => assertReleaseHeadingDate([script], "2026-11-17"), /2026-11-16.*2026-11-17.*retire-unpublished/);
 });

@@ -3,9 +3,13 @@ import { type ShellCommand, type ShellToken, type ShellTokenSpan } from "./shell
 export declare const DATE_FLAG = "--date-from-version";
 /** The option that pins the heading day of a resumed release. */
 export declare const FALLBACK_DATE_FLAG = "--date-fallback";
+/** The three generator inputs that bind a heading to a release. */
+export declare const VERSION_INPUTS: readonly ["--release-version-from-package", "--release-version", "--version"];
+/** True when a command supplies an explicit release version. */
+export declare function hasVersionInput(args: readonly ShellToken[]): boolean;
 /** Whether a YYYY-MM-DD string names an existing day, including years 0–99. */
 export declare function isRealCalendarDay(day: string): boolean;
-/** Resolve the hook scripts and their local script dependencies before editing or verifying them. */
+/** Resolve the same invocation graph used by preparation and continuation, including comment-only hooks. */
 export declare function resolveChangelogHooks(scripts: Record<string, unknown> | undefined, hooks: readonly string[]): Map<string, string>;
 /** Read generator arguments during an audit, where only declared forwards are trusted. */
 export declare function changelogArguments(words: ShellCommand, scriptNames: ReadonlySet<string>): ShellToken[] | undefined;
@@ -13,6 +17,8 @@ export declare function changelogArguments(words: ShellCommand, scriptNames: Rea
 export interface ChangelogScriptCommand {
     /** Name of the script that supplied the command. */
     name: string;
+    /** Local script names available to this command. */
+    names: ReadonlySet<string>;
     /** Source text before shell tokenization. */
     text: string;
     /** Original command words, including any wrappers. */
@@ -23,17 +29,24 @@ export interface ChangelogScriptCommand {
     forwardedSeparators: ShellToken[];
     /** Source offsets for editable words from this script. */
     spans: WeakMap<ShellToken, ShellTokenSpan>;
-    /** Whether the scanner found unfinished shell syntax in the script. */
-    malformed: boolean;
 }
 /** Scan local scripts in invocation order and join forwarded argv at its actual destination. */
-export declare function visitChangelogScriptCommands(scripts: ReadonlyMap<string, string>, inspect: (entry: ChangelogScriptCommand) => void, hooks?: readonly string[]): void;
+export declare function visitChangelogScriptCommands(scripts: ReadonlyMap<string, string>, inspect: (entry: ChangelogScriptCommand) => void, hooks?: readonly string[], resolved?: Map<string, string>): void;
 type DateOption = {
-    kind: "version" | "missing-day";
+    kind: "version";
     first: ShellToken;
     last: ShellToken;
 } | {
-    kind: "pin" | "invalid-day";
+    kind: "pin";
+    first: ShellToken;
+    last: ShellToken;
+    day: string;
+} | {
+    kind: "missing-day";
+    first: ShellToken;
+    last: ShellToken;
+} | {
+    kind: "invalid-day";
     first: ShellToken;
     last: ShellToken;
     day: string;

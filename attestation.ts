@@ -903,7 +903,7 @@ function publishInvocationsInArgv(source: SourceFile, argv: ShellCommand): Publi
 }
 
 /** Extract structured commands together with their original scalar source ranges. */
-function executableShellBodies(source: SourceFile): ExecutableShellBody[] {
+export function executableShellBodies(source: SourceFile): ExecutableShellBody[] {
   if (COMPOSE_PATH.test(source.file)) return composeExecutableBodies(source);
   if (!MANIFEST_PATH.test(source.file) && !isWorkflowYaml(source.file)) {
     return [{ text: source.text, raw: source.text, line: 1 }];

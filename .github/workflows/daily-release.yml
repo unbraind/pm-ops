@@ -376,6 +376,7 @@ jobs:
           set -euo pipefail
           cd "${CONTINUATION_SCRIPT%/scripts/*}"
           npm ci --include=dev --ignore-scripts --no-audit --no-fund
+          rm -rf -- dist/
           npm run build
           git diff --exit-code -- dist/
           dist_status="$(git status --porcelain=v1 --untracked-files=all --ignored=matching -- dist/)"

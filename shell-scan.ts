@@ -825,7 +825,7 @@ interface PrefixScan {
  * wrapper class.
  *
  * @param command - One simple command's tokens.
- * @param preserveBunRun - Leave Bun's run command intact for package-script resolution.
+ * @param preserveBunRun - Keep Bun script execution available to package-script callers.
  * @returns The program index and whether a spawning wrapper was consumed.
  */
 function scanCommandPrefix(command: ShellCommand, preserveBunRun = false): PrefixScan {
@@ -877,7 +877,7 @@ function scanCommandPrefix(command: ShellCommand, preserveBunRun = false): Prefi
       index += 2;
       continue;
     }
-    if (sawPrefix && !token.startsQuoted && token.value.startsWith("-")) {
+    if (sawPrefix && (!token.startsQuoted || lastPrefix === "timeout") && token.value.startsWith("-")) {
       // Consume the option's operand too when the prefix that introduced it
       // takes one, so the operand is never mistaken for the program. `env -u
       // parallel npm --version` must not read `parallel` as a spawning wrapper.
@@ -1008,6 +1008,46 @@ export function packageScriptCommand(input: ShellCommand): ShellCommand | undefi
   const command = withoutRedirections(input);
   const { index } = scanCommandPrefix(command, true);
   return index < command.length ? command.slice(index) : undefined;
+}
+
+/** Canonical release wrappers and the option spellings that take no separate operand. */
+const RELEASE_WRAPPERS: Readonly<Record<string, RegExp>> = {
+  timeout: /^(?:--(?:foreground|preserve-status|verbose)|-v)$/,
+  nice: /^-\d+$/,
+  env: /^(?:-i|--ignore-environment)$/,
+  command: /^-p$/,
+  exec: /^-[cl]+$/,
+  stdbuf: /^-[ioe].+$/,
+  time: /^-p$/,
+  npx: /^(?:-y|--yes|--no-install)$/,
+  bunx: /^(?:--bun|--no-install)$/,
+  npm: /^(?:-y|--yes)$/,
+};
+
+/** Locate a release command using only wrappers with explicit argv boundaries. */
+export function releaseHookCommand(input: ShellCommand): ShellCommand | undefined {
+  const words = withoutRedirections(input);
+  let i = 0;
+  while (i < words.length) {
+    const token = words[i];
+    if (!token.startsQuoted && /^[A-Za-z_][A-Za-z_0-9]*=/.test(token.value)) { i++; continue; }
+    const name = basename(token.value);
+    const pair = (name === "npm" && words[i + 1]?.value === "exec") || (name === "bun" && words[i + 1]?.value === "x");
+    const wrapper = pair && name === "bun" ? "bunx" : name;
+    if (!Object.hasOwn(RELEASE_WRAPPERS, wrapper) || (name === "npm" && !pair) || token.unresolved) break;
+    const start = i;
+    i += pair ? 2 : 1;
+    while (i < words.length && words[i].value.startsWith("-")) {
+      const flag = words[i++].value;
+      if (flag === "--") break;
+      const options = PREFIX_OPTIONS_WITH_OPERAND.get(wrapper);
+      if (options?.has(flag)) i++;
+      else if (!options?.has(flag.split("=")[0]) && !RELEASE_WRAPPERS[wrapper].test(flag)) return words.slice(start);
+    }
+    if (wrapper === "env") while (/^[A-Za-z_][A-Za-z_0-9]*=/.test(words[i]?.value ?? "")) i++;
+    if (wrapper === "timeout") i++;
+  }
+  return i < words.length ? words.slice(i) : undefined;
 }
 
 /**

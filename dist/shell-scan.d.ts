@@ -182,6 +182,8 @@ export declare function commandName(input: ShellCommand): string | undefined;
 export declare function commandCandidates(input: ShellCommand): ShellCommand[];
 /** Read the first executable command, retaining Bun's run subcommand so callers can resolve scripts. */
 export declare function packageScriptCommand(input: ShellCommand): ShellCommand | undefined;
+/** Locate a release command using only wrappers with explicit argv boundaries. */
+export declare function releaseHookCommand(input: ShellCommand): ShellCommand | undefined;
 /**
  * List a command's arguments -- everything after its program name.
  *

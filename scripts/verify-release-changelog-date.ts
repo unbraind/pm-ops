@@ -32,10 +32,6 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  bashArrays,
-  expandArrays,
-  joinContinuations,
-  tokenizeCommands,
   type ShellCommand,
   type ShellToken,
   type SourceFile,
@@ -43,18 +39,10 @@ import {
 } from "./shell-command-scan.ts";
 import { isMainInvocation } from "./main-invocation.ts";
 import { tallyFlaggedInvocations } from "../invocation-audit.ts";
-import { changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, visitChangelogScriptCommands } from "../release-changelog-options.ts";
+import { executableShellBodies } from "../attestation.ts";
+import { hasVersionInput, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, visitChangelogScriptCommands } from "../release-changelog-options.ts";
 
-export { DATE_FLAG, isRealCalendarDay } from "../release-changelog-options.ts";
-
-/** Every spelling that tells the generator which version it is rendering.
- *
- * All three matter. `--release-version` is a declared alias of `--version`, and
- * a workflow that names the pending tag explicitly uses one of those two rather
- * than `--release-version-from-package`. A scan that recognised only the
- * package-derived spelling skipped exactly the release-time invocations it was
- * written to protect. */
-export const VERSION_INPUTS = ["--release-version-from-package", "--release-version", "--version"] as const;
+export { DATE_FLAG, VERSION_INPUTS, isRealCalendarDay } from "../release-changelog-options.ts";
 
 /** One generator invocation found in a tracked file. */
 export interface Invocation {
@@ -66,8 +54,6 @@ export interface Invocation {
   command: string;
   /** The generator's shell arguments, with quoting removed. */
   args: ShellToken[];
-  /** The shell scanner could not finish parsing the source line. */
-  malformed: boolean;
   /** The command or its option words could not be resolved. */
   problem?: string;
   /** The parsed heading-date policies on the invocation. */
@@ -114,68 +100,64 @@ export function stripComment(command: string): string {
  * @returns The invocations found, in file order.
  */
 export function invocationsIn(source: SourceFile): Invocation[] {
-  // JSON punctuation and escaping are not shell syntax. Audit only decoded
-  // script values so a final argument is not followed by the JSON comma.
-  const scriptNames = new Set<string>();
-  if (source.file === "package.json") {
-    let manifest: unknown;
-    try {
-      manifest = JSON.parse(source.text);
-    } catch (error) {
-      throw new Error(`${source.file}: invalid JSON`, { cause: error });
-    }
-    if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
-      throw new Error(`${source.file}: manifest must be an object`);
-    }
-    const { scripts = {} } = manifest as { scripts?: unknown };
-    if (scripts === null || typeof scripts !== "object" || Array.isArray(scripts)) {
-      throw new Error(`${source.file}: scripts must be an object`);
-    }
-    const entries = Object.entries(scripts).filter((entry): entry is [string, string] =>
-      typeof entry[1] === "string" && entry[1].trim() !== "");
-    for (const [name] of entries) scriptNames.add(name);
-    const expanded = new Map(entries.map(([name, script]) => [name, expandArrays(script, bashArrays(script))]));
-    const found: Invocation[] = [];
-    visitChangelogScriptCommands(expanded, ({ text, words, effective, spans, malformed }) => {
-      const first = spans.get(words[0])?.start ?? 0;
-      const last = spans.get(words.at(-1)!)?.end ?? text.length;
-      const line = text.slice(0, first).split("\n").length;
-      found.push(...inspectCommand(effective, { file: source.file, line, command: text.slice(first, last), malformed }, scriptNames));
-    });
-    return found;
+  return invocationsAcross([source]);
+}
+
+/** Decode script bodies before shell parsing, retaining the owning file for diagnostics. */
+function manifestScripts(source: SourceFile): Map<string, string> {
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(source.text);
+  } catch (error) {
+    throw new Error(`${source.file}: invalid JSON`, { cause: error });
   }
-  const text = joinContinuations(source.text);
-  const arrays = bashArrays(text);
+  if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
+    throw new Error(`${source.file}: manifest must be an object`);
+  }
+  const { scripts = {} } = manifest as { scripts?: unknown };
+  if (scripts === null || typeof scripts !== "object" || Array.isArray(scripts)) {
+    throw new Error(`${source.file}: scripts must be an object`);
+  }
+  return new Map(Object.entries(scripts).filter((entry): entry is [string, string] =>
+    typeof entry[1] === "string" && entry[1].trim() !== ""));
+}
+
+/** Workflow forwards and manifest forwards share the same effective argument graph. */
+function invocationsAcross(sources: SourceFile[]): Invocation[] {
+  const scripts = new Map<string, string>();
+  const origins = new Map<string, string>();
+  for (const source of sources) {
+    if (source.file === "package.json") {
+      for (const [name, script] of manifestScripts(source)) scripts.set(name, script);
+    } else {
+      for (const { text } of executableShellBodies(source)) {
+        const key = "\0run" + origins.size;
+        origins.set(key, source.file);
+        scripts.set(key, text);
+      }
+    }
+  }
   const found: Invocation[] = [];
-  for (const raw of text.split("\n")) {
-    if (/^\s*#/.test(raw)) continue;
-    if (!/pm-changelog|dist\/cli\.js/.test(raw)) continue;
-    if (/\.ya?ml$/.test(source.file) && /^\s*(?:-\s+)?(?:description|name|uses):\s/.test(raw)) continue;
-    const command = stripComment(expandArrays(raw, arrays));
-    const commands = tokenizeCommands(command);
-    const malformed = hasMalformedCommand(commands);
-    for (const words of commands) {
-      found.push(...inspectCommand(words, { file: source.file, command, malformed }, scriptNames));
-    }
-  }
+  visitChangelogScriptCommands(scripts, ({ name, names, text, words, effective, spans }) => {
+    const first = spans.get(words[0])!.start;
+    const last = spans.get(words.at(-1)!)!.end;
+    const file = origins.get(name) ?? "package.json";
+    const line = file === "package.json" ? text.slice(0, first).split("\n").length : undefined;
+    found.push(...inspectCommand(effective, { file, line, command: text.slice(first, last) }, names));
+  });
   return found;
 }
 
-/** Check for the shell scanner's unfinished-command marker. */
-function hasMalformedCommand(commands: ShellCommand[]): boolean {
-  return commands.some(words => words.length === 1 && words[0].unresolved && words[0].value === "$");
-}
-
 /** Extract the date policy and retain any diagnostic for this command. */
-function inspectCommand(words: ShellCommand, source: Pick<Invocation, "file" | "line" | "command" | "malformed">, scriptNames: ReadonlySet<string>): Invocation[] {
+function inspectCommand(words: ShellCommand, source: Pick<Invocation, "file" | "line" | "command">, scriptNames: ReadonlySet<string>): Invocation[] {
   try {
     const args = changelogArguments(words, scriptNames);
     if (args === undefined) return [];
+    if (!hasVersionInput(args)) return [];
     const options = readReleaseDateOptions(args);
-    if (!args.some(({ value }) => VERSION_INPUTS.some(flag => value === flag || value.startsWith(flag + "=")))) return [];
     return [{ ...source, args, options }];
   } catch (error) {
-    return [{ ...source, args: [], options: [], problem: String(error) }];
+    return [{ ...source, args: [], options: [], problem: (error as Error).message }];
   }
 }
 
@@ -191,14 +173,13 @@ function inspectCommand(words: ShellCommand, source: Pick<Invocation, "file" | "
  * @returns Failures and per-file notes.
  */
 export function auditInvocations(sources: SourceFile[]): VerifierResult {
-  const invocations = sources.flatMap(invocationsIn);
+  const invocations = invocationsAcross(sources);
   return tallyFlaggedInvocations(
     invocations,
-    ({ file, line, command, options, malformed, problem }) => {
+    ({ file, line, command, options, problem }) => {
       const location = line === undefined ? file : `${file}:${line}`;
       const excerpt = command.trim().slice(0, 160);
       if (problem !== undefined) return `${location}: ${problem}: ${excerpt}`;
-      if (malformed) return `${location}: malformed shell arguments in generator invocation: ${excerpt}`;
       let hasPolicy = false;
       for (const option of options) {
         if (option.kind === "missing-day") {

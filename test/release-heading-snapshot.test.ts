@@ -52,3 +52,13 @@ test("candidate snapshot replaces a tracked directory with a staged regular file
   mirrorTrackedSnapshot(source, candidate, env);
   assert.equal(readFileSync(join(candidate, "replaced"), "utf8"), "new contents\n");
 });
+
+test("an untracked directory replacing an indexed file is absent from the candidate", t => {
+  const { source, candidate, env } = snapshotFixture(t, ["item"]);
+  rmSync(join(source, "item"));
+  mkdirSync(join(source, "item"));
+  writeFileSync(join(source, "item/local.txt"), "untracked");
+  mirrorTrackedSnapshot(source, candidate, env);
+  assert.equal(existsSync(join(candidate, "item")), false);
+  assert.equal(readFileSync(join(source, "item/local.txt"), "utf8"), "untracked");
+});

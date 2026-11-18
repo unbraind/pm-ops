@@ -1,6 +1,15 @@
-/** Read and rewrite pm-changelog date policies using the shared shell scanner. */
+/**
+ * Canonical release hooks are lists of direct pm-changelog commands, local
+ * npm/bun/pnpm script forwards, literal checks and ordinary helper commands.
+ * Newlines, &&, || and ; sequence commands. A pipeline audits each command.
+ * timeout, nice, env, command, exec, stdbuf, time and package runners have
+ * explicit argv boundaries. npm runs pre/main/post with argv only on main.
+ * Source spans belong to the script that wrote each word. Shell evaluation,
+ * unknown wrappers and ambiguous policies require a canonical invocation.
+ */
 import { basename } from "node:path";
-import { fixedOptionName, isShellEvaluator, packageScriptCommand, tokenizeCommands, tokenizeCommandsWithSpans, } from "./shell-scan.js";
+import { releaseHookCommand, } from "./shell-scan.js";
+import { mentionsGenerator, hookSyntaxProblem, literalOptionName, parseReleaseHook, refuseHook } from "./release-hook-grammar.js";
 /** The flag that makes an untagged heading version-derived. */
 export const DATE_FLAG = "--date-from-version";
 /** The option that pins the heading day of a resumed release. */
@@ -8,7 +17,16 @@ export const FALLBACK_DATE_FLAG = "--date-fallback";
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 /** Match executables and registry package specifiers left by package runner prefixes. */
 const GENERATOR_TARGET = /^pm-changelog@[^/]+$|(?:^|\/)(?:pm-changelog(?:\.ts)?|dist\/cli\.js)$/;
-const GENERATOR_LAUNCHERS = new Set(["node", "npx", "bun", "bunx"]);
+/** The three generator inputs that bind a heading to a release. */
+export const VERSION_INPUTS = ["--release-version-from-package", "--release-version", "--version"];
+/** True when a command supplies an explicit release version. */
+export function hasVersionInput(args) {
+    return optionPositions(args).some(index => {
+        const word = args[index];
+        return (word.unresolved && !word.value.startsWith("-"))
+            || VERSION_INPUTS.some(flag => word.value === flag || word.value.startsWith(flag + "="));
+    });
+}
 const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun"]);
 const SCRIPT_RUNNERS = new Set(["npm", "pnpm", "bun"]);
 const BUN_SOURCE_FILE = /^(?:\.\/|\/)|\.(?:[cm]?[jt]s|[jt]sx)$/;
@@ -18,13 +36,20 @@ const BUN_LOCAL_RUN_SWITCHES = new Set([
 ]);
 const NPM_LOCAL_RUN_SWITCH = /^(?:-[sq]|-d{1,3}|--silent|--quiet|--verbose|--(?:no-)?(?:ignore-scripts|foreground-scripts)(?:=(?:true|false))?)$/;
 const NPM_LOG_LEVEL = /^(?:silent|error|warn|notice|http|info|verbose|silly)$/;
-const NPM_IF_PRESENT = /^--(no-)?if-present(?:=(true|false))?$/;
+const NPM_BOOLEAN = /^--(no-)?(if-present|ignore-scripts)(?:=(true|false))?$/;
 const BOOLEAN_VALUE = /^(?:true|false)$/;
 const PACKAGE_ADMIN_COMMANDS = new Set([
     "add", "audit", "ci", "dedupe", "explain", "i", "info", "install", "list", "ls", "outdated",
     "remove", "rm", "search", "show", "uninstall", "update", "upgrade", "view", "why",
 ]);
 const DATA_CONSUMERS = new Set(["echo", "printf", "test", "[", "[[", "command", "which", "type", "ls"]);
+/** Options that accept a separate operand in the pinned pm-changelog CLI. */
+const VALUE_OPTIONS = new Set([
+    "--audit-receipts", "-i", "-o", "--body-preview", "--date", FALLBACK_DATE_FLAG, "--exclude-tag", "--exclude-tags",
+    "--format", "--group-by", "--input", "--item-ref-style", "--item-url-base", "--limit", "--mode", "--output",
+    "--pm-arg", "--pm-bin", "--pm-cwd", "--pm-root", "--release-tag-pattern", "--release-version", "--entry-from",
+    "--section-by", "--since", "--since-version", "--status", "--statuses", "--title", "--until", "--version",
+]);
 const INCLUDE_EMPTY_FLAG = "--include-empty";
 const MAX_SCRIPT_FORWARDS = 8;
 /** Whether a YYYY-MM-DD string names an existing day, including years 0–99. */
@@ -39,22 +64,25 @@ function isScriptForward(program, subcommand) {
     return (subcommand === "run" && SCRIPT_RUNNERS.has(program)) || (program === "npm" && subcommand === "run-script");
 }
 /** Skip local npm switches and retain the last explicit optional-script setting. */
-function afterNpmRunOptions(tokens, start, optional = false) {
+function afterNpmRunOptions(tokens, start, optional = false, lifecycle) {
     let index = start;
     for (;;) {
         const option = tokens[index];
         if (!option || option.unresolved)
-            return { index, optional };
-        const ifPresent = NPM_IF_PRESENT.exec(option.value);
-        if (ifPresent) {
-            let value = ifPresent[2];
+            return { index, optional, lifecycle };
+        const setting = NPM_BOOLEAN.exec(option.value);
+        if (setting) {
+            let value = setting[3];
             const operand = tokens[index + 1]?.value;
             if (value === undefined && BOOLEAN_VALUE.test(operand ?? "")) {
                 value = operand;
                 index++;
             }
-            const enabled = value !== "false";
-            optional = ifPresent[1] ? !enabled : enabled;
+            const enabled = setting[1] ? value === "false" : value !== "false";
+            if (setting[2] === "if-present")
+                optional = enabled;
+            else
+                lifecycle = !enabled;
             index++;
         }
         else if (NPM_LOCAL_RUN_SWITCH.test(option.value)
@@ -65,7 +93,7 @@ function afterNpmRunOptions(tokens, start, optional = false) {
             index += 2;
         }
         else {
-            return { index, optional };
+            return { index, optional, lifecycle };
         }
     }
 }
@@ -74,9 +102,9 @@ function literalScriptName(target) {
     return target?.value && !target.unresolved && !target.value.startsWith("-") ? target.value : undefined;
 }
 /** Skip runner flags that appear before the subcommand or script name. */
-function afterRunOptions(program, tokens, start, optional = false) {
+function afterRunOptions(program, tokens, start, optional = false, lifecycle) {
     if (program === "npm")
-        return afterNpmRunOptions(tokens, start, optional);
+        return afterNpmRunOptions(tokens, start, optional, lifecycle);
     let index = start;
     for (;;) {
         const option = tokens[index];
@@ -94,7 +122,7 @@ function scriptForward(program, parameters, scriptNames) {
     const command = afterRunOptions(program, parameters, 0);
     if (!isScriptForward(program, parameters[command.index]?.value))
         return undefined;
-    const entry = afterRunOptions(program, parameters, command.index + 1, command.optional);
+    const entry = afterRunOptions(program, parameters, command.index + 1, command.optional, command.lifecycle);
     const target = literalScriptName(parameters[entry.index]);
     // Bun also runs source files and local binaries when there is no named script.
     if (program === "bun" && target !== undefined && !scriptNames?.has(target)
@@ -108,81 +136,107 @@ function scriptForward(program, parameters, scriptNames) {
         return { target, optional: entry.optional, args: separator ? tail.slice(1) : tail };
     }
     const separator = tail.findIndex(token => token.value === "--" && !token.unresolved);
-    return { target, optional: afterNpmRunOptions(tail, 0, entry.optional).optional, args: separator < 0 ? [] : tail.slice(separator + 1) };
+    const flags = separator < 0 ? tail : tail.slice(0, separator);
+    const settings = afterNpmRunOptions(flags, 0, entry.optional, entry.lifecycle);
+    return { target, npm: true, lifecycle: settings.lifecycle, optional: settings.optional, args: separator < 0 ? [] : tail.slice(separator + 1) };
 }
-/** Resolve the hook scripts and their local script dependencies before editing or verifying them. */
+/** Expand a runner invocation. npm executes lifecycle siblings once without forwarded arguments. */
+function scriptSequence(name, names, lifecycle = false) {
+    return lifecycle ? [`pre${name}`, name, `post${name}`].filter(script => script === name || names.has(script)) : [name];
+}
+/** Resolve the same invocation graph used by preparation and continuation, including comment-only hooks. */
 export function resolveChangelogHooks(scripts, hooks) {
+    const all = new Map(Object.entries(scripts ?? {}).map(([key, value]) => [key, typeof value === "string" ? value : ""]));
     const resolved = new Map();
-    const scriptNames = new Set(Object.keys(scripts ?? {}));
-    /** Compute the longest remaining forward chain, including through shared scripts. */
-    function visit(name, parents) {
-        const chain = [...parents, name];
-        if (parents.includes(name))
-            throw new Error(`Changelog script forward cycle: ${chain.join(" -> ")}`);
-        const cached = resolved.get(name);
-        if (parents.length + (cached?.depth ?? 0) > MAX_SCRIPT_FORWARDS) {
-            throw new Error(`Changelog script forward depth exceeds ${MAX_SCRIPT_FORWARDS}: ${chain.join(" -> ")}`);
-        }
-        if (cached)
-            return cached.depth;
-        const script = scripts?.[name];
-        if (typeof script !== "string" || !script.trim()) {
-            throw new Error(parents.length === 0
-                ? "Missing changelog hook: " + name
-                : `Cannot resolve changelog script forward ${chain.join(" -> ")}: missing or empty package.json script`);
-        }
-        let depth = 0;
-        for (const words of tokenizeCommands(script)) {
-            const invocation = packageScriptCommand(words);
-            if (!invocation)
-                continue;
-            const [program, ...parameters] = invocation;
-            const forward = scriptForward(basename(program.value), parameters, scriptNames);
-            if (!forward)
-                continue;
-            const { target, optional } = forward;
-            if (target === undefined) {
-                throw new Error(`Cannot resolve changelog script forward in ${JSON.stringify(name)}: expected a literal package.json script name`);
-            }
-            if (optional && !Object.hasOwn(scripts, target))
-                continue;
-            depth = Math.max(depth, 1 + visit(target, chain));
-        }
-        resolved.set(name, { script, depth });
-        return depth;
-    }
-    for (const name of hooks)
-        visit(name, []);
-    return new Map([...resolved].map(([name, { script }]) => [name, script]));
+    visitChangelogScriptCommands(all, ({ effective, names }) => { changelogInvocation(effective, names); }, hooks, resolved);
+    return resolved;
+}
+/** Administrative package operands are dependency names rather than commands. */
+function isPackageAdmin(program, parameters) {
+    const name = basename(program.value);
+    if (program.unresolved || !PACKAGE_MANAGERS.has(name))
+        return false;
+    const subcommand = parameters[afterRunOptions(name, parameters, 0).index];
+    return subcommand !== undefined && !subcommand.unresolved && PACKAGE_ADMIN_COMMANDS.has(subcommand.value);
 }
 /** Return the generator word and arguments, or refuse a possible hook behind an unknown wrapper. */
 function changelogInvocation(words, scriptNames, audit = false) {
-    const invocation = packageScriptCommand(words);
-    if (invocation === undefined)
+    const invocation = releaseHookCommand(words);
+    const mentions = words.some(mentionsGenerator);
+    const problem = hookSyntaxProblem(words);
+    if (problem && mentions) {
+        const dynamicOption = words.some(word => word.unresolved && word.value.startsWith("-"));
+        if (dynamicOption && invocation && GENERATOR_TARGET.test(invocation[0].value) && !hasVersionInput(invocation.slice(1))
+            && !words.some(word => word.value.startsWith("--date-")))
+            return undefined;
+        refuseHook(dynamicOption ? "Unresolved option word: " + problem : problem);
+    }
+    if (!invocation) {
+        if (mentions && words.some(word => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word.value)))
+            refuseHook("Incomplete wrapper before pm-changelog");
         return undefined;
+    }
     const [program, ...parameters] = invocation;
     const name = basename(program.value);
     const forward = scriptForward(name, parameters, scriptNames);
-    if (forward
-        && (!audit || (forward.target !== undefined && (forward.optional || scriptNames.has(forward.target)))))
+    if (forward && (!audit || (forward.target !== undefined && (forward.optional || scriptNames.has(forward.target)))))
         return undefined;
     const [subcommand] = parameters;
-    if (PACKAGE_MANAGERS.has(name) && !program.unresolved && subcommand && !subcommand.unresolved
-        && PACKAGE_ADMIN_COMMANDS.has(subcommand.value))
+    if (isPackageAdmin(program, parameters))
         return undefined;
-    const isLauncher = GENERATOR_LAUNCHERS.has(name);
-    const generatorAt = isLauncher ? parameters.findIndex(({ value }) => GENERATOR_TARGET.test(value)) : -1;
-    if (GENERATOR_TARGET.test(program.value) || generatorAt >= 0)
-        return invocation.slice(generatorAt + 1);
-    // The shell scanner emits evaluated text separately. Its synthetic readings
-    // can start with an evaluator option such as -c.
-    if (isShellEvaluator(name) || program.value.startsWith("-") || DATA_CONSUMERS.has(name))
-        return undefined;
-    const target = parameters.find(({ value }) => value.includes("pm-changelog") || GENERATOR_TARGET.test(value));
-    if (target !== undefined) {
-        throw new Error(`Unrecognized wrapper ${JSON.stringify(program.value)} before possible pm-changelog command ${JSON.stringify(target.value)}`);
+    if (program.unresolved && mentionsGenerator(program))
+        refuseHook("Indirect pm-changelog executable " + JSON.stringify(program.value));
+    if (GENERATOR_TARGET.test(program.value))
+        return invocation;
+    if (name === "node" || name === "bun") {
+        let index = 0;
+        if (name === "bun" && subcommand?.value === "run")
+            index++;
+        while (parameters[index]?.value === "--enable-source-maps" || BUN_LOCAL_RUN_SWITCHES.has(parameters[index]?.value))
+            index++;
+        const file = parameters[index];
+        if (file && !file.unresolved && GENERATOR_TARGET.test(file.value))
+            return parameters.slice(index);
     }
+    if (name === "command") {
+        const lookup = parameters.find(word => word.value !== "-p");
+        if (/^-p*[vV][pvV]*$/.test(lookup?.value ?? ""))
+            return undefined;
+    }
+    else if (DATA_CONSUMERS.has(name))
+        return undefined;
+    const nested = words.flatMap(word => word.value.split(/[^\w.:-]+/));
+    const indirect = scriptNames instanceof HookScriptNames && nested.some(word => SCRIPT_RUNNERS.has(word))
+        && nested.some(word => word === "run" || word === "run-script") && nested.some(word => scriptNames.canGenerate(word));
+    if (mentions || indirect)
+        refuseHook(`Unrecognized wrapper or executable ${JSON.stringify(program.value)} before possible pm-changelog command`);
     return undefined;
+}
+/** Check indirect references inside unknown wrappers only for dependencies that can reach a generator. */
+class HookScriptNames extends Set {
+    scripts;
+    constructor(scripts) {
+        super(scripts.keys());
+        this.scripts = scripts;
+    }
+    /** Follow literal script references without recursively evaluating the wrapper's shell payload. */
+    canGenerate(name, seen = new Set()) {
+        if (!this.has(name) || seen.has(name))
+            return false;
+        seen.add(name);
+        return parseReleaseHook(this.scripts.get(name)).commands.some(words => {
+            const command = releaseHookCommand(words);
+            if (!command)
+                return false;
+            const [program, ...parameters] = command;
+            if (DATA_CONSUMERS.has(basename(program.value)) || isPackageAdmin(program, parameters))
+                return false;
+            const forward = scriptForward(basename(program.value), parameters, this);
+            if (forward?.target)
+                return scriptSequence(forward.target, this, forward.npm && forward.lifecycle !== false).some(target => this.canGenerate(target, seen));
+            return words.some(mentionsGenerator);
+        });
+    }
 }
 /** Read generator arguments during an audit, where only declared forwards are trusted. */
 export function changelogArguments(words, scriptNames) {
@@ -191,7 +245,7 @@ export function changelogArguments(words, scriptNames) {
 /** Identify the original command that would receive argv appended by a script runner. */
 function commandReceivingArguments(text, commands, spans) {
     const marker = "__pm_ops_forwarded_argument__";
-    const appended = tokenizeCommandsWithSpans(text + " " + marker);
+    const appended = parseReleaseHook(text + " " + marker);
     const recipient = appended.commands.find(words => words.length > 1 && words.at(-1).value === marker
         && appended.spans.get(words.at(-1))?.start === text.length + 1);
     if (!recipient)
@@ -200,38 +254,53 @@ function commandReceivingArguments(text, commands, spans) {
     return commands.find(words => spans.get(words[0])?.start === start);
 }
 /** Scan local scripts in invocation order and join forwarded argv at its actual destination. */
-export function visitChangelogScriptCommands(scripts, inspect, hooks) {
-    const names = new Set(scripts.keys());
+export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved) {
+    const names = new HookScriptNames(scripts);
     const targeted = new Set();
     const parsed = new Map([...scripts].map(([name, text]) => {
-        const { commands, spans } = tokenizeCommandsWithSpans(text);
-        const malformed = commands.some(words => words.length === 1 && words[0].unresolved && words[0].value === "$");
-        return [name, { text, commands, spans, malformed }];
+        const { commands, spans } = parseReleaseHook(text);
+        return [name, { text, commands, spans }];
     }));
     /** Return a forward only when its script has a body in this manifest. */
     function forwardToScript(words) {
-        const command = packageScriptCommand(words);
+        const command = releaseHookCommand(words);
         if (!command)
             return undefined;
         const [program, ...parameters] = command;
         const forward = scriptForward(basename(program.value), parameters, names);
-        return forward?.target !== undefined && names.has(forward.target) ? { ...forward, target: forward.target } : undefined;
+        return forward;
     }
     const visited = new Set();
-    const withoutArgs = new Set();
+    const withoutArgs = new Map();
     const recipients = new Map();
     const forwardedSeparators = new WeakSet();
     /** Walk one invocation, preserving token identity back to each supplying script. */
-    function visit(name, args, parents) {
-        if (parents.length > MAX_SCRIPT_FORWARDS || parents.includes(name))
+    function visit(name, args, parents, lifecycle = true) {
+        const chain = [...parents, name].join(" -> ");
+        if (parents.includes(name)) {
+            if (hooks)
+                refuseHook("Changelog script forward cycle: " + chain);
             return;
-        if (args.length === 0) {
-            if (withoutArgs.has(name))
+        }
+        if (hooks && parents.length > MAX_SCRIPT_FORWARDS)
+            refuseHook(`Changelog script forward depth exceeds ${MAX_SCRIPT_FORWARDS}: ${chain}`);
+        const script = parsed.get(name);
+        if (!script?.text.trim()) {
+            if (!hooks)
                 return;
-            withoutArgs.add(name);
+            refuseHook(parents.length === 0 ? "Missing changelog hook: " + name
+                : "Cannot resolve changelog script forward " + chain + ": missing or empty package.json script");
+        }
+        if (args.length === 0) {
+            const key = Number(lifecycle) + ":" + name;
+            const depth = hooks ? parents.length : 0;
+            if ((withoutArgs.get(key) ?? -1) >= depth)
+                return;
+            withoutArgs.set(key, depth);
         }
         visited.add(name);
-        const { text, commands, spans, malformed } = parsed.get(name);
+        const { text, commands, spans } = script;
+        resolved?.set(name, text);
         let recipient;
         if (args.length > 0) {
             if (!recipients.has(name))
@@ -244,23 +313,34 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks) {
             // pnpm passes its delimiter through verbatim. A nested runner can consume
             // it, but the generator only accepts named options.
             const separators = effective.filter(token => forwardedSeparators.has(token));
-            inspect({ name, text, words, effective: effective.filter(token => !forwardedSeparators.has(token)), spans, malformed, forwardedSeparators: separators });
+            inspect({ name, names, text, words, effective: effective.filter(token => !forwardedSeparators.has(token)), spans, forwardedSeparators: separators });
             if (forward) {
+                if (forward.target === undefined) {
+                    if (hooks)
+                        refuseHook(`Cannot resolve changelog script forward in ${JSON.stringify(name)}: expected a literal package.json script name`);
+                    continue;
+                }
+                if (!names.has(forward.target) && (forward.optional || !hooks))
+                    continue;
                 if (forward.forwardedSeparator)
                     forwardedSeparators.add(forward.forwardedSeparator);
-                visit(forward.target, forward.args, [...parents, name]);
+                const enabled = forward.lifecycle ?? lifecycle;
+                for (const target of scriptSequence(forward.target, names, forward.npm && enabled)) {
+                    visit(target, target === forward.target ? forward.args : [], [...parents, name], enabled);
+                }
             }
         }
     }
     if (hooks) {
-        for (const name of hooks)
-            visit(name, [], []);
+        for (const hook of hooks)
+            for (const name of scriptSequence(hook, names, true))
+                visit(name, [], []);
         return;
     }
     for (const { commands } of parsed.values()) {
         for (const words of commands) {
             const forward = forwardToScript(words);
-            if (forward)
+            if (forward?.target)
                 targeted.add(forward.target);
         }
     }
@@ -274,15 +354,30 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks) {
             visit(name, [], []);
     }
 }
+/** Preserve option/operand boundaries, including option-shaped --pm-arg data. */
+function optionPositions(args) {
+    const positions = [];
+    for (let i = 0; i < args.length; i++) {
+        positions.push(i);
+        const flag = args[i].value;
+        if (VALUE_OPTIONS.has(flag) && args[i + 1] && (flag === "--pm-arg" || !args[i + 1].value.startsWith("--")))
+            i++;
+    }
+    return positions;
+}
 /** Decode literal date options and retain their shell words for edits. */
 export function readReleaseDateOptions(args) {
     const options = [];
-    for (const [index, token] of args.entries()) {
-        if (token.unresolved && token.value.startsWith("-")) {
-            const name = fixedOptionName(token);
+    for (const index of optionPositions(args)) {
+        const token = args[index];
+        if (VALUE_OPTIONS.has(token.value) && args[index + 1]?.multipleWords) {
+            refuseHook(`Unquoted or multiword expansion in the operand of ${token.value}`);
+        }
+        if (token.unresolved) {
+            const name = literalOptionName(token);
             if (name !== undefined && name !== DATE_FLAG && name !== FALLBACK_DATE_FLAG)
                 continue;
-            throw new Error(`Unresolved option word in pm-changelog hook: ${JSON.stringify(token.value)}`);
+            refuseHook(`Unresolved option word in pm-changelog hook: ${JSON.stringify(token.value)}`);
         }
         if (token.value === DATE_FLAG) {
             options.push({ kind: "version", first: token, last: token });
@@ -299,11 +394,23 @@ export function readReleaseDateOptions(args) {
         }
         options.push({ kind: isRealCalendarDay(day) ? "pin" : "invalid-day", first: token, last: operand, day });
     }
+    if (options.some(option => option.kind === "version") && options.some(option => option.kind !== "version")) {
+        refuseHook(`Mutually exclusive ${DATE_FLAG} and ${FALLBACK_DATE_FLAG}`);
+    }
     return options;
 }
-/** Read date options only from commands that actually invoke the generator. */
-function hookDateOptions(words, scriptNames) {
-    return readReleaseDateOptions(changelogInvocation(words, scriptNames)?.slice(1) ?? []);
+/** Validate date options on the effective generator argv before editing or checking the heading. */
+function hookDateOptions(args) {
+    if (!hasVersionInput(args) && !args.some(({ value }) => value.startsWith("--date-")))
+        return [];
+    const options = readReleaseDateOptions(args);
+    if (!options.length)
+        refuseHook("Versioned pm-changelog invocation without a date policy");
+    return options.map(option => {
+        if (option.kind === "missing-day" || option.kind === "invalid-day")
+            refuseHook("Invalid --date-fallback operand, expected a real YYYY-MM-DD day");
+        return option;
+    });
 }
 /** Render a calendar version using the same day and suffix rules as pm-changelog. */
 function versionHeadingDay(version) {
@@ -319,24 +426,35 @@ function versionHeadingDay(version) {
 }
 /** Compare the options on one generator command with the verified merge day. */
 function assertHeadingOptions(words, mergeDay, packageVersion, names) {
-    for (const option of hookDateOptions(words, names)) {
-        const day = option.kind === "version" ? versionHeadingDay(packageVersion) : "day" in option ? option.day : undefined;
-        if (day !== undefined && day !== mergeDay) {
-            throw new Error(`Prepared release heading day ${day} differs from verified merge commit day ${mergeDay}. Refusing to publish; re-prepare the candidate for the merge day. The reviewed commit and verified artifact cannot be rewritten during continuation.`);
+    const args = changelogInvocation(words, names)?.slice(1) ?? [];
+    for (const option of hookDateOptions(args)) {
+        let day;
+        if (option.kind === "version") {
+            let version = packageVersion;
+            for (const i of optionPositions(args)) {
+                const [flag, inline] = args[i].value.split("=");
+                if (flag === "--version" || flag === "--release-version")
+                    version = inline ?? args[i + 1]?.value;
+            }
+            day = versionHeadingDay(version);
+        }
+        else
+            day = option.day;
+        if (day !== mergeDay) {
+            throw new Error(`Prepared release heading day ${day} differs from verified merge commit day ${mergeDay}. Refusing to publish. Manually dispatch the workflow with retire-unpublished set to retire the unpublished candidate.`);
         }
     }
 }
 /** Refuse publication when a standalone generator's heading differs from the verified merge day. */
 export function assertReleaseHeadingDate(scripts, mergeDay, packageVersion, scriptNames) {
     for (const script of scripts) {
-        for (const words of tokenizeCommands(script))
+        for (const words of parseReleaseHook(script).commands)
             assertHeadingOptions(words, mergeDay, packageVersion, scriptNames);
     }
 }
 /** Verify the complete generator argv from each release hook before publication. */
 export function assertReleaseHookHeadingDate(scripts, hooks, mergeDay, packageVersion) {
-    const names = new Set(scripts.keys());
-    visitChangelogScriptCommands(scripts, ({ effective }) => assertHeadingOptions(effective, mergeDay, packageVersion, names), hooks);
+    visitChangelogScriptCommands(scripts, ({ effective, names }) => assertHeadingOptions(effective, mergeDay, packageVersion, names), hooks);
 }
 /** Apply source edits back to front so their offsets stay valid. */
 function applyHookEdits(script, edits) {
@@ -347,38 +465,39 @@ function applyHookEdits(script, edits) {
 }
 /** Enable empty sections on each generator while preserving shell operators and redirections. */
 export function includeEmptyReleaseSections(script, scriptNames) {
-    const { commands, spans } = tokenizeCommandsWithSpans(script);
+    const { commands, spans } = parseReleaseHook(script);
     const edits = new Map();
     for (const words of commands) {
         const invocation = changelogInvocation(words, scriptNames);
-        if (invocation === undefined || invocation.some(token => !token.unresolved && token.value === INCLUDE_EMPTY_FLAG))
+        if (invocation === undefined || optionPositions(invocation.slice(1)).some(i => invocation[i + 1].value === INCLUDE_EMPTY_FLAG))
             continue;
-        const last = spans.get(invocation.at(-1));
-        if (!last)
-            throw new Error("The --include-empty option needs an editable shell word in the changelog hook");
-        edits.set(last.end, { start: last.end, end: last.end, text: " " + INCLUDE_EMPTY_FLAG });
+        const token = invocation.at(-1);
+        const last = spans.get(token);
+        // A caller can supply the operand of the final option. Insert before an
+        // open option so its operand remains adjacent across the script boundary.
+        const before = VALUE_OPTIONS.has(token.value) && optionPositions(invocation.slice(1)).includes(invocation.length - 2);
+        const offset = before ? last.start : last.end;
+        edits.set(offset, { start: offset, end: offset, text: before ? INCLUDE_EMPTY_FLAG + " " : " " + INCLUDE_EMPTY_FLAG });
     }
     return applyHookEdits(script, edits.values());
 }
 /** Refresh the inline pins, or restore the standing policy for a current version. */
 export function rewriteReleaseHeadingDate(script, headingDate, scriptNames) {
-    const { commands, spans } = tokenizeCommandsWithSpans(script);
+    const { commands, spans } = parseReleaseHook(script);
     const source = { text: script, spans, edits: new Map() };
-    rewriteDateOptions(commands.flatMap(words => hookDateOptions(words, scriptNames)), headingDate, () => source);
+    rewriteDateOptions(commands.flatMap(words => hookDateOptions(changelogInvocation(words, scriptNames)?.slice(1) ?? [])), headingDate, () => source);
     return applyHookEdits(script, source.edits.values());
 }
 /** Pin or restore the original words, even when a caller supplied the date operand. */
 function rewriteDateOptions(options, headingDate, sourceOf) {
     const replacement = headingDate ? FALLBACK_DATE_FLAG + " " + headingDate : DATE_FLAG;
     for (const option of options) {
-        if (option.kind !== "pin" && !(option.kind === "version" && headingDate))
+        if (option.kind === "version" && !headingDate)
             continue;
         const firstSource = sourceOf(option.first);
         const lastSource = sourceOf(option.last);
         const first = firstSource.spans.get(option.first);
         const last = lastSource.spans.get(option.last);
-        if (!first || !last)
-            throw new Error("Release heading date option needs an editable shell word in the changelog hook");
         // A redirection between the option and its operand can be dropped from
         // argv by commandCandidates. Preserve it when rewriting the source.
         if (firstSource !== lastSource || (option.first !== option.last
@@ -393,10 +512,9 @@ function rewriteDateOptions(options, headingDate, sourceOf) {
 }
 /** Rewrite all heading options received by the manifest's resolved release hooks. */
 export function rewriteReleaseHookDates(scripts, hooks, headingDate) {
-    const names = new Set(scripts.keys());
     const sources = new Map();
     const owners = new WeakMap();
-    visitChangelogScriptCommands(scripts, ({ name, text, spans, words, effective, forwardedSeparators }) => {
+    visitChangelogScriptCommands(scripts, ({ name, names, text, spans, words, effective, forwardedSeparators }) => {
         let source = sources.get(name);
         if (!source) {
             source = { text, spans, edits: new Map() };
@@ -404,14 +522,12 @@ export function rewriteReleaseHookDates(scripts, hooks, headingDate) {
         }
         for (const token of words)
             owners.set(token, source);
-        const options = hookDateOptions(effective, names);
+        const options = hookDateOptions(changelogInvocation(effective, names)?.slice(1) ?? []);
         rewriteDateOptions(options, headingDate, token => owners.get(token));
         if (options.length > 0) {
             for (const separator of forwardedSeparators) {
                 const owner = owners.get(separator);
                 const span = owner.spans.get(separator);
-                if (!span)
-                    throw new Error("Forwarded pnpm separator needs an editable shell word in the changelog hook");
                 const space = /^[ \t]*/.exec(owner.text.slice(span.end))[0];
                 owner.edits.set(span.start, { start: span.start, end: span.end + space.length, text: "" });
             }

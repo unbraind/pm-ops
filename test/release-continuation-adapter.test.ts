@@ -1486,7 +1486,7 @@ test("heading-date continuation mirrors the generator at the committer offset de
         "notes:forward": "npm run-script notes:generator",
         "notes:generator": `timeout 60 pm-changelog --date-fallback ${wrongDay}`,
       });
-      await assert.rejects(runReleaseContinuation("heading-date"), new RegExp(`${wrongDay}.*${expectedDay}.*re-prepare`));
+      await assert.rejects(runReleaseContinuation("heading-date"), new RegExp(`${wrongDay}.*${expectedDay}.*retire-unpublished`));
     }
     for (const bad of [undefined, null, 1, "", " "]) {
       write({ generate: script, check: script, notes: bad });

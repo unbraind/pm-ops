@@ -6,7 +6,9 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-18T08:00:09.646Z"
+updated_at: "2026-11-18T11:25:43.862Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -14,7 +16,7 @@ severity: high
 repro_steps: "Use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "The verifier accepts the shell option. The workflow leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[27]:
+comments[29]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -97,10 +99,17 @@ comments[27]:
   - created_at: "2026-11-18T08:00:08.541Z"
     author: codex-sol
     text: Coverage on 9ea587b ran 2041 tests with zero failures and two optional real-data skips. The only coverage miss was the preservation path for a comment-only forwarded hook. The extended preparation fixture now exercises that path.
-files[15]{path,scope}:
+  - created_at: "2026-11-18T11:06:29.255Z"
+    author: codex-sol
+    text: "Round CC will bound release-hook syntax, resolve npm lifecycle execution, and verify preparation and continuation together."
+  - created_at: "2026-11-18T11:25:43.861Z"
+    author: codex-sol
+    text: "Implemented a bounded release-hook reader with source spans, local-script argv forwarding and enabled npm pre/post callbacks. The real npm lifecycle fixture and all 12 grammar regressions pass. Shell evaluation and conflicting date policies receive one actionable refusal."
+files[16]{path,scope}:
   .github/workflows/daily-release.yml,project
   release-changelog-options.ts,project
   release-continuation.ts,project
+  release-hook-grammar.ts,project
   scripts/prepare-release-changelog.ts,project
   scripts/release-continuation.ts,project
   scripts/verify-release-changelog-date.ts,project
@@ -113,7 +122,7 @@ files[15]{path,scope}:
   test/release-runtime.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[28]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[29]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -142,6 +151,8 @@ tests[28]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-name-pattern='Bun execution switches' test/changelog-sections.test.ts,project,codex-sol,"2026-11-18T06:43:56.318Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test test/changelog-sections.test.ts test/release-continuation-adapter.test.ts,project,codex-sol,"2026-11-18T07:42:38.796Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-concurrency=2 test/changelog-sections.test.ts test/verify-release-changelog-date.test.ts test/release-prepare-restart.test.ts test/pack-prepare.test.ts test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/continuation-selection.test.ts test/continuation-runtime.test.ts test/daily-release.test.ts test/daily-release-workflow.test.ts test/release-runtime.test.ts test/release-discovery-evidence.test.ts,project,codex-sol,"2026-11-18T07:47:23.158Z",local_mutation,fix/release-hook-wrapper-options-bm
-docs[1]{path,scope}:
+  node --test test/release-hook-grammar.test.ts,project,codex-sol,"2026-11-18T11:19:33.908Z",local_mutation,fix/release-hook-wrapper-options-bm
+docs[2]{path,scope}:
   docs/reusable-release.md,project
+  README.md,project
 body: ""
