@@ -6,9 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-18T21:04:22.972Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-18T21:06:35.670Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[42]:
+comments[43]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -144,6 +142,9 @@ comments[42]:
   - created_at: "2026-11-18T21:00:00.757Z"
     author: codex-sol
     text: Round CS is addressing the Greptile finding on context changes in package scripts outside the release hook graph.
+  - created_at: "2026-11-18T21:06:25.833Z"
+    author: codex-sol
+    text: Greptile thread PRRT_kwDOTOTl1M65JuTt maps to 0093d76. The date verifier accepts unrelated npm --prefix and cd scripts and still refuses each on a release hook forward path. The grammar and verifier suite passed 69 tests.
 files[21]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project

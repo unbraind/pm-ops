@@ -6,18 +6,17 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-18T19:47:51.951Z"
-updated_at: "2026-11-18T21:04:42.896Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-18T21:06:44.109Z"
 author: codex-sol
 estimated_minutes: 30
 acceptance_criteria: "Generate the published 2026.11.18 section exactly once and pass changelog:check."
 repro_steps: Compare CHANGELOG.md at PR head 204cfdd and refs/pull/295/merge. Check the Node 22 and Node 26 jobs for the merge checkout.
 expected_result: Exactly one section matching the v2026.11.18 tag and green Node 22 and 26 jobs on the new merge commit.
 actual_result: The PR head has one heading and the generated merge commit has two. Both Node jobs reject the merged changelog.
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-11-18T20:59:57.966Z",codex-sol,Round CS will merge the published v2026.11.18 base and regenerate the changelog from fetched tags before rechecking the merge gate.
   "2026-11-18T21:03:47.247Z",codex-sol,Merge a7451b7 regenerates CHANGELOG.md from fetched tags with one 2026.11.18 section identical to the tag. No tracker conflicts or history drift were reported. pm validate reports legacy completeness and metadata findings.
+  "2026-11-18T21:06:33.640Z",codex-sol,The changelog verification passed after merge a7451b7. The separately committed context-check fix is 0093d76. The coverage and acceptance commands are linked for exact-head verification.
 files[2]{path,scope}:
   CHANGELOG.md,project
   test/verify-release-changelog-sections.test.ts,project
