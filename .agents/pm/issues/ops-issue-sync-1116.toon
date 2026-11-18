@@ -7,21 +7,56 @@ status: in_progress
 priority: 1
 tags[2]: ci,issue-sync
 created_at: "2026-11-16T10:42:17.543Z"
-updated_at: "2026-11-16T19:05:34.444Z"
+updated_at: "2026-11-18T07:21:00.722Z"
 deadline: "2026-11-17T00:00:00.000Z"
 author: codex-sol
 estimated_minutes: 90
 acceptance_criteria: Record the exact failed command and verify the current fix or upstream blocker without weakening tracker governance.
-comments[6]{created_at,author,text}:
+comments[7]{created_at,author,text}:
   "2026-11-16T10:49:20.653Z",codex-sol,"Run 43828148726 fails npm ci with glob 13.0.6 not satisfying 13.0.7. The original lock reproduces EUSAGE on Node 22.18.0 with bundled npm. Preserve the previous lock regeneration: glob 13.0.7 plus its resolved URL and integrity; sigstore glob 14.0.2 remains overridden. npm ci --ignore-scripts --dry-run passes on Node 22.18.0, 22.23.4 and 26.13.0. npm audit --omit=dev reports zero vulnerabilities. Package test gates must wait for the actual dependency installation to finish; early attempts without installed binaries are invalid and will be rerun."
   "2026-11-16T11:01:50.587Z",codex-sol,"Initial review receipt: the failed workflow log and current pin are documented in docs/issue-sync-2026-11-16.md. Seeded tracker validation passes through pm test --run --progress. Typecheck and lint pass. The quick package suite remains running under shared-host load; no complete passing suite is claimed.  Pinned validation exits zero but reports twelve existing completeness violations; the repaired lock passes npm ci dry-run on Node 22.18.0, 22.23.4 and 26.13.0 and production audit reports zero vulnerabilities. Publish review evidence with pending gates explicit; no scheduled success is claimed."
   "2026-11-16T11:16:56.808Z",codex-sol,"Exact-version correction: the earlier 18-planned preview used an older ambient extension and does not certify the pinned workflow. Installing pm-github 2026.11.15 locally and running the pinned CLI preview exits 1 before writes: privacy preflight reports two absolute-host-path findings in github-recovery-plan body and expected_result. No item or recovery plan was written. Keep the lockfile repair and report this separate remaining blocker; do not copy the offending content, add an allowlist or edit GitHub issues."
   "2026-11-16T11:39:10.658Z",codex-sol,"Final bounded verification: the original lock reproduces npm ci EUSAGE on Node 22.18.0. The repaired lock passes npm ci --ignore-scripts --dry-run on Node 22.18.0, 22.23.4 and 26.13.0; production audit reports zero vulnerabilities. Typecheck, lint and changelog:check passed. The broad quick suite was stopped before completion and is excluded from passing evidence. Exact pm-github 2026.11.15 previews with both locked and current host CLIs fail closed at privacy preflight; no allowlist, source issue edit or item write was applied. Pinned validation retains twelve pre-existing completeness violations. The new item history verifies with strict exit."
   "2026-11-16T11:55:02.938Z",claude-hub,"Second cause fixed in cb3b613: the September mirror of GitHub issue #44 (ops-github-db3225403a4b-44) kept a /tmp repro path in body and expected_result that the issue no longer has. pm-github 2026.11.15 scans the persisted recovery plan, which carries that old content, so its privacy preflight refused every sync (absolute-host-path, excerpt /t***/). Refreshed both fields from the current issue text; the pinned 'pm github import unbraind/pm-ops --state all --atomic --gate --dry-run --with-comments --json' now exits 0. Lockfile fix (glob 13.0.7) passes npm ci --ignore-scripts --dry-run on Node 22.18.0, 22.23.4 and 26.13.0. The dated docs file was dropped; this item holds the evidence."
   "2026-11-16T19:05:34.437Z","harness:claude-code","2026-11-16 19:1xZ (orchestrator): removed the stale files/docs links to the dropped dated docs file (pm files --remove, pm docs --remove) after Greptile and CodeRabbit flagged them on pm-ops#287; the historical comment that names it stays."
+  "2026-11-18T07:20:59.880Z",codex-sol,"Round BX: Node 26 failed only at changelog:check. Reproduced old-head drift with the tags from that run: v2026.11.15 points to a November 16 commit and the checked-in heading said November 15. Merged main cleanly and regenerated with changelog:full after fetching tags; the corrected heading already matches generated output. Kept glob 13.0.7 and the refreshed issue #44 mirror. Node 22.18.0 and 26.13.0 npm ci dry runs and the gated issue import dry run passed. Typecheck, lint, changelog:check, both changelog verifiers, and 40 focused tests passed. Coverage on Node 26.13.0 was 100% in all four dimensions across 50 source files with 1987 passed, 2 skipped, and 0 failed. pm validate retained the 12 completeness violations present on main."
 files[2]{path,scope}:
   .agents/pm/issues/ops-github-db3225403a4b-44.toon,project
   package-lock.json,project
-tests[1]{command,scope,timeout_seconds,pm_context_mode,provenance{author,created_at,source_kind,source_ref},updated_by,updated_at}:
-  pm validate,project,600,tracker,codex-sol,"2026-11-16T10:49:40.329Z",local_mutation,fix/issue-sync-lockfile,codex-sol,"2026-11-16T10:53:22.660Z"
+tests[4]:
+  - command: pm validate
+    scope: project
+    timeout_seconds: 600
+    pm_context_mode: tracker
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-16T10:49:40.329Z"
+      source_kind: local_mutation
+      source_ref: fix/issue-sync-lockfile
+    updated_by: codex-sol
+    updated_at: "2026-11-16T10:53:22.660Z"
+  - command: "npm run changelog:check"
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-18T07:17:41.901Z"
+      source_kind: local_mutation
+      source_ref: fix/issue-sync-lockfile
+  - command: npm run coverage
+    scope: project
+    timeout_seconds: 1800
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-18T07:17:43.943Z"
+      source_kind: local_mutation
+      source_ref: fix/issue-sync-lockfile
+  - command: npm ci --ignore-scripts --dry-run --no-audit --no-fund
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-18T07:17:45.540Z"
+      source_kind: local_mutation
+      source_ref: fix/issue-sync-lockfile
+docs[1]{path,scope}:
+  CHANGELOG.md,project
 body: ""
