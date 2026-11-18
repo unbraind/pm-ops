@@ -562,7 +562,7 @@ export function includeEmptyReleaseSections(script: string, scriptNames?: Readon
 /** An empty replacement restores the standing version policy. */
 function validateReplacementDay(headingDate: string): void {
   if (headingDate && !isRealCalendarDay(headingDate)) {
-    refuseHook("Release heading date must be a real YYYY-MM-DD day, received " + JSON.stringify(headingDate));
+    refuseHook("Release heading date must be YYYY-MM-DD and name a real calendar day, received " + JSON.stringify(headingDate));
   }
 }
 

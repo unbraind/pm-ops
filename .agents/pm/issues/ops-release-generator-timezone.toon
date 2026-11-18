@@ -6,13 +6,14 @@ status: in_progress
 priority: 2
 tags[2]: "area:release","gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T15:02:27.928Z"
-updated_at: "2026-11-18T16:41:30.394Z"
+updated_at: "2026-11-18T16:41:58.912Z"
 author: codex-sol
 acceptance_criteria: A real tagged-commit regression at a UTC/configured-timezone day boundary proves the prepared heading and post-tag regeneration agree; retain stable historical tag dates and never gate already accepted artifacts on heading validation.
-comments[3]{created_at,author,text}:
+comments[4]{created_at,author,text}:
   "2026-11-17T16:21:39.329Z",codex-sol,"Round AZ: the continuation heading check now mirrors the pinned pm-changelog generator instead of converting through RELEASE_TIMEZONE. It reads the tagged commit timestamp with git log -1 --format=%cI HEAD and compares the literal YYYY-MM-DD prefix with --date-fallback. Generator evidence: node_modules/pm-changelog/dist/release-context.js:153,496,554-558 in pm-changelog 2026.11.6. Real tagged regressions show 2026-11-06T23:30:00Z expects 2026-11-06 and the same instant at +01:00 expects 2026-11-07. Preparation coordination remains a separate concern; this item stays open."
   "2026-11-18T16:30:17.874Z",codex-sol,"Round CM verified 16 unresolved findings on PR #295 at 2e59f07. Checking the tagged committer day, canonical hook parsing, and candidate fixture fidelity before running the release gates."
   "2026-11-18T16:41:27.158Z",codex-sol,"Round CM PRRT_kwDOTOTl1M65DAQ5 and PRRT_kwDOTOTl1M65DARb map to d4d701eeeb8ff5299c5d75da355bc94429b2c075. The boundary fixture uses November 7 in Europe/Vienna and a November 6 UTC committer day in both preparation and tagging. The publication guard still refuses a different actual merge day, with the existing retire-unpublished recovery."
+  "2026-11-18T16:41:58.006Z",codex-sol,"Fixture date correction: the end-to-end regression prepares and tags on October 24 UTC while both instants fall on October 25 in Europe/Vienna. November 6 UTC and November 7 in Vienna are the historical example and the planner regression."
 files[5]{path,scope}:
   .github/workflows/daily-release.yml,project
   daily-release.ts,project

@@ -229,7 +229,7 @@ test("preparation refuses an invalid replacement before changing any manifest sc
   writeFileSync(manifest, before);
   const env = { ...process.env, CHANGELOG_SCRIPT: "hook", CHANGELOG_CHECK_SCRIPT: "hook", NOTES_SCRIPT: "hook" };
   const command = [resolve("scripts/prepare-release-changelog.ts")];
-  assert.throws(() => execFileSync(process.execPath, command, { cwd: root, env: { ...env, RELEASE_HEADING_DATE: "2026-02-30" }, stdio: "pipe" }), /real YYYY-MM-DD day/);
+  assert.throws(() => execFileSync(process.execPath, command, { cwd: root, env: { ...env, RELEASE_HEADING_DATE: "2026-02-30" }, stdio: "pipe" }), /real calendar day/);
   assert.equal(readFileSync(manifest, "utf8"), before);
   execFileSync(process.execPath, command, { cwd: root, env: { ...env, RELEASE_HEADING_DATE: day } });
   assert.match(JSON.parse(readFileSync(manifest, "utf8")).scripts.hook, /--date-fallback 2026-11-17/);

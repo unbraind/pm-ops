@@ -551,7 +551,7 @@ export function includeEmptyReleaseSections(script, scriptNames) {
 /** An empty replacement restores the standing version policy. */
 function validateReplacementDay(headingDate) {
     if (headingDate && !isRealCalendarDay(headingDate)) {
-        refuseHook("Release heading date must be a real YYYY-MM-DD day, received " + JSON.stringify(headingDate));
+        refuseHook("Release heading date must be YYYY-MM-DD and name a real calendar day, received " + JSON.stringify(headingDate));
     }
 }
 /** Refresh the inline pins, or restore the standing policy for a current version. */
