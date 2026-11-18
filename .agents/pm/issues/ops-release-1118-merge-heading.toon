@@ -2,15 +2,19 @@ id: ops-release-1118-merge-heading
 title: Reconcile the v2026.11.18 heading in the PR merge commit
 description: Round CP head 204cfdd passes its clean checkout gates. The GitHub-generated merge commit for pm-ops PR 295 combines the upstream v2026.11.18 changelog heading with the branch regeneration.
 type: Issue
-status: open
+status: in_progress
 priority: 1
-tags[2]: "area:release",follow-up
+tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-18T19:47:51.951Z"
-updated_at: "2026-11-18T19:47:55.604Z"
+updated_at: "2026-11-18T20:59:57.972Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 repro_steps: Compare CHANGELOG.md at PR head 204cfdd and refs/pull/295/merge. Check the Node 22 and Node 26 jobs for the merge checkout.
 expected_result: The integrated changelog has exactly one v2026.11.18 heading and passes the changelog and release-section gates.
 actual_result: The PR head has one heading and the generated merge commit has two. Both Node jobs reject the merged changelog.
+comments[1]{created_at,author,text}:
+  "2026-11-18T20:59:57.966Z",codex-sol,Round CS will merge the published v2026.11.18 base and regenerate the changelog from fetched tags before rechecking the merge gate.
 files[2]{path,scope}:
   CHANGELOG.md,project
   test/verify-release-changelog-sections.test.ts,project
