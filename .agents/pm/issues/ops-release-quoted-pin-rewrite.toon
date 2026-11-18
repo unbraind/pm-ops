@@ -6,9 +6,7 @@ status: in_progress
 priority: 1
 tags[2]: "area:release",follow-up
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-18T06:06:47.580Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-18T06:10:15.865Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "Use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "The verifier accepts the shell option. The workflow leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[22]{created_at,author,text}:
+comments[23]{created_at,author,text}:
   "2026-11-17T20:49:08.758Z",codex-sol,"Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
   "2026-11-17T20:53:41.510Z",codex-sol,Red-first fixtures confirmed quoted pins passed the verifier while the prepare step left them stale and the continuation guard accepted them. The shared parser reuses the shell scanner and edits only the option source spans. The workflow exercises quoted pins across a later-day retry and the pre-publication guard.
   "2026-11-17T21:00:30.935Z",codex-sol,"Typecheck, lint, the live date verifier, and tag-backed changelog regeneration and check passed. The follow-up was recovered from its existing tracker commit with the item history intact. Full coverage and the workflow-reference test sweep are running."
@@ -39,6 +37,7 @@ comments[22]{created_at,author,text}:
   "2026-11-18T04:01:34.406Z",codex-sol,"Round BS will follow literal package-script forwards from the configured changelog hooks, then persist the empty-section option on each generator. A dependency-only workflow fixture will exercise the subsequent release:check without a workflow-supplied option."
   "2026-11-18T04:37:44.650Z",codex-sol,"The first Round BS push refused valid npm run --silent forwards. Preparation, continuation and the date verifier now share the option-aware parser. The dependency-only npm fixture and six related regressions passed with npm 11.21.0."
   "2026-11-18T05:01:22.564Z",codex-sol,"Verified npm 11.21.0 optional forwarding semantics, including an absent script, later option overrides, and the argument separator. Preparation now skips only absent optional targets with literal names. Seven affected fixture tests, typecheck and lint passed."
+  "2026-11-18T06:10:11.632Z",codex-sol,"Round BW: PRRT_kwDOTOTl1M64zDCx and PRRT_kwDOTOTl1M64zDC1 map to 1e51801. The Bun and pnpm forward fixtures cover pinning and continuation rejection, and the real prepare/check fixture runs with spaces in the Node and generator paths. The Round BW regression selection passed 9 tests."
 files[15]{path,scope}:
   .github/workflows/daily-release.yml,project
   release-changelog-options.ts,project
