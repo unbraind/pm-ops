@@ -267,3 +267,9 @@ test("continuation refuses an unresolved changelog option even when the apparent
   const script = 'pm-changelog --release-version-from-package --date-fallback$(printf x) 2026-11-16';
   assert.throws(() => assertReleaseHeadingDate([script], "2026-11-16"), /unresolved option word/i);
 });
+
+test("continuation accepts quoted values on fixed non-date options", () => {
+  const script = 'pm-changelog --date-fallback 2026-11-16 --item-url-base="$ITEM_URL_BASE"';
+  assertReleaseHeadingDate([script], "2026-11-16");
+  assert.throws(() => assertReleaseHeadingDate([script], "2026-11-17"), /2026-11-16.*2026-11-17.*re-prepare/);
+});

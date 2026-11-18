@@ -398,3 +398,9 @@ test("preparation refuses an unresolved option instead of erasing the substituti
     assert.throws(() => rewriteReleaseHeadingDate(command, day), /unresolved option word/i);
   }
 });
+
+test("preparation preserves a quoted expansion in a non-date option value", () => {
+  const prefix = 'pm-changelog --release-version-from-package --item-url-base="$ITEM_URL_BASE"';
+  assert.equal(rewriteReleaseHeadingDate(`${prefix} --date-from-version`, "2026-11-17"),
+    `${prefix} --date-fallback 2026-11-17`);
+});

@@ -161,10 +161,27 @@ test("the verifier names an unrecognized wrapper even when another hook is valid
 
 test("the verifier refuses unresolved option words even with a literal date policy", () => {
   for (const flag of ['--date-fallback$(printf x) 2026-11-16', '--date-fallback=2026-11-16$(printf x)',
-    '--date-from-version$(printf x)', '--other$(printf x)']) {
+    '--date-from-version$(printf x)', '--date-from-version="$VALUE"', '--other$(printf x)',
+    '--item-url-base$(printf x)="$ITEM_URL_BASE"', '--item-url-base="$@"', '--item-url-base=$ITEM_URL_BASE']) {
     const result = auditInvocations([{ file: "package.json", text: manifest(`${FLAGGED} ${flag}`) }]);
     assert.equal(result.failures.length, 1, flag);
     assert.match(result.failures[0], /unresolved option word/i);
+  }
+});
+
+test("package administration and quoted values on fixed non-date options are accepted", () => {
+  const text = [
+    'npm install --save-dev pm-changelog',
+    'pnpm add --save-dev pm-changelog',
+    'yarn add --dev pm-changelog',
+    'bun add --dev pm-changelog',
+    `${FLAGGED} --item-url-base="$ITEM_URL_BASE" && npm`,
+    'pm-changelog --version="$VERSION" --date-from-version',
+  ].join("\n");
+  assert.deepEqual(auditInvocations([{ file: "package.json", text: manifest(text) }]).failures, []);
+  for (const command of ['npm$(printf x) install pm-changelog', 'npm install$(printf x) pm-changelog', 'npm run pm-changelog']) {
+    assert.match(auditInvocations([{ file: "package.json", text: manifest(`${FLAGGED}\n${command}`) }]).failures[0],
+      /unrecognized wrapper/i);
   }
 });
 

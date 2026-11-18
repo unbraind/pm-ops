@@ -1,7 +1,7 @@
 /** Read and rewrite pm-changelog date policies using the shared shell scanner. */
 import { basename } from "node:path";
 import {
-  commandCandidates, isShellEvaluator, tokenizeCommands, tokenizeCommandsWithSpans,
+  commandCandidates, fixedOptionName, isShellEvaluator, tokenizeCommands, tokenizeCommandsWithSpans,
   type ShellCommand, type ShellToken, type ShellTokenSpan,
 } from "./shell-scan.ts";
 
@@ -15,6 +15,11 @@ const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 /** Match executables and registry package specifiers left by package runner prefixes. */
 const GENERATOR_TARGET = /^pm-changelog@[^/]+$|(?:^|\/)(?:pm-changelog(?:\.ts)?|dist\/cli\.js)$/;
 const GENERATOR_LAUNCHERS = new Set(["node", "npx", "bun", "bunx"]);
+const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun"]);
+const PACKAGE_ADMIN_COMMANDS = new Set([
+  "add", "audit", "ci", "dedupe", "explain", "i", "info", "install", "list", "ls", "outdated",
+  "remove", "rm", "search", "show", "uninstall", "update", "upgrade", "view", "why",
+]);
 
 /** Whether a YYYY-MM-DD string names an existing day, including years 0–99. */
 export function isRealCalendarDay(day: string): boolean {
@@ -30,6 +35,9 @@ export function changelogArguments(words: ShellCommand): ShellToken[] | undefine
   if (invocation === undefined) return undefined;
   const [program, ...parameters] = invocation;
   const name = basename(program.value);
+  const [subcommand] = parameters;
+  if (PACKAGE_MANAGERS.has(name) && !program.unresolved && subcommand && !subcommand.unresolved
+    && PACKAGE_ADMIN_COMMANDS.has(subcommand.value)) return undefined;
   const isLauncher = GENERATOR_LAUNCHERS.has(name);
   const generatorAt = isLauncher ? parameters.findIndex(({ value }) => GENERATOR_TARGET.test(value)) : -1;
   if (GENERATOR_TARGET.test(program.value) || generatorAt >= 0) return parameters.slice(generatorAt + 1);
@@ -52,6 +60,8 @@ export function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[
   const options: DateOption[] = [];
   for (const [index, token] of args.entries()) {
     if (token.unresolved && token.value.startsWith("-")) {
+      const name = fixedOptionName(token);
+      if (name !== undefined && name !== DATE_FLAG && name !== FALLBACK_DATE_FLAG) continue;
       throw new Error(`Unresolved option word in pm-changelog hook: ${JSON.stringify(token.value)}`);
     }
     if (token.value === DATE_FLAG) {

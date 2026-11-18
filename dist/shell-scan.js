@@ -31,6 +31,11 @@
  *
  * @packageDocumentation
  */
+const fixedOptionNames = new WeakMap();
+/** A literal option name followed by an equals sign and a single-word expansion. */
+export function fixedOptionName(token) {
+    return fixedOptionNames.get(token);
+}
 /**
  * Words that precede a command without being the command.
  *
@@ -310,7 +315,7 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
     let command = [];
     let value = "";
     let quoted = false;
-    let unresolved = false;
+    let unresolvedAt;
     let multipleWords = false;
     let startsQuoted = false;
     let started = false;
@@ -332,9 +337,14 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
     const endWord = (end) => {
         if (!started)
             return;
-        const token = unresolved ? { value, quoted, unresolved, startsQuoted } : { value, quoted, startsQuoted };
+        const token = unresolvedAt === undefined ? { value, quoted, startsQuoted } : { value, quoted, unresolved: true, startsQuoted };
         if (quoted && multipleWords)
             token.multipleWords = true;
+        if (unresolvedAt !== undefined && quoted && !multipleWords) {
+            const name = /^(-{1,2}[A-Za-z0-9_-]+)=/.exec(value.slice(0, unresolvedAt))?.[1];
+            if (name !== undefined)
+                fixedOptionNames.set(token, name);
+        }
         spans?.set(token, { start: offset + wordStart, end: offset + end });
         const caseState = cases.at(-1);
         const keyword = !token.quoted && token.unresolved !== true;
@@ -356,7 +366,7 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
         regexOperand = conditional && !token.quoted && token.value === "=~";
         value = "";
         quoted = false;
-        unresolved = false;
+        unresolvedAt = undefined;
         multipleWords = false;
         startsQuoted = false;
         started = false;
@@ -435,12 +445,12 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
                     // Arithmetic text is an operand, while command substitutions inside
                     // it still execute. Retain that mode instead of inventing commands.
                     nested.push({ start: index, end, text: body, arithmetic: inner !== "`" && text[index + 2] === "(" });
-                    unresolved = true;
+                    unresolvedAt ??= value.length;
                     index = end;
                     continue;
                 }
                 if (inner === "$") {
-                    unresolved = true;
+                    unresolvedAt ??= value.length;
                     if (text[index + 1] === "@")
                         multipleWords = true;
                     else if (text[index + 1] === "{") {
@@ -472,7 +482,7 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
             // Unquoted process substitutions execute in every word context too.
             // Only dollar-prefixed arithmetic expansions suppress operand commands.
             nested.push({ start: index, end, text: inner, arithmetic: character === "$" && text[index + 2] === "(" });
-            unresolved = true;
+            unresolvedAt ??= value.length;
             multipleWords = true;
             index = end - 1;
             if (!started)
@@ -519,8 +529,8 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
                     end += 1;
                 }
             }
+            unresolvedAt ??= value.length;
             value += text.slice(index, end);
-            unresolved = true;
             multipleWords = true;
             if (!started)
                 startsQuoted = false;
@@ -541,7 +551,7 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
             continue;
         }
         if (character === "$" && (!regexOperand || /[A-Za-z0-9_@*#$?!-]/u.test(text[index + 1] ?? ""))) {
-            unresolved = true;
+            unresolvedAt ??= value.length;
             multipleWords = true;
         }
         if (character === " " || character === "\t" || character === "\r") {

@@ -66,6 +66,13 @@ export interface ShellToken {
 /** One simple command: the words it would run, in order. */
 export type ShellCommand = ShellToken[];
 
+const fixedOptionNames = new WeakMap<ShellToken, string>();
+
+/** A literal option name followed by an equals sign and a single-word expansion. */
+export function fixedOptionName(token: ShellToken): string | undefined {
+  return fixedOptionNames.get(token);
+}
+
 /**
  * Words that precede a command without being the command.
  *
@@ -376,7 +383,7 @@ function scanShellCommands(
   let command: ShellCommand = [];
   let value = "";
   let quoted = false;
-  let unresolved = false;
+  let unresolvedAt: number | undefined;
   let multipleWords = false;
   let startsQuoted = false;
   let started = false;
@@ -398,8 +405,12 @@ function scanShellCommands(
 
   const endWord = (end: number): void => {
     if (!started) return;
-    const token: ShellToken = unresolved ? { value, quoted, unresolved, startsQuoted } : { value, quoted, startsQuoted };
+    const token: ShellToken = unresolvedAt === undefined ? { value, quoted, startsQuoted } : { value, quoted, unresolved: true, startsQuoted };
     if (quoted && multipleWords) token.multipleWords = true;
+    if (unresolvedAt !== undefined && quoted && !multipleWords) {
+      const name = /^(-{1,2}[A-Za-z0-9_-]+)=/.exec(value.slice(0, unresolvedAt))?.[1];
+      if (name !== undefined) fixedOptionNames.set(token, name);
+    }
     spans?.set(token, { start: offset + wordStart, end: offset + end });
     const caseState = cases.at(-1);
     const keyword = !token.quoted && token.unresolved !== true;
@@ -415,7 +426,7 @@ function scanShellCommands(
     regexOperand = conditional && !token.quoted && token.value === "=~";
     value = "";
     quoted = false;
-    unresolved = false;
+    unresolvedAt = undefined;
     multipleWords = false;
     startsQuoted = false;
     started = false;
@@ -487,12 +498,12 @@ function scanShellCommands(
           // Arithmetic text is an operand, while command substitutions inside
           // it still execute. Retain that mode instead of inventing commands.
           nested.push({ start: index, end, text: body, arithmetic: inner !== "`" && text[index + 2] === "(" });
-          unresolved = true;
+          unresolvedAt ??= value.length;
           index = end;
           continue;
         }
         if (inner === "$") {
-          unresolved = true;
+          unresolvedAt ??= value.length;
           if (text[index + 1] === "@") multipleWords = true;
           else if (text[index + 1] === "{") {
             if (parameterClose < index + 2) {
@@ -520,7 +531,7 @@ function scanShellCommands(
       // Unquoted process substitutions execute in every word context too.
       // Only dollar-prefixed arithmetic expansions suppress operand commands.
       nested.push({ start: index, end, text: inner, arithmetic: character === "$" && text[index + 2] === "(" });
-      unresolved = true;
+      unresolvedAt ??= value.length;
       multipleWords = true;
       index = end - 1;
       if (!started) startsQuoted = false;
@@ -557,8 +568,8 @@ function scanShellCommands(
           end += 1;
         }
       }
+      unresolvedAt ??= value.length;
       value += text.slice(index, end);
-      unresolved = true;
       multipleWords = true;
       if (!started) startsQuoted = false;
       started = true;
@@ -577,7 +588,7 @@ function scanShellCommands(
       continue;
     }
     if (character === "$" && (!regexOperand || /[A-Za-z0-9_@*#$?!-]/u.test(text[index + 1] ?? ""))) {
-      unresolved = true;
+      unresolvedAt ??= value.length;
       multipleWords = true;
     }
     if (character === " " || character === "\t" || character === "\r") {
