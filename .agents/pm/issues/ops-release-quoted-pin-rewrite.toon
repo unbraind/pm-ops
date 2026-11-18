@@ -6,9 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-18T11:56:47.233Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-18T11:59:11.381Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "Use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "The verifier accepts the shell option. The workflow leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[30]:
+comments[31]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -108,6 +106,9 @@ comments[30]:
   - created_at: "2026-11-18T11:56:32.170Z"
     author: codex-sol
     text: "Round CC implementation b780464 covers PRRT_kwDOTOTl1M643thX (npm lifecycle writers), PRRT_kwDOTOTl1M643thq (declined support, refused explicitly by readReleaseDateOptions because the two generator policies are mutually exclusive), PRRT_kwDOTOTl1M643thn (version before option validation), PRRT_kwDOTOTl1M643thd (insert before an open option) and PRRT_kwDOTOTl1M643thu (quoted timeout switches). The runtime probe now also verifies Bun and pnpm forwarding, inherited npm lifecycle settings, and opaque payload refusal."
+  - created_at: "2026-11-18T11:58:58.496Z"
+    author: codex-sol
+    text: "Round CC follow-up 8c8277e verifies runner-specific forwarding and tests opaque shells, input and pipelines without evaluating them. All 17 grammar regressions pass. The preliminary full report identified the public scanner span path and wrapper branches after the release scanner separation. Dedicated scanner cases now exercise them. Typecheck, lint and docstring passed, duplication reported zero clones."
 files[16]{path,scope}:
   .github/workflows/daily-release.yml,project
   release-changelog-options.ts,project
