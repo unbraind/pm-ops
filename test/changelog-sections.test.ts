@@ -194,12 +194,12 @@ test("release commits stay current after tagging, including empty and same-day r
 test("release workflow uses the same npm policy for generation, drift checking and notes", () => {
   const workflow = readFileSync(resolve(".github/workflows/daily-release.yml"), "utf8");
   const step = workflow.slice(workflow.indexOf("- name: Generate changelog"), workflow.indexOf("- name: Run release checks"));
-  assert.match(step, /npm run "\$CHANGELOG_SCRIPT"/);
-  assert.match(step, /npm run "\$CHANGELOG_CHECK_SCRIPT"/);
-  assert.match(step, /npm run --silent "\$NOTES_SCRIPT"/);
+  assert.match(step, /npm run "\$CHANGELOG_SCRIPT"$/m);
+  assert.match(step, /npm run "\$CHANGELOG_CHECK_SCRIPT"$/m);
+  assert.match(step, /npm run --silent "\$NOTES_SCRIPT" > /);
 });
 
-test("dependency-only release windows run the canonical changelog step without a requested-release item", () => {
+test("dependency-only release windows pass release:check when all three hooks forward to one generator", () => {
   const { root, env } = tracker();
   try {
     releaseTags(root, env);
@@ -214,8 +214,13 @@ test("dependency-only release windows run the canonical changelog step without a
     assert.equal(decideDailyRelease(facts).should_release, true);
     assert.equal(decideDailyRelease({ ...facts, hasChanges: false }).should_release, false);
     assert.equal(decideDailyRelease({ ...facts, publishedToday: true }).should_release, false);
-    const generator = resolve("scripts/pm-changelog.ts");
-    const commands = releaseCommands();
+    const commands = {
+      "changelog:full": "npm run changes",
+      "changelog:check": "npm run changes -- --check",
+      "release:notes": "npm run-script changes -- --stdout",
+      "release:check": "npm run changelog:check",
+      changes: releaseCommands()["changelog:full"]!,
+    };
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "sample-changelog", version: "2026.10.23", scripts: commands }));
     const script = changelogStepScript();
     const releaseEnv = releaseStepEnv(root, env);
@@ -224,6 +229,7 @@ test("dependency-only release windows run the canonical changelog step without a
     for (const file of ["CHANGELOG.md", "RELEASE_NOTES.md"]) assert.match(committedReleaseNotes(readFileSync(join(root, file), "utf8"), "2026.10.23"), /^No (?:tracked )?changes\.\n$/);
     execFileSync("npm", ["run", "release:check"], { cwd: root, env: releaseEnv });
     const prepared = readFileSync(join(root, "package.json"), "utf8");
+    assert.deepEqual(JSON.parse(prepared).scripts, { ...commands, changes: commands.changes + " --include-empty" });
     const invalidDate = runBashFixture(script, { cwd: root, env: { ...releaseEnv, RELEASE_HEADING_DATE: "tomorrow" }, encoding: "utf8" });
     assert.notEqual(invalidDate.status, 0);
     assert.match(invalidDate.stderr, /Release heading date must be YYYY-MM-DD/);
@@ -431,6 +437,62 @@ test("preparation adds empty-section policy to each generator and preserves shel
   assert.equal(includeEmptyReleaseSections("out=$(pm-changelog --stdout); echo \"$out\""),
     "out=$(pm-changelog --stdout --include-empty); echo \"$out\"");
   assert.throws(() => includeEmptyReleaseSections("eval 'pm-changelog --stdout'"), /needs an editable shell word/);
+});
+
+test("preparation follows two forwards and keeps an already-flagged shared generator unchanged", () => {
+  const root = mkdtempSync(join(tmpdir(), "hook-forward-policy-"));
+  try {
+    const path = join(root, "package.json");
+    const env = releaseStepEnv(root, process.env);
+    const prepare = [resolve("scripts/prepare-release-changelog.ts")];
+    const hooks = {
+      "changelog:full": "command -p; bun run forward && echo done",
+      "changelog:check": 'pnpm run "pm-changelog" -- --check',
+      "release:notes": "npm run-script forward -- --stdout",
+      forward: "pnpm run pm-changelog",
+      "pm-changelog": "pm-changelog --date-from-version && echo done",
+      unrelated: "pm-changelog --stdout",
+    };
+    writeFileSync(path, JSON.stringify({ scripts: hooks }));
+    execFileSync(process.execPath, prepare, { cwd: root, env });
+    const prepared = readFileSync(path, "utf8");
+    assert.deepEqual(JSON.parse(prepared).scripts, {
+      ...hooks,
+      "pm-changelog": "pm-changelog --date-from-version --include-empty && echo done",
+    });
+    execFileSync(process.execPath, prepare, { cwd: root, env });
+    assert.equal(readFileSync(path, "utf8"), prepared);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("preparation refuses unresolved, cyclic and overlong forwards before writing the manifest", () => {
+  const root = mkdtempSync(join(tmpdir(), "hook-forward-refusal-"));
+  try {
+    const path = join(root, "package.json");
+    const env = releaseStepEnv(root, process.env);
+    const script = changelogStepScript();
+    const forwards = Object.fromEntries(Array.from({ length: 8 }, (_, index) => [
+      `hop${index}`, `npm run hop${index + 1}`,
+    ]));
+    const generator = "pm-changelog --date-from-version";
+    const hooks = { "changelog:full": generator, "release:notes": generator };
+    for (const [check, extra, diagnostic] of [
+      ["npm run changes", { changes: "npm run changelog:check" }, /forward cycle: changelog:check -> changes -> changelog:check/],
+      ["npm run changes", {}, /Cannot resolve changelog script forward changelog:check -> changes: missing or empty/],
+      ['npm run "$CHANGELOG_TARGET"', {}, /Cannot resolve changelog script forward.*expected a literal/],
+      ["npm run", {}, /Cannot resolve changelog script forward.*expected a literal/],
+      ["npm run -- --check", {}, /Cannot resolve changelog script forward.*expected a literal/],
+      ["npm run hop0", { ...forwards, hop8: generator }, /forward depth exceeds 8/],
+      ["npm run hop0", { ...forwards, hop8: generator, "changelog:full": "npm run hop1" }, /forward depth exceeds 8/],
+    ] as const) {
+      const before = JSON.stringify({ scripts: { ...hooks, "changelog:check": check, ...extra } });
+      writeFileSync(path, before);
+      const result = runBashFixture(script, { cwd: root, env, encoding: "utf8" });
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(result.stderr, diagnostic);
+      assert.equal(readFileSync(path, "utf8"), before);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("the publication heading check validates standing calendar coordinates without changing pinned hooks", () => {

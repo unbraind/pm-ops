@@ -185,6 +185,18 @@ test("package administration and quoted values on fixed non-date options are acc
   }
 });
 
+test("the date verifier audits a declared generator script and refuses ambiguous forwards", () => {
+  const manifest = (check: string, generator: string) => ({
+    file: "package.json",
+    text: JSON.stringify({ scripts: { check, "pm-changelog": generator, blank: " ", ignored: 1 } }),
+  });
+  assert.deepEqual(auditInvocations([manifest('npm run "pm-changelog" -- --check', FLAGGED)]).failures, []);
+  assert.equal(auditInvocations([manifest("npm run && pm-changelog", FLAGGED)]).failures.length, 0);
+  assert.match(auditInvocations([manifest('npm run "pm-changelog-$TARGET"', FLAGGED)]).failures[0], /unrecognized wrapper/i);
+  assert.match(auditInvocations([manifest("npm run pm-changelog", " ")]).failures[0], /unrecognized wrapper/i);
+  assert.equal(auditInvocations([manifest("npm run pm-changelog", "pm-changelog --release-version-from-package")]).failures.length, 1);
+});
+
 test("a pinned --date-fallback day must exist on the calendar, not merely be shaped like one", () => {
   // The regression CodeRabbit found: `2026-02-30` passes the shape regex and
   // therefore the audit, yet no calendar ever produces that heading. Both

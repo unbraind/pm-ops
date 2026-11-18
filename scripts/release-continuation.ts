@@ -3,6 +3,7 @@ import { execFileSync } from "../subprocess.ts";
 import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { resolveChangelogHooks } from "../release-changelog-options.ts";
 import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "./release-runtime.ts";
 import { originalPublicationSigner, verifyRegistryProvenance, type ProvenanceIdentity, type verifySigstoreBundle } from "../release-provenance.ts";
 import { pathToFileURL } from "node:url";
@@ -425,18 +426,15 @@ async function reconcilePostHook(receipt: CandidateReceipt, pr: RestPr, reposito
 export async function runReleaseContinuation(mode: string | undefined, verifyProvenance?: typeof verifySigstoreBundle): Promise<void> {
   if (mode === "heading-date") {
     const pkg = JSON.parse(readFileSync(join(required("NPM_PROJECT_PATH"), "package.json"), "utf8")) as { version?: string; scripts: Record<string, string> };
-    const scripts = ["CHANGELOG_SCRIPT", "CHANGELOG_CHECK_SCRIPT", "NOTES_SCRIPT"].map(key => {
-      const name = required(key), script = pkg.scripts?.[name];
-      if (typeof script !== "string" || !script.trim()) throw new Error("Missing changelog hook: " + name);
-      return script;
-    });
+    const hooks = ["CHANGELOG_SCRIPT", "CHANGELOG_CHECK_SCRIPT", "NOTES_SCRIPT"].map(required);
+    const scripts = resolveChangelogHooks(pkg.scripts, hooks);
     // The workflow has detached HEAD at the tree-verified merge commit. The
     // generator dates tags by that commit's committer timestamp (%cI), never
     // by publication time or the time the tag ref is written.
     const commitTimestamp = execFileSync("git", ["log", "-1", "--format=%cI", "HEAD"], { cwd: required("NPM_PROJECT_PATH"), encoding: "utf8" }).trim();
     // pm-changelog 2026.11.6: dist/release-context.js:496,554-558.
     // Preserve the committer offset by taking the literal date prefix.
-    assertReleaseHeadingDate(scripts, commitTimestamp.slice(0, 10), pkg.version);
+    assertReleaseHeadingDate([...scripts.values()], commitTimestamp.slice(0, 10), pkg.version);
     return;
   }
   if (mode === "tools") {

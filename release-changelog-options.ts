@@ -16,12 +16,14 @@ const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const GENERATOR_TARGET = /^pm-changelog@[^/]+$|(?:^|\/)(?:pm-changelog(?:\.ts)?|dist\/cli\.js)$/;
 const GENERATOR_LAUNCHERS = new Set(["node", "npx", "bun", "bunx"]);
 const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun"]);
+const SCRIPT_RUNNERS = new Set(["npm", "pnpm", "bun"]);
 const PACKAGE_ADMIN_COMMANDS = new Set([
   "add", "audit", "ci", "dedupe", "explain", "i", "info", "install", "list", "ls", "outdated",
   "remove", "rm", "search", "show", "uninstall", "update", "upgrade", "view", "why",
 ]);
 const DATA_CONSUMERS = new Set(["echo", "printf", "test", "[", "[[", "command", "which", "type", "ls"]);
 const INCLUDE_EMPTY_FLAG = "--include-empty";
+const MAX_SCRIPT_FORWARDS = 8;
 
 /** Whether a YYYY-MM-DD string names an existing day, including years 0–99. */
 export function isRealCalendarDay(day: string): boolean {
@@ -31,13 +33,58 @@ export function isRealCalendarDay(day: string): boolean {
   return round.getUTCFullYear() === year && round.getUTCMonth() === month - 1 && round.getUTCDate() === date;
 }
 
+/** Recognize package-manager commands that run a script in the same manifest. */
+function isScriptForward(program: string, subcommand: string | undefined): boolean {
+  return (subcommand === "run" && SCRIPT_RUNNERS.has(program)) || (program === "npm" && subcommand === "run-script");
+}
+
+/** Resolve the hook scripts and their local script dependencies before editing or verifying them. */
+export function resolveChangelogHooks(scripts: Record<string, unknown> | undefined, hooks: readonly string[]): Map<string, string> {
+  const resolved = new Map<string, { script: string; depth: number }>();
+
+  /** Compute the longest remaining forward chain, including through shared scripts. */
+  function visit(name: string, parents: readonly string[]): number {
+    const chain = [...parents, name];
+    if (parents.includes(name)) throw new Error(`Changelog script forward cycle: ${chain.join(" -> ")}`);
+    const cached = resolved.get(name);
+    if (parents.length + (cached?.depth ?? 0) > MAX_SCRIPT_FORWARDS) {
+      throw new Error(`Changelog script forward depth exceeds ${MAX_SCRIPT_FORWARDS}: ${chain.join(" -> ")}`);
+    }
+    if (cached) return cached.depth;
+    const script = scripts?.[name];
+    if (typeof script !== "string" || !script.trim()) {
+      throw new Error(parents.length === 0
+        ? "Missing changelog hook: " + name
+        : `Cannot resolve changelog script forward ${chain.join(" -> ")}: missing or empty package.json script`);
+    }
+    let depth = 0;
+    for (const words of tokenizeCommands(script)) {
+      const invocation = commandCandidates(words)[0];
+      if (!invocation) continue;
+      const [program, subcommand, target] = invocation;
+      if (!isScriptForward(basename(program.value), subcommand?.value)) continue;
+      if (!target?.value || target.unresolved || target.value.startsWith("-")) {
+        throw new Error(`Cannot resolve changelog script forward in ${JSON.stringify(name)}: expected a literal package.json script name`);
+      }
+      depth = Math.max(depth, 1 + visit(target.value, chain));
+    }
+    resolved.set(name, { script, depth });
+    return depth;
+  }
+
+  for (const name of hooks) visit(name, []);
+  return new Map([...resolved].map(([name, { script }]) => [name, script]));
+}
+
 /** Return the generator word and arguments, or refuse a possible hook behind an unknown wrapper. */
-function changelogInvocation(words: ShellCommand): ShellCommand | undefined {
+function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<string>): ShellCommand | undefined {
   const invocation = commandCandidates(words)[0];
   if (invocation === undefined) return undefined;
   const [program, ...parameters] = invocation;
   const name = basename(program.value);
-  const [subcommand] = parameters;
+  const [subcommand, targetScript] = parameters;
+  if (isScriptForward(name, subcommand?.value)
+    && (scriptNames === undefined || (targetScript && !targetScript.unresolved && scriptNames.has(targetScript.value)))) return undefined;
   if (PACKAGE_MANAGERS.has(name) && !program.unresolved && subcommand && !subcommand.unresolved
     && PACKAGE_ADMIN_COMMANDS.has(subcommand.value)) return undefined;
   const isLauncher = GENERATOR_LAUNCHERS.has(name);
@@ -53,9 +100,9 @@ function changelogInvocation(words: ShellCommand): ShellCommand | undefined {
   return undefined;
 }
 
-/** Read the arguments from a recognized generator invocation. */
-export function changelogArguments(words: ShellCommand): ShellToken[] | undefined {
-  return changelogInvocation(words)?.slice(1);
+/** Read generator arguments during an audit, where only declared forwards are trusted. */
+export function changelogArguments(words: ShellCommand, scriptNames: ReadonlySet<string>): ShellToken[] | undefined {
+  return changelogInvocation(words, scriptNames)?.slice(1);
 }
 
 type DateOption =
@@ -90,7 +137,7 @@ export function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[
 
 /** Read date options only from commands that actually invoke the generator. */
 function hookDateOptions(commands: ShellCommand[]): DateOption[] {
-  return commands.flatMap(words => readReleaseDateOptions(changelogArguments(words) ?? []));
+  return commands.flatMap(words => readReleaseDateOptions(changelogInvocation(words)?.slice(1) ?? []));
 }
 
 /** Render a calendar version using the same day and suffix rules as pm-changelog. */

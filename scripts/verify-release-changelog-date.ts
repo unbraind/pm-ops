@@ -114,6 +114,7 @@ export function invocationsIn(source: SourceFile): Invocation[] {
   // JSON punctuation and escaping are not shell syntax. Audit only decoded
   // script values so a final argument is not followed by the JSON comma.
   let commands = source.text;
+  const scriptNames = new Set<string>();
   if (source.file === "package.json") {
     let manifest: unknown;
     try {
@@ -128,7 +129,10 @@ export function invocationsIn(source: SourceFile): Invocation[] {
     if (scripts === null || typeof scripts !== "object" || Array.isArray(scripts)) {
       throw new Error(`${source.file}: scripts must be an object`);
     }
-    commands = Object.values(scripts).filter((value): value is string => typeof value === "string").join("\n");
+    const entries = Object.entries(scripts).filter((entry): entry is [string, string] =>
+      typeof entry[1] === "string" && entry[1].trim() !== "");
+    for (const [name] of entries) scriptNames.add(name);
+    commands = entries.map(([, value]) => value).join("\n");
   }
   const text = joinContinuations(commands);
   const arrays = bashArrays(text);
@@ -142,7 +146,7 @@ export function invocationsIn(source: SourceFile): Invocation[] {
     const malformed = commands.some((words) => words.length === 1 && words[0].unresolved && words[0].value === "$");
     for (const words of commands) {
       try {
-        const args = changelogArguments(words);
+        const args = changelogArguments(words, scriptNames);
         if (args === undefined) continue;
         const options = readReleaseDateOptions(args);
         if (!args.some(({ value }) => VERSION_INPUTS.some((flag) => value === flag || value.startsWith(flag + "=")))) continue;

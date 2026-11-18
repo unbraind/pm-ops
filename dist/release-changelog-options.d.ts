@@ -5,8 +5,10 @@ export declare const DATE_FLAG = "--date-from-version";
 export declare const FALLBACK_DATE_FLAG = "--date-fallback";
 /** Whether a YYYY-MM-DD string names an existing day, including years 0–99. */
 export declare function isRealCalendarDay(day: string): boolean;
-/** Read the arguments from a recognized generator invocation. */
-export declare function changelogArguments(words: ShellCommand): ShellToken[] | undefined;
+/** Resolve the hook scripts and their local script dependencies before editing or verifying them. */
+export declare function resolveChangelogHooks(scripts: Record<string, unknown> | undefined, hooks: readonly string[]): Map<string, string>;
+/** Read generator arguments during an audit, where only declared forwards are trusted. */
+export declare function changelogArguments(words: ShellCommand, scriptNames: ReadonlySet<string>): ShellToken[] | undefined;
 type DateOption = {
     kind: "version" | "missing-day";
     first: ShellToken;

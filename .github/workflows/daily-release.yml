@@ -619,9 +619,9 @@ jobs:
             # Persist the same policy for nested release:check and post-tag checks.
             RELEASE_TOOLS="${CONTINUATION_SCRIPT%/scripts/*}"
             node "$RELEASE_TOOLS/scripts/prepare-release-changelog.ts"
-            npm run "$CHANGELOG_SCRIPT" -- --include-empty
-            npm run "$CHANGELOG_CHECK_SCRIPT" -- --include-empty
-            npm run --silent "$NOTES_SCRIPT" -- --include-empty > "$RUNNER_TEMP/RELEASE_NOTES.md"
+            npm run "$CHANGELOG_SCRIPT"
+            npm run "$CHANGELOG_CHECK_SCRIPT"
+            npm run --silent "$NOTES_SCRIPT" > "$RUNNER_TEMP/RELEASE_NOTES.md"
           fi
           [[ -s "$RUNNER_TEMP/RELEASE_NOTES.md" ]]
       - name: Record preparation stamp
