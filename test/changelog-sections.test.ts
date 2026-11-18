@@ -423,7 +423,7 @@ test("Bun execution switches preserve direct generator detection and package scr
     assert.throws(() => assertReleaseHeadingDate([pinned], "2026-10-23"), /2026-10-24 differs.*2026-10-23/);
   }
   assert.throws(() => resolveChangelogHooks({ hook: 'bun run --silent "$TARGET"' }, ["hook"]), /expected a literal/);
-  assert.throws(() => resolveChangelogHooks({ hook: "bun run --cwd elsewhere changes", changes: hooks.changes }, ["hook"]), /expected a literal/);
+  assert.throws(() => resolveChangelogHooks({ hook: "bun run --cwd elsewhere changes", changes: hooks.changes }, ["hook"]), /context change --cwd.*Use a direct/);
 });
 
 test("prepare pins forwarded options and continuation refuses their stale merge day", () => {
@@ -654,7 +654,7 @@ test("preparation refuses unresolved, cyclic and overlong forwards before writin
       ["npm run --loglevel", {}, /Cannot resolve changelog script forward.*expected a literal/],
       ["npm run --loglevel loud changes", {}, /Cannot resolve changelog script forward.*expected a literal/],
       ["npm run --loglevel=loud changes", {}, /Cannot resolve changelog script forward.*expected a literal/],
-      ["npm run --prefix elsewhere changes", {}, /Cannot resolve changelog script forward.*expected a literal/],
+      ["npm run --prefix elsewhere changes", {}, /context change --prefix.*Use a direct/],
       ["npm run -- --check", {}, /Cannot resolve changelog script forward.*expected a literal/],
       ["npm --if-present run --no-if-present changes", {}, /Cannot resolve changelog script forward.*missing or empty/],
       ["npm --if-present false run changes", {}, /Cannot resolve changelog script forward.*missing or empty/],
