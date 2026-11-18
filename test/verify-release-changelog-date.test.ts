@@ -190,7 +190,7 @@ test("the date verifier audits a declared generator script and refuses ambiguous
     file: "package.json",
     text: JSON.stringify({ scripts: { check, "pm-changelog": generator, blank: " ", ignored: 1 } }),
   });
-  assert.deepEqual(auditInvocations([manifest('npm run "pm-changelog" -- --check', FLAGGED)]).failures, []);
+  assert.deepEqual(auditInvocations([manifest('npm run --silent "pm-changelog" -- --check', FLAGGED)]).failures, []);
   assert.equal(auditInvocations([manifest("npm run && pm-changelog", FLAGGED)]).failures.length, 0);
   assert.match(auditInvocations([manifest('npm run "pm-changelog-$TARGET"', FLAGGED)]).failures[0], /unrecognized wrapper/i);
   assert.match(auditInvocations([manifest("npm run pm-changelog", " ")]).failures[0], /unrecognized wrapper/i);

@@ -216,8 +216,8 @@ test("dependency-only release windows pass release:check when all three hooks fo
     assert.equal(decideDailyRelease({ ...facts, publishedToday: true }).should_release, false);
     const commands = {
       "changelog:full": "npm run changes",
-      "changelog:check": "npm run changes -- --check",
-      "release:notes": "npm run-script changes -- --stdout",
+      "changelog:check": "npm run --silent changes -- --check",
+      "release:notes": "npm --loglevel=silent run-script changes -- --stdout",
       "release:check": "npm run changelog:check",
       changes: releaseCommands()["changelog:full"]!,
     };
@@ -448,7 +448,7 @@ test("preparation follows two forwards and keeps an already-flagged shared gener
     const hooks = {
       "changelog:full": "command -p; bun run forward && echo done",
       "changelog:check": 'pnpm run "pm-changelog" -- --check',
-      "release:notes": "npm run-script forward -- --stdout",
+      "release:notes": "npm -s run-script --loglevel warn --if-present forward -- --stdout",
       forward: "pnpm run pm-changelog",
       "pm-changelog": "pm-changelog --date-from-version && echo done",
       unrelated: "pm-changelog --stdout",
@@ -481,6 +481,10 @@ test("preparation refuses unresolved, cyclic and overlong forwards before writin
       ["npm run changes", {}, /Cannot resolve changelog script forward changelog:check -> changes: missing or empty/],
       ['npm run "$CHANGELOG_TARGET"', {}, /Cannot resolve changelog script forward.*expected a literal/],
       ["npm run", {}, /Cannot resolve changelog script forward.*expected a literal/],
+      ["npm run --loglevel", {}, /Cannot resolve changelog script forward.*expected a literal/],
+      ["npm run --loglevel loud changes", {}, /Cannot resolve changelog script forward.*expected a literal/],
+      ["npm run --loglevel=loud changes", {}, /Cannot resolve changelog script forward.*expected a literal/],
+      ["npm run --prefix elsewhere changes", {}, /Cannot resolve changelog script forward.*expected a literal/],
       ["npm run -- --check", {}, /Cannot resolve changelog script forward.*expected a literal/],
       ["npm run hop0", { ...forwards, hop8: generator }, /forward depth exceeds 8/],
       ["npm run hop0", { ...forwards, hop8: generator, "changelog:full": "npm run hop1" }, /forward depth exceeds 8/],

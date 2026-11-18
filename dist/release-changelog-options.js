@@ -11,6 +11,8 @@ const GENERATOR_TARGET = /^pm-changelog@[^/]+$|(?:^|\/)(?:pm-changelog(?:\.ts)?|
 const GENERATOR_LAUNCHERS = new Set(["node", "npx", "bun", "bunx"]);
 const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun"]);
 const SCRIPT_RUNNERS = new Set(["npm", "pnpm", "bun"]);
+const NPM_LOCAL_RUN_SWITCH = /^(?:-[sqd]|-dd|-ddd|--silent|--quiet|--verbose|--(?:no-)?(?:if-present|ignore-scripts|foreground-scripts)(?:=(?:true|false))?)$/;
+const NPM_LOG_LEVEL = /^(?:silent|error|warn|notice|http|info|verbose|silly)$/;
 const PACKAGE_ADMIN_COMMANDS = new Set([
     "add", "audit", "ci", "dedupe", "explain", "i", "info", "install", "list", "ls", "outdated",
     "remove", "rm", "search", "show", "uninstall", "update", "upgrade", "view", "why",
@@ -28,6 +30,33 @@ export function isRealCalendarDay(day) {
 /** Recognize package-manager commands that run a script in the same manifest. */
 function isScriptForward(program, subcommand) {
     return (subcommand === "run" && SCRIPT_RUNNERS.has(program)) || (program === "npm" && subcommand === "run-script");
+}
+/** Skip npm switches that leave the selected script in the current manifest. */
+function afterNpmRunOptions(tokens, start) {
+    let index = start;
+    for (;;) {
+        const option = tokens[index];
+        if (!option || option.unresolved)
+            return index;
+        if (NPM_LOCAL_RUN_SWITCH.test(option.value)
+            || (option.value.startsWith("--loglevel=") && NPM_LOG_LEVEL.test(option.value.slice("--loglevel=".length)))) {
+            index++;
+        }
+        else if (option.value === "--loglevel" && NPM_LOG_LEVEL.test(tokens[index + 1]?.value ?? "")) {
+            index += 2;
+        }
+        else {
+            return index;
+        }
+    }
+}
+/** Locate the literal target of a package-script forward, including a missing target. */
+function scriptForward(program, parameters) {
+    const subcommand = program === "npm" ? afterNpmRunOptions(parameters, 0) : 0;
+    if (!isScriptForward(program, parameters[subcommand]?.value))
+        return undefined;
+    const target = program === "npm" ? afterNpmRunOptions(parameters, subcommand + 1) : subcommand + 1;
+    return { target: parameters[target] };
 }
 /** Resolve the hook scripts and their local script dependencies before editing or verifying them. */
 export function resolveChangelogHooks(scripts, hooks) {
@@ -54,9 +83,11 @@ export function resolveChangelogHooks(scripts, hooks) {
             const invocation = commandCandidates(words)[0];
             if (!invocation)
                 continue;
-            const [program, subcommand, target] = invocation;
-            if (!isScriptForward(basename(program.value), subcommand?.value))
+            const [program, ...parameters] = invocation;
+            const forward = scriptForward(basename(program.value), parameters);
+            if (!forward)
                 continue;
+            const { target } = forward;
             if (!target?.value || target.unresolved || target.value.startsWith("-")) {
                 throw new Error(`Cannot resolve changelog script forward in ${JSON.stringify(name)}: expected a literal package.json script name`);
             }
@@ -76,10 +107,12 @@ function changelogInvocation(words, scriptNames) {
         return undefined;
     const [program, ...parameters] = invocation;
     const name = basename(program.value);
-    const [subcommand, targetScript] = parameters;
-    if (isScriptForward(name, subcommand?.value)
+    const forward = scriptForward(name, parameters);
+    const targetScript = forward?.target;
+    if (forward
         && (scriptNames === undefined || (targetScript && !targetScript.unresolved && scriptNames.has(targetScript.value))))
         return undefined;
+    const [subcommand] = parameters;
     if (PACKAGE_MANAGERS.has(name) && !program.unresolved && subcommand && !subcommand.unresolved
         && PACKAGE_ADMIN_COMMANDS.has(subcommand.value))
         return undefined;
