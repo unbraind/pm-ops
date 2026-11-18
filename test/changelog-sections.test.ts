@@ -346,7 +346,7 @@ test("preparation rewrites every date policy without consuming a following flag"
   ]) {
     const root = mkdtempSync(join(tmpdir(), "hook-policy-"));
     try {
-      const call = (flag: string) => `timeout --signal=KILL 5m pm-changelog --release-version-from-package ${flag} --include-empty`;
+      const call = (flag: string) => `timeout --signal=KILL 5m pm-changelog --release-version-from-package --include-empty ${flag}`;
       const hooks = {
         "changelog:full": `${call(policy!)} && ${call(policy!)}`,
         "changelog:check": `${call("--date-from-version")} && ${call(policy!)}`,
