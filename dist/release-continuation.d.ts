@@ -63,6 +63,8 @@ export interface ContinuationEvidence {
     tagSha: string | null;
     releaseSha: string | null;
     registry: "absent" | "verified" | "unverified";
+    /** Registry publication predates the trusted preparation run, so this candidate cannot own it. */
+    registryPredatesPreparation?: boolean;
     attempted: boolean;
     publishedToday: boolean;
     /** Explicit operator-only recovery; never grants publication permission. */
@@ -85,5 +87,5 @@ export type RetirementEvidence = Pick<ContinuationEvidence, "repository" | "defa
 /** Cancel owned unpublished intent even when its obsolete preparation evidence is unavailable. */
 export declare function decideUnpublishedRetirement(c: ReleaseCandidate, e: RetirementEvidence): "retire";
 /** Plan from authoritative metadata; verifyReleaseHandoff binds bytes before executing the plan. */
-export declare function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEvidence): "pending" | "refresh" | "publish" | "recover" | "complete" | "stranded" | "retire";
+export declare function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEvidence): "pending" | "refresh" | "publish" | "recover" | "complete" | "stranded" | "retire" | "occupied";
 //# sourceMappingURL=release-continuation.d.ts.map

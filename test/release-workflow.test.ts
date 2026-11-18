@@ -168,14 +168,36 @@ test("the npm upgrade cannot be skipped and fails closed on the version it actua
   // Pinned exactly, not a caret range: a privileged publish job that resolves a
   // different npm on every run is not reproducible, and an unreviewed 11.x could
   // change publishing behaviour between two identical release commits.
-  assert.match(step, /npm install -g npm@11\.21\.0(?!\S)/);
-  assert.doesNotMatch(step, /npm install -g npm@[\^~]/);
+  // Prefix-local, never global: parallel jobs on one runner host share the
+  // toolcache Node installation, and a global install replaces the shared npm
+  // under a sibling job's feet mid-install. The pinned binary joins the job's
+  // PATH only from the prefix it was just installed into.
+  assert.match(step, /npm install --prefix "\$RUNNER_TEMP\/npm-11\.21\.0" npm@11\.21\.0(?!\S)/);
+  assert.doesNotMatch(step, /npm\s+(?:install|i|add)\s+(?:-g|--global)\s+npm@/);
+  assert.doesNotMatch(step, /npm install --prefix "\$RUNNER_TEMP\/npm-11\.21\.0" npm@[\^~]/);
+  assert.match(step, /echo "\$RUNNER_TEMP\/npm-11\.21\.0\/node_modules\/.bin" >> "\$GITHUB_PATH"/);
+  assert.match(step, /export PATH="\$RUNNER_TEMP\/npm-11\.21\.0\/node_modules\/.bin:\$PATH"/);
   assert.doesNotMatch(step, /^ *if:/m);
   assert.match(step, /npm --version/);
   assert.match(step, /sort -V/);
   assert.match(step, /exit 1/);
   assert.doesNotMatch(step, /\|\|\s*true/);
   assert.match(step, /set -euo pipefail/);
+});
+
+/** Exempt exactly one approved write, then inspect the entire publication interval. */
+function assertOnlyPinnedPathWrite(interval: string): void {
+  const approved = /^ *echo "\$RUNNER_TEMP\/npm-11\.21\.0\/node_modules\/\.bin" >> "\$GITHUB_PATH" *$/m;
+  assert.match(interval, approved, "the approved bootstrap must publish its job-local bin directory");
+  assert.doesNotMatch(interval.replace(approved, ""), /GITHUB_PATH/);
+}
+
+test("extra bootstrap GITHUB_PATH writes fail the publication contract", () => {
+  const bootstrap = executable(stepSource("Use an npm that supports trusted publishing"));
+  assertOnlyPinnedPathWrite(bootstrap);
+  const extra = '          echo "/tmp/older-npm" >> "$GITHUB_PATH"\n';
+  assert.throws(() => assertOnlyPinnedPathWrite(bootstrap + extra), /GITHUB_PATH/);
+  assert.throws(() => assertOnlyPinnedPathWrite(bootstrap + bootstrap), /GITHUB_PATH/);
 });
 
 test("nothing between the upgrade and the publish step can put an older npm back", () => {
@@ -195,15 +217,23 @@ test("nothing between the upgrade and the publish step can put an older npm back
   assert.equal(
     installs.length,
     1,
-    `exactly one global npm install may appear before publication completes, found ${installs.length}`
+    `exactly one pinned npm install may appear before publication completes, found ${installs.length}`
+  );
+  assert.ok(
+    installs[0].includes("--prefix") && installs[0].includes("$RUNNER_TEMP/npm-11.21.0"),
+    "the pinned npm install must target a job-local prefix, never the shared global npm"
+  );
+  assert.ok(
+    installs.every(words => !words.includes("-g") && !words.includes("--global")),
+    "no npm install before publication completes may be global"
   );
   assert.doesNotMatch(between, /corepack\s+(?:prepare|use)\s+npm@/);
   assert.doesNotMatch(between, /uses:\s*actions\/setup-node/);
   // Prepending a directory to GITHUB_PATH changes which npm later steps resolve
   // without installing anything, so it defeats an install-time check entirely.
-  // The publish step re-verifies at runtime, but rejecting the write statically
-  // means the run fails at review time rather than at publication time.
-  assert.doesNotMatch(between, /GITHUB_PATH/);
+  // Exempt only the single approved write, including the rest of the bootstrap
+  // in the scan. Exempting that whole step would hide a second PATH prepend.
+  assertOnlyPinnedPathWrite(between);
 });
 
 test("no run script in the release job interpolates workflow context", () => {
@@ -918,7 +948,7 @@ test("npm install and retry guards distinguish every install alias from script a
 });
 
 test("npm guards count repeated installs", () => {
-  const bootstrap = "npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund";
+  const bootstrap = 'npm install --prefix "$RUNNER_TEMP/npm-11.21.0" npm@11.21.0 --ignore-scripts --no-audit --no-fund';
   assert.doesNotThrow(() => assertPinnedNpmBootstrap(bootstrap));
   for (const separator of ["\n", "; ", " && "]) {
     assert.equal(npmInstalls(bootstrap + separator + bootstrap).length, 2);
@@ -938,7 +968,7 @@ test("npm guards allow printed package-acquiring commands", () => {
 });
 
 test("npm guards detect timed installs without treating printed arguments as commands", () => {
-  const bootstrap = "npm install -g npm@11.21.0 --ignore-scripts --no-audit --no-fund";
+  const bootstrap = 'npm install --prefix "$RUNNER_TEMP/npm-11.21.0" npm@11.21.0 --ignore-scripts --no-audit --no-fund';
   for (const wrapper of ["timeout 60", "timeout -s TERM -k 5 60", "timeout --foreground -- 1m", "command timeout 60", "env CACHE=fixture timeout 60", "timeout 60 timeout 30"]) {
     for (const install of ["npm ci", "npm exec --package pkg", "npm --location global install pkg"]) {
       assert.equal(npmInstalls(`${wrapper} ${install}`).length, 1);
