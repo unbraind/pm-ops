@@ -680,22 +680,25 @@ can contain spaces, newlines, a literal `#`, or an operator.
   A versioned invocation takes exactly one kind of date policy,
   `--date-from-version` or `--date-fallback YYYY-MM-DD`.
 - Forward to a literal local script with `npm run [--if-present] <script> -- <args>`,
-  npm's `run-script` alias, `bun run`, or `pnpm run`. npm runs enabled
+  the npm or pnpm `run-script` alias, `bun run`, or `pnpm run`. npm runs enabled
   `pre<script>` and `post<script>` around the main script. Only the main
   script receives the forwarded arguments. An explicit npm `--ignore-scripts`
-  disables its lifecycle siblings, including in nested npm calls.
+  disables its lifecycle siblings, including in nested npm calls. Bun forwards also cover
+  declared pre/post writers. A pnpm forward with an implicit generator writer
+  requires an explicit npm forward because pnpm lifecycle execution is configurable.
+  Keep the current project directory and place forwarded npm arguments after `--`.
 - Recognized execution prefixes are `timeout`, `nice`, `env`, `command`,
   `exec`, `stdbuf`, `time`, `npx`, `bunx`, `bun x` and `npm exec`.
   For example, `timeout "--signal" TERM 60 npm run changelog:full` has the
   same generator and arguments as the unwrapped script.
-- Separate commands with `&&`, `||`, `;` or a newline. Pipeline stages are
-  checked independently. File checks such as `test` and `[`, command lookups
+- Separate commands with `&&`, `||`, `;` or a newline. Pipelines into ordinary output filters such as `awk` and `sed` are
+  checked by stage. Piping generator commands or text into an opaque executable is refused. File checks such as `test` and `[`, command lookups
   such as `command -v`, printed text and package administration are data.
   The date verifier skips direct generator commands without a version input.
 
 Keep generator option names literal. Put dynamic scalar values in a quoted
 operand, for example `--title "$TITLE"`. Shell evaluators, command substitutions,
-array expansions and unknown wrappers around a generator produce a refusal
+array expansions, executable here-documents and unknown wrappers around a generator produce a refusal
 with the canonical replacement. Move such a generator into a named script
 and forward its arguments. Preparation inserts `--include-empty` ahead of a
 trailing value-taking option whose operand a caller supplies.

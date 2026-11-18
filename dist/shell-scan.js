@@ -990,12 +990,10 @@ const RELEASE_WRAPPERS = {
 export function releaseHookCommand(input) {
     const words = withoutRedirections(input);
     let i = 0;
+    while (i < words.length && !words[i].startsQuoted && /^[A-Za-z_][A-Za-z_0-9]*=/.test(words[i].value))
+        i++;
     while (i < words.length) {
         const token = words[i];
-        if (!token.startsQuoted && /^[A-Za-z_][A-Za-z_0-9]*=/.test(token.value)) {
-            i++;
-            continue;
-        }
         const name = basename(token.value);
         const pair = (name === "npm" && words[i + 1]?.value === "exec") || (name === "bun" && words[i + 1]?.value === "x");
         const wrapper = pair && name === "bun" ? "bunx" : name;
@@ -1007,6 +1005,9 @@ export function releaseHookCommand(input) {
             const flag = words[i++].value;
             if (flag === "--")
                 break;
+            // A different working directory can select another manifest or changelog.
+            if (wrapper === "env" && (flag === "-C" || flag.split("=")[0] === "--chdir"))
+                return words.slice(start);
             const options = PREFIX_OPTIONS_WITH_OPERAND.get(wrapper);
             if (options?.has(flag))
                 i++;

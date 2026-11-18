@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-18T11:25:43.862Z"
+updated_at: "2026-11-18T11:56:47.233Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -16,7 +16,7 @@ severity: high
 repro_steps: "Use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "The verifier accepts the shell option. The workflow leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[29]:
+comments[30]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -105,6 +105,9 @@ comments[29]:
   - created_at: "2026-11-18T11:25:43.861Z"
     author: codex-sol
     text: "Implemented a bounded release-hook reader with source spans, local-script argv forwarding and enabled npm pre/post callbacks. The real npm lifecycle fixture and all 12 grammar regressions pass. Shell evaluation and conflicting date policies receive one actionable refusal."
+  - created_at: "2026-11-18T11:56:32.170Z"
+    author: codex-sol
+    text: "Round CC implementation b780464 covers PRRT_kwDOTOTl1M643thX (npm lifecycle writers), PRRT_kwDOTOTl1M643thq (declined support, refused explicitly by readReleaseDateOptions because the two generator policies are mutually exclusive), PRRT_kwDOTOTl1M643thn (version before option validation), PRRT_kwDOTOTl1M643thd (insert before an open option) and PRRT_kwDOTOTl1M643thu (quoted timeout switches). The runtime probe now also verifies Bun and pnpm forwarding, inherited npm lifecycle settings, and opaque payload refusal."
 files[16]{path,scope}:
   .github/workflows/daily-release.yml,project
   release-changelog-options.ts,project
@@ -122,7 +125,7 @@ files[16]{path,scope}:
   test/release-runtime.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[29]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[30]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -152,6 +155,7 @@ tests[29]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/changelog-sections.test.ts test/release-continuation-adapter.test.ts,project,codex-sol,"2026-11-18T07:42:38.796Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-concurrency=2 test/changelog-sections.test.ts test/verify-release-changelog-date.test.ts test/release-prepare-restart.test.ts test/pack-prepare.test.ts test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/continuation-selection.test.ts test/continuation-runtime.test.ts test/daily-release.test.ts test/daily-release-workflow.test.ts test/release-runtime.test.ts test/release-discovery-evidence.test.ts,project,codex-sol,"2026-11-18T07:47:23.158Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test test/release-hook-grammar.test.ts,project,codex-sol,"2026-11-18T11:19:33.908Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test test/release-runtime.test.ts,project,codex-sol,"2026-11-18T11:56:46.778Z",local_mutation,fix/release-hook-wrapper-options-bm
 docs[2]{path,scope}:
   docs/reusable-release.md,project
   README.md,project

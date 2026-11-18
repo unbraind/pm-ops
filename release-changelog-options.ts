@@ -49,7 +49,7 @@ const PACKAGE_ADMIN_COMMANDS = new Set([
   "add", "audit", "ci", "dedupe", "explain", "i", "info", "install", "list", "ls", "outdated",
   "remove", "rm", "search", "show", "uninstall", "update", "upgrade", "view", "why",
 ]);
-const DATA_CONSUMERS = new Set(["echo", "printf", "test", "[", "[[", "command", "which", "type", "ls"]);
+const DATA_CONSUMERS = new Set(["echo", "printf", "test", "[", "[[", "command", "which", "type", "ls", "grep"]);
 /** Options that accept a separate operand in the pinned pm-changelog CLI. */
 const VALUE_OPTIONS = new Set([
   "--audit-receipts", "-i", "-o", "--body-preview", "--date", FALLBACK_DATE_FLAG, "--exclude-tag", "--exclude-tags",
@@ -59,6 +59,7 @@ const VALUE_OPTIONS = new Set([
 ]);
 const INCLUDE_EMPTY_FLAG = "--include-empty";
 const MAX_SCRIPT_FORWARDS = 8;
+const RETIRE_UNPUBLISHED = "Refusing to publish. Manually dispatch the workflow with retire-unpublished set to retire the unpublished candidate.";
 
 /** Whether a YYYY-MM-DD string names an existing day, including years 0–99. */
 export function isRealCalendarDay(day: string): boolean {
@@ -70,7 +71,7 @@ export function isRealCalendarDay(day: string): boolean {
 
 /** Recognize package-manager commands that run a script in the same manifest. */
 function isScriptForward(program: string, subcommand: string | undefined): boolean {
-  return (subcommand === "run" && SCRIPT_RUNNERS.has(program)) || (program === "npm" && subcommand === "run-script");
+  return (subcommand === "run" && SCRIPT_RUNNERS.has(program)) || ((program === "npm" || program === "pnpm") && subcommand === "run-script");
 }
 
 /** Skip local npm switches and retain the last explicit optional-script setting. */
@@ -122,7 +123,7 @@ function afterRunOptions(program: string, tokens: readonly ShellToken[], start: 
 
 /** Locate the target and optionality of a package-script forward. */
 function scriptForward(program: string, parameters: readonly ShellToken[], scriptNames?: ReadonlySet<string>): {
-  target: string | undefined; optional: boolean; npm?: true; lifecycle?: boolean; args: readonly ShellToken[]; forwardedSeparator?: ShellToken;
+  target: string | undefined; optional: boolean; runner: string; lifecycle?: boolean; unsupported?: string; args: readonly ShellToken[]; forwardedSeparator?: ShellToken;
 } | undefined {
   const command = afterRunOptions(program, parameters, 0);
   if (!isScriptForward(program, parameters[command.index]?.value)) return undefined;
@@ -134,13 +135,23 @@ function scriptForward(program: string, parameters: readonly ShellToken[], scrip
   const tail = parameters.slice(entry.index + 1);
   if (program !== "npm") {
     const separator = tail[0]?.value === "--" ? tail[0] : undefined;
-    if (program === "pnpm") return { target, optional: entry.optional, args: tail, forwardedSeparator: separator };
-    return { target, optional: entry.optional, args: separator ? tail.slice(1) : tail };
+    if (program === "pnpm") return { target, runner: program, optional: entry.optional, args: tail, forwardedSeparator: separator };
+    return { target, runner: program, optional: entry.optional, args: separator ? tail.slice(1) : tail };
   }
   const separator = tail.findIndex(token => token.value === "--" && !token.unresolved);
   const flags = separator < 0 ? tail : tail.slice(0, separator);
   const settings = afterNpmRunOptions(flags, 0, entry.optional, entry.lifecycle);
-  return { target, npm: true, lifecycle: settings.lifecycle, optional: settings.optional, args: separator < 0 ? [] : tail.slice(separator + 1) };
+  return { target, runner: program, lifecycle: settings.lifecycle, optional: settings.optional, unsupported: flags[settings.index]?.value, args: separator < 0 ? [] : tail.slice(separator + 1) };
+}
+
+/** Read an explicit npm lifecycle environment assignment on the runner's command prefix. */
+function lifecycleEnvironment(words: ShellCommand, program: ShellToken): string | undefined {
+  let setting: string | undefined;
+  for (const token of words.slice(0, words.indexOf(program))) {
+    const match = /^npm_config_ignore_scripts=(.*)$/i.exec(token.value);
+    if (match) setting = match[1];
+  }
+  return setting;
 }
 
 /** Expand a runner invocation. npm executes lifecycle siblings once without forwarded arguments. */
@@ -164,12 +175,19 @@ function isPackageAdmin(program: ShellToken, parameters: ShellCommand): boolean 
   return subcommand !== undefined && !subcommand.unresolved && PACKAGE_ADMIN_COMMANDS.has(subcommand.value);
 }
 
+/** Detect a literal script runner and generator-writing target inside an opaque command. */
+function referencesWriter(words: ShellCommand, scriptNames?: ReadonlySet<string>): boolean {
+  const nested = words.flatMap(word => word.value.split(/[^\w.:-]+/));
+  return scriptNames instanceof HookScriptNames && nested.some(word => SCRIPT_RUNNERS.has(word))
+    && nested.some(word => word === "run" || word === "run-script") && nested.some(word => scriptNames.mayInvoke(word));
+}
+
 /** Return the generator word and arguments, or refuse a possible hook behind an unknown wrapper. */
 function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<string>, audit = false): ShellCommand | undefined {
   const invocation = releaseHookCommand(words);
   const mentions = words.some(mentionsGenerator);
   const problem = hookSyntaxProblem(words);
-  if (problem && mentions) {
+  if (problem && (mentions || referencesWriter(words, scriptNames))) {
     const dynamicOption = words.some(word => word.unresolved && word.value.startsWith("-"));
     if (dynamicOption && invocation && GENERATOR_TARGET.test(invocation[0].value) && !hasVersionInput(invocation.slice(1))
       && !words.some(word => word.value.startsWith("--date-"))) return undefined;
@@ -182,6 +200,17 @@ function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<stri
   const [program, ...parameters] = invocation;
   const name = basename(program.value);
   const forward = scriptForward(name, parameters, scriptNames);
+  if (forward?.runner === "pnpm" && forward.target && scriptNames instanceof HookScriptNames
+    && ["pre", "post"].some(prefix => scriptNames.canGenerate(prefix + forward.target))) {
+    refuseHook("Configuration-dependent pnpm lifecycle writer for " + JSON.stringify(forward.target));
+  }
+  if (forward?.target && forward.lifecycle === undefined && scriptNames instanceof HookScriptNames && scriptNames.mayInvoke(forward.target)) {
+    const setting = lifecycleEnvironment(words, program);
+    if (setting !== undefined && !BOOLEAN_VALUE.test(setting)) refuseHook("Nonliteral npm lifecycle setting, use npm run --ignore-scripts or npm run");
+  }
+  if (forward?.unsupported && (mentions || (forward.target && scriptNames instanceof HookScriptNames && scriptNames.mayInvoke(forward.target)))) {
+    refuseHook("Unsupported npm run option or positional argument " + JSON.stringify(forward.unsupported) + " before --");
+  }
   if (forward && (!audit || (forward.target !== undefined && (forward.optional || scriptNames!.has(forward.target))))) return undefined;
   const [subcommand] = parameters;
   if (isPackageAdmin(program, parameters)) return undefined;
@@ -196,12 +225,9 @@ function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<stri
   }
   if (name === "command") {
     const lookup = parameters.find(word => word.value !== "-p");
-    if (/^-p*[vV][pvV]*$/.test(lookup?.value ?? "")) return undefined;
+    if (/^-p*[vV][pvV]*$/.test(lookup!.value)) return undefined;
   } else if (DATA_CONSUMERS.has(name)) return undefined;
-  const nested = words.flatMap(word => word.value.split(/[^\w.:-]+/));
-  const indirect = scriptNames instanceof HookScriptNames && nested.some(word => SCRIPT_RUNNERS.has(word))
-    && nested.some(word => word === "run" || word === "run-script") && nested.some(word => scriptNames.canGenerate(word));
-  if (mentions || indirect) refuseHook(`Unrecognized wrapper or executable ${JSON.stringify(program.value)} before possible pm-changelog command`);
+  if (mentions || referencesWriter(words, scriptNames)) refuseHook(`Unrecognized wrapper or executable ${JSON.stringify(program.value)} before possible pm-changelog command`);
   return undefined;
 }
 
@@ -214,6 +240,11 @@ class HookScriptNames extends Set<string> {
     this.scripts = scripts;
   }
 
+  /** An opaque npm invocation may run the named script and both lifecycle siblings. */
+  mayInvoke(name: string): boolean {
+    return this.has(name) && scriptSequence(name, this, true).some(script => this.canGenerate(script));
+  }
+
   /** Follow literal script references without recursively evaluating the wrapper's shell payload. */
   canGenerate(name: string, seen = new Set<string>()): boolean {
     if (!this.has(name) || seen.has(name)) return false;
@@ -224,7 +255,7 @@ class HookScriptNames extends Set<string> {
       const [program, ...parameters] = command;
       if (DATA_CONSUMERS.has(basename(program.value)) || isPackageAdmin(program, parameters)) return false;
       const forward = scriptForward(basename(program.value), parameters, this);
-      if (forward?.target) return scriptSequence(forward.target, this, forward.npm && forward.lifecycle !== false).some(target => this.canGenerate(target, seen));
+      if (forward?.target) return scriptSequence(forward.target, this, forward.lifecycle !== false).some(target => this.canGenerate(target, seen));
       return words.some(mentionsGenerator);
     });
   }
@@ -284,7 +315,9 @@ export function visitChangelogScriptCommands(
     if (!command) return undefined;
     const [program, ...parameters] = command;
     const forward = scriptForward(basename(program.value), parameters, names);
-    return forward;
+    if (!forward || forward.lifecycle !== undefined) return forward;
+    const setting = lifecycleEnvironment(words, program);
+    return setting === undefined ? forward : { ...forward, lifecycle: setting !== "true" };
   }
 
   const visited = new Set<string>();
@@ -326,7 +359,8 @@ export function visitChangelogScriptCommands(
       // pnpm passes its delimiter through verbatim. A nested runner can consume
       // it, but the generator only accepts named options.
       const separators = effective.filter(token => forwardedSeparators.has(token));
-      inspect({ name, names, text, words, effective: effective.filter(token => !forwardedSeparators.has(token)), spans, forwardedSeparators: separators });
+      const argv = forward ? effective : effective.filter(token => !forwardedSeparators.has(token));
+      inspect({ name, names, text, words, effective: argv, spans, forwardedSeparators: separators });
       if (forward) {
         if (forward.target === undefined) {
           if (hooks) refuseHook(`Cannot resolve changelog script forward in ${JSON.stringify(name)}: expected a literal package.json script name`);
@@ -335,7 +369,8 @@ export function visitChangelogScriptCommands(
         if (!names.has(forward.target) && (forward.optional || !hooks)) continue;
         if (forward.forwardedSeparator) forwardedSeparators.add(forward.forwardedSeparator);
         const enabled = forward.lifecycle ?? lifecycle;
-        for (const target of scriptSequence(forward.target, names, forward.npm && enabled)) {
+        const sequence = scriptSequence(forward.target, names, forward.runner !== "npm" || enabled);
+        for (const target of sequence) {
           visit(target, target === forward.target ? forward.args : [], [...parents, name], enabled);
         }
       }
@@ -393,6 +428,7 @@ export function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[
       if (name !== undefined && name !== DATE_FLAG && name !== FALLBACK_DATE_FLAG) continue;
       refuseHook(`Unresolved option word in pm-changelog hook: ${JSON.stringify(token.value)}`);
     }
+    if (token.value.startsWith(DATE_FLAG + "=")) refuseHook("Unexpected value on the boolean " + DATE_FLAG);
     if (token.value === DATE_FLAG) {
       options.push({ kind: "version", first: token, last: token });
       continue;
@@ -433,7 +469,7 @@ function versionHeadingDay(version: string | undefined): string {
     // The generator validates with Date.UTC, which shifts years 0 to 99.
     if (Number(year) >= 100 && isRealCalendarDay(day)) return day;
   }
-  throw new Error(`Cannot verify the prepared release heading for calendar version ${JSON.stringify(version)}. Refusing to publish; re-prepare the candidate with a valid calendar version.`);
+  throw new Error(`Cannot verify the prepared release heading for calendar version ${JSON.stringify(version)}. A valid calendar version is required. ${RETIRE_UNPUBLISHED}`);
 }
 
 /** Compare the options on one generator command with the verified merge day. */
@@ -450,7 +486,7 @@ function assertHeadingOptions(words: ShellCommand, mergeDay: string, packageVers
       day = versionHeadingDay(version);
     } else day = option.day;
     if (day !== mergeDay) {
-      throw new Error(`Prepared release heading day ${day} differs from verified merge commit day ${mergeDay}. Refusing to publish. Manually dispatch the workflow with retire-unpublished set to retire the unpublished candidate.`);
+      throw new Error(`Prepared release heading day ${day} differs from verified merge commit day ${mergeDay}. ${RETIRE_UNPUBLISHED}`);
     }
   }
 }

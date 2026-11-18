@@ -179,6 +179,38 @@ test("prepare rebuilds and checks the trusted planner before loading it", () => 
   assert.match(build.run, /git status --porcelain=v1 --untracked-files=all --ignored=matching -- dist\//);
 });
 
+test("prepare rejects obsolete tracked tools and leaves the candidate checkout alone", t => {
+  const candidate = mkdtempSync(join(tmpdir(), "trusted-planner-"));
+  t.after(() => rmSync(candidate, { recursive: true, force: true }));
+  const trusted = join(candidate, "tools");
+  mkdirSync(join(trusted, "dist"), { recursive: true });
+  mkdirSync(join(candidate, "dist"));
+  writeFileSync(join(candidate, "dist/candidate.js"), "candidate");
+  writeFileSync(join(trusted, "package.json"), JSON.stringify({
+    name: "fixture", version: "1.0.0", scripts: { build: "node build.cjs" },
+  }));
+  writeFileSync(join(trusted, "package-lock.json"), JSON.stringify({
+    name: "fixture", version: "1.0.0", lockfileVersion: 3, packages: { "": { name: "fixture", version: "1.0.0" } },
+  }));
+  writeFileSync(join(trusted, "build.cjs"), 'const fs = require("node:fs"); fs.mkdirSync("dist", { recursive: true }); fs.writeFileSync("dist/tool.js", "current");');
+  writeFileSync(join(trusted, "dist/tool.js"), "current");
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: trusted });
+  git("init", "-q");
+  git("add", "--", "dist/tool.js");
+  git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "Reproducible output");
+  const check = () => runBashFixture(step("Verify trusted release tool build").run, {
+    cwd: candidate, encoding: "utf8", env: { ...process.env, CONTINUATION_SCRIPT: join(trusted, "scripts/release-continuation.ts") },
+  });
+  const clean = check();
+  assert.equal(clean.status, 0, clean.stdout + clean.stderr);
+  writeFileSync(join(trusted, "dist/obsolete.js"), "obsolete");
+  git("add", "--", "dist/obsolete.js");
+  const stale = check();
+  assert.notEqual(stale.status, 0);
+  assert.match(stale.stdout, /deleted file mode[\s\S]*obsolete/);
+  assert.equal(readFileSync(join(candidate, "dist/candidate.js"), "utf8"), "candidate");
+});
+
 test("caller template and migration examples cover the union of every nested job permission", () => {
   const template = readFileSync(new URL("../templates/release-caller.yml", import.meta.url), "utf8");
   const docs = readFileSync(new URL("../docs/reusable-release.md", import.meta.url), "utf8");

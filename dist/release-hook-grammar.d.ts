@@ -1,9 +1,4 @@
-/**
- * Lex the release-hook language without evaluating shell. Every input character
- * belongs to a literal word, a quoted value, a separator, or an unsupported
- * construct retained on its command. Source spans always refer to the input.
- */
-import type { ShellCommand, ShellToken, ShellTokenSpan } from "./shell-scan.ts";
+import { type ShellCommand, type ShellToken, type ShellTokenSpan } from "./shell-scan.ts";
 /** Return the first unsupported construct in the command. */
 export declare function hookSyntaxProblem(words: ShellCommand): string | undefined;
 /** Literal generator references and shell words referencing a local generator binding. */

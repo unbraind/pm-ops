@@ -1028,9 +1028,9 @@ const RELEASE_WRAPPERS: Readonly<Record<string, RegExp>> = {
 export function releaseHookCommand(input: ShellCommand): ShellCommand | undefined {
   const words = withoutRedirections(input);
   let i = 0;
+  while (i < words.length && !words[i].startsQuoted && /^[A-Za-z_][A-Za-z_0-9]*=/.test(words[i].value)) i++;
   while (i < words.length) {
     const token = words[i];
-    if (!token.startsQuoted && /^[A-Za-z_][A-Za-z_0-9]*=/.test(token.value)) { i++; continue; }
     const name = basename(token.value);
     const pair = (name === "npm" && words[i + 1]?.value === "exec") || (name === "bun" && words[i + 1]?.value === "x");
     const wrapper = pair && name === "bun" ? "bunx" : name;
@@ -1040,6 +1040,8 @@ export function releaseHookCommand(input: ShellCommand): ShellCommand | undefine
     while (i < words.length && words[i].value.startsWith("-")) {
       const flag = words[i++].value;
       if (flag === "--") break;
+      // A different working directory can select another manifest or changelog.
+      if (wrapper === "env" && (flag === "-C" || flag.split("=")[0] === "--chdir")) return words.slice(start);
       const options = PREFIX_OPTIONS_WITH_OPERAND.get(wrapper);
       if (options?.has(flag)) i++;
       else if (!options?.has(flag.split("=")[0]) && !RELEASE_WRAPPERS[wrapper].test(flag)) return words.slice(start);

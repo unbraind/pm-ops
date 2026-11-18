@@ -3,7 +3,8 @@
  * belongs to a literal word, a quoted value, a separator, or an unsupported
  * construct retained on its command. Source spans always refer to the input.
  */
-import type { ShellCommand, ShellToken, ShellTokenSpan } from "./shell-scan.ts";
+import { basename } from "node:path";
+import { heredocBodyLines, heredocExpansionLines, releaseHookCommand, type ShellCommand, type ShellToken, type ShellTokenSpan } from "./shell-scan.ts";
 
 const problems = new WeakMap<ShellToken, string>();
 const indirectTargets = new WeakSet<ShellToken>();
@@ -35,15 +36,42 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
   const spans = new WeakMap<ShellToken, ShellTokenSpan>();
   const bindings = new Set<string>();
   let words: ShellCommand = [];
+  const piped = new Set<ShellCommand>();
+  let heredoc = -1;
   let i = 0;
   while (i < text.length) {
     const ch = text[i];
     if (/^[;&|\n]$/.test(ch)) {
       if (words.length) {
         if (ch === "&" && text[i + 1] !== "&") problems.set(words[0], "Shell background or descriptor operator &");
+        if (ch === "|" && text[i + 1] !== "|") piped.add(words);
         commands.push(words);
       }
       words = [];
+      if (ch === "\n" && heredoc >= 0) {
+        // Only an unquoted opener seen by this lexer can introduce data. A
+        // line resembling an opener inside a multiline title stays literal.
+        const lines = text.slice(heredoc).split("\n");
+        const bodies = heredocBodyLines(lines);
+        const expansions = heredocExpansionLines(lines);
+        const start = i + 1;
+        let end = start;
+        let evaluates = false;
+        for (let line = 1; line < lines.length && bodies[line]; line++) {
+          if (expansions[line] && /\$\(|`/.test(lines[line])) evaluates = true;
+          end += lines[line].length + 1;
+        }
+        end = Math.min(text.length, end);
+        const body: ShellToken = { value: text.slice(start, end), quoted: true, startsQuoted: true };
+        if ((mentionsGenerator(body) || /\b(?:npm|pnpm|bun)\s+run\b/.test(body.value)) && (evaluates || !/^\s*cat\s+<<-?\s*['"]?\w+['"]?\s*$/.test(lines[0]))) {
+          problems.set(body, "Here-document with a possible generator command");
+          spans.set(body, { start, end });
+          commands.push([body]);
+        }
+        i = end;
+        heredoc = -1;
+        continue;
+      }
       i += text.startsWith("&&", i) || text.startsWith("||", i) ? 2 : 1;
       continue;
     }
@@ -82,6 +110,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
         if (char === "`" || text[i] === "(") problem = "Shell command substitution";
       }
       if (quote !== "'" && char === "$" && /^\{[^}]*\[@\]/.test(text.slice(i))) problem = "Shell array expansion";
+      if (!quote && char === "<" && text[i] === "<") heredoc = text.lastIndexOf("\n", i - 1) + 1;
       if (!quote && /[<>]/.test(char) && !/^\d*$/.test(value) && !/^\d*[<>]/.test(value)) problem = "Attached shell redirection";
       if (!quote && /[*?]/.test(char)) { unresolved = true; splits = true; }
       if (!quote && /[()]/.test(char)) problem ??= "Shell grouping or substitution";
@@ -101,5 +130,18 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
     words.push(token);
   }
   if (words.length) commands.push(words);
+  // A pipe to an interpreter can turn printed generator text into a command.
+  // Keep the ordinary output-filter pipeline used by release workflows.
+  let upstream: ShellCommand[] = [];
+  for (const command of commands) {
+    if (upstream.length) {
+      const sink = releaseHookCommand(command)?.[0];
+      if (!sink || sink.unresolved || !/^(?:cat|awk|sed|grep|head|tail|cut|tr|sort|uniq|wc)$/.test(basename(sink.value))) {
+        for (const source of upstream) problems.set(source[0], "Pipeline to an opaque executable");
+      }
+    }
+    if (piped.has(command)) upstream.push(command);
+    else upstream = [];
+  }
   return { commands, spans };
 }

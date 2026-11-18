@@ -9,7 +9,7 @@ import { execFileSync } from "../subprocess.ts";
 import {
   assertReleaseHookHeadingDate, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHookDates,
 } from "../release-changelog-options.ts";
-import { fixedOptionName, tokenizeCommands, commandName, packageScriptCommand } from "../shell-scan.ts";
+import { fixedOptionName, tokenizeCommands, tokenizeCommandsWithSpans, commandName, packageScriptCommand, releaseHookCommand } from "../shell-scan.ts";
 import { auditInvocations } from "../scripts/verify-release-changelog-date.ts";
 
 const standing = "--release-version-from-package --date-from-version";
@@ -108,6 +108,7 @@ test("uncertain generator commands name their unsupported construct and a direct
     ["pm-changelog " + standing + ">out", /Attached shell redirection/],
     ["out=`pm-changelog " + standing + "`", /substitution/],
     ["timeout pm-changelog", /Incomplete wrapper/],
+    ["pm-changelog " + standing + " --date-from-version=true", /Unexpected value on the boolean/],
   ] as const) {
     const result = auditInvocations([workflow(command, "pm-changelog " + standing)]);
     assert.equal(result.failures.length, 1, command);
@@ -127,6 +128,8 @@ test("option-shaped pm arguments stay data and trailing operands retain their po
 test("the shared shell scanner decodes quoted timeout switches and records fixed option names", () => {
   const commands = tokenizeCommands('timeout "--signal" TERM 60 pm-changelog --title="$TITLE"');
   assert.equal(commandName(commands[0]), "pm-changelog");
+  assert.equal(commandName(tokenizeCommands("command -p -v pm-changelog")[0]), "command");
+  assert.equal(releaseHookCommand(tokenizeCommands("env TZ=UTC")[0]), undefined);
   assert.equal(packageScriptCommand(tokenizeCommands("bun run changes")[0])?.[0].value, "bun");
   assert.equal(packageScriptCommand(tokenizeCommands("command")[0]), undefined);
   assert.equal(fixedOptionName(commands[0].at(-1)!), "--title");
@@ -156,6 +159,9 @@ test("npm lifecycle controls respect option order and stop at the argument delim
     ["npm run target --ignore-scripts=false", true],
     ["npm run --ignore-scripts target --no-ignore-scripts", true],
     ["npm run target -- --ignore-scripts", true],
+    ["env NPM_CONFIG_IGNORE_SCRIPTS=true npm run target", false],
+    ["npm_config_ignore_scripts=false npm run target", true],
+    ["env npm_config_ignore_scripts=true npm run --ignore-scripts=false target", true],
   ] as const) {
     const hooks = resolveChangelogHooks({ ...fixture, hook: source }, ["hook"]);
     assert.equal(hooks.has("pretarget"), enabled, source);
@@ -192,4 +198,59 @@ test("indirect executable and argv bindings cannot hide a release command behind
     assert.match(result.failures[0], diagnostic);
   }
   assert.deepEqual(auditInvocations([workflow('GEN=pm-changelog; echo "$GEN"', "pm-changelog " + standing)]).failures, []);
+});
+
+test("Bun includes pre/post writers and pnpm refuses configuration-dependent lifecycle writers", () => {
+  const fixture = { writer: "pm-changelog " + standing, prewriter: "npm run before", before: "pm-changelog " + standing, postwriter: "pm-changelog " + standing };
+  const hooks = resolveChangelogHooks({ ...fixture, hook: "bun run writer" }, ["hook"]);
+  for (const writer of ["before", "writer", "postwriter"]) {
+    assert.match(rewriteReleaseHookDates(hooks, ["hook"], day).get(writer)!, /--date-fallback 2026-11-17/);
+  }
+  for (const run of ["pnpm run", "pnpm run-script"]) {
+    assert.throws(() => resolveChangelogHooks({ ...fixture, hook: run + " writer" }, ["hook"]), /Configuration-dependent pnpm lifecycle/);
+    assert.ok(resolveChangelogHooks({ writer: fixture.writer, hook: run + " writer" }, ["hook"]).has("writer"));
+  }
+  for (const hook of ["env -C elsewhere npm run writer", "env --chdir=elsewhere npm run writer", "npm run writer --prefix elsewhere", "bun run-script writer"]) {
+    assert.throws(() => resolveChangelogHooks({ ...fixture, hook }, ["hook"]), /Use a direct pm-changelog/, hook);
+  }
+  const scripts = resolveChangelogHooks({ hook: "npm run unrelated flag", unrelated: "echo done" }, ["hook"]);
+  assert.ok(scripts.has("unrelated"));
+});
+
+test("the public shell scanner still returns editable spans in literal substitution bodies", () => {
+  const text = 'heading=$(pm-changelog "--date-from-version")';
+  const { commands, spans } = tokenizeCommandsWithSpans(text);
+  const option = commands.flat().find(word => word.value === "--date-from-version")!;
+  const { start, end } = spans.get(option)!;
+  assert.equal(text.slice(start, end), '"--date-from-version"');
+});
+
+test("literal here-document data is never rewritten and opaque executable bodies are refused", () => {
+  const body = "pm-changelog --version v2026.11.16";
+  const sibling = "pm-changelog " + standing;
+  const data = "cat <<'END'\n" + body + "\nEND";
+  assert.deepEqual(auditInvocations([workflow(data + "\n" + sibling)]).failures, []);
+  assert.equal(includeEmptyReleaseSections(data), data);
+  for (const script of ["sh <<'END'\n" + body + "\nEND", "cat <<END\n$(" + body + ")\nEND"]) {
+    assert.throws(() => includeEmptyReleaseSections(script), /Here-document.*Use a direct/);
+  }
+  const title = 'pm-changelog --title "first\ncat <<END\n' + body + '\nEND\nlast" ' + standing;
+  assert.deepEqual(auditInvocations([workflow(title)]).failures, []);
+});
+
+test("a computed lifecycle switch or opaque runner cannot conceal an implicit-only writer", () => {
+  const scripts = { main: "echo done", premain: "pm-changelog " + standing };
+  for (const hook of ['env npm_config_ignore_scripts="$SETTING" npm run main', "wrapper npm run main"]) {
+    assert.throws(() => resolveChangelogHooks({ hook, ...scripts }, ["hook"]), /Use a direct pm-changelog/);
+  }
+});
+
+test("generator text piped to an opaque executable is refused while ordinary output filters remain data", () => {
+  const generator = "pm-changelog " + standing;
+  for (const sink of ["sh", "cat | bash", '"$SINK"', "env"]) {
+    assert.throws(() => includeEmptyReleaseSections("printf '%s' '" + generator + "' | " + sink), /Pipeline to an opaque executable.*Use a direct/);
+  }
+  assert.equal(includeEmptyReleaseSections("echo pm-changelog | grep pm-changelog"), "echo pm-changelog | grep pm-changelog");
+  const scripts = { writer: generator, hook: "sh <<'END'\nnpm run writer\nEND" };
+  assert.throws(() => resolveChangelogHooks(scripts, ["hook"]), /Here-document.*Use a direct/);
 });
