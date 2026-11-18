@@ -93,7 +93,9 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
     let fixedName: string | undefined;
     while (i < text.length) {
       const char = text[i];
-      if (!quote && /[\s;&|]/.test(char)) break;
+      // Descriptor duplication is part of this redirection word, even before a pipe.
+      const descriptor = !quoted && char === "&" && /^[0-9]*[<>]>?$/.test(value);
+      if (!quote && !descriptor && /[\s;&|]/.test(char)) break;
       i++;
       if (char === quote) { quote = ""; continue; }
       if (!quote && (char === "'" || char === '"')) { quoted = true; quote = char; continue; }

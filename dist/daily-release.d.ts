@@ -24,6 +24,8 @@ export interface DailyReleaseInput {
     } | null;
     /** Calendar day in the configured release timezone, padded or unpadded. */
     today: string;
+    /** Expected GitHub squash commit timestamp, required when planning a heading pin. */
+    expectedCommitTimestamp?: string;
     /** Tree comparison catches an empty or reverted commit since the tag. */
     hasChanges: boolean;
     /** Every release tag reachable from main, including older spelling variants. */

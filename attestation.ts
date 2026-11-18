@@ -737,6 +737,8 @@ interface ExecutableShellBody {
   raw: string;
   /** One-based physical line at the beginning of the extent. */
   line: number;
+  /** Effective workflow step directory, including inherited run defaults. */
+  workingDirectory?: unknown;
 }
 
 /** Split Compose's string command syntax into argv; operators and expansions are not shell. */
@@ -902,6 +904,11 @@ function publishInvocationsInArgv(source: SourceFile, argv: ShellCommand): Publi
   return found;
 }
 
+/** Read the default directory attached to workflow or job run steps. */
+function defaultRunDirectory(container: unknown): unknown {
+  return mapping(mapping(mapping(container)?.defaults)?.run)?.["working-directory"];
+}
+
 /** Extract structured commands together with their original scalar source ranges. */
 export function executableShellBodies(source: SourceFile): ExecutableShellBody[] {
   if (COMPOSE_PATH.test(source.file)) return composeExecutableBodies(source);
@@ -933,7 +940,10 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
     for (const [index, value] of (steps as unknown[]).entries()) {
       const step = mapping(value);
       if (step === undefined || !Object.hasOwn(step, "run")) continue;
-      bodies.push(bodyAt([...container.path, "steps", index, "run"], step.run));
+      const body = bodyAt([...container.path, "steps", index, "run"], step.run);
+      const directory = step["working-directory"] ?? defaultRunDirectory(container.value) ?? defaultRunDirectory(data);
+      if (directory !== undefined) body.workingDirectory = directory;
+      bodies.push(body);
     }
   }
   return bodies;

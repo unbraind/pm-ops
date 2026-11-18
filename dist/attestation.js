@@ -869,6 +869,10 @@ function publishInvocationsInArgv(source, argv) {
     }
     return found;
 }
+/** Read the default directory attached to workflow or job run steps. */
+function defaultRunDirectory(container) {
+    return mapping(mapping(mapping(container)?.defaults)?.run)?.["working-directory"];
+}
 /** Extract structured commands together with their original scalar source ranges. */
 export function executableShellBodies(source) {
     if (COMPOSE_PATH.test(source.file))
@@ -905,7 +909,11 @@ export function executableShellBodies(source) {
             const step = mapping(value);
             if (step === undefined || !Object.hasOwn(step, "run"))
                 continue;
-            bodies.push(bodyAt([...container.path, "steps", index, "run"], step.run));
+            const body = bodyAt([...container.path, "steps", index, "run"], step.run);
+            const directory = step["working-directory"] ?? defaultRunDirectory(container.value) ?? defaultRunDirectory(data);
+            if (directory !== undefined)
+                body.workingDirectory = directory;
+            bodies.push(body);
         }
     }
     return bodies;

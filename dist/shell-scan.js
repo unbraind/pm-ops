@@ -753,7 +753,7 @@ function withoutRedirections(command) {
             continue;
         }
         // A bare operator takes the next word as its target.
-        if (!/&[0-9-]$/.test(token.value))
+        if (!/&(?:[0-9]+-?|-)$/.test(token.value))
             index += 1;
     }
     return kept;
@@ -986,6 +986,8 @@ const RELEASE_WRAPPERS = {
     bunx: /^(?:--bun|--no-install)$/,
     npm: /^(?:-y|--yes)$/,
 };
+/** Options that can select a project other than the release hook's own manifest. */
+const NPM_EXEC_PROJECT_OPTION = /^(?:-w(?:.+)?|--(?:workspace|(?:no-)?workspaces|(?:no-)?include-workspace-root|prefix)(?:=|$))/;
 /** Locate a release command using only wrappers with explicit argv boundaries. */
 export function releaseHookCommand(input) {
     const words = withoutRedirections(input);
@@ -1007,6 +1009,8 @@ export function releaseHookCommand(input) {
                 break;
             // A different working directory can select another manifest or changelog.
             if (wrapper === "env" && (flag === "-C" || flag.split("=")[0] === "--chdir"))
+                return words.slice(start);
+            if (wrapper === "npm" && NPM_EXEC_PROJECT_OPTION.test(flag))
                 return words.slice(start);
             const options = PREFIX_OPTIONS_WITH_OPERAND.get(wrapper);
             if (options?.has(flag))

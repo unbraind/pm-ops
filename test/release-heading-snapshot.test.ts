@@ -1,7 +1,7 @@
 /** Verify disposable release candidates preserve the reviewed source snapshot. */
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execFileSync } from "../subprocess.ts";
@@ -33,15 +33,18 @@ test("candidate snapshot removes staged and unstaged deletions and copies existi
   git(source, "rm", "--quiet", "--cached", "--", "index-only.txt");
   rmSync(join(source, "unstaged.txt"));
   writeFileSync(join(source, "kept.txt"), "reviewed edit\n");
-  writeFileSync(join(source, "added.txt"), "staged addition\n");
-  git(source, "add", "--", "added.txt");
+  const added = ".github/workflows/added.yml";
+  mkdirSync(join(source, dirname(added)), { recursive: true });
+  writeFileSync(join(source, added), "staged addition\n");
+  git(source, "add", "--", added);
   mirrorTrackedSnapshot(source, candidate, env);
   assert.equal(existsSync(join(candidate, "staged.txt")), false);
   assert.equal(existsSync(join(candidate, "unstaged.txt")), false);
   assert.equal(existsSync(join(source, "index-only.txt")), true);
   assert.equal(existsSync(join(candidate, "index-only.txt")), false);
   assert.equal(readFileSync(join(candidate, "kept.txt"), "utf8"), "reviewed edit\n");
-  assert.equal(readFileSync(join(candidate, "added.txt"), "utf8"), "staged addition\n");
+  assert.equal(readFileSync(join(candidate, added), "utf8"), "staged addition\n");
+  assert.deepEqual(git(candidate, "ls-files", "-z").toString().split("\0").filter(Boolean), [added, "kept.txt"]);
 });
 
 test("candidate snapshot replaces a tracked directory with a staged regular file", t => {
@@ -61,4 +64,12 @@ test("an untracked directory replacing an indexed file is absent from the candid
   mirrorTrackedSnapshot(source, candidate, env);
   assert.equal(existsSync(join(candidate, "item")), false);
   assert.equal(readFileSync(join(source, "item/local.txt"), "utf8"), "untracked");
+});
+
+test("candidate snapshot refuses a staged dangling symlink", t => {
+  const { source, candidate, env, git } = snapshotFixture(t, ["keep.txt"]);
+  symlinkSync("missing-target", join(source, "link"), "file");
+  git(source, "add", "--", "link");
+  assert.throws(() => mirrorTrackedSnapshot(source, candidate, env), /Cannot mirror tracked symbolic link: link/);
+  assert.equal(git(candidate, "status", "--porcelain").toString(), "");
 });

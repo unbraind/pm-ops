@@ -11,7 +11,9 @@ function pr(number: number, headRefName = "release/2026.10.18", extra: Partial<R
 
 /** Independent release facts, with main advanced since yesterday's published tag. */
 function facts(extra: Partial<DailyReleaseInput> = {}): DailyReleaseInput {
-  return { today: "2026.10.19", mainSha: "new-main", lastRelease: { tag: "v2026.10.18", sha: "old-main" }, existingPrs: [], hasChanges: true, releaseTags: ["v2026.10.18"], ...extra };
+  const today = extra.today ?? "2026.10.19";
+  const day = today === "invalid" ? "2026-10-19" : today.split(".").map(part => part.padStart(2, "0")).join("-");
+  return { today, expectedCommitTimestamp: day + "T03:00:00Z", mainSha: "new-main", lastRelease: { tag: "v2026.10.18", sha: "old-main" }, existingPrs: [], hasChanges: true, releaseTags: ["v2026.10.18"], ...extra };
 }
 
 test("ownership refuses forks, missing authors, humans, lookalike bots, and non-date release branches", () => {
@@ -133,16 +135,19 @@ test("a resumed version is stamped with the tag day; a current version keeps its
   assert.equal(unpadded.heading_date, "2026-08-09");
   const reviewed = decideDailyRelease(facts({ packageVersion: "2026.10.12" }));
   assert.equal(reviewed.heading_date, "2026-10-19", "a maintainer-reviewed old version is tagged today");
+  const scheduleOnly = decideDailyRelease(facts({ packageVersion: "2026.10.12", expectedCommitTimestamp: undefined }));
+  assert.equal(scheduleOnly.npm_version, "2026.10.12");
+  assert.equal(scheduleOnly.heading_date, "");
 });
 
 test("heading-date comparisons handle year and month rollovers, future days and non-calendar inputs", () => {
   for (const [version, today, expected] of [
     ["2025.12.31", "2026.1.1", "2026-01-01"],
-    ["2027.1.1", "2026.12.31", ""],
+    ["2027.1.1", "2026.12.31", "2026-12-31"],
     ["2026.9.30", "2026.10.1", "2026-10-01"],
     ["2028.2.29", "2028.3.1", "2028-03-01"],
-    ["2026.11.1", "2026.10.31", ""],
-    ["2026.10.20", "2026.10.19", ""],
+    ["2026.11.1", "2026.10.31", "2026-10-31"],
+    ["2026.10.20", "2026.10.19", "2026-10-19"],
     ["1.2.3", "2026.10.19", ""],
     ["2026.10.18", "invalid", ""],
   ]) {
@@ -151,10 +156,22 @@ test("heading-date comparisons handle year and month rollovers, future days and 
   }
 });
 
+test("the heading pin uses the expected committer day on either side of the release-calendar date", () => {
+  for (const [today, timestamp, version, pin] of [
+    ["2026.11.7", "2026-11-06T23:30:00Z", "2026.11.5", "2026-11-06"],
+    ["2026.11.7", "2026-11-06T23:30:00Z", "2026.11.6", ""],
+    ["2026.11.7", "2026-11-06T23:30:00Z", "2026.11.7", "2026-11-06"],
+    ["2026.11.6", "2026-11-07T00:30:00Z", "2026.11.6", "2026-11-07"],
+  ]) {
+    assert.equal(decideDailyRelease(facts({ today, expectedCommitTimestamp: timestamp, packageVersion: version })).heading_date, pin);
+  }
+});
+
 test("heading-date planning rejects calendar coordinates on nonexistent days", () => {
   assert.throws(() => decideDailyRelease(facts({ packageVersion: "2026.2.30" })), /invalid calendar day.*2026\.2\.30/i);
   assert.throws(() => decideDailyRelease(facts({ currentPackageVersion: "2026.2.30" })), /invalid calendar day.*2026\.2\.30/i);
   assert.throws(() => decideDailyRelease(facts({ today: "2026.2.30" })), /invalid calendar day.*2026\.2\.30/i);
+  assert.throws(() => decideDailyRelease(facts({ expectedCommitTimestamp: "2026-02-30T23:30:00Z" })), /expected a committer timestamp/i);
 });
 
 test("canonical release names format the reviewed package coordinate instead of today's date", () => {

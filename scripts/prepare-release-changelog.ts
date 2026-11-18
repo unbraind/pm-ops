@@ -5,9 +5,6 @@ import { includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHookD
 try {
   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
   const headingDate = (process.env.RELEASE_HEADING_DATE || "").trim();
-  if (headingDate && !/^\d{4}-\d{2}-\d{2}$/.test(headingDate)) {
-    throw new Error("Release heading date must be YYYY-MM-DD, received " + JSON.stringify(headingDate));
-  }
   let changed = false;
   const hooks = [process.env.CHANGELOG_SCRIPT!, process.env.CHANGELOG_CHECK_SCRIPT!, process.env.NOTES_SCRIPT!];
   const resolved = resolveChangelogHooks(pkg.scripts, hooks);

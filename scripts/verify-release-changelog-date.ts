@@ -10,10 +10,9 @@
  * the other from the version -- and the release would fail on the divergence
  * rather than on the stale date the flag exists to remove.
  *
- * A resumed release is the one sanctioned exception: its version day has already
- * passed, the release step tags it today, and the release commit pins
- * `--date-fallback <ISO day>` in place of `--date-from-version` for the days
- * the version is pending. The pinned day is as clock-free as the flag it
+ * When the version day differs from the expected squash commit day, the
+ * release commit pins `--date-fallback <ISO day>` in place of
+ * `--date-from-version` while the version is pending. The pinned day is as clock-free as the flag it
  * replaces -- it stays fixed in the committed script -- so the scan accepts
  * either spelling, and rejects `--date-fallback` without an explicit day
  * because that would silently fall back to the clock, and rejects a pinned
@@ -31,6 +30,7 @@ import { execFileSync } from "../subprocess.ts";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { parse } from "yaml";
 import {
   type ShellCommand,
   type ShellToken,
@@ -40,7 +40,9 @@ import {
 import { isMainInvocation } from "./main-invocation.ts";
 import { tallyFlaggedInvocations } from "../invocation-audit.ts";
 import { executableShellBodies } from "../attestation.ts";
-import { hasVersionInput, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, visitChangelogScriptCommands } from "../release-changelog-options.ts";
+import { hasVersionInput, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, visitChangelogScriptCommands } from "../release-changelog-options.ts";
+
+import { parseReleaseHook, refuseHook } from "../release-hook-grammar.ts";
 
 export { DATE_FLAG, VERSION_INPUTS, isRealCalendarDay } from "../release-changelog-options.ts";
 
@@ -122,29 +124,69 @@ function manifestScripts(source: SourceFile): Map<string, string> {
     typeof entry[1] === "string" && entry[1].trim() !== ""));
 }
 
+/** Reusable release hook inputs and their standalone root-manifest defaults. */
+const HOOK_INPUTS = [
+  ["changelog-script", "changelog:full"],
+  ["changelog-check-script", "changelog:check"],
+  ["notes-script", "release:notes"],
+] as const;
+
+/** Include literal hook overrides from callers of the reusable daily release workflow. */
+function addConfiguredHooks(text: string, entries: Set<string>): void {
+  const workflow = parse(text) as { jobs?: Record<string, { uses?: string; with?: Record<string, unknown> } | null> } | null;
+  for (const job of Object.values(workflow?.jobs ?? {})) {
+    if (typeof job?.uses !== "string" || !/(?:^|\/)\.github\/workflows\/daily-release\.ya?ml(?:@[^\s]+)?$/.test(job.uses)) continue;
+    for (const [input] of HOOK_INPUTS) {
+      const name = job.with?.[input];
+      if (typeof name === "string" && /^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$/.test(name)) entries.add(name);
+    }
+  }
+}
+
+/** Flag a nested workflow command without following its forwards into the root manifest. */
+function inspectProjectStep(file: string, text: string, line: number, directory: unknown): Invocation[] {
+  const { commands, spans } = parseReleaseHook(text);
+  return commands.flatMap(words => {
+    try {
+      if (!needsReleaseProject(words)) return [];
+      refuseHook(`Unsupported workflow working-directory ${JSON.stringify(directory)} for a potential release hook. Run the hook from the root package directory`);
+    } catch (error) {
+      const start = spans.get(words[0])!.start;
+      const end = spans.get(words.at(-1)!)!.end;
+      return [{ file, line, command: text.slice(start, end), args: [], options: [], problem: (error as Error).message }];
+    }
+  });
+}
+
 /** Workflow forwards and manifest forwards share the same effective argument graph. */
 function invocationsAcross(sources: SourceFile[]): Invocation[] {
   const scripts = new Map<string, string>();
   const origins = new Map<string, string>();
+  const found: Invocation[] = [];
+  const entryPoints = new Set<string>(HOOK_INPUTS.map(([, name]) => name));
   for (const source of sources) {
     if (source.file === "package.json") {
       for (const [name, script] of manifestScripts(source)) scripts.set(name, script);
     } else {
-      for (const { text } of executableShellBodies(source)) {
+      if (/^\.github\/workflows\/.*\.ya?ml$/.test(source.file)) addConfiguredHooks(source.text, entryPoints);
+      for (const { text, line, workingDirectory } of executableShellBodies(source)) {
+        if (workingDirectory !== undefined && !(typeof workingDirectory === "string" && /^(?:\.\/)*\.?$/.test(workingDirectory))) {
+          found.push(...inspectProjectStep(source.file, text, line, workingDirectory));
+          continue;
+        }
         const key = "\0run" + origins.size;
         origins.set(key, source.file);
         scripts.set(key, text);
       }
     }
   }
-  const found: Invocation[] = [];
   visitChangelogScriptCommands(scripts, ({ name, names, text, words, effective, spans }) => {
     const first = spans.get(words[0])!.start;
     const last = spans.get(words.at(-1)!)!.end;
     const file = origins.get(name) ?? "package.json";
     const line = file === "package.json" ? text.slice(0, first).split("\n").length : undefined;
     found.push(...inspectCommand(effective, { file, line, command: text.slice(first, last) }, names));
-  });
+  }, undefined, undefined, entryPoints);
   return found;
 }
 

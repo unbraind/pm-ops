@@ -2,9 +2,9 @@
  * Kept outside the unit-test glob because release:check itself runs that suite. */
 import assert from "node:assert/strict";
 import { execFileSync } from "../subprocess.ts";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { parse } from "yaml";
 import { runBashFixture } from "./bash-fixture.ts";
 import { mirrorTrackedSnapshot } from "./release-heading-snapshot-fixture.ts";
@@ -26,7 +26,8 @@ try {
   // Include the current, reviewable source and tracker edits rather than testing
   // only the last commit. Generated output is rebuilt by the gate.
   mirrorTrackedSnapshot(source, candidate, env);
-  symlinkSync(resolve(source, "node_modules"), join(candidate, "node_modules"), "junction");
+  execFileSync("npm", ["ci", "--include=dev", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: candidate, env, stdio: "inherit" });
+  execFileSync("npm", ["run", "changelog:check"], { cwd: candidate, env, stdio: "inherit" });
   const manifest = JSON.parse(readFileSync(join(candidate, "package.json"), "utf8")) as { scripts: Record<string, string> };
   assert.match(manifest.scripts["release:check"]!, /npm run coverage/);
   const definition = parse(readFileSync(join(candidate, ".github/workflows/daily-release.yml"), "utf8"));

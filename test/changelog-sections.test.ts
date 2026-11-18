@@ -95,10 +95,15 @@ function releaseStepEnv(root: string, env: NodeJS.ProcessEnv, headingDate = ""):
   return { ...env, IS_RUST: "false", CONTINUATION_SCRIPT: resolve("scripts/release-continuation.ts"), CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check", NOTES_SCRIPT: "release:notes", RELEASE_HEADING_DATE: headingDate, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: join(root, "summary.md"), NPM_CONFIG_USERCONFIG: "/dev/null" };
 }
 
-/** Commit the prepared release files and tag the candidate on the given day. */
-function commitAndTag(root: string, env: NodeJS.ProcessEnv, tag: string, day: string): void {
+/** Commit the prepared release files with a controlled committer timestamp. */
+function commitPreparedRelease(root: string, env: NodeJS.ProcessEnv, day: string): void {
   execFileSync("git", ["add", "--", "package.json", "CHANGELOG.md"], { cwd: root, env });
   execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "Release fixture"], { cwd: root, env: { ...env, GIT_AUTHOR_DATE: day, GIT_COMMITTER_DATE: day } });
+}
+
+/** Commit and tag the prepared release on the given day. */
+function commitAndTag(root: string, env: NodeJS.ProcessEnv, tag: string, day: string): void {
+  commitPreparedRelease(root, env, day);
   execFileSync("git", ["tag", tag], { cwd: root, env });
 }
 
@@ -225,7 +230,7 @@ test("dependency-only release windows pass release:check when all three hooks fo
     execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "build(deps): update dependency"], { cwd: root, env });
     const mainSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, env, encoding: "utf8" }).trim();
     const hasChanges = execFileSync("git", ["diff", "--name-only", last, "HEAD"], { cwd: root, env, encoding: "utf8" }).trim() !== "";
-    const facts = { today: "2026.10.23", mainSha, lastRelease: { tag: last, sha: baseSha }, existingPrs: [], hasChanges, releaseTags: tags };
+    const facts = { today: "2026.10.23", expectedCommitTimestamp: "2026-10-23T12:00:00Z", mainSha, lastRelease: { tag: last, sha: baseSha }, existingPrs: [], hasChanges, releaseTags: tags };
     assert.equal(decideDailyRelease(facts).should_release, true);
     assert.equal(decideDailyRelease({ ...facts, hasChanges: false }).should_release, false);
     assert.equal(decideDailyRelease({ ...facts, publishedToday: true }).should_release, false);
@@ -332,6 +337,34 @@ test("prepare commits the heading its tag produces, for same-day and resumed rel
       }
     } finally { rmSync(root, { recursive: true, force: true }); }
   }
+});
+
+test("a resumed release passes preparation, continuation and post-tag checks across the Vienna midnight boundary", () => {
+  const { root, env } = tracker();
+  try {
+    releaseTags(root, env);
+    const preparation = "2026-10-24T23:30:00Z";
+    const merge = "2026-10-24T23:40:00Z";
+    const timezone = "Europe/Vienna";
+    const releaseCalendar = new Intl.DateTimeFormat("sv-SE", { timeZone: timezone, dateStyle: "short" });
+    const today = releaseCalendar.format(new Date(preparation)).replaceAll("-", ".");
+    assert.equal(today, "2026.10.25");
+    assert.equal(releaseCalendar.format(new Date(merge)), "2026-10-25");
+    const plan = decideDailyRelease({
+      today, expectedCommitTimestamp: preparation, mainSha: "main", lastRelease: null,
+      existingPrs: [], hasChanges: true, releaseTags: tags, currentPackageVersion: "2026.10.23",
+    });
+    assert.equal(plan.heading_date, "2026-10-24");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "sample-changelog", version: plan.npm_version, scripts: releaseCommands() }));
+    const releaseEnv: NodeJS.ProcessEnv = { ...releaseStepEnv(root, env, plan.heading_date), NPM_PROJECT_PATH: root, RELEASE_TIMEZONE: timezone };
+    const prepared = runBashFixture(changelogStepScript(), { cwd: root, env: releaseEnv, encoding: "utf8" });
+    assert.equal(prepared.status, 0, prepared.stdout + prepared.stderr);
+    assert.match(readFileSync(join(root, "CHANGELOG.md"), "utf8"), /^## 2026\.10\.23 - 2026-10-24$/m);
+    commitPreparedRelease(root, env, merge);
+    execFileSync(process.execPath, [releaseEnv.CONTINUATION_SCRIPT!, "heading-date"], { cwd: root, env: releaseEnv });
+    execFileSync("git", ["tag", plan.tag], { cwd: root, env });
+    execFileSync("npm", ["run", "changelog:check"], { cwd: root, env: releaseEnv });
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("preparation and continuation audit the generator reached through Bun and pnpm forwards", () => {

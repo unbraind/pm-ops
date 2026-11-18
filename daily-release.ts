@@ -1,7 +1,7 @@
 /** Pure release planning shared by the reusable workflow and its regression suite. */
 import { tokenize } from "./docstrings.ts";
 import { npmVersionToTag } from "./release-completeness.ts";
-import { isRealCalendarDay } from "./release-changelog-options.ts";
+import { isRealCalendarDay, releaseCommitDay } from "./release-changelog-options.ts";
 
 /** GitHub CLI facts used to decide whether this workflow owns an open PR. */
 export interface ReleasePullRequest {
@@ -25,6 +25,8 @@ export interface DailyReleaseInput {
   lastRelease: { tag: string; sha: string } | null;
   /** Calendar day in the configured release timezone, padded or unpadded. */
   today: string;
+  /** Expected GitHub squash commit timestamp, required when planning a heading pin. */
+  expectedCommitTimestamp?: string;
   /** Tree comparison catches an empty or reverted commit since the tag. */
   hasChanges: boolean;
   /** Every release tag reachable from main, including older spelling variants. */
@@ -51,13 +53,6 @@ function calendarDay(coordinate: string): [number, number, number] | null {
   const day: [number, number, number] = [Number(match[1]), Number(match[2]), Number(match[3])];
   if (!isRealCalendarDay(isoDay(day))) throw new Error(`Invalid calendar day in release coordinate ${JSON.stringify(coordinate)}`);
   return day;
-}
-
-/** Compare two calendar days numerically, so unpadded coordinates order correctly. */
-function dayBefore(earlier: [number, number, number], later: [number, number, number]): boolean {
-  return earlier[0] !== later[0] ? earlier[0] < later[0]
-    : earlier[1] !== later[1] ? earlier[1] < later[1]
-    : earlier[2] < later[2];
 }
 
 /** Format an already parsed calendar day as the generator's padded ISO heading date. */
@@ -96,10 +91,10 @@ export function decideDailyRelease(input: DailyReleaseInput) {
   const version = input.packageVersion ?? pending ?? releaseVersion(input.today);
   const tag = npmVersionToTag(version);
   const versionDay = calendarDay(version);
+  // Validate the scheduling coordinate independently of the expected commit day.
   const todayDay = calendarDay(input.today);
-  // A resumed version's own day has already passed, so the release step tags it
-  // today and the changelog committed at prepare must carry the same day.
-  const headingDate = versionDay !== null && todayDay !== null && dayBefore(versionDay, todayDay) ? isoDay(todayDay) : "";
+  const commitDay = input.expectedCommitTimestamp === undefined ? "" : releaseCommitDay(input.expectedCommitTimestamp);
+  const headingDate = versionDay && todayDay && isoDay(versionDay) !== commitDay ? commitDay : "";
   const releasedToday = input.publishedToday === true || input.releaseTags.some(tag => releaseVersion(tag) === releaseVersion(input.today));
   const versionExists = input.releaseTags.some(tag => releaseCoordinate(tag) === releaseCoordinate(version));
   const shouldRelease = !releasedToday && !versionExists && input.hasChanges && input.lastRelease?.sha !== input.mainSha;

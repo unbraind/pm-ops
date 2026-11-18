@@ -96,7 +96,9 @@ export function parseReleaseHook(text) {
         let fixedName;
         while (i < text.length) {
             const char = text[i];
-            if (!quote && /[\s;&|]/.test(char))
+            // Descriptor duplication is part of this redirection word, even before a pipe.
+            const descriptor = !quoted && char === "&" && /^[0-9]*[<>]>?$/.test(value);
+            if (!quote && !descriptor && /[\s;&|]/.test(char))
                 break;
             i++;
             if (char === quote) {

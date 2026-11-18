@@ -100,6 +100,8 @@ interface ExecutableShellBody {
     raw: string;
     /** One-based physical line at the beginning of the extent. */
     line: number;
+    /** Effective workflow step directory, including inherited run defaults. */
+    workingDirectory?: unknown;
 }
 /** Extract structured commands together with their original scalar source ranges. */
 export declare function executableShellBodies(source: SourceFile): ExecutableShellBody[];

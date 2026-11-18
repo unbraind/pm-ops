@@ -14,6 +14,7 @@ import { mentionsGenerator, hookSyntaxProblem, literalOptionName, parseReleaseHo
 export const DATE_FLAG = "--date-from-version";
 /** The option that pins the heading day of a resumed release. */
 export const FALLBACK_DATE_FLAG = "--date-fallback";
+const OVERRIDE_DATE_FLAG = "--date";
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 /** Match executables and registry package specifiers left by package runner prefixes. */
 const GENERATOR_TARGET = /^pm-changelog@[^/]+$|(?:^|\/)(?:pm-changelog(?:\.ts)?|dist\/cli\.js)$/;
@@ -45,7 +46,7 @@ const PACKAGE_ADMIN_COMMANDS = new Set([
 const DATA_CONSUMERS = new Set(["echo", "printf", "test", "[", "[[", "command", "which", "type", "ls", "grep"]);
 /** Options that accept a separate operand in the pinned pm-changelog CLI. */
 const VALUE_OPTIONS = new Set([
-    "--audit-receipts", "-i", "-o", "--body-preview", "--date", FALLBACK_DATE_FLAG, "--exclude-tag", "--exclude-tags",
+    "--audit-receipts", "-i", "-o", "--body-preview", OVERRIDE_DATE_FLAG, FALLBACK_DATE_FLAG, "--exclude-tag", "--exclude-tags",
     "--format", "--group-by", "--input", "--item-ref-style", "--item-url-base", "--limit", "--mode", "--output",
     "--pm-arg", "--pm-bin", "--pm-cwd", "--pm-root", "--release-tag-pattern", "--release-version", "--entry-from",
     "--section-by", "--since", "--since-version", "--status", "--statuses", "--title", "--until", "--version",
@@ -55,10 +56,19 @@ const MAX_SCRIPT_FORWARDS = 8;
 const RETIRE_UNPUBLISHED = "Refusing to publish. Manually dispatch the workflow with retire-unpublished set to retire the unpublished candidate.";
 /** Whether a YYYY-MM-DD string names an existing day, including years 0–99. */
 export function isRealCalendarDay(day) {
+    if (!ISO_DAY.test(day))
+        return false;
     const [year, month, date] = day.split("-").map(Number);
     const round = new Date(0);
     round.setUTCFullYear(year, month - 1, date);
     return round.getUTCFullYear() === year && round.getUTCMonth() === month - 1 && round.getUTCDate() === date;
+}
+/** Mirror pm-changelog by preserving the date prefix of the committer timestamp. */
+export function releaseCommitDay(timestamp) {
+    const day = timestamp.slice(0, 10);
+    if (!isRealCalendarDay(day))
+        throw new Error("Expected a committer timestamp with a real YYYY-MM-DD day");
+    return day;
 }
 /** Recognize package-manager commands that run a script in the same manifest. */
 function isScriptForward(program, subcommand) {
@@ -227,6 +237,9 @@ function changelogInvocation(words, scriptNames, audit = false) {
         if (file && !file.unresolved && GENERATOR_TARGET.test(file.value))
             return parameters.slice(index);
     }
+    if (name === "npm" && subcommand?.value === "exec" && mentions) {
+        refuseHook("Unsupported npm exec options before pm-changelog. Use npm exec -- pm-changelog in the current project");
+    }
     if (name === "command") {
         const lookup = parameters.find(word => word.value !== "-p");
         if (/^-p*[vV][pvV]*$/.test(lookup.value))
@@ -268,6 +281,15 @@ class HookScriptNames extends Set {
         });
     }
 }
+/** Whether a non-root step could run a generator or delegate to its local package scripts. */
+export function needsReleaseProject(words) {
+    const invocation = releaseHookCommand(words);
+    if (!invocation)
+        return false;
+    const [program, ...args] = invocation;
+    const forward = scriptForward(basename(program.value), args);
+    return forward?.target !== undefined || changelogInvocation(words) !== undefined;
+}
 /** Read generator arguments during an audit, where only declared forwards are trusted. */
 export function changelogArguments(words, scriptNames) {
     return changelogInvocation(words, scriptNames, true)?.slice(1);
@@ -284,7 +306,7 @@ function commandReceivingArguments(text, commands, spans) {
     return commands.find(words => spans.get(words[0])?.start === start);
 }
 /** Scan local scripts in invocation order and join forwarded argv at its actual destination. */
-export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved) {
+export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, entryPoints = new Set()) {
     const names = new HookScriptNames(scripts);
     const targeted = new Set();
     const parsed = new Map([...scripts].map(([name, text]) => {
@@ -380,8 +402,10 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved) 
         }
     }
     for (const name of names) {
-        if (!targeted.has(name))
-            visit(name, [], []);
+        if (entryPoints.has(name) || !targeted.has(name)) {
+            for (const entry of scriptSequence(name, names, entryPoints.has(name)))
+                visit(entry, [], []);
+        }
     }
     // A disconnected cycle has no root. Its own commands still need auditing.
     for (const name of names) {
@@ -405,6 +429,12 @@ export function readReleaseDateOptions(args) {
     const options = [];
     for (const index of optionPositions(args)) {
         const token = args[index];
+        const flag = token.value.split("=", 1)[0];
+        if (flag === OVERRIDE_DATE_FLAG)
+            refuseHook("Explicit --date overrides the release heading. Remove --date and use a single release date policy");
+        if ((flag === "--version" || flag === "--release-version") && (token.unresolved || (token.value === flag && args[index + 1]?.unresolved))) {
+            refuseHook(`Unresolved ${flag} operand. Use --release-version-from-package or supply a literal release version`);
+        }
         if (VALUE_OPTIONS.has(token.value) && args[index + 1]?.multipleWords) {
             refuseHook(`Unquoted or multiword expansion in the operand of ${token.value}`);
         }
@@ -438,7 +468,7 @@ export function readReleaseDateOptions(args) {
 }
 /** Validate date options on the effective generator argv before editing or checking the heading. */
 function hookDateOptions(args) {
-    if (!hasVersionInput(args) && !args.some(({ value }) => value.startsWith("--date-")))
+    if (!hasVersionInput(args) && !args.some(({ value }) => /^--date(?:[-=]|$)/.test(value)))
         return [];
     const options = readReleaseDateOptions(args);
     if (!options.length)
@@ -518,8 +548,15 @@ export function includeEmptyReleaseSections(script, scriptNames) {
     }
     return applyHookEdits(script, edits.values());
 }
+/** An empty replacement restores the standing version policy. */
+function validateReplacementDay(headingDate) {
+    if (headingDate && !isRealCalendarDay(headingDate)) {
+        refuseHook("Release heading date must be a real YYYY-MM-DD day, received " + JSON.stringify(headingDate));
+    }
+}
 /** Refresh the inline pins, or restore the standing policy for a current version. */
 export function rewriteReleaseHeadingDate(script, headingDate, scriptNames) {
+    validateReplacementDay(headingDate);
     const { commands, spans } = parseReleaseHook(script);
     const source = { text: script, spans, edits: new Map() };
     rewriteDateOptions(commands.flatMap(words => hookDateOptions(changelogInvocation(words, scriptNames)?.slice(1) ?? [])), headingDate, () => source);
@@ -549,6 +586,7 @@ function rewriteDateOptions(options, headingDate, sourceOf) {
 }
 /** Rewrite all heading options received by the manifest's resolved release hooks. */
 export function rewriteReleaseHookDates(scripts, hooks, headingDate) {
+    validateReplacementDay(headingDate);
     const sources = new Map();
     const owners = new WeakMap();
     visitChangelogScriptCommands(scripts, ({ name, names, text, spans, words, effective, forwardedSeparators }) => {

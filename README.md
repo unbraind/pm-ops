@@ -678,7 +678,9 @@ can contain spaces, newlines, a literal `#`, or an operator.
 - Run `pm-changelog` directly, by executable path, or through the repository's
   `node scripts/pm-changelog.ts` adapter or generator entry point `node dist/cli.js`.
   A versioned invocation takes exactly one kind of date policy,
-  `--date-from-version` or `--date-fallback YYYY-MM-DD`.
+  `--date-from-version` or `--date-fallback YYYY-MM-DD`. Supply a literal
+  release version or use `--release-version-from-package`. An explicit
+  `--date` override is refused for versioned release hooks.
 - Forward to a literal local script with `npm run [--if-present] <script> -- <args>`,
   the npm or pnpm `run-script` alias, `bun run`, or `pnpm run`. npm runs enabled
   `pre<script>` and `post<script>` around the main script. Only the main
@@ -686,13 +688,17 @@ can contain spaces, newlines, a literal `#`, or an operator.
   disables its lifecycle siblings, including in nested npm calls. Bun forwards also cover
   declared pre/post writers. A pnpm forward with an implicit generator writer
   requires an explicit npm forward because pnpm lifecycle execution is configurable.
-  Keep the current project directory and place forwarded npm arguments after `--`.
+  Run workflow hooks from the root package directory and place forwarded npm
+  arguments after `--`. The date verifier refuses generators and literal script
+  forwards in steps with a non-root working directory.
 - Recognized execution prefixes are `timeout`, `nice`, `env`, `command`,
   `exec`, `stdbuf`, `time`, `npx`, `bunx`, `bun x` and `npm exec`.
   For example, `timeout "--signal" TERM 60 npm run changelog:full` has the
-  same generator and arguments as the unwrapped script.
+  same generator and arguments as the unwrapped script. Project selectors such
+  as `npm exec --workspace=docs` are refused.
 - Separate commands with `&&`, `||`, `;` or a newline. Pipelines into ordinary output filters such as `awk` and `sed` are
-  checked by stage. Piping generator commands or text into an opaque executable is refused. File checks such as `test` and `[`, command lookups
+  checked by stage, including descriptor duplication such as `2>&1 | grep Release`.
+  Piping generator commands or text into an opaque executable is refused. File checks such as `test` and `[`, command lookups
   such as `command -v`, printed text and package administration are data.
   The date verifier skips direct generator commands without a version input.
 

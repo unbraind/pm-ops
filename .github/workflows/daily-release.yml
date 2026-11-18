@@ -462,8 +462,11 @@ jobs:
             const {latestReleaseTag}=createRequire(import.meta.url)(process.env.PM_OPS_MODULE);
             process.stdout.write(latestReleaseTag(readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean)));
           ' "$tags_file")"
-          RELEASE_TODAY="$(TZ="$RELEASE_TIMEZONE" date +%Y.%m.%d)"
-          export RELEASE_TODAY
+          # GitHub creates squash commits with UTC committer timestamps. Sample
+          # once so the scheduling day and expected commit day use one instant.
+          RELEASE_COMMIT_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          RELEASE_TODAY="$(TZ="$RELEASE_TIMEZONE" date -d "$RELEASE_COMMIT_TIMESTAMP" +%Y.%m.%d)"
+          export RELEASE_TODAY RELEASE_COMMIT_TIMESTAMP
           RELEASE_MAIN_SHA="$(git rev-parse HEAD)"
           export RELEASE_MAIN_SHA
           export RELEASE_LAST_TAG="$latest_tag"
@@ -527,6 +530,7 @@ jobs:
           if (prs.length >= 1000) throw new Error('PR candidate read may be truncated; refusing release');
           const plan = decideDailyRelease({
             existingPrs: prs, mainSha: e.RELEASE_MAIN_SHA, today: e.RELEASE_TODAY,
+            expectedCommitTimestamp: e.RELEASE_COMMIT_TIMESTAMP,
             packageVersion: e.RELEASE_PACKAGE_VERSION || undefined, publishedToday: e.RELEASE_PUBLISHED_TODAY === 'true',
             currentPackageVersion: e.RELEASE_CURRENT_PACKAGE_VERSION || undefined,
             registryHasCurrentVersion: e.RELEASE_REGISTRY_HAS_CURRENT_VERSION === 'true',
@@ -534,10 +538,12 @@ jobs:
             releaseTags: readFileSync(process.argv[3], 'utf8').split('\n').filter(Boolean),
             lastRelease: e.RELEASE_LAST_TAG ? { tag: e.RELEASE_LAST_TAG, sha: e.RELEASE_LAST_SHA } : null,
           });
-          // A stale installed dist must never silently omit the resumed date.
-          const isoDay = value => value.replace(/^v/, '').split('-')[0].split('.').map((part, i) => part.padStart(i === 0 ? 4 : 2, '0')).join('-');
-          if (plan.should_release && isoDay(plan.npm_version) < isoDay(e.RELEASE_TODAY) && !plan.heading_date) {
-            throw new Error('Resumed release decision returned no heading_date; rebuild or upgrade the release tools before preparing.');
+          // Refuse an installed planner that still pins the scheduling day.
+          const versionDay = plan.npm_version.replace(/^v/, '').split('-')[0].split('.').map(part => part.padStart(2, '0')).join('-');
+          const commitDay = e.RELEASE_COMMIT_TIMESTAMP.slice(0, 10);
+          const expectedPin = versionDay === commitDay ? '' : commitDay;
+          if (plan.should_release && (plan.heading_date ?? '') !== expectedPin) {
+            throw new Error('Release decision returned an incorrect heading_date; rebuild or upgrade the release tools before preparing.');
           }
           for (const [key, value] of Object.entries(plan)) console.log(key + '=' + value);
           NODE

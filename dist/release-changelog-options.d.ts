@@ -9,8 +9,12 @@ export declare const VERSION_INPUTS: readonly ["--release-version-from-package",
 export declare function hasVersionInput(args: readonly ShellToken[]): boolean;
 /** Whether a YYYY-MM-DD string names an existing day, including years 0–99. */
 export declare function isRealCalendarDay(day: string): boolean;
+/** Mirror pm-changelog by preserving the date prefix of the committer timestamp. */
+export declare function releaseCommitDay(timestamp: string): string;
 /** Resolve the same invocation graph used by preparation and continuation, including comment-only hooks. */
 export declare function resolveChangelogHooks(scripts: Record<string, unknown> | undefined, hooks: readonly string[]): Map<string, string>;
+/** Whether a non-root step could run a generator or delegate to its local package scripts. */
+export declare function needsReleaseProject(words: ShellCommand): boolean;
 /** Read generator arguments during an audit, where only declared forwards are trusted. */
 export declare function changelogArguments(words: ShellCommand, scriptNames: ReadonlySet<string>): ShellToken[] | undefined;
 /** One command in a decoded manifest script, with its source and effective argv. */
@@ -31,7 +35,7 @@ export interface ChangelogScriptCommand {
     spans: WeakMap<ShellToken, ShellTokenSpan>;
 }
 /** Scan local scripts in invocation order and join forwarded argv at its actual destination. */
-export declare function visitChangelogScriptCommands(scripts: ReadonlyMap<string, string>, inspect: (entry: ChangelogScriptCommand) => void, hooks?: readonly string[], resolved?: Map<string, string>): void;
+export declare function visitChangelogScriptCommands(scripts: ReadonlyMap<string, string>, inspect: (entry: ChangelogScriptCommand) => void, hooks?: readonly string[], resolved?: Map<string, string>, entryPoints?: ReadonlySet<string>): void;
 type DateOption = {
     kind: "version";
     first: ShellToken;

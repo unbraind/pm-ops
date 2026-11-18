@@ -197,7 +197,7 @@ test("prepare rejects obsolete tracked tools and leaves the candidate checkout a
   const git = (...args: string[]) => execFileSync("git", args, { cwd: trusted });
   git("init", "-q");
   git("add", "--", "dist/tool.js");
-  git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "Reproducible output");
+  git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--no-gpg-sign", "-qm", "Reproducible output");
   // npm exec exports its own project's allow-scripts setting. The Actions
   // step installs a separate checkout, where npm rejects that inherited flag.
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "npm_config_allow_scripts"));
@@ -979,7 +979,7 @@ test("publication provenance expectation comes from the executing job independen
 });
 
 
-test("decision fails closed when installed release tools omit a resumed heading_date", () => {
+test("decision checks the expected commit day even when the configured release calendar is a day ahead", () => {
   const root = mkdtempSync(join(tmpdir(), "release-heading-decision-"));
   try {
     const module = join(root, "decision.cjs"), output = join(root, "output");
@@ -988,18 +988,21 @@ test("decision fails closed when installed release tools omit a resumed heading_
     const plan = step("Decide release").run;
     const decision = plan.slice(plan.indexOf('node --input-type=module - "$release_prs_file"'));
     for (const [version, heading, release, pass] of [
-      ["2026.10.24", undefined, true, false], ["2026.10.24", "", true, false],
-      ["2026.10.24", "2026-10-25", true, true], ["2026.10.25", undefined, true, true],
-      ["2026.10.24", undefined, false, true],
+      ["2026.10.23", undefined, true, false], ["2026.10.23", "", true, false],
+      ["2026.10.23", "2026-10-25", true, false], ["2026.10.23", "2026-10-24", true, true],
+      ["2026.10.24", undefined, true, true], ["2026.10.25", "2026-10-24", true, true],
+      ["2026.10.23", undefined, false, true],
     ] as const) {
-      writeFileSync(module, "exports.decideDailyRelease = () => (" + JSON.stringify({ npm_version: version, heading_date: heading, should_release: release }) + ");");
+      writeFileSync(module, "exports.decideDailyRelease = facts => { if (facts.expectedCommitTimestamp !== '2026-10-24T23:30:00Z') throw Error('missing committer timestamp'); return "
+        + JSON.stringify({ npm_version: version, heading_date: heading, should_release: release }) + "; };");
       writeFileSync(output, "");
       const result = runBashFixture('release_prs_file="$PR_FILE"\ntags_file="$TAG_FILE"\n' + decision, { cwd: root, encoding: "utf8", env: {
-        ...process.env, PM_OPS_MODULE: module, PR_FILE: join(root, "prs.json"), TAG_FILE: join(root, "tags"), GITHUB_OUTPUT: output, RELEASE_TODAY: "2026.10.25",
+        ...process.env, PM_OPS_MODULE: module, PR_FILE: join(root, "prs.json"), TAG_FILE: join(root, "tags"), GITHUB_OUTPUT: output,
+        RELEASE_TODAY: "2026.10.25", RELEASE_COMMIT_TIMESTAMP: "2026-10-24T23:30:00Z",
       } });
       assert.equal(result.status === 0, pass, result.stdout + result.stderr);
       if (!pass) {
-        assert.match(result.stderr, /Resumed release decision returned no heading_date/);
+        assert.match(result.stderr, /Release decision returned an incorrect heading_date/);
         assert.equal(readFileSync(output, "utf8"), "", "no partial decision may escape");
       }
     }
@@ -1039,7 +1042,7 @@ test("continuation enforces the merge day before publish and still tags after mi
         version: "2026.10.23-2", scripts: { changelog: `pm-changelog --release-version-from-package ${dateOption}` },
       }));
       git("add", "package.json");
-      git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "Verified merge");
+      git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--no-gpg-sign", "--quiet", "-m", "Verified merge");
       const verified = git("rev-parse", "HEAD");
       git("remote", "add", "origin", remote);
       git("push", "--quiet", "origin", "HEAD:refs/heads/main");

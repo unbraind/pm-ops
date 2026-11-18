@@ -62,15 +62,13 @@ test("only generator commands with a version input are audited", () => {
 });
 
 test("an invocation naming the pending tag is caught, not skipped", () => {
-  // The regression Greptile found: the scan matched only the package-derived
-  // spelling, so a workflow passing --version "$RELEASE_TAG" was invisible and
-  // its missing flag went unreported.
+  // An unresolved release coordinate must produce a refusal before a PR is prepared.
   const result = auditInvocations([{
     file: ".github/workflows/release.yml",
     text: workflowRun('pm-changelog --pm-root .agents/pm --all-release-tags --version "$RELEASE_TAG" --mode replace'),
   }]);
   assert.equal(result.failures.length, 1);
-  assert.match(result.failures[0], /carries a version input but neither --date-from-version nor a pinned --date-fallback/);
+  assert.match(result.failures[0], /Unresolved --version operand.*--release-version-from-package/);
 });
 
 test("a resumed release's pinned --date-fallback day is accepted, and only with an explicit day", () => {
@@ -172,7 +170,6 @@ test("package administration and quoted values on fixed non-date options are acc
     'yarn add --dev pm-changelog',
     'bun add --dev pm-changelog',
     `${FLAGGED} --item-url-base="$ITEM_URL_BASE" && npm`,
-    'pm-changelog --version="$VERSION" --date-from-version',
   ].join("\n");
   assert.deepEqual(auditInvocations([{ file: "package.json", text: manifest(text) }]).failures, []);
   for (const command of ['npm$(printf x) install pm-changelog', 'npm install$(printf x) pm-changelog', 'npm run pm-changelog']) {
@@ -199,6 +196,40 @@ test("the date verifier audits a declared generator script and refuses ambiguous
   assert.match(auditInvocations([manifest('npm run "pm-changelog-$TARGET"', FLAGGED)]).failures[0], /unrecognized wrapper/i);
   assert.match(auditInvocations([manifest("npm run pm-changelog", " ")]).failures[0], /unrecognized wrapper/i);
   assert.equal(auditInvocations([manifest("npm run pm-changelog", "pm-changelog --release-version-from-package")]).failures.length, 1);
+});
+
+test("configured release hooks are audited when called without another script's arguments", () => {
+  const source = (name: string) => ({ file: "package.json", text: JSON.stringify({ scripts: {
+    preview: `npm run ${name} -- --date-from-version`,
+    [name]: "pm-changelog --release-version-from-package",
+  } }) });
+  assert.match(auditInvocations([source("changelog:full")]).failures[0], /neither --date-from-version/);
+  assert.deepEqual(auditInvocations([source("render")]).failures, []);
+  const caller = { file: ".github/workflows/release.yml", text: [
+    "jobs:",
+    "  release:",
+    "    uses: owner/package/.github/workflows/daily-release.yml@main",
+    "    with:",
+    "      changelog-script: render",
+  ].join("\n") };
+  assert.match(auditInvocations([source("render"), caller]).failures[0], /neither --date-from-version/);
+});
+
+test("non-root workflow steps refuse local forwards and direct generators without resolving the root manifest", () => {
+  const file = ".github/workflows/release.yml";
+  const source = { file: "package.json", text: JSON.stringify({ scripts: { changes: FLAGGED } }) };
+  const step = workflowRun("npm run changes").replace("        run:", "        working-directory: docs\n        run:");
+  const jobDefault = workflowRun("npm run nested-only").replace("    steps:", "    defaults: { run: { working-directory: docs } }\n    steps:");
+  const workflowDefault = "defaults: { run: { working-directory: docs } }\n" + workflowRun(FLAGGED);
+  for (const text of [step, jobDefault, workflowDefault]) {
+    const result = auditInvocations([source, { file, text }]);
+    assert.equal(result.failures.length, 1);
+    assert.match(result.failures[0], /working-directory "docs".*root package directory/);
+  }
+  for (const text of [workflowRun("npm run changes"), step.replace("working-directory: docs", "working-directory: ./")]) {
+    assert.deepEqual(auditInvocations([source, { file, text }]).failures, []);
+  }
+  assert.deepEqual(auditInvocations([source, { file, text: step.replace("npm run changes", "echo done") }]).failures, []);
 });
 
 test("a pinned --date-fallback day must exist on the calendar, not merely be shaped like one", () => {

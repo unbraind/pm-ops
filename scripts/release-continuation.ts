@@ -3,7 +3,7 @@ import { execFileSync } from "../subprocess.ts";
 import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { assertReleaseHookHeadingDate, resolveChangelogHooks } from "../release-changelog-options.ts";
+import { assertReleaseHookHeadingDate, releaseCommitDay, resolveChangelogHooks } from "../release-changelog-options.ts";
 import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "./release-runtime.ts";
 import { originalPublicationSigner, verifyRegistryProvenance, type ProvenanceIdentity, type verifySigstoreBundle } from "../release-provenance.ts";
 import { pathToFileURL } from "node:url";
@@ -434,7 +434,7 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
     const commitTimestamp = execFileSync("git", ["log", "-1", "--format=%cI", "HEAD"], { cwd: required("NPM_PROJECT_PATH"), encoding: "utf8" }).trim();
     // pm-changelog 2026.11.6: dist/release-context.js:496,554-558.
     // Preserve the committer offset by taking the literal date prefix.
-    assertReleaseHookHeadingDate(scripts, hooks, commitTimestamp.slice(0, 10), pkg.version);
+    assertReleaseHookHeadingDate(scripts, hooks, releaseCommitDay(commitTimestamp), pkg.version);
     return;
   }
   if (mode === "tools") {

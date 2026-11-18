@@ -47,7 +47,7 @@ test("npm runs the prepared pre/main/post hooks with separate argument lists", t
   const hook = "changelog:full";
   const env = { ...process.env, CHANGELOG_SCRIPT: hook, CHANGELOG_CHECK_SCRIPT: hook, NOTES_SCRIPT: hook, RELEASE_HEADING_DATE: day };
   execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env });
-  execFileSync("npm", ["run", hook], { cwd: root, env });
+  execFileSync("npm", ["run", "--ignore-scripts=false", hook], { cwd: root, env: { ...env, npm_config_ignore_scripts: "false" } });
   const calls: string[][] = readFileSync(join(root, "calls"), "utf8").trim().split("\n").map(line => JSON.parse(line));
   assert.deepEqual(calls.map(args => args.includes("--title") ? args[args.indexOf("--title") + 1] : "writer"),
     ["writer", "pre", "main", "post", "relay"]);
@@ -169,8 +169,19 @@ test("npm lifecycle controls respect option order and stop at the argument delim
   }
 });
 
-test("opaque argv expansion and descriptor operators cannot conceal a versioned generator", () => {
-  for (const arg of ["--da*", "--title=\"$@\"", "--date-from-version 2>&1 --date-fallback 2026-11-17"]) {
+test("a descriptor duplication stays with its command before an output-filter pipeline", () => {
+  const valid = "pm-changelog " + standing + " 2>&1 | grep Release";
+  assert.deepEqual(auditInvocations([workflow(valid)]).failures, []);
+  assert.equal(rewriteReleaseHookDates(new Map([["hook", valid]]), ["hook"], day).get("hook"),
+    "pm-changelog --release-version-from-package --date-fallback 2026-11-17 2>&1 | grep Release");
+  assert.deepEqual(auditInvocations([workflow(valid.replace(standing + " 2>&1", "2>&10 " + standing))]).failures, []);
+  const conflicting = valid.replace("2>&1", "2>&1 --date-fallback 2026-11-17");
+  assert.match(auditInvocations([workflow(conflicting)]).failures[0], /Mutually exclusive/);
+  assert.match(auditInvocations([workflow("pm-changelog " + standing + " & grep Release")]).failures[0], /background/);
+});
+
+test("opaque argv expansion cannot conceal a versioned generator", () => {
+  for (const arg of ["--da*", "--title=\"$@\""]) {
     const result = auditInvocations([workflow("pm-changelog " + standing + " " + arg)]);
     assert.equal(result.failures.length, 1);
     assert.match(result.failures[0], /Use a direct pm-changelog/);
@@ -184,8 +195,44 @@ test("continuation compares the version actually supplied to the generator", () 
     assert.throws(() => check(version), /2026-11-16 differs.*retire-unpublished/);
   }
   assert.throws(() => check("--version"), /valid calendar version/);
-  assert.throws(() => check('--version "$TAG"'), /valid calendar version/);
+  for (const version of ['--version "$TAG"', '--version="$TAG"', '--release-version "$TAG"']) {
+    assert.throws(() => check(version), /Unresolved .* operand.*--release-version-from-package/);
+  }
   assert.throws(() => check("--title $TITLE --release-version-from-package"), /multiword expansion/);
+});
+
+test("preparation and continuation refuse date overrides and alternate npm exec projects", () => {
+  for (const [command, diagnostic] of [
+    ["pm-changelog " + standing + " --date 2026-11-16", /Explicit --date overrides/],
+    ["pm-changelog --version 2026.11.16 --date-fallback 2026-11-17 --date=2026-11-16", /Explicit --date overrides/],
+    ['pm-changelog --version "$npm_package_version" --date-fallback 2026-11-17', /Unresolved --version operand/],
+    ["npm exec --workspace=docs -- pm-changelog " + standing, /Unsupported npm exec options/],
+    ["npm exec -w docs -- pm-changelog " + standing, /Unsupported npm exec options/],
+    ["npm exec --prefix=docs -- pm-changelog " + standing, /Unsupported npm exec options/],
+    ["npm exec --workspaces -- pm-changelog " + standing, /Unsupported npm exec options/],
+  ] as const) {
+    const scripts = new Map([["hook", command]]);
+    assert.throws(() => rewriteReleaseHookDates(scripts, ["hook"], day), diagnostic);
+    assert.throws(() => assertReleaseHookHeadingDate(scripts, ["hook"], day, "2026.11.17"), diagnostic);
+    assert.match(auditInvocations([workflow(command)]).failures[0], diagnostic);
+  }
+  assert.doesNotThrow(() => assertReleaseHookHeadingDate(
+    new Map([["hook", "npm exec -- pm-changelog " + standing]]), ["hook"], day, "2026.11.17"));
+});
+
+test("preparation refuses an invalid replacement before changing any manifest script", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-hook-invalid-date-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const scripts = { hook: "pm-changelog " + standing };
+  const manifest = join(root, "package.json");
+  const before = JSON.stringify({ version: "2026.11.17", scripts });
+  writeFileSync(manifest, before);
+  const env = { ...process.env, CHANGELOG_SCRIPT: "hook", CHANGELOG_CHECK_SCRIPT: "hook", NOTES_SCRIPT: "hook" };
+  const command = [resolve("scripts/prepare-release-changelog.ts")];
+  assert.throws(() => execFileSync(process.execPath, command, { cwd: root, env: { ...env, RELEASE_HEADING_DATE: "2026-02-30" }, stdio: "pipe" }), /real YYYY-MM-DD day/);
+  assert.equal(readFileSync(manifest, "utf8"), before);
+  execFileSync(process.execPath, command, { cwd: root, env: { ...env, RELEASE_HEADING_DATE: day } });
+  assert.match(JSON.parse(readFileSync(manifest, "utf8")).scripts.hook, /--date-fallback 2026-11-17/);
 });
 
 test("indirect executable and argv bindings cannot hide a release command behind a passing sibling", () => {
