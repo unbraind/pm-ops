@@ -181,9 +181,26 @@ function scriptReferenceWords(words) {
     const nested = words.flatMap(word => word.value.split(/[^\w.:-]+/));
     return nested.some(word => SCRIPT_RUNNERS.has(word)) && nested.some(word => word === "run" || word === "run-script") ? nested : [];
 }
+/** Preserve exact script names in argv and in literal payloads of opaque commands. */
+function candidateScriptRunners(words) {
+    const commands = [words];
+    for (const command of commands) {
+        for (const word of command) {
+            if (word.quoted && !word.unresolved && /\b(?:npm|pnpm|bun)\b/.test(word.value)) {
+                commands.push(...parseReleaseHook(word.value).commands);
+            }
+        }
+    }
+    return commands.flatMap(command => command.flatMap((word, index) => !word.unresolved && SCRIPT_RUNNERS.has(basename(word.value)) ? [command.slice(index)] : []));
+}
 /** Follow script references even in a chain that contains opaque commands. */
 function referencesWriter(words, scriptNames, seen) {
-    return scriptNames instanceof HookScriptNames && scriptReferenceWords(words).some(word => scriptNames.mayInvoke(word, seen));
+    if (!(scriptNames instanceof HookScriptNames))
+        return false;
+    return candidateScriptRunners(words).some(([program, ...args]) => {
+        const target = scriptForward(basename(program.value), args, scriptNames)?.target;
+        return target !== undefined && scriptNames.mayInvoke(target, seen);
+    }) || scriptReferenceWords(words).some(word => scriptNames.mayInvoke(word, seen));
 }
 /** Recognize direct generator invocations and the supported Node/Bun adapters. */
 function generatorCommand(invocation) {
@@ -371,11 +388,10 @@ function maySelectUnresolvedScript(words, names) {
     const [program, ...parameters] = invocation;
     if (DATA_CONSUMERS.has(basename(program.value)) || isPackageAdmin(program, parameters))
         return false;
-    return words.some((word, index) => {
-        if (word.unresolved || !SCRIPT_RUNNERS.has(basename(word.value)))
-            return false;
-        const forward = scriptForward(basename(word.value), words.slice(index + 1), names);
-        return (forward?.target !== undefined && !names?.has(forward.target)) || runnerProjectOption(words.slice(index)) !== undefined;
+    return candidateScriptRunners(words).some(command => {
+        const [program, ...args] = command;
+        const forward = scriptForward(basename(program.value), args, names);
+        return (forward?.target !== undefined && !names?.has(forward.target)) || runnerProjectOption(command) !== undefined;
     });
 }
 /** Whether a non-root step could run a generator or delegate to its local package scripts. */

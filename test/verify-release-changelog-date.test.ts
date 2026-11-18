@@ -222,9 +222,10 @@ test("non-root workflow steps refuse local forwards and direct generators withou
   } }) };
   const step = workflowRun("npm run changes").replace("        run:", "        working-directory: docs\n        run:");
   const wrapped = step.replace("npm run changes", "nohup npm run first");
+  const payload = step.replace("npm run changes", "sh -c 'npm run first'");
   const jobDefault = workflowRun("npm run nested-only").replace("    steps:", "    defaults: { run: { working-directory: docs } }\n    steps:");
   const workflowDefault = "defaults: { run: { working-directory: docs } }\n" + workflowRun(FLAGGED);
-  for (const text of [step, wrapped, jobDefault, workflowDefault]) {
+  for (const text of [step, wrapped, payload, jobDefault, workflowDefault]) {
     const result = auditInvocations([source, { file, text }]);
     assert.equal(result.failures.length, 1);
     assert.match(result.failures[0], /working-directory "docs".*root package directory/);

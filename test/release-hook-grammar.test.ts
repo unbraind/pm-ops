@@ -223,8 +223,12 @@ test("preparation and continuation refuse date overrides and alternate npm exec 
 
 test("release hook context changes are refused once at the entry point and after two forwards", () => {
   const generator = "pm-changelog " + standing;
+  const writers = { relay: "npm run writer", writer: generator, "writer@docs": generator };
   for (const [command, construct] of [
     ["nohup npm run relay", "nohup"],
+    ["nohup npm run writer@docs", "nohup"],
+    ["nohup sh -c 'npm run writer@docs'", "nohup"],
+    ["nohup sh -c 'sh -c \"npm run writer@docs\"'", "nohup"],
     ["timeout 60 nohup npm run relay", "nohup"],
     ["env -u npm_config_ignore_scripts npm run relay", "env -u"],
     ["env --unset=npm_config_ignore_scripts npm run relay", "env --unset"],
@@ -252,8 +256,8 @@ test("release hook context changes are refused once at the entry point and after
   ]) {
     for (const nested of [false, true]) {
       const scripts = nested
-        ? { hook: "npm run first", first: "npm run second", second: command, relay: "npm run writer", writer: generator }
-        : { hook: command, relay: "npm run writer", writer: generator };
+        ? { hook: "npm run first", first: "npm run second", second: command, ...writers }
+        : { hook: command, ...writers };
       const map = new Map(Object.entries(scripts));
       const checkRefusal = (error: unknown) => error instanceof Error
         && error.message.includes(construct) && error.message.includes("Use a direct pm-changelog");
