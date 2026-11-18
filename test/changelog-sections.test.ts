@@ -400,9 +400,10 @@ test("prepare pins forwarded options and continuation refuses their stale merge 
     const filename = join(root, "package.json");
     const env = { ...releaseStepEnv(root, process.env, day), NPM_PROJECT_PATH: root };
     const scripts = {
-      "changelog:full": 'npm run changes -- "--date-from-version"',
+      "changelog:full": 'npm run preflight && npm run changes -- "--date-from-version"',
       "changelog:check": "bun run changes -- --date-from-version --check",
       "release:notes": "pnpm run notes -- --date-from-version",
+      preflight: "# No preparation needed in this package.",
       notes: "npm run changes -- --stdout",
       changes: "echo ready && pm-changelog --release-version-from-package",
     };
@@ -413,7 +414,7 @@ test("prepare pins forwarded options and continuation refuses their stale merge 
     const prepared = JSON.parse(readFileSync(filename, "utf8")).scripts as Record<string, string>;
     assert.deepEqual(prepared, {
       ...scripts,
-      "changelog:full": `npm run changes -- --date-fallback ${day}`,
+      "changelog:full": `npm run preflight && npm run changes -- --date-fallback ${day}`,
       "changelog:check": `bun run changes -- --date-fallback ${day} --check`,
       "release:notes": `pnpm run notes --date-fallback ${day}`,
       changes: scripts.changes + " --include-empty",

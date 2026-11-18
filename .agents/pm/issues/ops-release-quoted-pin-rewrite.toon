@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-18T07:47:23.215Z"
+updated_at: "2026-11-18T08:00:09.646Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -14,7 +14,7 @@ severity: high
 repro_steps: "Use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "The verifier accepts the shell option. The workflow leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[26]:
+comments[27]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -94,6 +94,9 @@ comments[26]:
   - created_at: "2026-11-18T07:46:31.790Z"
     author: codex-sol
     text: "Round BY: PRRT_kwDOTOTl1M640mQT maps to 495e0f6. Preparation pins the resolved generator arguments, and continuation refuses a stale forwarded day. npm, Bun and pnpm each delivered the correct pinned arguments in an isolated runner probe."
+  - created_at: "2026-11-18T08:00:08.541Z"
+    author: codex-sol
+    text: Coverage on 9ea587b ran 2041 tests with zero failures and two optional real-data skips. The only coverage miss was the preservation path for a comment-only forwarded hook. The extended preparation fixture now exercises that path.
 files[15]{path,scope}:
   .github/workflows/daily-release.yml,project
   release-changelog-options.ts,project
