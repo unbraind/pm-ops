@@ -17,8 +17,10 @@ const GENERATOR_TARGET = /^pm-changelog@[^/]+$|(?:^|\/)(?:pm-changelog(?:\.ts)?|
 const GENERATOR_LAUNCHERS = new Set(["node", "npx", "bun", "bunx"]);
 const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun"]);
 const SCRIPT_RUNNERS = new Set(["npm", "pnpm", "bun"]);
-const NPM_LOCAL_RUN_SWITCH = /^(?:-[sqd]|-dd|-ddd|--silent|--quiet|--verbose|--(?:no-)?(?:if-present|ignore-scripts|foreground-scripts)(?:=(?:true|false))?)$/;
+const NPM_LOCAL_RUN_SWITCH = /^(?:-[sq]|-d{1,3}|--silent|--quiet|--verbose|--(?:no-)?(?:ignore-scripts|foreground-scripts)(?:=(?:true|false))?)$/;
 const NPM_LOG_LEVEL = /^(?:silent|error|warn|notice|http|info|verbose|silly)$/;
+const NPM_IF_PRESENT = /^--(no-)?if-present(?:=(true|false))?$/;
+const BOOLEAN_VALUE = /^(?:true|false)$/;
 const PACKAGE_ADMIN_COMMANDS = new Set([
   "add", "audit", "ci", "dedupe", "explain", "i", "info", "install", "list", "ls", "outdated",
   "remove", "rm", "search", "show", "uninstall", "update", "upgrade", "view", "why",
@@ -40,29 +42,47 @@ function isScriptForward(program: string, subcommand: string | undefined): boole
   return (subcommand === "run" && SCRIPT_RUNNERS.has(program)) || (program === "npm" && subcommand === "run-script");
 }
 
-/** Skip npm switches that leave the selected script in the current manifest. */
-function afterNpmRunOptions(tokens: readonly ShellToken[], start: number): number {
+/** Skip local npm switches and retain the last explicit optional-script setting. */
+function afterNpmRunOptions(tokens: readonly ShellToken[], start: number, optional = false): { index: number; optional: boolean } {
   let index = start;
   for (;;) {
     const option = tokens[index];
-    if (!option || option.unresolved) return index;
-    if (NPM_LOCAL_RUN_SWITCH.test(option.value)
+    if (!option || option.unresolved) return { index, optional };
+    const ifPresent = NPM_IF_PRESENT.exec(option.value);
+    if (ifPresent) {
+      let value = ifPresent[2];
+      const operand = tokens[index + 1]?.value;
+      if (value === undefined && BOOLEAN_VALUE.test(operand ?? "")) {
+        value = operand;
+        index++;
+      }
+      const enabled = value !== "false";
+      optional = ifPresent[1] ? !enabled : enabled;
+      index++;
+    } else if (NPM_LOCAL_RUN_SWITCH.test(option.value)
       || (option.value.startsWith("--loglevel=") && NPM_LOG_LEVEL.test(option.value.slice("--loglevel=".length)))) {
       index++;
     } else if (option.value === "--loglevel" && NPM_LOG_LEVEL.test(tokens[index + 1]?.value ?? "")) {
       index += 2;
     } else {
-      return index;
+      return { index, optional };
     }
   }
 }
 
-/** Locate the literal target of a package-script forward, including a missing target. */
-function scriptForward(program: string, parameters: readonly ShellToken[]): { target: ShellToken | undefined } | undefined {
-  const subcommand = program === "npm" ? afterNpmRunOptions(parameters, 0) : 0;
-  if (!isScriptForward(program, parameters[subcommand]?.value)) return undefined;
-  const target = program === "npm" ? afterNpmRunOptions(parameters, subcommand + 1) : subcommand + 1;
-  return { target: parameters[target] };
+/** Read a script target only when the command supplies its literal name. */
+function literalScriptName(target: ShellToken | undefined): string | undefined {
+  return target?.value && !target.unresolved && !target.value.startsWith("-") ? target.value : undefined;
+}
+
+/** Locate the target and optionality of a package-script forward. */
+function scriptForward(program: string, parameters: readonly ShellToken[]): { target: string | undefined; optional: boolean } | undefined {
+  const command = program === "npm" ? afterNpmRunOptions(parameters, 0) : { index: 0, optional: false };
+  if (!isScriptForward(program, parameters[command.index]?.value)) return undefined;
+  if (program !== "npm") return { target: literalScriptName(parameters[1]), optional: false };
+  const target = afterNpmRunOptions(parameters, command.index + 1, command.optional);
+  const { optional } = afterNpmRunOptions(parameters, target.index + 1, target.optional);
+  return { target: literalScriptName(parameters[target.index]), optional };
 }
 
 /** Resolve the hook scripts and their local script dependencies before editing or verifying them. */
@@ -91,11 +111,12 @@ export function resolveChangelogHooks(scripts: Record<string, unknown> | undefin
       const [program, ...parameters] = invocation;
       const forward = scriptForward(basename(program.value), parameters);
       if (!forward) continue;
-      const { target } = forward;
-      if (!target?.value || target.unresolved || target.value.startsWith("-")) {
+      const { target, optional } = forward;
+      if (target === undefined) {
         throw new Error(`Cannot resolve changelog script forward in ${JSON.stringify(name)}: expected a literal package.json script name`);
       }
-      depth = Math.max(depth, 1 + visit(target.value, chain));
+      if (optional && !Object.hasOwn(scripts!, target)) continue;
+      depth = Math.max(depth, 1 + visit(target, chain));
     }
     resolved.set(name, { script, depth });
     return depth;
@@ -112,9 +133,9 @@ function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<stri
   const [program, ...parameters] = invocation;
   const name = basename(program.value);
   const forward = scriptForward(name, parameters);
-  const targetScript = forward?.target;
   if (forward
-    && (scriptNames === undefined || (targetScript && !targetScript.unresolved && scriptNames.has(targetScript.value)))) return undefined;
+    && (scriptNames === undefined
+      || (forward.target !== undefined && (forward.optional || scriptNames.has(forward.target))))) return undefined;
   const [subcommand] = parameters;
   if (PACKAGE_MANAGERS.has(name) && !program.unresolved && subcommand && !subcommand.unresolved
     && PACKAGE_ADMIN_COMMANDS.has(subcommand.value)) return undefined;

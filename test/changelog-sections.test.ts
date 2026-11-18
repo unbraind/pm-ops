@@ -215,7 +215,7 @@ test("dependency-only release windows pass release:check when all three hooks fo
     assert.equal(decideDailyRelease({ ...facts, hasChanges: false }).should_release, false);
     assert.equal(decideDailyRelease({ ...facts, publishedToday: true }).should_release, false);
     const commands = {
-      "changelog:full": "npm run changes",
+      "changelog:full": "npm --if-present run before-changelog && npm run changes",
       "changelog:check": "npm run --silent changes -- --check",
       "release:notes": "npm --loglevel=silent run-script changes -- --stdout",
       "release:check": "npm run changelog:check",
@@ -446,8 +446,8 @@ test("preparation follows two forwards and keeps an already-flagged shared gener
     const env = releaseStepEnv(root, process.env);
     const prepare = [resolve("scripts/prepare-release-changelog.ts")];
     const hooks = {
-      "changelog:full": "command -p; bun run forward && echo done",
-      "changelog:check": 'pnpm run "pm-changelog" -- --check',
+      "changelog:full": "command -p; npm run before-full --if-present && bun run forward && echo done",
+      "changelog:check": 'npm --no-if-present=false run before-check && npm run --if-present true before-check && pnpm run "pm-changelog" -- --check',
       "release:notes": "npm -s run-script --loglevel warn --if-present forward -- --stdout",
       forward: "pnpm run pm-changelog",
       "pm-changelog": "pm-changelog --date-from-version && echo done",
@@ -486,6 +486,11 @@ test("preparation refuses unresolved, cyclic and overlong forwards before writin
       ["npm run --loglevel=loud changes", {}, /Cannot resolve changelog script forward.*expected a literal/],
       ["npm run --prefix elsewhere changes", {}, /Cannot resolve changelog script forward.*expected a literal/],
       ["npm run -- --check", {}, /Cannot resolve changelog script forward.*expected a literal/],
+      ["npm --if-present run --no-if-present changes", {}, /Cannot resolve changelog script forward.*missing or empty/],
+      ["npm --if-present false run changes", {}, /Cannot resolve changelog script forward.*missing or empty/],
+      ["npm run changes -- --if-present", {}, /Cannot resolve changelog script forward.*missing or empty/],
+      ['npm --if-present run "$CHANGELOG_TARGET"', {}, /Cannot resolve changelog script forward.*expected a literal/],
+      ["npm --if-present run changes", { changes: "" }, /Cannot resolve changelog script forward.*missing or empty/],
       ["npm run hop0", { ...forwards, hop8: generator }, /forward depth exceeds 8/],
       ["npm run hop0", { ...forwards, hop8: generator, "changelog:full": "npm run hop1" }, /forward depth exceeds 8/],
     ] as const) {

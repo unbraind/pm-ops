@@ -1475,7 +1475,7 @@ test("heading-date continuation mirrors the generator at the committer offset de
       execFileSync("git", ["tag", "-f", "v2026.11.5"], { cwd: root });
       assert.equal(resolveReleaseContext({ cwd: root, version: "2026.11.5", dateFallback: "2026-11-07" }).date, expectedDay);
       const pin = `pm-changelog --date-fallback '${expectedDay}'`;
-      write({ generate: pin, check: pin, notes: pin });
+      write({ generate: `npm --if-present run before-changelog && ${pin}`, check: pin, notes: pin });
       for (const timezone of ["Europe/Vienna", "UTC"]) {
         process.env.RELEASE_TIMEZONE = timezone;
         await runReleaseContinuation("heading-date");
