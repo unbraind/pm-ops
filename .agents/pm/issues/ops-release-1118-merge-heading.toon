@@ -6,19 +6,25 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-18T19:47:51.951Z"
-updated_at: "2026-11-18T20:59:57.972Z"
+updated_at: "2026-11-18T21:04:42.896Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
+estimated_minutes: 30
+acceptance_criteria: "Generate the published 2026.11.18 section exactly once and pass changelog:check."
 repro_steps: Compare CHANGELOG.md at PR head 204cfdd and refs/pull/295/merge. Check the Node 22 and Node 26 jobs for the merge checkout.
-expected_result: The integrated changelog has exactly one v2026.11.18 heading and passes the changelog and release-section gates.
+expected_result: Exactly one section matching the v2026.11.18 tag and green Node 22 and 26 jobs on the new merge commit.
 actual_result: The PR head has one heading and the generated merge commit has two. Both Node jobs reject the merged changelog.
-comments[1]{created_at,author,text}:
+comments[2]{created_at,author,text}:
   "2026-11-18T20:59:57.966Z",codex-sol,Round CS will merge the published v2026.11.18 base and regenerate the changelog from fetched tags before rechecking the merge gate.
+  "2026-11-18T21:03:47.247Z",codex-sol,Merge a7451b7 regenerates CHANGELOG.md from fetched tags with one 2026.11.18 section identical to the tag. No tracker conflicts or history drift were reported. pm validate reports legacy completeness and metadata findings.
 files[2]{path,scope}:
   CHANGELOG.md,project
   test/verify-release-changelog-sections.test.ts,project
-tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "npm run changelog:check",project,codex-sol,"2026-11-18T19:47:54.069Z",local_mutation,follow-up/pm-ops-295-merge-changelog
   node --test test/verify-release-changelog-sections.test.ts,project,codex-sol,"2026-11-18T19:47:55.549Z",local_mutation,follow-up/pm-ops-295-merge-changelog
+  npm run coverage,project,codex-sol,"2026-11-18T21:04:42.586Z",local_mutation,fix/release-hook-wrapper-options-bm
+docs[1]{path,scope,note}:
+  CHANGELOG.md,project,Generated release headings.
 body: ""

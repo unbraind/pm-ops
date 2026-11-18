@@ -222,6 +222,7 @@ test("preparation and continuation refuse date overrides and alternate npm exec 
 });
 
 test("release hook context changes are refused once at the entry point and after two forwards", () => {
+  const hook = "changelog:full";
   const generator = "pm-changelog " + standing;
   const writers = { relay: "npm run writer", writer: generator, "writer@docs": generator };
   for (const [command, construct] of [
@@ -257,14 +258,14 @@ test("release hook context changes are refused once at the entry point and after
   ]) {
     for (const nested of [false, true]) {
       const scripts = nested
-        ? { hook: "npm run first", first: "npm run second", second: command, ...writers }
-        : { hook: command, ...writers };
+        ? { [hook]: "npm run first", first: "npm run second", second: command, ...writers }
+        : { [hook]: command, ...writers };
       const map = new Map(Object.entries(scripts));
       const checkRefusal = (error: unknown) => error instanceof Error
         && error.message.includes(construct) && error.message.includes("Use a direct pm-changelog");
-      assert.throws(() => resolveChangelogHooks(scripts, ["hook"]), checkRefusal, command);
-      assert.throws(() => rewriteReleaseHookDates(map, ["hook"], day), checkRefusal, command);
-      assert.throws(() => assertReleaseHookHeadingDate(map, ["hook"], day, "2026.11.17"), checkRefusal, command);
+      assert.throws(() => resolveChangelogHooks(scripts, [hook]), checkRefusal, command);
+      assert.throws(() => rewriteReleaseHookDates(map, [hook], day), checkRefusal, command);
+      assert.throws(() => assertReleaseHookHeadingDate(map, [hook], day, "2026.11.17"), checkRefusal, command);
       const result = auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts }) }]);
       assert.equal(result.failures.length, 1, command);
       assert.ok(checkRefusal(new Error(result.failures[0])), result.failures[0]);

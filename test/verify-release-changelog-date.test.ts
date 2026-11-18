@@ -215,6 +215,43 @@ test("configured release hooks are audited when called without another script's 
   assert.match(auditInvocations([source("render"), caller]).failures[0], /neither --date-from-version/);
 });
 
+test("directory changes are refused on release hook paths and ignored in unrelated scripts", () => {
+  for (const [command, diagnostic] of [
+    ["npm --prefix docs run build", /context change --prefix/],
+    ["cd docs && npm run build", /context change cd/],
+  ] as const) {
+    const scripts = {
+      "changelog:full": FLAGGED,
+      "changelog:check": FLAGGED + " --check",
+      "release:notes": FLAGGED + " --stdout",
+      docs: command,
+      site: "npm run docs",
+    };
+    const audit = () => auditInvocations([
+      { file: "package.json", text: JSON.stringify({ scripts }) },
+      { file: ".github/workflows/docs.yml", text: workflowRun("npm run site") },
+    ]);
+    assert.deepEqual(audit().failures, []);
+    scripts["changelog:full"] = "npm run site && " + FLAGGED;
+    const { failures } = audit();
+    assert.equal(failures.length, 1);
+    assert.match(failures[0], diagnostic);
+  }
+});
+
+test("a forwarded script name can put a directory change on the generator path", () => {
+  const results = auditInvocations([{
+    file: "package.json",
+    text: JSON.stringify({ scripts: {
+      preview: "npm run relay -- writer",
+      relay: "cd docs && npm run",
+      writer: FLAGGED,
+    } }),
+  }]);
+  assert.equal(results.failures.length, 1);
+  assert.match(results.failures[0], /context change cd/);
+});
+
 test("non-root workflow steps refuse local forwards and direct generators without resolving the root manifest", () => {
   const file = ".github/workflows/release.yml";
   const source = { file: "package.json", text: JSON.stringify({ scripts: {

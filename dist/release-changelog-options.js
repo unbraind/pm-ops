@@ -351,9 +351,11 @@ function changelogInvocation(words, scriptNames, audit = false) {
 /** Check indirect references inside unknown wrappers only for dependencies that can reach a generator. */
 class HookScriptNames extends Set {
     scripts;
-    constructor(scripts) {
+    allowUnresolvedProjects;
+    constructor(scripts, allowUnresolvedProjects = true) {
         super(scripts.keys());
         this.scripts = scripts;
+        this.allowUnresolvedProjects = allowUnresolvedProjects;
     }
     /** npm skips empty implicit lifecycle scripts and passes args only to main. */
     sequence(name, lifecycle) {
@@ -372,6 +374,8 @@ class HookScriptNames extends Set {
         for (const words of parseReleaseHook(this.scripts.get(name)).commands) {
             if (canReachGenerator(words, this, seen))
                 return true;
+            if (!this.allowUnresolvedProjects)
+                continue;
             if ((preceding?.directory || commandContextChanges(words).some(context => context.directory))
                 && maySelectUnresolvedScript(words, this))
                 return true;
@@ -416,6 +420,7 @@ function commandReceivingArguments(text, commands, spans) {
 /** Scan local scripts in invocation order and join forwarded argv at its actual destination. */
 export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, entryPoints = new Set()) {
     const names = new HookScriptNames(scripts);
+    const knownWriters = new HookScriptNames(scripts, false);
     const targeted = new Set();
     const parsed = new Map([...scripts].map(([name, text]) => {
         const { commands, spans } = parseReleaseHook(text);
@@ -438,7 +443,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
     const recipients = new Map();
     const forwardedSeparators = new WeakSet();
     /** Walk one invocation, preserving token identity back to each supplying script. */
-    function visit(name, args, parents, lifecycle = true) {
+    function visit(name, args, parents, lifecycle, releasePath) {
         const chain = [...parents, name].join(" -> ");
         if (parents.includes(name)) {
             if (hooks)
@@ -454,22 +459,25 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
             refuseHook(parents.length === 0 ? "Missing changelog hook: " + name
                 : "Cannot resolve changelog script forward " + chain + ": missing or empty package.json script");
         }
-        if (args.length === 0) {
-            const key = Number(lifecycle) + ":" + name;
-            const depth = hooks ? parents.length : 0;
-            if ((withoutArgs.get(key) ?? -1) >= depth)
-                return;
-            withoutArgs.set(key, depth);
-        }
-        visited.add(name);
         const { text, commands, spans } = script;
-        resolved?.set(name, text);
         let recipient;
         if (args.length > 0) {
             if (!recipients.has(name))
                 recipients.set(name, commandReceivingArguments(text, commands, spans));
             recipient = recipients.get(name);
         }
+        const checkContext = releasePath || knownWriters.canGenerate(name)
+            || (recipient !== undefined && canReachGenerator([...recipient, ...args], knownWriters));
+        if (args.length === 0) {
+            const key = Number(checkContext) + ":" + Number(lifecycle) + ":" + name;
+            const depth = hooks ? parents.length : 0;
+            if ((withoutArgs.get(key) ?? -1) >= depth)
+                return;
+            withoutArgs.set(key, depth);
+        }
+        visited.add(name);
+        const invocationNames = checkContext ? names : knownWriters;
+        resolved?.set(name, text);
         let preceding;
         for (const words of commands) {
             const effective = words === recipient ? [...words, ...args] : words;
@@ -478,15 +486,16 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
             // it, but the generator only accepts named options.
             const separators = effective.filter(token => forwardedSeparators.has(token));
             const argv = forward ? effective : effective.filter(token => !forwardedSeparators.has(token));
-            const contextProblem = releaseContextProblem(argv, names, preceding);
-            preceding = nextShellContext(effective, preceding);
+            const contextProblem = checkContext ? releaseContextProblem(argv, names, preceding) : undefined;
+            if (checkContext)
+                preceding = nextShellContext(effective, preceding);
             if (contextProblem) {
                 if (hooks)
                     refuseHook(contextProblem);
                 inspect({ name, names, text, words, effective: argv, spans, forwardedSeparators: separators, contextProblem });
                 return;
             }
-            inspect({ name, names, text, words, effective: argv, spans, forwardedSeparators: separators });
+            inspect({ name, names: invocationNames, text, words, effective: argv, spans, forwardedSeparators: separators });
             if (forward) {
                 if (forward.target === undefined) {
                     if (hooks)
@@ -500,7 +509,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
                 const enabled = forward.lifecycle ?? lifecycle;
                 const sequence = names.sequence(forward.target, forward.runner !== "npm" || enabled);
                 for (const target of sequence) {
-                    visit(target, target === forward.target ? forward.args : [], [...parents, name], enabled);
+                    visit(target, target === forward.target ? forward.args : [], [...parents, name], enabled, checkContext);
                 }
             }
         }
@@ -508,8 +517,15 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
     if (hooks) {
         for (const hook of hooks)
             for (const name of names.sequence(hook, true))
-                visit(name, [], []);
+                visit(name, [], [], true, true);
         return;
+    }
+    // Configured hooks and their lifecycle scripts remain release paths even
+    // when a project switch hides the generator in a different manifest.
+    for (const hook of entryPoints) {
+        if (names.has(hook))
+            for (const name of names.sequence(hook, true))
+                visit(name, [], [], true, true);
     }
     for (const { commands } of parsed.values()) {
         for (const words of commands) {
@@ -519,15 +535,13 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
         }
     }
     for (const name of names) {
-        if (entryPoints.has(name) || !targeted.has(name)) {
-            for (const entry of names.sequence(name, entryPoints.has(name)))
-                visit(entry, [], []);
-        }
+        if (!entryPoints.has(name) && !targeted.has(name))
+            visit(name, [], [], true, false);
     }
     // A disconnected cycle has no root. Its own commands still need auditing.
     for (const name of names) {
         if (!visited.has(name))
-            visit(name, [], []);
+            visit(name, [], [], true, false);
     }
 }
 /** Check standalone commands against the same context rule before reading their options. */

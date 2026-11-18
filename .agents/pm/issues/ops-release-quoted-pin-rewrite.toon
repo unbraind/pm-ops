@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-18T21:00:00.759Z"
+updated_at: "2026-11-18T21:04:22.972Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -166,7 +166,7 @@ files[21]{path,scope}:
   test/release-runtime.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[34]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[35]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -201,6 +201,7 @@ tests[34]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   npm run duplication,project,codex-sol,"2026-11-18T16:40:29.625Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-concurrency=2 test/changelog-sections.test.ts test/continuation-runtime.test.ts test/continuation-selection.test.ts test/daily-release.test.ts test/daily-release-workflow.test.ts test/multiline-quote.test.ts test/pack-prepare.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-prepare-restart.test.ts test/release-runtime.test.ts test/release-workflow.test.ts test/shell-command-scan.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts,project,codex-sol,"2026-11-18T18:34:38.528Z",local_mutation,fix/release-hook-wrapper-options-bm
   "npm run changelog:check",project,codex-sol,"2026-11-18T18:35:04.755Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/release-hook-grammar.test.ts test/verify-release-changelog-date.test.ts,project,codex-sol,"2026-11-18T21:04:22.735Z",local_mutation,fix/release-hook-wrapper-options-bm
 docs[2]{path,scope}:
   docs/reusable-release.md,project
   README.md,project
