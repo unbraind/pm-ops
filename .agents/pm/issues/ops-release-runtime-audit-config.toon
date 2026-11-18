@@ -1,0 +1,13 @@
+id: ops-release-runtime-audit-config
+title: Isolate the release-runtime audit from inherited npm script permissions
+description: "With npm 11.17.0, a user npmrc containing only allow-scripts=fixture-tool makes npm run audit:release-tools exit with EALLOWSCRIPTS before auditing the separate release-runtime project. Selecting an empty user configuration with NPM_CONFIG_USERCONFIG runs the audit successfully. The root audit:prod already isolates this setting. Reproduce with a synthetic npmrc and retain the production dependency audit and its exit status in both configurations."
+type: Issue
+status: open
+priority: 3
+tags: []
+created_at: "2026-11-18T12:29:47.808Z"
+updated_at: "2026-11-18T12:29:50.048Z"
+author: codex-sol
+files[1]{path,scope}:
+  package.json,project
+body: ""
