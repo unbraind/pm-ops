@@ -282,6 +282,7 @@ test("canonical hook paths retain their directory, generator arguments and model
     "npm run writer -- --title=--prefix",
     "echo 'export PM_PATH=docs'; npm run writer",
     "npm run writer; cd docs",
+    "if true\nthen\nnpm run writer\nfi",
     "env -u PM_PATH echo helper; npm run writer",
   ]) {
     const scripts = { hook: "npm run first", first: "npm run second", second, writer };
