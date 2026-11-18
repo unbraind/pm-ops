@@ -6,9 +6,7 @@ status: in_progress
 priority: 2
 tags[4]: "area:release",ci,"gh:unbraind/pm-ops#295",windows
 created_at: "2026-11-18T23:23:22.255Z"
-updated_at: "2026-11-18T23:34:21.412Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-18T23:36:58.026Z"
 author: codex-sol
 estimated_minutes: 45
 acceptance_criteria: Determine why the fixture directory remains locked at cleanup and demonstrate reliable cleanup with the linked native Windows test command while retaining its install assertions.
@@ -17,9 +15,10 @@ environment: "Native Windows CI, Node 26.13.1"
 repro_steps: Run the linked command on native Windows with Node 26.13.1. The CI observation occurred in the fixture named runtime installs only locked production dependencies without lifecycle scripts.
 expected_result: The test asserts the locked installation contract and cleans up its temporary directory.
 actual_result: "Recursive rmSync in the fixture finally block at test/release-runtime.test.ts:81 returned EPERM and failed the check."
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-11-18T23:30:45.549Z",codex-sol,Round CX is checking the existing Node 26 rerun and the exact fixture cleanup. The native locked-runtime step passed on attempt 2. The original failure was recursive cleanup after the install assertions.
   "2026-11-18T23:34:21.411Z",codex-sol,"Attempt 1 of run 44419424002 failed with EPERM at test/release-runtime.test.ts:81 on Node 26. The existing attempt 2, job 135212982749, passed the native locked runtime step and the complete Windows job on the same head. The two runtime files also passed 8 of 8 tests on Linux Node 26.13.0. With no reproduced cleanup failure, the fixture is unchanged."
+  "2026-11-18T23:36:54.917Z",codex-sol,The Windows investigation is recorded with the Round CX context fix in commit 3e0a9a8. The successful same-head rerun leaves a single observed cleanup failure and no reproduced Windows regression. Keep the item available if cleanup fails again.
 files[2]{path,scope}:
   test/release-runtime-windows.test.ts,project
   test/release-runtime.test.ts,project

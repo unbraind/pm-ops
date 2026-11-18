@@ -6,9 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",ci,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-18T23:25:42.056Z"
-updated_at: "2026-11-18T23:34:22.543Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-18T23:36:57.126Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: Cover the configured Bash mode and confirm default shell pipeline stages and subshells continue to isolate directory changes.
@@ -17,18 +15,20 @@ environment: Noninteractive Bash with lastpipe enabled
 repro_steps: Use shopt -s lastpipe; printf x | cd docs; npm run writer in a Bash hook with a literal writer script in the root manifest.
 expected_result: The gate refuses an unsupported execution mode that may change the package directory for the writer.
 actual_result: Bash runs the writer in the new directory while resolveChangelogHooks and assertReleaseHookHeadingDate accept the root manifest writer.
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-11-18T23:30:47.304Z",codex-sol,"Round CX will refuse shell mode changes on changelog paths and retain ordinary pipeline isolation and the modeled set flags. The regression exercises preparation, continuation, and workflow auditing."
   "2026-11-18T23:34:22.542Z",codex-sol,"The exact shopt fixture failed before the fix. A local Bash check also confirmed that a final-stage cd persists with lastpipe enabled. The focused regressions pass with the shared shell context check in preparation, continuation and verification."
+  "2026-11-18T23:36:53.949Z",codex-sol,"Round CX maps Greptile thread PRRT_kwDOTOTl1M65QCB2 to commit 3e0a9a8. The targeted six-file gate passed 116 tests, and the final grammar fixture passed 28 tests. Typecheck, lint, duplication, docstring and changelog checks passed. Full coverage and heading acceptance are required on the final clean candidate."
 files[4]{path,scope}:
   dist/release-changelog-options.js,project
   release-changelog-options.ts,project
   release-hook-grammar.ts,project
   test/release-hook-grammar.test.ts,project
-tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/release-hook-grammar.test.ts test/changelog-sections.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts test/release-runtime.test.ts test/release-runtime-windows.test.ts,project,codex-sol,"2026-11-18T23:34:16.994Z",local_mutation,fix/release-hook-wrapper-options-bm
   npm run coverage,project,codex-sol,"2026-11-18T23:34:18.453Z",local_mutation,fix/release-hook-wrapper-options-bm
   node test/release-heading-full-gate.acceptance.ts,project,codex-sol,"2026-11-18T23:34:19.756Z",local_mutation,fix/release-hook-wrapper-options-bm
+  "npm run changelog:check",project,codex-sol,"2026-11-18T23:36:55.858Z",local_mutation,fix/release-hook-wrapper-options-bm
 docs[1]{path,scope,note}:
   README.md,project,Release changelog hook grammar and execution context
 body: ""
