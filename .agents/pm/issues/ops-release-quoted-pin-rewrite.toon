@@ -6,9 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-18T16:40:29.819Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-18T16:41:29.604Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[32]:
+comments[33]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -114,6 +112,9 @@ comments[32]:
   - created_at: "2026-11-18T16:30:15.308Z"
     author: codex-sol
     text: "Round CM verified 16 unresolved findings on PR #295 at 2e59f07. Checking the tagged committer day, canonical hook parsing, and candidate fixture fidelity before running the release gates."
+  - created_at: "2026-11-18T16:41:26.311Z"
+    author: codex-sol
+    text: "Round CM thread mapping for d4d701eeeb8ff5299c5d75da355bc94429b2c075. PRRT_kwDOTOTl1M65DAQ5 corrects the timezone tracker description. PRRT_kwDOTOTl1M65DARI pins the quoted-option repro to 60ef4b9 and labels the pre-fix result. PRRT_kwDOTOTl1M65DARQ checks the committed changelog without regeneration. PRRT_kwDOTOTl1M65DARb selects the expected squash committer day and verifies it against %cI, with a Vienna midnight regression. PRRT_kwDOTOTl1M65DARj checks configured hooks as standalone entry points. PRRT_kwDOTOTl1M65DARw explicitly refuses --date overrides. PRRT_kwDOTOTl1M65DAR8 rejects an invalid replacement before manifest writes. PRRT_kwDOTOTl1M65DASF keeps descriptor duplication with its pipeline command. PRRT_kwDOTOTl1M65DASO explicitly refuses unresolved release versions with literal and package-derived alternatives. PRRT_kwDOTOTl1M65DASX explicitly refuses non-root workflow hook steps and their local forwards. PRRT_kwDOTOTl1M65DASg explicitly refuses project-selecting npm exec options. PRRT_kwDOTOTl1M65DASo makes fixture commits independent of signing settings. PRRT_kwDOTOTl1M65DASy installs the candidate lock in the disposable clone. PRRT_kwDOTOTl1M65DAS7 explicitly refuses tracked snapshot symlinks. PRRT_kwDOTOTl1M65DATF mirrors tracked additions and deletions in the candidate index. PRRT_kwDOTOTl1M65DATQ explicitly enables the npm fixture's outer lifecycle hooks. The committed changelog check passed before generation. The 66 grammar, verifier and snapshot checks passed. The final committed candidate is subject to the linked full coverage and acceptance gates."
 files[19]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
