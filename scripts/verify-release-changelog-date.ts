@@ -36,13 +36,14 @@ import {
   expandArrays,
   joinContinuations,
   tokenizeCommands,
+  type ShellCommand,
   type ShellToken,
   type SourceFile,
   type VerifierResult,
 } from "./shell-command-scan.ts";
 import { isMainInvocation } from "./main-invocation.ts";
 import { tallyFlaggedInvocations } from "../invocation-audit.ts";
-import { changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions } from "../release-changelog-options.ts";
+import { changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, visitChangelogScriptCommands } from "../release-changelog-options.ts";
 
 export { DATE_FLAG, isRealCalendarDay } from "../release-changelog-options.ts";
 
@@ -59,7 +60,9 @@ export const VERSION_INPUTS = ["--release-version-from-package", "--release-vers
 export interface Invocation {
   /** File the invocation was found in. */
   file: string;
-  /** The source line, with continuations joined and arrays expanded. */
+  /** The starting line within a decoded package script, when available. */
+  line?: number;
+  /** The source command, with arrays expanded. */
   command: string;
   /** The generator's shell arguments, with quoting removed. */
   args: ShellToken[];
@@ -113,7 +116,6 @@ export function stripComment(command: string): string {
 export function invocationsIn(source: SourceFile): Invocation[] {
   // JSON punctuation and escaping are not shell syntax. Audit only decoded
   // script values so a final argument is not followed by the JSON comma.
-  let commands = source.text;
   const scriptNames = new Set<string>();
   if (source.file === "package.json") {
     let manifest: unknown;
@@ -132,9 +134,17 @@ export function invocationsIn(source: SourceFile): Invocation[] {
     const entries = Object.entries(scripts).filter((entry): entry is [string, string] =>
       typeof entry[1] === "string" && entry[1].trim() !== "");
     for (const [name] of entries) scriptNames.add(name);
-    commands = entries.map(([, value]) => value).join("\n");
+    const expanded = new Map(entries.map(([name, script]) => [name, expandArrays(script, bashArrays(script))]));
+    const found: Invocation[] = [];
+    visitChangelogScriptCommands(expanded, ({ text, words, effective, spans, malformed }) => {
+      const first = spans.get(words[0])?.start ?? 0;
+      const last = spans.get(words.at(-1)!)?.end ?? text.length;
+      const line = text.slice(0, first).split("\n").length;
+      found.push(...inspectCommand(effective, { file: source.file, line, command: text.slice(first, last), malformed }, scriptNames));
+    });
+    return found;
   }
-  const text = joinContinuations(commands);
+  const text = joinContinuations(source.text);
   const arrays = bashArrays(text);
   const found: Invocation[] = [];
   for (const raw of text.split("\n")) {
@@ -143,20 +153,30 @@ export function invocationsIn(source: SourceFile): Invocation[] {
     if (/\.ya?ml$/.test(source.file) && /^\s*(?:-\s+)?(?:description|name|uses):\s/.test(raw)) continue;
     const command = stripComment(expandArrays(raw, arrays));
     const commands = tokenizeCommands(command);
-    const malformed = commands.some((words) => words.length === 1 && words[0].unresolved && words[0].value === "$");
+    const malformed = hasMalformedCommand(commands);
     for (const words of commands) {
-      try {
-        const args = changelogArguments(words, scriptNames);
-        if (args === undefined) continue;
-        const options = readReleaseDateOptions(args);
-        if (!args.some(({ value }) => VERSION_INPUTS.some((flag) => value === flag || value.startsWith(flag + "=")))) continue;
-        found.push({ file: source.file, command, args, malformed, options });
-      } catch (error) {
-        found.push({ file: source.file, command, args: [], malformed, options: [], problem: String(error) });
-      }
+      found.push(...inspectCommand(words, { file: source.file, command, malformed }, scriptNames));
     }
   }
   return found;
+}
+
+/** Check for the shell scanner's unfinished-command marker. */
+function hasMalformedCommand(commands: ShellCommand[]): boolean {
+  return commands.some(words => words.length === 1 && words[0].unresolved && words[0].value === "$");
+}
+
+/** Extract the date policy and retain any diagnostic for this command. */
+function inspectCommand(words: ShellCommand, source: Pick<Invocation, "file" | "line" | "command" | "malformed">, scriptNames: ReadonlySet<string>): Invocation[] {
+  try {
+    const args = changelogArguments(words, scriptNames);
+    if (args === undefined) return [];
+    const options = readReleaseDateOptions(args);
+    if (!args.some(({ value }) => VERSION_INPUTS.some(flag => value === flag || value.startsWith(flag + "=")))) return [];
+    return [{ ...source, args, options }];
+  } catch (error) {
+    return [{ ...source, args: [], options: [], problem: String(error) }];
+  }
 }
 
 /**
@@ -174,22 +194,23 @@ export function auditInvocations(sources: SourceFile[]): VerifierResult {
   const invocations = sources.flatMap(invocationsIn);
   return tallyFlaggedInvocations(
     invocations,
-    ({ file, command, options, malformed, problem }) => {
+    ({ file, line, command, options, malformed, problem }) => {
+      const location = line === undefined ? file : `${file}:${line}`;
       const excerpt = command.trim().slice(0, 160);
-      if (problem !== undefined) return `${file}: ${problem}: ${excerpt}`;
-      if (malformed) return `${file}: malformed shell arguments in generator invocation: ${excerpt}`;
+      if (problem !== undefined) return `${location}: ${problem}: ${excerpt}`;
+      if (malformed) return `${location}: malformed shell arguments in generator invocation: ${excerpt}`;
       let hasPolicy = false;
       for (const option of options) {
         if (option.kind === "missing-day") {
-          return `${file}: every ${FALLBACK_DATE_FLAG} must pin an explicit YYYY-MM-DD day: ${excerpt}`;
+          return `${location}: every ${FALLBACK_DATE_FLAG} must pin an explicit YYYY-MM-DD day: ${excerpt}`;
         }
         if (option.kind === "invalid-day") {
-          return `${file}: a pinned ${FALLBACK_DATE_FLAG} day does not exist on the calendar (${option.day}): ${excerpt}`;
+          return `${location}: a pinned ${FALLBACK_DATE_FLAG} day does not exist on the calendar (${option.day}): ${excerpt}`;
         }
         hasPolicy = true;
       }
       if (hasPolicy) return null;
-      return `${file}: a generator invocation carries a version input but neither ${DATE_FLAG} nor a pinned ${FALLBACK_DATE_FLAG} day: ${excerpt}`;
+      return `${location}: a generator invocation carries a version input but neither ${DATE_FLAG} nor a pinned ${FALLBACK_DATE_FLAG} day: ${excerpt}`;
     },
     {
       noun: "generator",

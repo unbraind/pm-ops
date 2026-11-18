@@ -12,7 +12,7 @@ import { verify as verifySections } from "../scripts/verify-release-changelog-se
 import { parse } from "yaml";
 import { decideDailyRelease } from "../daily-release.ts";
 import { runBashFixture } from "./bash-fixture.ts";
-import { assertReleaseHeadingDate, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHeadingDate } from "../release-changelog-options.ts";
+import { assertReleaseHeadingDate, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHeadingDate, rewriteReleaseHookDates } from "../release-changelog-options.ts";
 
 /** Read the actual repository commands so reverting their policy breaks the proof. */
 const scripts = (JSON.parse(readFileSync(resolve("package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
@@ -391,6 +391,59 @@ test("Bun execution switches preserve direct generator detection and package scr
   }
   assert.throws(() => resolveChangelogHooks({ hook: 'bun run --silent "$TARGET"' }, ["hook"]), /expected a literal/);
   assert.throws(() => resolveChangelogHooks({ hook: "bun run --cwd elsewhere changes", changes: hooks.changes }, ["hook"]), /expected a literal/);
+});
+
+test("prepare pins forwarded options and continuation refuses their stale merge day", () => {
+  const root = mkdtempSync(join(tmpdir(), "forwarded-heading-"));
+  try {
+    const day = "2026-11-17";
+    const filename = join(root, "package.json");
+    const env = { ...releaseStepEnv(root, process.env, day), NPM_PROJECT_PATH: root };
+    const scripts = {
+      "changelog:full": 'npm run changes -- "--date-from-version"',
+      "changelog:check": "bun run changes -- --date-from-version --check",
+      "release:notes": "pnpm run notes -- --date-from-version",
+      notes: "npm run changes -- --stdout",
+      changes: "echo ready && pm-changelog --release-version-from-package",
+    };
+    const write = (scripts: Record<string, string>) =>
+      writeFileSync(filename, JSON.stringify({ version: "2026.11.16", scripts }));
+    write(scripts);
+    execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env });
+    const prepared = JSON.parse(readFileSync(filename, "utf8")).scripts as Record<string, string>;
+    assert.deepEqual(prepared, {
+      ...scripts,
+      "changelog:full": `npm run changes -- --date-fallback ${day}`,
+      "changelog:check": `bun run changes -- --date-fallback ${day} --check`,
+      "release:notes": `pnpm run notes --date-fallback ${day}`,
+      changes: scripts.changes + " --include-empty",
+    });
+    execFileSync("git", ["init", "-q"], { cwd: root, env });
+    writeFileSync(join(root, "CHANGELOG.md"), "");
+    commitAndTag(root, env, "v2026.11.16", day + "T12:00:00Z");
+    const verify = [resolve("scripts/release-continuation.ts"), "heading-date"];
+    execFileSync(process.execPath, verify, { cwd: root, env });
+    write({ ...prepared, "release:notes": prepared["release:notes"].replace(day, "2026-11-16") });
+    const result = spawnSync(process.execPath, verify, { cwd: root, env, encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /2026-11-16 differs from verified merge commit day 2026-11-17/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("date edits retain source ownership when a caller supplies the fallback operand", () => {
+  const scripts = new Map([
+    ["hook", "pnpm run relay -- 2026-11-16 --check"],
+    ["relay", "npm run changes"],
+    ["changes", "pm-changelog --date-fallback"],
+  ]);
+  assert.deepEqual(Object.fromEntries(rewriteReleaseHookDates(scripts, ["hook"], "2026-11-17")), {
+    hook: "pnpm run relay --  --check",
+    relay: scripts.get("relay"),
+    changes: "pm-changelog --date-fallback 2026-11-17",
+  });
+  scripts.set("hook", "eval 'pnpm run changes -- --date-from-version'");
+  scripts.set("changes", "pm-changelog");
+  assert.throws(() => rewriteReleaseHookDates(scripts, ["hook"], ""), /separator needs an editable shell word/);
 });
 
 test("empty wording leaves tracked prose alone and invalid adapter options fail before writing", () => {

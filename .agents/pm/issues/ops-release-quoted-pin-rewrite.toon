@@ -4,9 +4,11 @@ description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. Th
 type: Issue
 status: in_progress
 priority: 1
-tags[2]: "area:release",follow-up
+tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-18T06:44:29.569Z"
+updated_at: "2026-11-18T07:42:43.058Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -14,7 +16,7 @@ severity: high
 repro_steps: "Use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "The verifier accepts the shell option. The workflow leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[23]:
+comments[25]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -85,6 +87,12 @@ comments[23]:
     author: codex-sol
     text: "Round BW: PRRT_kwDOTOTl1M64zDCx and PRRT_kwDOTOTl1M64zDC1 map to 1e51801, with Bun execution switches preserved by 93c0baf. The Bun and pnpm forward fixtures cover pinning and continuation rejection, and the real prepare/check fixture runs with spaces in the Node and generator paths. The first regression selection passed 9 tests. The Bun execution switch and verifier regression selection passed 4 tests, and Bun executed the tested switches in a disposable fixture."
     edited_at: "2026-11-18T06:44:28.794Z"
+  - created_at: "2026-11-18T07:30:51.019Z"
+    author: codex-sol
+    text: "Round BY will reproduce forwarded date flags bypassing preparation and continuation, then verify the policies on the resolved generator arguments."
+  - created_at: "2026-11-18T07:42:43.058Z"
+    author: codex-sol
+    text: The new preparation and verifier fixtures failed on the review head because the caller flags were skipped. A local runner probe confirmed that npm and Bun consume the delimiter and pnpm forwards it literally. Preparation removes the pnpm delimiter when it would reach a generator with a date policy.
 files[15]{path,scope}:
   .github/workflows/daily-release.yml,project
   release-changelog-options.ts,project
@@ -101,7 +109,7 @@ files[15]{path,scope}:
   test/release-runtime.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[26]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[27]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -128,6 +136,7 @@ tests[26]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/changelog-sections.test.ts test/compatibility-floor.test.ts test/daily-release.test.ts test/daily-release-workflow.test.ts test/dependency-contract.test.ts test/ops.test.ts test/release-caller-attestation.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-permissions-docs.test.ts test/release-prepare-restart.test.ts test/release-recovery-signer.test.ts test/release-review.test.ts test/release-runtime.test.ts test/release-verification.test.ts test/release-workflow.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts test/verify-release-completeness.test.ts,project,codex-sol,"2026-11-18T04:05:20.812Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-concurrency=2 test/changelog-sections.test.ts test/verify-release-changelog-date.test.ts,project,codex-sol,"2026-11-18T06:05:15.875Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-name-pattern='Bun execution switches' test/changelog-sections.test.ts,project,codex-sol,"2026-11-18T06:43:56.318Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test test/changelog-sections.test.ts test/release-continuation-adapter.test.ts,project,codex-sol,"2026-11-18T07:42:38.796Z",local_mutation,fix/release-hook-wrapper-options-bm
 docs[1]{path,scope}:
   docs/reusable-release.md,project
 body: ""

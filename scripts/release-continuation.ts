@@ -3,12 +3,12 @@ import { execFileSync } from "../subprocess.ts";
 import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { resolveChangelogHooks } from "../release-changelog-options.ts";
+import { assertReleaseHookHeadingDate, resolveChangelogHooks } from "../release-changelog-options.ts";
 import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "./release-runtime.ts";
 import { originalPublicationSigner, verifyRegistryProvenance, type ProvenanceIdentity, type verifySigstoreBundle } from "../release-provenance.ts";
 import { pathToFileURL } from "node:url";
 import {
-  assertReleaseHeadingDate, cargoPackageVersion, decideReleaseContinuation, decideUnpublishedRetirement, ownsContinuationPr, releaseConfigDigest, releaseDigest, validateReleaseCandidate, verifyReleaseHandoff,
+  cargoPackageVersion, decideReleaseContinuation, decideUnpublishedRetirement, ownsContinuationPr, releaseConfigDigest, releaseDigest, validateReleaseCandidate, verifyReleaseHandoff,
   type ContinuationEvidence, type ContinuationPr, type ReleaseCandidate,
 } from "../release-continuation.ts";
 
@@ -434,7 +434,7 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
     const commitTimestamp = execFileSync("git", ["log", "-1", "--format=%cI", "HEAD"], { cwd: required("NPM_PROJECT_PATH"), encoding: "utf8" }).trim();
     // pm-changelog 2026.11.6: dist/release-context.js:496,554-558.
     // Preserve the committer offset by taking the literal date prefix.
-    assertReleaseHeadingDate([...scripts.values()], commitTimestamp.slice(0, 10), pkg.version, new Set(scripts.keys()));
+    assertReleaseHookHeadingDate(scripts, hooks, commitTimestamp.slice(0, 10), pkg.version);
     return;
   }
   if (mode === "tools") {

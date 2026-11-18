@@ -1,6 +1,6 @@
 /** Persist the date and empty-section policies used by release changelog hooks. */
 import { readFileSync, writeFileSync } from "node:fs";
-import { includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHeadingDate } from "../release-changelog-options.ts";
+import { includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHookDates } from "../release-changelog-options.ts";
 
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 const headingDate = (process.env.RELEASE_HEADING_DATE || "").trim();
@@ -11,8 +11,9 @@ let changed = false;
 const hooks = [process.env.CHANGELOG_SCRIPT!, process.env.CHANGELOG_CHECK_SCRIPT!, process.env.NOTES_SCRIPT!];
 const resolved = resolveChangelogHooks(pkg.scripts, hooks);
 const scriptNames = new Set(resolved.keys());
+const datedHooks = rewriteReleaseHookDates(resolved, hooks, headingDate);
 for (const [name, script] of resolved) {
-  const dated = rewriteReleaseHeadingDate(script, headingDate, scriptNames);
+  const dated = datedHooks.get(name) ?? script;
   if (dated !== script) {
     const policy = headingDate ? "pins the heading to " + headingDate : "restores the version-derived heading policy";
     console.log(`::notice::Release commit ${policy} in package.json script "${name}".`);

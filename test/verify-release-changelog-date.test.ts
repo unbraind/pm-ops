@@ -463,6 +463,58 @@ test("a backslash continuation is one logical command, not fragments", () => {
   assert.deepEqual(auditInvocations([{ file: "package.json", text: manifest(text) }]).failures, []);
 });
 
+test("decoded scripts retain multiline quoted arguments and report their command's starting line", () => {
+  const command = 'echo ready\npm-changelog --item-url-base "line one\nline two" --release-version-from-package';
+  const source = { file: "package.json", text: manifest(command + " " + DATE_FLAG) };
+  assert.deepEqual(auditInvocations([source]).failures, []);
+  assert.equal(invocationsIn(source)[0]?.args[1].value, "line one\nline two");
+  const missing = { ...source, text: manifest(command) };
+  assert.match(auditInvocations([missing]).failures[0], /^package\.json:2: .*neither/);
+  const unclosed = { ...source, text: manifest(`echo ready\n${FLAGGED} "line one\nline two`) };
+  assert.match(auditInvocations([unclosed]).failures[0], /^package\.json:2: malformed/);
+  const malformedWorkflow = { file: ".github/workflows/release.yml", text: `run: ${FLAGGED} "unclosed` };
+  assert.match(auditInvocations([malformedWorkflow]).failures[0], /release\.yml: malformed/);
+});
+
+test("the date verifier uses the generator arguments supplied by package script forwards", () => {
+  for (const runner of ["npm", "bun", "pnpm"]) {
+    const source = (options: string) => ({
+      file: "package.json",
+      text: JSON.stringify({ scripts: {
+        check: `${runner} run changes -- ${options}`,
+        changes: "echo ready && pm-changelog --release-version-from-package",
+      } }),
+    });
+    assert.deepEqual(auditInvocations([source(DATE_FLAG)]).failures, [], runner);
+    assert.match(auditInvocations([source("--date-fallback 2026-02-30")]).failures[0], /does not exist on the calendar/);
+  }
+});
+
+test("a forwarded policy only covers the command that receives the new arguments", () => {
+  const source = (changes: string) => ({
+    file: "package.json",
+    text: JSON.stringify({ scripts: { check: `npm run changes -- ${DATE_FLAG}`, changes } }),
+  });
+  const unflagged = "pm-changelog --release-version-from-package";
+  for (const suffix of [" && echo done", " # trailing comment", "\n"]) {
+    assert.match(auditInvocations([source(unflagged + suffix)]).failures[0], /neither --date-from-version/);
+  }
+  const mixed = { file: "package.json", text: JSON.stringify({ scripts: {
+    check: `npm run changes -- ${DATE_FLAG}`, notes: "npm run changes", changes: unflagged,
+  } }) };
+  assert.equal(auditInvocations([mixed]).failures.length, 1);
+});
+
+test("disconnected and deep script dependencies do not conceal their generator commands", () => {
+  const chain = Object.fromEntries(Array.from({ length: 10 }, (_, index) => [
+    `hop${index}`, `npm run hop${index + 1}`,
+  ]));
+  const source = { file: "package.json", text: JSON.stringify({ scripts: {
+    ...chain, hop10: FLAGGED, cyclic: "npm run other", other: `npm run cyclic && ${FLAGGED}`,
+  } }) };
+  assert.equal(invocationsIn(source).length, 2);
+  assert.deepEqual(auditInvocations([source]).failures, []);
+});
 
 test("manifest scripts must be an object and only string commands are scanned", () => {
   for (const scripts of [null, 42, "invalid", [], true]) {
