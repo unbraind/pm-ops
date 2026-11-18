@@ -12,7 +12,7 @@ import { verify as verifySections } from "../scripts/verify-release-changelog-se
 import { parse } from "yaml";
 import { decideDailyRelease } from "../daily-release.ts";
 import { runBashFixture } from "./bash-fixture.ts";
-import { assertReleaseHeadingDate, includeEmptyReleaseSections, rewriteReleaseHeadingDate } from "../release-changelog-options.ts";
+import { assertReleaseHeadingDate, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHeadingDate } from "../release-changelog-options.ts";
 
 /** Read the actual repository commands so reverting their policy breaks the proof. */
 const scripts = (JSON.parse(readFileSync(resolve("package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
@@ -530,6 +530,7 @@ test("preparation follows two forwards and keeps an already-flagged shared gener
 });
 
 test("preparation refuses unresolved, cyclic and overlong forwards before writing the manifest", () => {
+  assert.throws(() => resolveChangelogHooks(undefined, ["changelog:full"]), /Missing changelog hook: changelog:full/);
   const root = mkdtempSync(join(tmpdir(), "hook-forward-refusal-"));
   try {
     const path = join(root, "package.json");

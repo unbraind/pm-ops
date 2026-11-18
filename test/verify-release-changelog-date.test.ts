@@ -112,7 +112,7 @@ test("every date-fallback option must pin a real day", () => {
 
 test("the date policy belongs to the command that runs the generator", () => {
   for (const launcher of [
-    "npx pm-changelog", "npx --yes pm-changelog@2026.11.6", "npm exec -- pm-changelog@2026.11.6",
+    "npx pm-changelog", "npx --yes pm-changelog@2026.11.6", "npm exec -- pm-changelog@2026.11.6", "bun x pm-changelog",
     "bunx pm-changelog@latest", "./dist/cli.js", "node --enable-source-maps dist/cli.js",
   ]) {
     const command = `${launcher} --version=v2026.11.16 --item-url-base 'https://example.test/a;b'`;
