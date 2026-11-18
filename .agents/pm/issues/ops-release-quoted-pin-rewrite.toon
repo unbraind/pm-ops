@@ -6,9 +6,7 @@ status: in_progress
 priority: 1
 tags[2]: "area:release",follow-up
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-18T06:43:56.357Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-18T06:44:29.569Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,30 +14,77 @@ severity: high
 repro_steps: "Use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "The verifier accepts the shell option. The workflow leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[23]{created_at,author,text}:
-  "2026-11-17T20:49:08.758Z",codex-sol,"Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
-  "2026-11-17T20:53:41.510Z",codex-sol,Red-first fixtures confirmed quoted pins passed the verifier while the prepare step left them stale and the continuation guard accepted them. The shared parser reuses the shell scanner and edits only the option source spans. The workflow exercises quoted pins across a later-day retry and the pre-publication guard.
-  "2026-11-17T21:00:30.935Z",codex-sol,"Typecheck, lint, the live date verifier, and tag-backed changelog regeneration and check passed. The follow-up was recovered from its existing tracker commit with the item history intact. Full coverage and the workflow-reference test sweep are running."
-  "2026-11-17T21:10:02.888Z",codex-sol,"The initial 27-file sweep found one native-probe fixture missing the new repository-local helper files. Updated the fixture copy list without adding installed dependencies. Its isolated rerun passed all seven tests, including the empty probe without npm."
-  "2026-11-17T21:11:50.303Z",codex-sol,"Greptile PRRT_kwDOTOTl1M64nxQb on PR #295 maps to 1304543287232095379ddeb8dfba5fae05b3cf9a. Preparation refreshes and restores quoted date options from their shell token spans, and continuation rejects stale quoted pins against the verified merge commit day."
-  "2026-11-17T21:26:38.531Z",codex-sol,The committed 27-file reference sweep passed with 1259 tests and two configured external-repository skips. The first full coverage run hit the existing five-second artifact-reader startup timeout described by ops-input-startup-timeout. The release heading fixtures and native probe passed.
-  "2026-11-17T21:36:50.019Z",codex-sol,"The pinned-heading acceptance fixture ran the full npm release:check successfully, including npm run coverage at 100% statements, branches, functions and lines across 52 source files. It executed 1715 passing tests with two configured external-repository skips. Typecheck, lint, the live date verifier and tag-backed changelog regeneration and check passed. The isolated artifact-reader retry passed all six tests. The standing-policy full coverage retry is running independently."
-  "2026-11-17T21:41:39.887Z",codex-sol,"Greptile follow-up PRRT_kwDOTOTl1M64qrmO on the pushed head identified a regression for version-qualified pm-changelog package specifiers. Cover the verifier, preparation refresh and restore, and continuation check for that existing hook form."
-  "2026-11-17T21:43:12.064Z",codex-sol,"The three version-qualified regressions failed on the first pushed head and passed after adding package specifiers to generator recognition. The fixtures cover an npx version, npm exec version, and a Bun package tag, along with refresh, restore and a stale-pin refusal."
-  "2026-11-17T21:55:28.198Z",codex-sol,"Greptile PRRT_kwDOTOTl1M64qrmO maps to 9f41433c9ee493ef35b20879ae64d7c8229c8fc8. The 106 focused verifier and workflow tests passed. Full npm run coverage passed with 1717 passing tests, two configured-repository skips, and 100% statements, branches, functions and lines across 52 sources. Typecheck, lint and tag-backed changelog regeneration and check passed."
-  "2026-11-18T00:30:33.347Z",codex-sol,"Round BM starts from the pushed PR head. Extend the shared scanner for wrapper operands, refuse ambiguous changelog commands, and reject unresolved option names across preparation, verification, and continuation."
-  "2026-11-18T01:03:42.551Z",codex-sol,"Round BM CodeRabbit mapping. PRRT_kwDOTOTl1M64tWD1 maps to f6bdec27de5d8bea97c3369500b38c398ee062c4 for timeout duration operands and explicit refusal of unknown wrappers. PRRT_kwDOTOTl1M64tWD9 maps to f6bdec27de5d8bea97c3369500b38c398ee062c4 for refusing unresolved option words in preparation, verification and continuation. On the published Round BL base, the focused suite passed 1,571 tests with two existing opt-in skips. npm run typecheck, npm run lint, npm run docstring, npm run verify:release-changelog-date and the four shell scanner proof scripts passed. npm run coverage passed 2,019 tests with the same two existing skips and 100 percent statements, branches, functions and lines across 52 measured sources. git fetch --tags origin, npm run changelog:full and npm run changelog:check passed. npm run accept:packed passed for npm/Node and Bun."
-  "2026-11-18T01:11:09.777Z",codex-sol,"On the Round BM push, CI passed on Node 22 and 26. Greptile identified two compatibility regressions in the parser change. Preserve package-management commands and quoted dynamic values on fixed option names while continuing to refuse unknown wrappers and unresolved date-policy words."
-  "2026-11-18T01:30:24.276Z",codex-sol,"Compatibility corrections are in e29526eb7631629ef084c7fb77325478841e4d70. The focused suite passed 1,574 tests with two existing opt-in skips, and the six targeted regressions passed. Typecheck, lint, docstring, duplication, changelog regeneration and verification, the four scanner proof scripts, and packed npm/Node and native Bun acceptance passed. The full coverage gate is running for this commit."
-  "2026-11-18T02:40:26.059Z",codex-sol,Round BQ reproduced the test guard refusal and confirmed the unknown wrapper control is refused. The prepare script also puts the empty-section option on trailing echo and skips both generators. Add command-level regression fixtures and preserve source text.
-  "2026-11-18T02:46:12.412Z",codex-sol,PRRT_kwDOTOTl1M64vwvQ maps to 5dd95bd. Preparation accepts all seven lookup forms and still refuses an unrecognized executing wrapper. The test -x guard and command execution both have regression fixtures.
-  "2026-11-18T02:46:13.558Z",codex-sol,"PRRT_kwDOTOTl1M64vwvT maps to 5dd95bd. Preparation inserts --include-empty per generator without changing surrounding operators, redirections or already-enabled hooks. The focused preparation and scanner fixtures passed."
-  "2026-11-18T02:46:15.398Z",codex-sol,"Round BQ passed all five focused regressions, typecheck, lint, documentation and duplication gates, both live changelog verifiers, and tag-backed changelog regeneration and check. Final-head coverage and remaining test evidence are required before push."
-  "2026-11-18T02:58:20.721Z",codex-sol,The full suite exposed a legacy adjacency fixture with --include-empty on true. Moved the pre-existing flag into the generator command so the fixture still isolates date rewriting next to a shell separator. All seven focused regressions passed.
-  "2026-11-18T04:01:34.406Z",codex-sol,"Round BS will follow literal package-script forwards from the configured changelog hooks, then persist the empty-section option on each generator. A dependency-only workflow fixture will exercise the subsequent release:check without a workflow-supplied option."
-  "2026-11-18T04:37:44.650Z",codex-sol,"The first Round BS push refused valid npm run --silent forwards. Preparation, continuation and the date verifier now share the option-aware parser. The dependency-only npm fixture and six related regressions passed with npm 11.21.0."
-  "2026-11-18T05:01:22.564Z",codex-sol,"Verified npm 11.21.0 optional forwarding semantics, including an absent script, later option overrides, and the argument separator. Preparation now skips only absent optional targets with literal names. Seven affected fixture tests, typecheck and lint passed."
-  "2026-11-18T06:10:11.632Z",codex-sol,"Round BW: PRRT_kwDOTOTl1M64zDCx and PRRT_kwDOTOTl1M64zDC1 map to 1e51801. The Bun and pnpm forward fixtures cover pinning and continuation rejection, and the real prepare/check fixture runs with spaces in the Node and generator paths. The Round BW regression selection passed 9 tests."
+comments[23]:
+  - created_at: "2026-11-17T20:49:08.758Z"
+    author: codex-sol
+    text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
+  - created_at: "2026-11-17T20:53:41.510Z"
+    author: codex-sol
+    text: Red-first fixtures confirmed quoted pins passed the verifier while the prepare step left them stale and the continuation guard accepted them. The shared parser reuses the shell scanner and edits only the option source spans. The workflow exercises quoted pins across a later-day retry and the pre-publication guard.
+  - created_at: "2026-11-17T21:00:30.935Z"
+    author: codex-sol
+    text: "Typecheck, lint, the live date verifier, and tag-backed changelog regeneration and check passed. The follow-up was recovered from its existing tracker commit with the item history intact. Full coverage and the workflow-reference test sweep are running."
+  - created_at: "2026-11-17T21:10:02.888Z"
+    author: codex-sol
+    text: "The initial 27-file sweep found one native-probe fixture missing the new repository-local helper files. Updated the fixture copy list without adding installed dependencies. Its isolated rerun passed all seven tests, including the empty probe without npm."
+  - created_at: "2026-11-17T21:11:50.303Z"
+    author: codex-sol
+    text: "Greptile PRRT_kwDOTOTl1M64nxQb on PR #295 maps to 1304543287232095379ddeb8dfba5fae05b3cf9a. Preparation refreshes and restores quoted date options from their shell token spans, and continuation rejects stale quoted pins against the verified merge commit day."
+  - created_at: "2026-11-17T21:26:38.531Z"
+    author: codex-sol
+    text: The committed 27-file reference sweep passed with 1259 tests and two configured external-repository skips. The first full coverage run hit the existing five-second artifact-reader startup timeout described by ops-input-startup-timeout. The release heading fixtures and native probe passed.
+  - created_at: "2026-11-17T21:36:50.019Z"
+    author: codex-sol
+    text: "The pinned-heading acceptance fixture ran the full npm release:check successfully, including npm run coverage at 100% statements, branches, functions and lines across 52 source files. It executed 1715 passing tests with two configured external-repository skips. Typecheck, lint, the live date verifier and tag-backed changelog regeneration and check passed. The isolated artifact-reader retry passed all six tests. The standing-policy full coverage retry is running independently."
+  - created_at: "2026-11-17T21:41:39.887Z"
+    author: codex-sol
+    text: "Greptile follow-up PRRT_kwDOTOTl1M64qrmO on the pushed head identified a regression for version-qualified pm-changelog package specifiers. Cover the verifier, preparation refresh and restore, and continuation check for that existing hook form."
+  - created_at: "2026-11-17T21:43:12.064Z"
+    author: codex-sol
+    text: "The three version-qualified regressions failed on the first pushed head and passed after adding package specifiers to generator recognition. The fixtures cover an npx version, npm exec version, and a Bun package tag, along with refresh, restore and a stale-pin refusal."
+  - created_at: "2026-11-17T21:55:28.198Z"
+    author: codex-sol
+    text: "Greptile PRRT_kwDOTOTl1M64qrmO maps to 9f41433c9ee493ef35b20879ae64d7c8229c8fc8. The 106 focused verifier and workflow tests passed. Full npm run coverage passed with 1717 passing tests, two configured-repository skips, and 100% statements, branches, functions and lines across 52 sources. Typecheck, lint and tag-backed changelog regeneration and check passed."
+  - created_at: "2026-11-18T00:30:33.347Z"
+    author: codex-sol
+    text: "Round BM starts from the pushed PR head. Extend the shared scanner for wrapper operands, refuse ambiguous changelog commands, and reject unresolved option names across preparation, verification, and continuation."
+  - created_at: "2026-11-18T01:03:42.551Z"
+    author: codex-sol
+    text: "Round BM CodeRabbit mapping. PRRT_kwDOTOTl1M64tWD1 maps to f6bdec27de5d8bea97c3369500b38c398ee062c4 for timeout duration operands and explicit refusal of unknown wrappers. PRRT_kwDOTOTl1M64tWD9 maps to f6bdec27de5d8bea97c3369500b38c398ee062c4 for refusing unresolved option words in preparation, verification and continuation. On the published Round BL base, the focused suite passed 1,571 tests with two existing opt-in skips. npm run typecheck, npm run lint, npm run docstring, npm run verify:release-changelog-date and the four shell scanner proof scripts passed. npm run coverage passed 2,019 tests with the same two existing skips and 100 percent statements, branches, functions and lines across 52 measured sources. git fetch --tags origin, npm run changelog:full and npm run changelog:check passed. npm run accept:packed passed for npm/Node and Bun."
+  - created_at: "2026-11-18T01:11:09.777Z"
+    author: codex-sol
+    text: "On the Round BM push, CI passed on Node 22 and 26. Greptile identified two compatibility regressions in the parser change. Preserve package-management commands and quoted dynamic values on fixed option names while continuing to refuse unknown wrappers and unresolved date-policy words."
+  - created_at: "2026-11-18T01:30:24.276Z"
+    author: codex-sol
+    text: "Compatibility corrections are in e29526eb7631629ef084c7fb77325478841e4d70. The focused suite passed 1,574 tests with two existing opt-in skips, and the six targeted regressions passed. Typecheck, lint, docstring, duplication, changelog regeneration and verification, the four scanner proof scripts, and packed npm/Node and native Bun acceptance passed. The full coverage gate is running for this commit."
+  - created_at: "2026-11-18T02:40:26.059Z"
+    author: codex-sol
+    text: Round BQ reproduced the test guard refusal and confirmed the unknown wrapper control is refused. The prepare script also puts the empty-section option on trailing echo and skips both generators. Add command-level regression fixtures and preserve source text.
+  - created_at: "2026-11-18T02:46:12.412Z"
+    author: codex-sol
+    text: PRRT_kwDOTOTl1M64vwvQ maps to 5dd95bd. Preparation accepts all seven lookup forms and still refuses an unrecognized executing wrapper. The test -x guard and command execution both have regression fixtures.
+  - created_at: "2026-11-18T02:46:13.558Z"
+    author: codex-sol
+    text: "PRRT_kwDOTOTl1M64vwvT maps to 5dd95bd. Preparation inserts --include-empty per generator without changing surrounding operators, redirections or already-enabled hooks. The focused preparation and scanner fixtures passed."
+  - created_at: "2026-11-18T02:46:15.398Z"
+    author: codex-sol
+    text: "Round BQ passed all five focused regressions, typecheck, lint, documentation and duplication gates, both live changelog verifiers, and tag-backed changelog regeneration and check. Final-head coverage and remaining test evidence are required before push."
+  - created_at: "2026-11-18T02:58:20.721Z"
+    author: codex-sol
+    text: The full suite exposed a legacy adjacency fixture with --include-empty on true. Moved the pre-existing flag into the generator command so the fixture still isolates date rewriting next to a shell separator. All seven focused regressions passed.
+  - created_at: "2026-11-18T04:01:34.406Z"
+    author: codex-sol
+    text: "Round BS will follow literal package-script forwards from the configured changelog hooks, then persist the empty-section option on each generator. A dependency-only workflow fixture will exercise the subsequent release:check without a workflow-supplied option."
+  - created_at: "2026-11-18T04:37:44.650Z"
+    author: codex-sol
+    text: "The first Round BS push refused valid npm run --silent forwards. Preparation, continuation and the date verifier now share the option-aware parser. The dependency-only npm fixture and six related regressions passed with npm 11.21.0."
+  - created_at: "2026-11-18T05:01:22.564Z"
+    author: codex-sol
+    text: "Verified npm 11.21.0 optional forwarding semantics, including an absent script, later option overrides, and the argument separator. Preparation now skips only absent optional targets with literal names. Seven affected fixture tests, typecheck and lint passed."
+  - created_at: "2026-11-18T06:10:11.632Z"
+    author: codex-sol
+    text: "Round BW: PRRT_kwDOTOTl1M64zDCx and PRRT_kwDOTOTl1M64zDC1 map to 1e51801, with Bun execution switches preserved by 93c0baf. The Bun and pnpm forward fixtures cover pinning and continuation rejection, and the real prepare/check fixture runs with spaces in the Node and generator paths. The first regression selection passed 9 tests. The Bun execution switch and verifier regression selection passed 4 tests, and Bun executed the tested switches in a disposable fixture."
+    edited_at: "2026-11-18T06:44:28.794Z"
 files[15]{path,scope}:
   .github/workflows/daily-release.yml,project
   release-changelog-options.ts,project
