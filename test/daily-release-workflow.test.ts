@@ -959,6 +959,7 @@ test("continuation enforces the merge day before publish and still tags after mi
   const steps = workflow.jobs.release.steps;
   const check = step("Check prepared heading day before publication");
   assert.ok(steps.indexOf(check) < steps.indexOf(step("Publish npm package")));
+  assert.ok(steps.indexOf(check) < steps.indexOf(step("Push release tag")));
   assert.equal(check.if, "steps.continue.outputs.action == 'publish' && !inputs.rust");
   assert.equal(check.run, 'node "$CONTINUATION_SCRIPT" heading-date');
   const tag = step("Push release tag").run;
@@ -966,6 +967,8 @@ test("continuation enforces the merge day before publish and still tags after mi
     ["publish", "2026-10-24", "2026-10-24", true],
     ["recover", "2026-10-25", "2026-10-24", true],
     ["publish", "2026-10-25", "2026-10-24", false],
+    ["publish", "2026-10-23", null, true],
+    ["publish", "2026-10-24", null, false],
   ] as const) {
     const root = mkdtempSync(join(tmpdir(), "release-heading-tag-"));
     try {
@@ -974,13 +977,16 @@ test("continuation enforces the merge day before publish and still tags after mi
       execFileSync("git", ["init", "--quiet", "--bare", remote]);
       execFileSync("git", ["init", "--quiet", project]);
       const env = {
-        ...process.env, IS_RUST: "false", RELEASE_TAG: "v2026.10.23",
+        ...process.env, IS_RUST: "false", RELEASE_TAG: "v2026.10.23-2",
         CONTINUATION_SCRIPT: fileURLToPath(new URL("../scripts/release-continuation.ts", import.meta.url)), NPM_PROJECT_PATH: project,
         CHANGELOG_SCRIPT: "changelog", CHANGELOG_CHECK_SCRIPT: "changelog", NOTES_SCRIPT: "changelog", RELEASE_TIMEZONE: "Europe/Vienna",
-        GIT_AUTHOR_DATE: "2026-10-23T12:00:00Z", GIT_COMMITTER_DATE: `${mergeDay}T22:30:00+02:00`,
+        GIT_AUTHOR_DATE: "2026-10-22T12:00:00Z", GIT_COMMITTER_DATE: `${mergeDay}T00:30:00+02:00`,
       };
       const git = (...args: string[]) => execFileSync("git", args, { cwd: project, env, encoding: "utf8" }).trim();
-      writeFileSync(join(project, "package.json"), JSON.stringify({ scripts: { changelog: `pm-changelog "--date-fallback" '${pinDay}'` } }));
+      const dateOption = pinDay ? `"--date-fallback" '${pinDay}'` : "--date-from-version";
+      writeFileSync(join(project, "package.json"), JSON.stringify({
+        version: "2026.10.23-2", scripts: { changelog: `pm-changelog --release-version-from-package ${dateOption}` },
+      }));
       git("add", "package.json");
       git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "Verified merge");
       const verified = git("rev-parse", "HEAD");
@@ -993,7 +999,9 @@ test("continuation enforces the merge day before publish and still tags after mi
         const before = runBashFixture(check.run, { cwd: project, encoding: "utf8", env });
         assert.equal(before.status === 0, allowed, before.stdout + before.stderr);
         if (!allowed) {
-          assert.match(before.stderr, /2026-10-24.*2026-10-25.*Refusing to publish/);
+          const preparedDay = pinDay ?? "2026-10-23";
+          assert.ok(before.stderr.includes(`Prepared release heading day ${preparedDay} differs from verified merge commit day ${mergeDay}. Refusing to publish; re-prepare`),
+            before.stderr);
           assert.equal(git("ls-remote", "--tags", "origin"), "");
           continue;
         }

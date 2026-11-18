@@ -1,6 +1,6 @@
 /** Persist the date and empty-section policies used by release changelog hooks. */
 import { readFileSync, writeFileSync } from "node:fs";
-import { rewriteReleaseHeadingDate } from "../release-changelog-options.ts";
+import { includeEmptyReleaseSections, rewriteReleaseHeadingDate } from "../release-changelog-options.ts";
 
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 const headingDate = (process.env.RELEASE_HEADING_DATE || "").trim();
@@ -11,14 +11,14 @@ let changed = false;
 for (const name of new Set([process.env.CHANGELOG_SCRIPT!, process.env.CHANGELOG_CHECK_SCRIPT!, process.env.NOTES_SCRIPT!])) {
   const script: unknown = pkg.scripts?.[name];
   if (typeof script !== "string" || !script.trim()) throw new Error("Missing changelog hook: " + name);
-  let prepared = rewriteReleaseHeadingDate(script, headingDate);
-  if (prepared !== script) {
+  const dated = rewriteReleaseHeadingDate(script, headingDate);
+  if (dated !== script) {
     const policy = headingDate ? "pins the heading to " + headingDate : "restores the version-derived heading policy";
     console.log(`::notice::Release commit ${policy} in package.json script "${name}".`);
   }
-  if (!prepared.split(/\s+/).includes("--include-empty")) {
-    prepared += " --include-empty";
-    console.log(`::notice::Release commit appends --include-empty to package.json script "${name}" so later changelog checks agree with this dependency-only release.`);
+  const prepared = includeEmptyReleaseSections(dated);
+  if (prepared !== dated) {
+    console.log(`::notice::Release commit adds --include-empty to generator invocations in package.json script "${name}" so later changelog checks agree with this dependency-only release.`);
   }
   if (prepared !== script) {
     pkg.scripts[name] = prepared;

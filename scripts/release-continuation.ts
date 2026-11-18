@@ -424,7 +424,7 @@ async function reconcilePostHook(receipt: CandidateReceipt, pr: RestPr, reposito
 /** Invoke one bounded workflow transition; every schedule starts with discovery, never preparation. */
 export async function runReleaseContinuation(mode: string | undefined, verifyProvenance?: typeof verifySigstoreBundle): Promise<void> {
   if (mode === "heading-date") {
-    const pkg = JSON.parse(readFileSync(join(required("NPM_PROJECT_PATH"), "package.json"), "utf8")) as { scripts: Record<string, string> };
+    const pkg = JSON.parse(readFileSync(join(required("NPM_PROJECT_PATH"), "package.json"), "utf8")) as { version?: string; scripts: Record<string, string> };
     const scripts = ["CHANGELOG_SCRIPT", "CHANGELOG_CHECK_SCRIPT", "NOTES_SCRIPT"].map(key => {
       const name = required(key), script = pkg.scripts?.[name];
       if (typeof script !== "string" || !script.trim()) throw new Error("Missing changelog hook: " + name);
@@ -436,7 +436,7 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
     const commitTimestamp = execFileSync("git", ["log", "-1", "--format=%cI", "HEAD"], { cwd: required("NPM_PROJECT_PATH"), encoding: "utf8" }).trim();
     // pm-changelog 2026.11.6: dist/release-context.js:496,554-558.
     // Preserve the committer offset by taking the literal date prefix.
-    assertReleaseHeadingDate(scripts, commitTimestamp.slice(0, 10));
+    assertReleaseHeadingDate(scripts, commitTimestamp.slice(0, 10), pkg.version);
     return;
   }
   if (mode === "tools") {

@@ -848,6 +848,13 @@ function scanCommandPrefix(command: ShellCommand): PrefixScan {
       index += 1;
       continue;
     }
+    // A command lookup consumes its operands as names. Only the execution
+    // form of the builtin is a wrapper around the next program.
+    if (base === "command") {
+      let option = index + 1;
+      while (command[option]?.value === "-p") option += 1;
+      if (/^-p*[vV][pvV]*$/.test(command[option]?.value ?? "")) return { index, spawned };
+    }
     if (COMMAND_PREFIXES.has(base)) {
       sawPrefix = true;
       lastPrefix = base;

@@ -12,7 +12,7 @@ import { verify as verifySections } from "../scripts/verify-release-changelog-se
 import { parse } from "yaml";
 import { decideDailyRelease } from "../daily-release.ts";
 import { runBashFixture } from "./bash-fixture.ts";
-import { rewriteReleaseHeadingDate } from "../release-changelog-options.ts";
+import { assertReleaseHeadingDate, includeEmptyReleaseSections, rewriteReleaseHeadingDate } from "../release-changelog-options.ts";
 
 /** Read the actual repository commands so reverting their policy breaks the proof. */
 const scripts = (JSON.parse(readFileSync(resolve("package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
@@ -390,6 +390,57 @@ test("preparation pins and restores wrapped changelog hooks", () => {
   }
   assert.throws(() => rewriteReleaseHeadingDate("custom-wrapper pm-changelog --date-from-version", "2026-11-17"),
     /unrecognized wrapper/i);
+});
+
+test("preparation skips changelog lookup guards while preserving executing wrappers", () => {
+  const bin = "./node_modules/.bin/pm-changelog";
+  for (const guard of [
+    `test -x ${bin}`, `[ -x ${bin} ]`, `[[ -x ${bin} ]]`, "command -v pm-changelog", "command -p -V pm-changelog",
+    "which pm-changelog", "type pm-changelog", `ls ${bin}`,
+  ]) {
+    const prefix = `${guard} && command pm-changelog`;
+    assert.equal(rewriteReleaseHeadingDate(`${prefix} --date-from-version`, "2026-11-17"),
+      `${prefix} --date-fallback 2026-11-17`);
+    assert.equal(includeEmptyReleaseSections(`${prefix} --date-from-version`),
+      `${prefix} --date-from-version --include-empty`);
+  }
+  assert.throws(() => includeEmptyReleaseSections("command -p custom-wrapper pm-changelog"), /unrecognized wrapper/i);
+  assert.equal(includeEmptyReleaseSections("command -p"), "command -p");
+});
+
+test("preparation adds empty-section policy to each generator and preserves shell text", () => {
+  const root = mkdtempSync(join(tmpdir(), "hook-empty-policy-"));
+  try {
+    const path = join(root, "package.json");
+    const hooks = {
+      "changelog:full": "pm-changelog --date-from-version 2> log && echo done",
+      "changelog:check": "node scripts/pm-changelog.ts --check&&pm-changelog; echo '--include-empty'",
+      "release:notes": 'pm-changelog --stdout "--include-empty" && echo done',
+    };
+    writeFileSync(path, JSON.stringify({ scripts: hooks }));
+    execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env: releaseStepEnv(root, process.env) });
+    const prepared = readFileSync(path, "utf8");
+    assert.deepEqual(JSON.parse(prepared).scripts, {
+      "changelog:full": "pm-changelog --date-from-version --include-empty 2> log && echo done",
+      "changelog:check": "node scripts/pm-changelog.ts --check --include-empty&&pm-changelog --include-empty; echo '--include-empty'",
+      "release:notes": hooks["release:notes"],
+    });
+    execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env: releaseStepEnv(root, process.env) });
+    assert.equal(readFileSync(path, "utf8"), prepared);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+  assert.equal(includeEmptyReleaseSections("out=$(pm-changelog --stdout); echo \"$out\""),
+    "out=$(pm-changelog --stdout --include-empty); echo \"$out\"");
+  assert.throws(() => includeEmptyReleaseSections("eval 'pm-changelog --stdout'"), /needs an editable shell word/);
+});
+
+test("the publication heading check validates standing calendar coordinates without changing pinned hooks", () => {
+  const standing = "pm-changelog --release-version-from-package --date-from-version";
+  assert.doesNotThrow(() => assertReleaseHeadingDate([standing], "2026-01-02", "2026.1.2-3"));
+  for (const version of [undefined, "1.0.0", "0099.1.2", "2026.2.30"]) {
+    assert.throws(() => assertReleaseHeadingDate([standing], "2026-01-02", version), /valid calendar version/);
+  }
+  assert.doesNotThrow(() => assertReleaseHeadingDate(["pm-changelog --date-fallback"], "2026-01-02"));
+  assert.doesNotThrow(() => assertReleaseHeadingDate(["pm-changelog --date-fallback 2026-01-02"], "2026-01-02"));
 });
 
 test("preparation refuses an unresolved option instead of erasing the substitution", () => {
