@@ -341,7 +341,7 @@ test("preparation and continuation audit the generator reached through Bun and p
     const filename = join(root, "package.json");
     const hooks = {
       "changelog:full": "env bun run changes",
-      "changelog:check": "bun --if-present run missing && bun run --if-present check",
+      "changelog:check": "bun --if-present run missing && bun run --silent --if-present check",
       "release:notes": "pnpm run --if-present absent && pnpm run --if-present notes",
       changes: "pm-changelog --date-from-version",
       check: "pm-changelog --date-from-version --check",
@@ -372,6 +372,25 @@ test("preparation and continuation audit the generator reached through Bun and p
       assert.match(result.stderr, /2026-10-23 differs from verified merge commit day 2026-10-24/);
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Bun execution switches preserve direct generator detection and package script resolution", () => {
+  const hooks = {
+    "changelog:full": "bun run --silent pm-changelog --date-from-version",
+    "changelog:check": "bun run --bun ./scripts/pm-changelog.ts --date-from-version --check",
+    "release:notes": "bun --silent run -b --if-present changes",
+    changes: "pm-changelog --date-from-version --stdout",
+  };
+  const resolved = resolveChangelogHooks(hooks, ["changelog:full", "changelog:check", "release:notes"]);
+  assert.deepEqual(Object.fromEntries(resolved), hooks);
+  const day = "2026-10-24";
+  for (const name of ["changelog:full", "changelog:check", "changes"] as const) {
+    const pinned = rewriteReleaseHeadingDate(resolved.get(name)!, day);
+    assert.equal(pinned, hooks[name].replace("--date-from-version", "--date-fallback " + day));
+    assert.throws(() => assertReleaseHeadingDate([pinned], "2026-10-23"), /2026-10-24 differs.*2026-10-23/);
+  }
+  assert.throws(() => resolveChangelogHooks({ hook: 'bun run --silent "$TARGET"' }, ["hook"]), /expected a literal/);
+  assert.throws(() => resolveChangelogHooks({ hook: "bun run --cwd elsewhere changes", changes: hooks.changes }, ["hook"]), /expected a literal/);
 });
 
 test("empty wording leaves tracked prose alone and invalid adapter options fail before writing", () => {

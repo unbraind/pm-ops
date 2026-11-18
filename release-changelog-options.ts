@@ -18,6 +18,10 @@ const GENERATOR_LAUNCHERS = new Set(["node", "npx", "bun", "bunx"]);
 const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun"]);
 const SCRIPT_RUNNERS = new Set(["npm", "pnpm", "bun"]);
 const BUN_SOURCE_FILE = /^(?:\.\/|\/)|\.(?:[cm]?[jt]s|[jt]sx)$/;
+const BUN_LOCAL_RUN_SWITCHES = new Set([
+  "-b", "--bun", "--silent", "--watch", "--hot", "--no-clear-screen",
+  "--smol", "--no-install", "--prefer-offline", "--prefer-latest",
+]);
 const NPM_LOCAL_RUN_SWITCH = /^(?:-[sq]|-d{1,3}|--silent|--quiet|--verbose|--(?:no-)?(?:ignore-scripts|foreground-scripts)(?:=(?:true|false))?)$/;
 const NPM_LOG_LEVEL = /^(?:silent|error|warn|notice|http|info|verbose|silly)$/;
 const NPM_IF_PRESENT = /^--(no-)?if-present(?:=(true|false))?$/;
@@ -80,11 +84,13 @@ function literalScriptName(target: ShellToken | undefined): string | undefined {
 function afterRunOptions(program: string, tokens: readonly ShellToken[], start: number, optional = false): { index: number; optional: boolean } {
   if (program === "npm") return afterNpmRunOptions(tokens, start, optional);
   let index = start;
-  while (tokens[index]?.value === "--if-present" && !tokens[index]!.unresolved) {
-    optional = true;
+  for (;;) {
+    const option = tokens[index];
+    if (!option || option.unresolved) return { index, optional };
+    if (option.value === "--if-present") optional = true;
+    else if (program !== "bun" || !BUN_LOCAL_RUN_SWITCHES.has(option.value)) return { index, optional };
     index++;
   }
-  return { index, optional };
 }
 
 /** Locate the target and optionality of a package-script forward. */
