@@ -6,9 +6,7 @@ status: in_progress
 priority: 1
 tags[2]: "area:release",follow-up
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-18T00:39:27.899Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-18T01:03:44.374Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "Use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "The verifier accepts the shell option. The workflow leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[11]{created_at,author,text}:
+comments[12]{created_at,author,text}:
   "2026-11-17T20:49:08.758Z",codex-sol,"Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
   "2026-11-17T20:53:41.510Z",codex-sol,Red-first fixtures confirmed quoted pins passed the verifier while the prepare step left them stale and the continuation guard accepted them. The shared parser reuses the shell scanner and edits only the option source spans. The workflow exercises quoted pins across a later-day retry and the pre-publication guard.
   "2026-11-17T21:00:30.935Z",codex-sol,"Typecheck, lint, the live date verifier, and tag-backed changelog regeneration and check passed. The follow-up was recovered from its existing tracker commit with the item history intact. Full coverage and the workflow-reference test sweep are running."
@@ -28,6 +26,7 @@ comments[11]{created_at,author,text}:
   "2026-11-17T21:43:12.064Z",codex-sol,"The three version-qualified regressions failed on the first pushed head and passed after adding package specifiers to generator recognition. The fixtures cover an npx version, npm exec version, and a Bun package tag, along with refresh, restore and a stale-pin refusal."
   "2026-11-17T21:55:28.198Z",codex-sol,"Greptile PRRT_kwDOTOTl1M64qrmO maps to 9f41433c9ee493ef35b20879ae64d7c8229c8fc8. The 106 focused verifier and workflow tests passed. Full npm run coverage passed with 1717 passing tests, two configured-repository skips, and 100% statements, branches, functions and lines across 52 sources. Typecheck, lint and tag-backed changelog regeneration and check passed."
   "2026-11-18T00:30:33.347Z",codex-sol,"Round BM starts from the pushed PR head. Extend the shared scanner for wrapper operands, refuse ambiguous changelog commands, and reject unresolved option names across preparation, verification, and continuation."
+  "2026-11-18T01:03:42.551Z",codex-sol,"Round BM CodeRabbit mapping. PRRT_kwDOTOTl1M64tWD1 maps to f6bdec27de5d8bea97c3369500b38c398ee062c4 for timeout duration operands and explicit refusal of unknown wrappers. PRRT_kwDOTOTl1M64tWD9 maps to f6bdec27de5d8bea97c3369500b38c398ee062c4 for refusing unresolved option words in preparation, verification and continuation. On the published Round BL base, the focused suite passed 1,571 tests with two existing opt-in skips. npm run typecheck, npm run lint, npm run docstring, npm run verify:release-changelog-date and the four shell scanner proof scripts passed. npm run coverage passed 2,019 tests with the same two existing skips and 100 percent statements, branches, functions and lines across 52 measured sources. git fetch --tags origin, npm run changelog:full and npm run changelog:check passed. npm run accept:packed passed for npm/Node and Bun."
 files[14]{path,scope}:
   .github/workflows/daily-release.yml,project
   release-changelog-options.ts,project
