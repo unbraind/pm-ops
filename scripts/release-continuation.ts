@@ -434,7 +434,7 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
     const commitTimestamp = execFileSync("git", ["log", "-1", "--format=%cI", "HEAD"], { cwd: required("NPM_PROJECT_PATH"), encoding: "utf8" }).trim();
     // pm-changelog 2026.11.6: dist/release-context.js:496,554-558.
     // Preserve the committer offset by taking the literal date prefix.
-    assertReleaseHeadingDate([...scripts.values()], commitTimestamp.slice(0, 10), pkg.version);
+    assertReleaseHeadingDate([...scripts.values()], commitTimestamp.slice(0, 10), pkg.version, new Set(scripts.keys()));
     return;
   }
   if (mode === "tools") {

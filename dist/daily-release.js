@@ -1,14 +1,20 @@
 /** Pure release planning shared by the reusable workflow and its regression suite. */
 import { tokenize } from "./docstrings.js";
 import { npmVersionToTag } from "./release-completeness.js";
+import { isRealCalendarDay } from "./release-changelog-options.js";
 /** Normalize a release calendar day for daily comparisons, intentionally discarding any -N suffix. */
 export function releaseVersion(date) {
     return date.replace(/^v/, "").split("-")[0].split(".").map(Number).join(".");
 }
-/** Parse one calendar day coordinate in YYYY.M.D form, discarding any same-day -N suffix; null when not a day. */
+/** Parse a YYYY.M.D coordinate, rejecting nonexistent days and ignoring any same-day -N suffix. */
 function calendarDay(coordinate) {
     const match = coordinate.replace(/^v/, "").match(/^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:-\d+)?$/);
-    return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+    if (!match)
+        return null;
+    const day = [Number(match[1]), Number(match[2]), Number(match[3])];
+    if (!isRealCalendarDay(isoDay(day)))
+        throw new Error(`Invalid calendar day in release coordinate ${JSON.stringify(coordinate)}`);
+    return day;
 }
 /** Compare two calendar days numerically, so unpadded coordinates order correctly. */
 function dayBefore(earlier, later) {

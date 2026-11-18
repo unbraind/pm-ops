@@ -191,6 +191,11 @@ test("the date verifier audits a declared generator script and refuses ambiguous
     text: JSON.stringify({ scripts: { check, "pm-changelog": generator, blank: " ", ignored: 1 } }),
   });
   assert.deepEqual(auditInvocations([manifest('npm run --silent "pm-changelog" -- --check', FLAGGED)]).failures, []);
+  assert.deepEqual(auditInvocations([manifest("bun run pm-changelog", FLAGGED)]).failures, []);
+  assert.equal(auditInvocations([manifest("bun --if-present run pm-changelog", "pm-changelog --release-version-from-package")]).failures.length, 1);
+  for (const command of ["bun run ./scripts/pm-changelog.ts", "bun run pm-changelog"]) {
+    assert.deepEqual(auditInvocations([manifest(`${command} --release-version-from-package --date-from-version`, "")]).failures, []);
+  }
   assert.deepEqual(auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts: {
     check: `npm --if-present run pm-changelog && ${FLAGGED}`,
   } }) }]).failures, []);

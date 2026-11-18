@@ -5,10 +5,7 @@
 ### Fixed
 
 - Global npm update guard mistakes comment words and redirect targets for packages ([ops-global-update-operands](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-global-update-operands.toon))
-
-### Closed
-
-- Closed: Confirm the daily release commits the rebuilt dist/ before its pack check ([ops-b2bs](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-b2bs.toon))
+- Confirm the daily release commits the rebuilt dist/ before its pack check ([ops-b2bs](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-b2bs.toon))
 
 ## 2026.11.17 - 2026-11-17
 

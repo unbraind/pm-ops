@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { createChangelog, resolveReleaseTagWindows, type PmItem } from "pm-changelog";
-import { execFileSync } from "../subprocess.ts";
+import { execFileSync, spawnSync } from "../subprocess.ts";
 import { committedReleaseNotes } from "../release-repair.ts";
 import { describeEmptyReleases, runChangelog } from "../scripts/pm-changelog.ts";
 import { verify as verifySections } from "../scripts/verify-release-changelog-sections.ts";
@@ -51,9 +51,26 @@ function args(name: string): string[] {
 
 /** Match fixture tag and completion days to the date policy selected by preparation. */
 function headingDay(version: string, command: string[]): string {
-  const fallback = command.findIndex(arg => arg === "--date-fallback" || arg.startsWith("--date-fallback="));
+  const fallback = fallbackDateIndex(command);
   if (fallback >= 0) return command[fallback]!.split("=")[1] ?? command[fallback + 1]!;
   return version.split("-")[0]!.split(".").map((part, index) => part.padStart(index === 0 ? 4 : 2, "0")).join("-");
+}
+
+/** Find the first inline or separate fallback-date option in a fixture's arguments. */
+function fallbackDateIndex(command: readonly string[]): number {
+  return command.findIndex(arg => arg === "--date-fallback" || arg.startsWith("--date-fallback="));
+}
+
+/** Restore the standing date policy while each option is still a separate argument. */
+function restoreFixtureDatePolicy(command: string[]): string[] {
+  const fallback = fallbackDateIndex(command);
+  if (fallback >= 0) command.splice(fallback, command[fallback] === "--date-fallback" ? 2 : 1, "--date-from-version");
+  return command;
+}
+
+/** Encode one argument for the fixture's shell, including literal apostrophes. */
+function quoteFixtureArgument(argument: string): string {
+  return "'" + argument.replaceAll("'", "'\\''") + "'";
 }
 
 /** The workflow step this suite executes, read straight from the YAML so reverting its policy breaks the proof. */
@@ -65,11 +82,9 @@ function changelogStepScript(): string {
 }
 
 /** Fixture npm scripts that call this repository's generator with the standing policy. */
-function releaseCommands(): Record<string, string> {
-  const generator = resolve("scripts/pm-changelog.ts");
+function releaseCommands(generator = resolve("scripts/pm-changelog.ts"), node = process.execPath): Record<string, string> {
   const commands = Object.fromEntries(["changelog:full", "changelog:check", "release:notes"].map(name => [name,
-    [process.execPath, generator, ...args(name).filter(arg => arg !== "--include-empty")].join(" ")
-      .replace(/--date-fallback(?:=|\s)\S+/, "--date-from-version")
+    [node, generator, ...restoreFixtureDatePolicy(args(name).filter(arg => arg !== "--include-empty"))].map(quoteFixtureArgument).join(" ")
   ]));
   commands["release:check"] = "npm run changelog:check";
   return commands;
@@ -258,13 +273,19 @@ test("prepare commits the heading its tag produces, for same-day and resumed rel
   // release candidate on main does: the workflow step rewrites the date
   // policy in place, and the release PR's own CI runs the rewritten scripts
   // while the candidate is untagged, then main runs them again once tagged.
-  const commands = releaseCommands();
   for (const [version, headingDate, tagDay] of [
     ["2026.10.23", "", "2026-10-23T14:00:00Z"],
     ["2026.10.23", "2026-10-24", "2026-10-26T12:00:00Z"],
   ] as const) {
     const { root, env } = tracker();
     try {
+      const checkout = join(root, "generator's checkout");
+      const bin = join(root, "node bin");
+      const node = join(bin, "node");
+      symlinkSync(resolve("."), checkout, "junction");
+      mkdirSync(bin);
+      symlinkSync(process.execPath, node);
+      const commands = releaseCommands(join(checkout, "scripts", "pm-changelog.ts"), node);
       releaseTags(root, env);
       writeFileSync(join(root, "package.json"), JSON.stringify({ name: "sample-changelog", version, scripts: commands }));
       const releaseEnv = releaseStepEnv(root, env, headingDate);
@@ -313,6 +334,46 @@ test("prepare commits the heading its tag produces, for same-day and resumed rel
   }
 });
 
+test("preparation and continuation audit the generator reached through Bun and pnpm forwards", () => {
+  const root = mkdtempSync(join(tmpdir(), "bun-hook-forward-"));
+  try {
+    const day = "2026-10-24";
+    const filename = join(root, "package.json");
+    const hooks = {
+      "changelog:full": "env bun run changes",
+      "changelog:check": "bun --if-present run missing && bun run --if-present check",
+      "release:notes": "pnpm run --if-present absent && pnpm run --if-present notes",
+      changes: "pm-changelog --date-from-version",
+      check: "pm-changelog --date-from-version --check",
+      notes: "pm-changelog --date-from-version --stdout",
+    };
+    const env = { ...releaseStepEnv(root, process.env, day), NPM_PROJECT_PATH: root };
+    writeFileSync(filename, JSON.stringify({ version: "2026.10.23", scripts: hooks }));
+    execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env });
+    const prepared = JSON.parse(readFileSync(filename, "utf8")) as { version: string; scripts: Record<string, string> };
+    assert.deepEqual(prepared.scripts, {
+      ...hooks,
+      changes: "pm-changelog --date-fallback 2026-10-24 --include-empty",
+      check: "pm-changelog --date-fallback 2026-10-24 --check --include-empty",
+      notes: "pm-changelog --date-fallback 2026-10-24 --stdout --include-empty",
+    });
+    execFileSync("git", ["init", "-q"], { cwd: root, env });
+    writeFileSync(join(root, "CHANGELOG.md"), "");
+    commitAndTag(root, env, "v2026.10.23", day + "T12:00:00Z");
+    const verify = [resolve("scripts/release-continuation.ts"), "heading-date"];
+    execFileSync(process.execPath, verify, { cwd: root, env });
+    for (const script of ["changes", "check", "notes"] as const) {
+      writeFileSync(filename, JSON.stringify({
+        ...prepared,
+        scripts: { ...prepared.scripts, [script]: prepared.scripts[script]!.replace(day, "2026-10-23") },
+      }));
+      const result = spawnSync(process.execPath, verify, { cwd: root, env, encoding: "utf8" });
+      assert.notEqual(result.status, 0, script);
+      assert.match(result.stderr, /2026-10-23 differs from verified merge commit day 2026-10-24/);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("empty wording leaves tracked prose alone and invalid adapter options fail before writing", () => {
   assert.equal(describeEmptyReleases("# Changelog\n\n## 1.0.0 - 2026-01-01\n\n- No changes.\n"), "# Changelog\n\n## 1.0.0 - 2026-01-01\n\n- No changes.\n");
   for (const invalid of [["--output"], ["--mode", "--check"], ["--mode", "invalid"]]) assert.throws(() => runChangelog(invalid));
@@ -324,6 +385,9 @@ test("fixture heading days use the explicitly selected date policy", () => {
   assert.equal(headingDay("2026.10.23", ["--date-from-version"]), "2026-10-23");
   assert.equal(headingDay("2026.10.23", ["--date-fallback", "2026-10-24"]), "2026-10-24");
   assert.equal(headingDay("2026.10.23", ["--date-fallback=2026-10-25"]), "2026-10-25");
+  for (const policy of [["--date-fallback", "2026-10-24"], ["--date-fallback=2026-10-24"], ["--date-from-version"]]) {
+    assert.deepEqual(restoreFixtureDatePolicy([...policy, "--stdout"]), ["--date-from-version", "--stdout"]);
+  }
 });
 
 test("preparation rewrites every date policy without consuming a following flag", () => {

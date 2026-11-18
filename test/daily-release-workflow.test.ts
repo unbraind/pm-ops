@@ -163,6 +163,21 @@ test("planning calls the measured TypeScript module and keeps PR payloads in fil
   assert.ok(merge.indexOf('release_commit="$(git rev-parse HEAD)"') < merge.indexOf('remote_branch_sha='));
 });
 
+test("prepare rebuilds and checks the trusted planner before loading it", () => {
+  const prepare = workflow.jobs.prepare.steps;
+  const build = step("Verify trusted release tool build");
+  const guard = prepare.indexOf(step("Enforce continuation runtime floor"));
+  assert.ok(prepare.indexOf(build) > guard);
+  assert.ok(prepare.indexOf(build) < prepare.indexOf(step("Install pinned release tools")));
+  assert.ok(prepare.indexOf(step("Install pinned release tools")) < prepare.indexOf(step("Decide release")));
+  assert.equal(build.if, undefined);
+  assert.equal(build["continue-on-error"], undefined);
+  assert.match(build.run, /cd "\$\{CONTINUATION_SCRIPT%\/scripts\/\*\}"/);
+  assert.match(build.run, /npm ci .*--ignore-scripts/);
+  assert.match(build.run, /npm run build\s+git diff --exit-code -- dist\//);
+  assert.match(build.run, /git status --porcelain=v1 --untracked-files=all --ignored=matching -- dist\//);
+});
+
 test("caller template and migration examples cover the union of every nested job permission", () => {
   const template = readFileSync(new URL("../templates/release-caller.yml", import.meta.url), "utf8");
   const docs = readFileSync(new URL("../docs/reusable-release.md", import.meta.url), "utf8");

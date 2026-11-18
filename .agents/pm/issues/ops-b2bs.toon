@@ -6,12 +6,21 @@ status: closed
 priority: 2
 tags[2]: "area:build","area:release"
 created_at: "2026-11-17T08:17:21.282Z"
-updated_at: "2026-11-17T15:02:21.976Z"
+updated_at: "2026-11-18T06:06:45.665Z"
 closed_at: "2026-11-17T08:19:43.995Z"
 completed_at: "2026-11-17T08:19:43.995Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: pi-claude
 repro_steps: "Merge a PR that changes daily-release.ts without rebuilding the tracked dist/, then run the next daily release."
-resolution: "Not a defect: 'Commit release files' (daily-release.yml:675-700) stages the rebuilt tracked dist/ and commits it before 'Pack verified release' (line 701) checks git diff; release commits a26be8c and 5fb8917 carry dist/ produced this way."
+resolution: Confirmed planner-order defect. Decide release imports the checked-out tools dist/daily-release.js before the candidate build. Prepare now rebuilds the trusted tools checkout and fails on tracked dist drift before loading the planner.
 expected_result: "The release rebuilds dist/, commits it in the release commit, and passes 'Pack verified release'."
-close_reason: "Not a defect, verified by the orchestrator. 'Commit release files' (.github/workflows/daily-release.yml:675-700) stages the tracked dist/ after the release build and commits it before 'Pack verified release' (line 701) runs git diff --exit-code. The release commits a26be8c (#282) and 5fb8917 (#274) carry dist/ produced this way, so a PR's stale dist/ cannot fail the first post-merge pack step."
+files[2]{path,scope}:
+  .github/workflows/daily-release.yml,project
+  test/daily-release-workflow.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/daily-release-workflow.test.ts,project,codex-sol,"2026-11-18T06:05:13.507Z",local_mutation,fix/release-hook-wrapper-options-bm
+docs[1]{path,scope}:
+  docs/reusable-release.md,project
+close_reason: The historical pack check covers the candidate build. The separate planning path now verifies the trusted tools build before Decide release.
 body: ""

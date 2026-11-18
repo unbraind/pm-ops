@@ -825,9 +825,10 @@ interface PrefixScan {
  * wrapper class.
  *
  * @param command - One simple command's tokens.
+ * @param preserveBunRun - Leave Bun's run command intact for package-script resolution.
  * @returns The program index and whether a spawning wrapper was consumed.
  */
-function scanCommandPrefix(command: ShellCommand): PrefixScan {
+function scanCommandPrefix(command: ShellCommand, preserveBunRun = false): PrefixScan {
   let index = 0;
   let sawPrefix = false;
   let spawned = false;
@@ -869,7 +870,8 @@ function scanCommandPrefix(command: ShellCommand): PrefixScan {
       index += 1;
       continue;
     }
-    if (second !== undefined && TWO_WORD_PREFIXES.get(base)?.has(second.value) === true) {
+    if (second !== undefined && TWO_WORD_PREFIXES.get(base)?.has(second.value) === true
+      && !(preserveBunRun && base === "bun" && second.value === "run")) {
       sawPrefix = true;
       lastPrefix = base;
       index += 2;
@@ -984,7 +986,7 @@ export function commandName(input: ShellCommand): string | undefined {
  * A command with no wrapper yields exactly one reading, so ordinary commands
  * are unaffected.
  *
- * @param command - One simple command's tokens.
+ * @param input - One simple command's tokens.
  * @returns Each candidate reading, the command's own first.
  */
 export function commandCandidates(input: ShellCommand): ShellCommand[] {
@@ -999,6 +1001,13 @@ export function commandCandidates(input: ShellCommand): ShellCommand[] {
     candidates.push(command.slice(index));
   }
   return candidates;
+}
+
+/** Read the first executable command, retaining Bun's run subcommand so callers can resolve scripts. */
+export function packageScriptCommand(input: ShellCommand): ShellCommand | undefined {
+  const command = withoutRedirections(input);
+  const { index } = scanCommandPrefix(command, true);
+  return index < command.length ? command.slice(index) : undefined;
 }
 
 /**

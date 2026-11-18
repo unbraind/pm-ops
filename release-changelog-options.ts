@@ -1,7 +1,7 @@
 /** Read and rewrite pm-changelog date policies using the shared shell scanner. */
 import { basename } from "node:path";
 import {
-  commandCandidates, fixedOptionName, isShellEvaluator, tokenizeCommands, tokenizeCommandsWithSpans,
+  fixedOptionName, isShellEvaluator, packageScriptCommand, tokenizeCommands, tokenizeCommandsWithSpans,
   type ShellCommand, type ShellToken, type ShellTokenSpan,
 } from "./shell-scan.ts";
 
@@ -17,6 +17,7 @@ const GENERATOR_TARGET = /^pm-changelog@[^/]+$|(?:^|\/)(?:pm-changelog(?:\.ts)?|
 const GENERATOR_LAUNCHERS = new Set(["node", "npx", "bun", "bunx"]);
 const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun"]);
 const SCRIPT_RUNNERS = new Set(["npm", "pnpm", "bun"]);
+const BUN_SOURCE_FILE = /^(?:\.\/|\/)|\.(?:[cm]?[jt]s|[jt]sx)$/;
 const NPM_LOCAL_RUN_SWITCH = /^(?:-[sq]|-d{1,3}|--silent|--quiet|--verbose|--(?:no-)?(?:ignore-scripts|foreground-scripts)(?:=(?:true|false))?)$/;
 const NPM_LOG_LEVEL = /^(?:silent|error|warn|notice|http|info|verbose|silly)$/;
 const NPM_IF_PRESENT = /^--(no-)?if-present(?:=(true|false))?$/;
@@ -75,19 +76,34 @@ function literalScriptName(target: ShellToken | undefined): string | undefined {
   return target?.value && !target.unresolved && !target.value.startsWith("-") ? target.value : undefined;
 }
 
+/** Skip runner flags that appear before the subcommand or script name. */
+function afterRunOptions(program: string, tokens: readonly ShellToken[], start: number, optional = false): { index: number; optional: boolean } {
+  if (program === "npm") return afterNpmRunOptions(tokens, start, optional);
+  let index = start;
+  while (tokens[index]?.value === "--if-present" && !tokens[index]!.unresolved) {
+    optional = true;
+    index++;
+  }
+  return { index, optional };
+}
+
 /** Locate the target and optionality of a package-script forward. */
-function scriptForward(program: string, parameters: readonly ShellToken[]): { target: string | undefined; optional: boolean } | undefined {
-  const command = program === "npm" ? afterNpmRunOptions(parameters, 0) : { index: 0, optional: false };
+function scriptForward(program: string, parameters: readonly ShellToken[], scriptNames?: ReadonlySet<string>): { target: string | undefined; optional: boolean } | undefined {
+  const command = afterRunOptions(program, parameters, 0);
   if (!isScriptForward(program, parameters[command.index]?.value)) return undefined;
-  if (program !== "npm") return { target: literalScriptName(parameters[1]), optional: false };
-  const target = afterNpmRunOptions(parameters, command.index + 1, command.optional);
-  const { optional } = afterNpmRunOptions(parameters, target.index + 1, target.optional);
-  return { target: literalScriptName(parameters[target.index]), optional };
+  const entry = afterRunOptions(program, parameters, command.index + 1, command.optional);
+  const target = literalScriptName(parameters[entry.index]);
+  // Bun also runs source files and local binaries when there is no named script.
+  if (program === "bun" && target !== undefined && !scriptNames?.has(target)
+    && (BUN_SOURCE_FILE.test(target) || GENERATOR_TARGET.test(target))) return undefined;
+  const optional = program === "npm" ? afterNpmRunOptions(parameters, entry.index + 1, entry.optional).optional : entry.optional;
+  return { target, optional };
 }
 
 /** Resolve the hook scripts and their local script dependencies before editing or verifying them. */
 export function resolveChangelogHooks(scripts: Record<string, unknown> | undefined, hooks: readonly string[]): Map<string, string> {
   const resolved = new Map<string, { script: string; depth: number }>();
+  const scriptNames = new Set(Object.keys(scripts ?? {}));
 
   /** Compute the longest remaining forward chain, including through shared scripts. */
   function visit(name: string, parents: readonly string[]): number {
@@ -106,10 +122,10 @@ export function resolveChangelogHooks(scripts: Record<string, unknown> | undefin
     }
     let depth = 0;
     for (const words of tokenizeCommands(script)) {
-      const invocation = commandCandidates(words)[0];
+      const invocation = packageScriptCommand(words);
       if (!invocation) continue;
       const [program, ...parameters] = invocation;
-      const forward = scriptForward(basename(program.value), parameters);
+      const forward = scriptForward(basename(program.value), parameters, scriptNames);
       if (!forward) continue;
       const { target, optional } = forward;
       if (target === undefined) {
@@ -127,15 +143,14 @@ export function resolveChangelogHooks(scripts: Record<string, unknown> | undefin
 }
 
 /** Return the generator word and arguments, or refuse a possible hook behind an unknown wrapper. */
-function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<string>): ShellCommand | undefined {
-  const invocation = commandCandidates(words)[0];
+function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<string>, audit = false): ShellCommand | undefined {
+  const invocation = packageScriptCommand(words);
   if (invocation === undefined) return undefined;
   const [program, ...parameters] = invocation;
   const name = basename(program.value);
-  const forward = scriptForward(name, parameters);
+  const forward = scriptForward(name, parameters, scriptNames);
   if (forward
-    && (scriptNames === undefined
-      || (forward.target !== undefined && (forward.optional || scriptNames.has(forward.target))))) return undefined;
+    && (!audit || (forward.target !== undefined && (forward.optional || scriptNames!.has(forward.target))))) return undefined;
   const [subcommand] = parameters;
   if (PACKAGE_MANAGERS.has(name) && !program.unresolved && subcommand && !subcommand.unresolved
     && PACKAGE_ADMIN_COMMANDS.has(subcommand.value)) return undefined;
@@ -154,7 +169,7 @@ function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<stri
 
 /** Read generator arguments during an audit, where only declared forwards are trusted. */
 export function changelogArguments(words: ShellCommand, scriptNames: ReadonlySet<string>): ShellToken[] | undefined {
-  return changelogInvocation(words, scriptNames)?.slice(1);
+  return changelogInvocation(words, scriptNames, true)?.slice(1);
 }
 
 type DateOption =
@@ -188,8 +203,8 @@ export function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[
 }
 
 /** Read date options only from commands that actually invoke the generator. */
-function hookDateOptions(commands: ShellCommand[]): DateOption[] {
-  return commands.flatMap(words => readReleaseDateOptions(changelogInvocation(words)?.slice(1) ?? []));
+function hookDateOptions(commands: ShellCommand[], scriptNames?: ReadonlySet<string>): DateOption[] {
+  return commands.flatMap(words => readReleaseDateOptions(changelogInvocation(words, scriptNames)?.slice(1) ?? []));
 }
 
 /** Render a calendar version using the same day and suffix rules as pm-changelog. */
@@ -205,9 +220,9 @@ function versionHeadingDay(version: string | undefined): string {
 }
 
 /** Refuse publication when the verified merge day differs from the prepared heading day. */
-export function assertReleaseHeadingDate(scripts: readonly string[], mergeDay: string, packageVersion?: string): void {
+export function assertReleaseHeadingDate(scripts: readonly string[], mergeDay: string, packageVersion?: string, scriptNames?: ReadonlySet<string>): void {
   for (const script of scripts) {
-    for (const option of hookDateOptions(tokenizeCommands(script))) {
+    for (const option of hookDateOptions(tokenizeCommands(script), scriptNames)) {
       const day = option.kind === "version" ? versionHeadingDay(packageVersion) : "day" in option ? option.day : undefined;
       if (day !== undefined && day !== mergeDay) {
         throw new Error(`Prepared release heading day ${day} differs from verified merge commit day ${mergeDay}. Refusing to publish; re-prepare the candidate for the merge day. The reviewed commit and verified artifact cannot be rewritten during continuation.`);
@@ -227,11 +242,11 @@ function applyHookEdits(script: string, edits: Iterable<HookEdit>): string {
 }
 
 /** Enable empty sections on each generator while preserving shell operators and redirections. */
-export function includeEmptyReleaseSections(script: string): string {
+export function includeEmptyReleaseSections(script: string, scriptNames?: ReadonlySet<string>): string {
   const { commands, spans } = tokenizeCommandsWithSpans(script);
   const edits = new Map<number, HookEdit>();
   for (const words of commands) {
-    const invocation = changelogInvocation(words);
+    const invocation = changelogInvocation(words, scriptNames);
     if (invocation === undefined || invocation.some(token => !token.unresolved && token.value === INCLUDE_EMPTY_FLAG)) continue;
     const last = spans.get(invocation.at(-1)!);
     if (!last) throw new Error("The --include-empty option needs an editable shell word in the changelog hook");
@@ -241,11 +256,11 @@ export function includeEmptyReleaseSections(script: string): string {
 }
 
 /** Refresh the inline pins, or restore the standing policy for a current version. */
-export function rewriteReleaseHeadingDate(script: string, headingDate: string): string {
+export function rewriteReleaseHeadingDate(script: string, headingDate: string, scriptNames?: ReadonlySet<string>): string {
   const { commands, spans } = tokenizeCommandsWithSpans(script);
   const edits = new Map<number, HookEdit>();
   const replacement = headingDate ? FALLBACK_DATE_FLAG + " " + headingDate : DATE_FLAG;
-  for (const option of hookDateOptions(commands)) {
+  for (const option of hookDateOptions(commands, scriptNames)) {
     if (option.kind !== "pin" && !(option.kind === "version" && headingDate)) continue;
     const first = spans.get(option.first);
     const last = spans.get(option.last);

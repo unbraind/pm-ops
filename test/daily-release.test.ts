@@ -140,6 +140,7 @@ test("heading-date comparisons handle year and month rollovers, future days and 
     ["2025.12.31", "2026.1.1", "2026-01-01"],
     ["2027.1.1", "2026.12.31", ""],
     ["2026.9.30", "2026.10.1", "2026-10-01"],
+    ["2028.2.29", "2028.3.1", "2028-03-01"],
     ["2026.11.1", "2026.10.31", ""],
     ["2026.10.20", "2026.10.19", ""],
     ["1.2.3", "2026.10.19", ""],
@@ -148,6 +149,12 @@ test("heading-date comparisons handle year and month rollovers, future days and 
     const plan = decideDailyRelease(facts({ packageVersion: version, today: today! }));
     assert.equal(plan.heading_date, expected, `${version} against ${today}`);
   }
+});
+
+test("heading-date planning rejects calendar coordinates on nonexistent days", () => {
+  assert.throws(() => decideDailyRelease(facts({ packageVersion: "2026.2.30" })), /invalid calendar day.*2026\.2\.30/i);
+  assert.throws(() => decideDailyRelease(facts({ currentPackageVersion: "2026.2.30" })), /invalid calendar day.*2026\.2\.30/i);
+  assert.throws(() => decideDailyRelease(facts({ today: "2026.2.30" })), /invalid calendar day.*2026\.2\.30/i);
 });
 
 test("canonical release names format the reviewed package coordinate instead of today's date", () => {

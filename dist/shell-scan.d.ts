@@ -176,10 +176,12 @@ export declare function commandName(input: ShellCommand): string | undefined;
  * A command with no wrapper yields exactly one reading, so ordinary commands
  * are unaffected.
  *
- * @param command - One simple command's tokens.
+ * @param input - One simple command's tokens.
  * @returns Each candidate reading, the command's own first.
  */
 export declare function commandCandidates(input: ShellCommand): ShellCommand[];
+/** Read the first executable command, retaining Bun's run subcommand so callers can resolve scripts. */
+export declare function packageScriptCommand(input: ShellCommand): ShellCommand | undefined;
 /**
  * List a command's arguments -- everything after its program name.
  *

@@ -22,10 +22,10 @@ type DateOption = {
 /** Decode literal date options and retain their shell words for edits. */
 export declare function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[];
 /** Refuse publication when the verified merge day differs from the prepared heading day. */
-export declare function assertReleaseHeadingDate(scripts: readonly string[], mergeDay: string, packageVersion?: string): void;
+export declare function assertReleaseHeadingDate(scripts: readonly string[], mergeDay: string, packageVersion?: string, scriptNames?: ReadonlySet<string>): void;
 /** Enable empty sections on each generator while preserving shell operators and redirections. */
-export declare function includeEmptyReleaseSections(script: string): string;
+export declare function includeEmptyReleaseSections(script: string, scriptNames?: ReadonlySet<string>): string;
 /** Refresh the inline pins, or restore the standing policy for a current version. */
-export declare function rewriteReleaseHeadingDate(script: string, headingDate: string): string;
+export declare function rewriteReleaseHeadingDate(script: string, headingDate: string, scriptNames?: ReadonlySet<string>): string;
 export {};
 //# sourceMappingURL=release-changelog-options.d.ts.map

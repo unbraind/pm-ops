@@ -6,7 +6,9 @@ status: in_progress
 priority: 1
 tags[2]: "area:release",follow-up
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-18T05:01:25.005Z"
+updated_at: "2026-11-18T06:06:47.580Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -37,11 +39,12 @@ comments[22]{created_at,author,text}:
   "2026-11-18T04:01:34.406Z",codex-sol,"Round BS will follow literal package-script forwards from the configured changelog hooks, then persist the empty-section option on each generator. A dependency-only workflow fixture will exercise the subsequent release:check without a workflow-supplied option."
   "2026-11-18T04:37:44.650Z",codex-sol,"The first Round BS push refused valid npm run --silent forwards. Preparation, continuation and the date verifier now share the option-aware parser. The dependency-only npm fixture and six related regressions passed with npm 11.21.0."
   "2026-11-18T05:01:22.564Z",codex-sol,"Verified npm 11.21.0 optional forwarding semantics, including an absent script, later option overrides, and the argument separator. Preparation now skips only absent optional targets with literal names. Seven affected fixture tests, typecheck and lint passed."
-files[14]{path,scope}:
+files[15]{path,scope}:
   .github/workflows/daily-release.yml,project
   release-changelog-options.ts,project
   release-continuation.ts,project
   scripts/prepare-release-changelog.ts,project
+  scripts/release-continuation.ts,project
   scripts/verify-release-changelog-date.ts,project
   shell-scan.ts,project
   test/changelog-sections.test.ts,project
@@ -52,7 +55,7 @@ files[14]{path,scope}:
   test/release-runtime.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[24]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[25]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -77,6 +80,7 @@ tests[24]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 --test-name-pattern='preparation skips changelog|preparation adds empty-section|publication heading check|continuation enforces the merge day|heading-date continuation mirrors' test/changelog-sections.test.ts test/daily-release-workflow.test.ts test/release-continuation-adapter.test.ts,project,codex-sol,"2026-11-18T02:44:50.509Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-concurrency=2 --test-name-pattern='preparation rewrites every date|continuation refuses a pinned heading|preparation skips changelog|preparation adds empty-section|publication heading check|continuation enforces the merge day|heading-date continuation mirrors' test/changelog-sections.test.ts test/daily-release.test.ts test/daily-release-workflow.test.ts test/release-continuation-adapter.test.ts,project,codex-sol,"2026-11-18T02:58:21.491Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-concurrency=2 test/changelog-sections.test.ts test/compatibility-floor.test.ts test/daily-release.test.ts test/daily-release-workflow.test.ts test/dependency-contract.test.ts test/ops.test.ts test/release-caller-attestation.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-permissions-docs.test.ts test/release-prepare-restart.test.ts test/release-recovery-signer.test.ts test/release-review.test.ts test/release-runtime.test.ts test/release-verification.test.ts test/release-workflow.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts test/verify-release-completeness.test.ts,project,codex-sol,"2026-11-18T04:05:20.812Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/changelog-sections.test.ts test/verify-release-changelog-date.test.ts,project,codex-sol,"2026-11-18T06:05:15.875Z",local_mutation,fix/release-hook-wrapper-options-bm
 docs[1]{path,scope}:
   docs/reusable-release.md,project
 body: ""
