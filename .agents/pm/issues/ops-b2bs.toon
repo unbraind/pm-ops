@@ -6,14 +6,14 @@ status: closed
 priority: 2
 tags[3]: "area:build","area:release","gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T08:17:21.282Z"
-updated_at: "2026-11-18T11:59:19.794Z"
+updated_at: "2026-11-18T12:11:10.070Z"
 closed_at: "2026-11-17T08:19:43.995Z"
 completed_at: "2026-11-17T08:19:43.995Z"
 author: pi-claude
 repro_steps: "Merge a PR that changes daily-release.ts without rebuilding the tracked dist/, then run the next daily release."
 resolution: Confirmed planner-order defect. Decide release imports the checked-out tools dist/daily-release.js before the candidate build. Prepare now rebuilds the trusted tools checkout and fails on tracked dist drift before loading the planner.
 expected_result: "For the self-hosted reproduction, prepare rebuilds the trusted tools checkout at job.workflow_sha and fails on tracked dist/ drift in Verify trusted release tool build, before Decide release. Rebuild and commit dist/ on main before the next release. For a separate candidate repository with current trusted tools, the release rebuilds dist/, commits it in the release commit, and passes Pack verified release."
-comments[7]{created_at,author,text}:
+comments[8]{created_at,author,text}:
   "2026-11-18T06:10:12.746Z",codex-sol,"Round BW: PRRT_kwDOTOTl1M64zDCl maps to 1e51801. The prepare job rebuilds and checks the trusted tools dist before installer and planner loading. The workflow ordering regression passed. The original completion, closure and creation timestamps are preserved."
   "2026-11-18T07:30:50.329Z",codex-sol,Verified the prepare workflow checks out the tools at job.workflow_sha and runs the tracked dist diff before installing the planner tools and deciding the release.
   "2026-11-18T07:42:41.508Z",codex-sol,The trusted planner build ordering fixture passed on the review head. The expected result now records the self-hosted drift failure and the separate candidate-repository outcome.
@@ -21,13 +21,15 @@ comments[7]{created_at,author,text}:
   "2026-11-18T11:06:52.263Z",codex-sol,"Round CC addresses the trusted checkout, the job-local step ordering assertion and the original pack diagnosis. Historical completion is preserved."
   "2026-11-18T11:56:38.588Z",codex-sol,"Round CC implementation b780464 covers PRRT_kwDOTOTl1M643thG (clean trusted dist before building), PRRT_kwDOTOTl1M643th2 (prepare-local runtime-floor and nonnegative index), PRRT_kwDOTOTl1M643tg4 (correct the original pack diagnosis in the description) and PRRT_kwDOTOTl1M643thS (correct the title and regenerate the release note). A real npm CI/build fixture proves the trusted drift check rejects an obsolete tracked artifact and leaves candidate output intact."
   "2026-11-18T11:59:06.547Z",codex-sol,"Round CC follow-up 8c8277e adds a real trust-boundary regression for PRRT_kwDOTOTl1M643thG. A clean trusted build passes, a tracked artifact deleted by the clean build fails before planning, and the candidate file is preserved. Creation, completion and closure fields match the starting revision."
+  "2026-11-18T12:11:01.680Z",codex-sol,"PRRT_kwDOTOTl1M643thG fixture follow-up: reproduced EALLOWSCRIPTS under npm exec. The trusted checkout is a separate project, so the fixture discards the parent project allow-scripts setting. The exact npm exec and c8 reproducer now passes both the job-order and real clean/stale checkout cases."
 files[2]{path,scope}:
   .github/workflows/daily-release.yml,project
   test/daily-release-workflow.test.ts,project
-tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/daily-release-workflow.test.ts,project,codex-sol,"2026-11-18T06:05:13.507Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-name-pattern='prepare rebuilds and checks' test/daily-release-workflow.test.ts,project,codex-sol,"2026-11-18T07:42:37.514Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test test/release-heading-snapshot.test.ts test/daily-release-workflow.test.ts,project,codex-sol,"2026-11-18T11:19:43.557Z",local_mutation,fix/release-hook-wrapper-options-bm
+  "npm exec --offline -- c8 --reporter=text node --test --test-name-pattern=\"prepare (rebuilds|rejects obsolete)\" test/daily-release-workflow.test.ts",project,codex-sol,"2026-11-18T12:11:06.282Z",local_mutation,fix/release-hook-wrapper-options-bm
 docs[1]{path,scope}:
   docs/reusable-release.md,project
 close_reason: The historical pack check covers the candidate build. The separate planning path now verifies the trusted tools build before Decide release.

@@ -198,8 +198,11 @@ test("prepare rejects obsolete tracked tools and leaves the candidate checkout a
   git("init", "-q");
   git("add", "--", "dist/tool.js");
   git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "Reproducible output");
+  // npm exec exports its own project's allow-scripts setting. The Actions
+  // step installs a separate checkout, where npm rejects that inherited flag.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "npm_config_allow_scripts"));
   const check = () => runBashFixture(step("Verify trusted release tool build").run, {
-    cwd: candidate, encoding: "utf8", env: { ...process.env, CONTINUATION_SCRIPT: join(trusted, "scripts/release-continuation.ts") },
+    cwd: candidate, encoding: "utf8", env: { ...env, CONTINUATION_SCRIPT: join(trusted, "scripts/release-continuation.ts") },
   });
   const clean = check();
   assert.equal(clean.status, 0, clean.stdout + clean.stderr);
