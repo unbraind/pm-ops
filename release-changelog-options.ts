@@ -249,9 +249,43 @@ function runnerProjectOption([program, ...args]: ShellCommand): string | undefin
   return flags.find(word => RELEASE_PROJECT_OPTION.test(word.value))?.value;
 }
 
+/** Find the first set switch outside the shell modes modeled by the hook grammar. */
+function unsupportedSetSwitch(args: ShellCommand): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const flag = args[i];
+    if (flag.unresolved) return "set " + flag.value;
+    if (flag.value === "--" || !/^[+-]./.test(flag.value)) break;
+    if (/^[+-][eu]+$/.test(flag.value)) continue;
+    if (!/^[+-][eu]*o[eu]*$/.test(flag.value)) return "set " + flag.value;
+    const option = args[++i];
+    if (option?.unresolved) return "set " + flag.value;
+    if (option && !/^(?:errexit|nounset|pipefail)$/.test(option.value)) return "set " + flag.value + " " + option.value;
+  }
+  return undefined;
+}
+
+/** A release hook cannot change shell parsing, builtin lookup, or pipeline isolation. */
+function unsupportedShellSemantics(words: ShellCommand): string | undefined {
+  const first = shellCommandStart(words);
+  if (first < 0) return undefined;
+  let command = releaseHookCommand(words.slice(first));
+  while (command?.[0].value === "builtin") {
+    command = releaseHookCommand(command.slice(command[1]?.value === "--" ? 2 : 1));
+  }
+  if (!command) return undefined;
+  const [program, ...args] = command;
+  if (program.value === "set") return unsupportedSetSwitch(args);
+  return /^(?:shopt|enable|alias|source|\.)$/.test(program.value) ? program.value : undefined;
+}
+
+/** Locate the command after any shell list introducers. */
+function shellCommandStart(words: ShellCommand): number {
+  return words.findIndex(word => word.quoted || !/^(?:if|then|elif|else|do|\{|!)$/.test(word.value));
+}
+
 /** Shell edits apply to later commands in this script and to their descendants. */
 function shellContextChange(words: ShellCommand): ReleaseContextChange | undefined {
-  const first = words.findIndex(word => word.quoted || !/^(?:if|then|elif|else|do|\{|!)$/.test(word.value));
+  const first = shellCommandStart(words);
   if (first < 0) return undefined;
   const inner = words.slice(first);
   const command = /^(?:command$|time$|[A-Za-z_]\w*\+?=)/.test(inner[0].value) ? releaseHookCommand(inner) ?? inner : inner;
@@ -291,7 +325,11 @@ function nextShellContext(words: ShellCommand, preceding?: ReleaseContextChange,
 }
 
 /** Apply one context rule to the shell path and the effective argv at each script depth. */
-function releaseContextProblem(words: ShellCommand, names?: ReadonlySet<string>, preceding?: ReleaseContextChange): string | undefined {
+function releaseContextProblem(
+  words: ShellCommand, names?: ReadonlySet<string>, preceding?: ReleaseContextChange, hookPath = true,
+): string | undefined {
+  const shell = hookPath ? unsupportedShellSemantics(words) : undefined;
+  if (shell) return describeReleaseContextChange(shell);
   const changes = commandContextChanges(words);
   if (preceding) changes.unshift(preceding);
   const change = changes.find(context => context.directory ? needsReleaseProject(words, names) : canReachGenerator(words, names));
@@ -551,9 +589,10 @@ export function visitChangelogScriptCommands(
 
 /** Check standalone commands against the same context rule before reading their options. */
 function* standaloneHookCommands(commands: ShellCommand[], names?: ReadonlySet<string>): Generator<ShellCommand> {
+  const hookPath = commands.some(words => needsReleaseProject(words, names));
   let preceding: ReleaseContextChange | undefined;
   for (const words of commands) {
-    const problem = releaseContextProblem(words, names, preceding);
+    const problem = releaseContextProblem(words, names, preceding, hookPath);
     if (problem) refuseHook(problem);
     yield words;
     preceding = nextShellContext(words, preceding);

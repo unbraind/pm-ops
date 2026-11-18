@@ -319,16 +319,61 @@ test("standalone option rewriting also refuses a changed execution context", () 
   assert.throws(() => includeEmptyReleaseSections("cd docs && pm-changelog " + standing), /context change cd.*Use a direct/);
 });
 
+test("release hooks refuse shell modes and builtins that can invalidate the parsed commands", () => {
+  const writer = "pm-changelog " + standing;
+  for (const [prefix, construct] of [
+    ["shopt -s lastpipe; cd docs | true", "shopt"],
+    ["shopt -s lastpipe; printf docs | cd docs", "shopt"],
+    ["shopt -u extglob", "shopt"],
+    ["set -o posix", "set -o posix"],
+    ["set +o allexport", "set +o allexport"],
+    ["set -euo pipefail +o noglob", "set +o noglob"],
+    ["set -f", "set -f"],
+    ['set "$SWITCHES"', 'set $SWITCHES'],
+    ["set -o \"$OPTION\"", "set -o"],
+    ["enable -n cd", "enable"],
+    ["alias cd='echo cd'", "alias"],
+    ["command source ./settings.sh", "source"],
+    ["builtin shopt -s lastpipe", "shopt"],
+    ["builtin command shopt -s lastpipe", "shopt"],
+    ["builtin -- . ./settings.sh", "."],
+  ]) {
+    const refuses = (error: unknown) => error instanceof Error
+      && error.message.includes("context change " + construct + ".") && error.message.includes("Use a direct pm-changelog");
+    const hook = prefix + "; " + writer;
+    const scripts = { "changelog:full": "npm run hook", hook };
+    const map = new Map(Object.entries(scripts));
+    assert.throws(() => resolveChangelogHooks(scripts, ["changelog:full"]), refuses, hook);
+    assert.throws(() => rewriteReleaseHookDates(map, ["changelog:full"], day), refuses, hook);
+    assert.throws(() => assertReleaseHookHeadingDate(map, ["changelog:full"], day), refuses, hook);
+    assert.throws(() => assertReleaseHeadingDate([hook], day), refuses, hook);
+    assert.throws(() => includeEmptyReleaseSections(hook), refuses, hook);
+    const result = auditInvocations([workflow(hook)]);
+    assert.equal(result.failures.length, 1, hook);
+    assert.ok(refuses(new Error(result.failures[0])), result.failures[0]);
+  }
+  assert.throws(() => resolveChangelogHooks({ "changelog:full": ". ./writer.sh" }, ["changelog:full"]), /context change \./);
+  assert.deepEqual(auditInvocations([workflow("source ./settings.sh; echo ready", writer)]).failures, []);
+  assert.equal(includeEmptyReleaseSections("source ./settings.sh; echo ready"), "source ./settings.sh; echo ready");
+});
+
 test("directory changes remain local to pipeline stages and subshells", () => {
   const writer = "pm-changelog " + standing;
   const pinned = writer.replace("--date-from-version", "--date-fallback " + day);
   for (const prefix of [
+    "cd docs | true; ",
     "cd docs | cat; ",
     "cd docs |& cat; ",
     "printf docs |\ncd docs; ",
     "(cd docs); ",
     "(echo prepare; cd docs; (echo nested); echo done); ",
     "if (echo prepare; cd docs; echo done); then echo ready; fi; ",
+    "set -euo pipefail; cd docs | true; ",
+    "set -eu +u; ",
+    "set -o errexit -o nounset +o pipefail; ",
+    "set -o; ",
+    "set -- -o posix; ",
+    "builtin || true; ",
   ]) {
     const hook = prefix + writer;
     const map = resolveChangelogHooks({ hook }, ["hook"]);
