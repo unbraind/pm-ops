@@ -1,0 +1,23 @@
+id: ops-windows-runtime-cleanup
+title: Investigate EPERM during Windows release runtime fixture cleanup
+description: "The Node 26 windows-consumers job for PR #295 at c1e0c80 failed in Native Windows locked release runtime. Actions run 44419424002, job 135208153618. The same check passed at 959f9ab and the runtime implementation and fixture are byte-identical across the two heads."
+type: Issue
+status: open
+priority: 2
+tags[3]: "area:release",ci,windows
+created_at: "2026-11-18T23:23:22.255Z"
+updated_at: "2026-11-18T23:23:25.200Z"
+author: codex-sol
+estimated_minutes: 45
+acceptance_criteria: Determine why the fixture directory remains locked at cleanup and demonstrate reliable cleanup with the linked native Windows test command while retaining its install assertions.
+severity: medium
+environment: "Native Windows CI, Node 26.13.1"
+repro_steps: Run the linked command on native Windows with Node 26.13.1. The CI observation occurred in the fixture named runtime installs only locked production dependencies without lifecycle scripts.
+expected_result: The test asserts the locked installation contract and cleans up its temporary directory.
+actual_result: "Recursive rmSync in the fixture finally block at test/release-runtime.test.ts:81 returned EPERM and failed the check."
+files[2]{path,scope}:
+  test/release-runtime-windows.test.ts,project
+  test/release-runtime.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/release-runtime.test.ts test/release-runtime-windows.test.ts,project,codex-sol,"2026-11-18T23:23:25.129Z",local_mutation,followup/windows-release-runtime-cleanup
+body: ""
