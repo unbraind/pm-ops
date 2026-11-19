@@ -4,7 +4,7 @@
  * construct retained on its command. Source spans always refer to the input.
  */
 import { basename } from "node:path";
-import { heredocBodyLines, heredocExpansionLines, releaseHookCommand } from "./shell-scan.js";
+import { heredocBodyLines, heredocExpansionLines, recordShellRedirection, releaseHookCommand } from "./shell-scan.js";
 const problems = new WeakMap();
 const indirectTargets = new WeakSet();
 const optionNames = new WeakMap();
@@ -125,9 +125,10 @@ export function parseReleaseHook(text) {
         let fixedName;
         while (i < text.length) {
             const char = text[i];
-            // Descriptor duplication is part of this redirection word, even before a pipe.
-            const descriptor = !quoted && char === "&" && (/^[0-9]*[<>]>?$/.test(value) || (i === start && text[i + 1] === ">"));
-            if (!quote && !descriptor && /[\s;&|]/.test(char))
+            // Redirection operators can contain characters that otherwise end a command.
+            if (!quote && /[\s;&|]/.test(char)
+                && !(char === "&" && (i === start ? text[i + 1] === ">" : /^[0-9]*[<>]>?$/.test(text.slice(start, i))))
+                && !(char === "|" && /^[0-9]*>$/.test(text.slice(start, i))))
                 break;
             i++;
             if (char === quote) {
@@ -181,6 +182,7 @@ export function parseReleaseHook(text) {
         if (quote)
             problem = "malformed shell arguments (unterminated quote)";
         const token = { value, startsQuoted, quoted, unresolved };
+        recordShellRedirection(token, text, start, i);
         if (unresolved && [...value.matchAll(/\$\{?([A-Za-z_][A-Za-z_0-9]*)/g)].some(match => bindings.has(match[1])))
             indirectTargets.add(token);
         if (!startsQuoted && mentionsGenerator(token)) {

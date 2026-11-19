@@ -515,15 +515,15 @@ test("a backslash continuation is one logical command, not fragments", () => {
   assert.deepEqual(auditInvocations([{ file: "package.json", text: manifest(text) }]).failures, []);
 });
 
-test("decoded scripts retain multiline quoted arguments and report their command's starting line", () => {
+test("decoded scripts retain multiline quoted arguments and report the JSON script key line", () => {
   const command = 'echo ready\npm-changelog --item-url-base "line one\nline two" --release-version-from-package';
   const source = { file: "package.json", text: manifest(command + " " + DATE_FLAG) };
   assert.deepEqual(auditInvocations([source]).failures, []);
   assert.equal(invocationsIn(source)[0]?.args[1].value, "line one\nline two");
   const missing = { ...source, text: manifest(command) };
-  assert.match(auditInvocations([missing]).failures[0], /^package\.json:2: .*neither/);
+  assert.match(auditInvocations([missing]).failures[0], /^package\.json:1 \(script "changelog"\): .*neither/);
   const unclosed = { ...source, text: manifest(`echo ready\n${FLAGGED} "line one\nline two`) };
-  assert.match(auditInvocations([unclosed]).failures[0], /^package\.json:2: malformed/);
+  assert.match(auditInvocations([unclosed]).failures[0], /^package\.json:1 \(script "changelog"\): malformed/);
   const malformedWorkflow = { file: ".github/workflows/release.yml", text: workflowRun(FLAGGED + ' "unclosed') };
   assert.match(auditInvocations([malformedWorkflow]).failures[0], /release\.yml: malformed/);
 });
@@ -591,4 +591,17 @@ test("fallback dates accept matching shell quotes and adjacent separators", () =
     const result = auditInvocations([{ file: "package.json", text: manifest(`pm-changelog --release-version-from-package ${flag}`) }]);
     assert.equal(result.failures.length, 1, flag);
   }
+});
+
+test("a forwarded manifest diagnostic names the script and its JSON key line", () => {
+  const text = String.raw`{
+  "metadata": { "changes": "placeholder" },
+  "scripts": {
+    "release:notes": "npm run changes",
+    "chan\u0067es": "echo setup\npm-changelog --release-version-from-package"
+  }
+}`;
+  const result = auditInvocations([{ file: "package.json", text }]);
+  assert.equal(result.failures.length, 1);
+  assert.match(result.failures[0], /^package\.json:5 \(script "changes"\): .*neither --date-from-version/);
 });

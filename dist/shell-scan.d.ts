@@ -60,6 +60,13 @@ export interface ShellToken {
 }
 /** One simple command: the words it would run, in order. */
 export type ShellCommand = ShellToken[];
+/** Record operators from the original source, where quoting and escapes are still visible. */
+export declare function recordShellRedirection(token: ShellToken, source: string, start: number, end: number): void;
+/** The literal shell operator and whether its destination is part of this word. */
+export declare function shellRedirection(token: ShellToken): {
+    operator: string;
+    joined: boolean;
+} | undefined;
 /** A literal option name followed by an equals sign and a single-word expansion. */
 export declare function fixedOptionName(token: ShellToken): string | undefined;
 /** Whether this program's shell text is scanned recursively. */

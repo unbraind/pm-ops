@@ -30,7 +30,7 @@ import { execFileSync } from "../subprocess.ts";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { parse } from "yaml";
+import { isMap, isScalar, LineCounter, parse, parseDocument } from "yaml";
 import {
   type ShellCommand,
   type ShellToken,
@@ -50,8 +50,10 @@ export { DATE_FLAG, VERSION_INPUTS, isRealCalendarDay } from "../release-changel
 export interface Invocation {
   /** File the invocation was found in. */
   file: string;
-  /** The starting line within a decoded package script, when available. */
+  /** The starting line in the source file, when available. */
   line?: number;
+  /** The package script that supplies this command. */
+  script?: string;
   /** The source command, with arrays expanded. */
   command: string;
   /** The generator's shell arguments, with quoting removed. */
@@ -106,7 +108,7 @@ export function invocationsIn(source: SourceFile): Invocation[] {
 }
 
 /** Decode script bodies before shell parsing, retaining the owning file for diagnostics. */
-function manifestScripts(source: SourceFile): Map<string, string> {
+function manifestScripts(source: SourceFile): Map<string, { text: string; line?: number }> {
   let manifest: unknown;
   try {
     manifest = JSON.parse(source.text);
@@ -120,8 +122,19 @@ function manifestScripts(source: SourceFile): Map<string, string> {
   if (scripts === null || typeof scripts !== "object" || Array.isArray(scripts)) {
     throw new Error(`${source.file}: scripts must be an object`);
   }
+  const lines = new LineCounter();
+  const { contents } = parseDocument(source.text, { schema: "json", uniqueKeys: false, lineCounter: lines });
+  // JSON.parse keeps the last duplicate key. Use the same property for its source location.
+  const scriptMap = isMap(contents) ? contents.items.slice().reverse().find(({ key }) => isScalar(key) && key.value === "scripts")?.value : undefined;
+  const locations = new Map<string, number>();
+  if (isMap(scriptMap)) {
+    for (const { key } of scriptMap.items) {
+      if (isScalar(key) && typeof key.value === "string" && key.range) locations.set(key.value, lines.linePos(key.range[0]).line);
+    }
+  }
   return new Map(Object.entries(scripts).filter((entry): entry is [string, string] =>
-    typeof entry[1] === "string" && entry[1].trim() !== ""));
+    typeof entry[1] === "string" && entry[1].trim() !== "")
+    .map(([name, text]) => [name, { text, line: locations.get(name) }]));
 }
 
 /** Reusable release hook inputs and their standalone root-manifest defaults. */
@@ -156,7 +169,7 @@ function inspectProjectStep(file: string, text: string, line: number, directory:
 /** Workflow forwards and manifest forwards share the same effective argument graph. */
 function invocationsAcross(sources: SourceFile[]): Invocation[] {
   const scripts = new Map<string, string>();
-  const origins = new Map<string, string>();
+  const origins = new Map<string, Pick<Invocation, "file" | "line" | "script">>();
   const projectConfig = sources.find(source => source.file === ".npmrc")?.text;
   const workflowSteps = new Map<string, NpmLifecycle>();
   const found: Invocation[] = [];
@@ -164,7 +177,10 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
   for (const source of sources) {
     if (source.file === ".npmrc") continue;
     if (source.file === "package.json") {
-      for (const [name, script] of manifestScripts(source)) scripts.set(name, script);
+      for (const [name, { text, line }] of manifestScripts(source)) {
+        scripts.set(name, text);
+        origins.set(name, { file: source.file, line, script: name });
+      }
     } else {
       if (/^\.github\/workflows\/.*\.ya?ml$/.test(source.file)) addConfiguredHooks(source.text, entryPoints);
       for (const { text, line, workingDirectory, environment } of executableShellBodies(source)) {
@@ -173,7 +189,7 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
           continue;
         }
         const key = "\0run" + origins.size;
-        origins.set(key, source.file);
+        origins.set(key, { file: source.file });
         scripts.set(key, text);
         workflowSteps.set(key, npmLifecycle(projectConfig, environment));
       }
@@ -182,15 +198,13 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
   visitChangelogScriptCommands(scripts, ({ name, names, text, words, effective, spans, contextProblem }) => {
     const first = spans.get(words[0])!.start;
     const last = spans.get(words.at(-1)!)!.end;
-    const file = origins.get(name) ?? "package.json";
-    const line = file === "package.json" ? text.slice(0, first).split("\n").length : undefined;
-    found.push(...inspectCommand(effective, { file, line, command: text.slice(first, last) }, names, contextProblem));
+    found.push(...inspectCommand(effective, { ...origins.get(name)!, command: text.slice(first, last) }, names, contextProblem));
   }, undefined, undefined, entryPoints, { lifecycle: npmLifecycle(projectConfig), workflowSteps });
   return found;
 }
 
 /** Extract the date policy and retain any diagnostic for this command. */
-function inspectCommand(words: ShellCommand, source: Pick<Invocation, "file" | "line" | "command">, scriptNames: ReadonlySet<string>, contextProblem?: string): Invocation[] {
+function inspectCommand(words: ShellCommand, source: Pick<Invocation, "file" | "line" | "script" | "command">, scriptNames: ReadonlySet<string>, contextProblem?: string): Invocation[] {
   try {
     if (contextProblem) refuseHook(contextProblem);
     const args = changelogArguments(words, scriptNames);
@@ -218,8 +232,9 @@ export function auditInvocations(sources: SourceFile[]): VerifierResult {
   const invocations = invocationsAcross(sources);
   return tallyFlaggedInvocations(
     invocations,
-    ({ file, line, command, options, problem }) => {
-      const location = line === undefined ? file : `${file}:${line}`;
+    ({ file, line, script, command, options, problem }) => {
+      let location = line === undefined ? file : `${file}:${line}`;
+      if (script !== undefined) location += ` (script ${JSON.stringify(script)})`;
       const excerpt = command.trim().slice(0, 160);
       if (problem !== undefined) return `${location}: ${problem}: ${excerpt}`;
       let hasPolicy = false;

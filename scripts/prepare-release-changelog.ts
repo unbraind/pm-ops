@@ -10,7 +10,7 @@ try {
   const lifecycle = npmLifecycle(existsSync(".npmrc") ? readFileSync(".npmrc", "utf8") : undefined, process.env);
   const resolved = resolveChangelogHooks(pkg.scripts, hooks, lifecycle);
   const scriptNames = new Set(resolved.keys());
-  const datedHooks = rewriteReleaseHookDates(resolved, hooks, headingDate, lifecycle);
+  const datedHooks = rewriteReleaseHookDates(resolved, hooks, headingDate, lifecycle, pkg.version);
   for (const [name, script] of resolved) {
     const dated = datedHooks.get(name) ?? script;
     if (dated !== script) {

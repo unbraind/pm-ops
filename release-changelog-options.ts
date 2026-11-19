@@ -9,7 +9,7 @@
  */
 import { basename } from "node:path";
 import {
-  RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand,
+  RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand, shellRedirection,
   type ReleaseContextChange, type ShellCommand, type ShellToken, type ShellTokenSpan,
 } from "./shell-scan.ts";
 import {
@@ -259,7 +259,9 @@ function generatorCommand(invocation: ShellCommand): ShellCommand | undefined {
 }
 
 /** Look for a reachable generator without interpreting an opaque command as executable argv. */
-function canReachGenerator(words: ShellCommand, names?: ReadonlySet<string>, seen?: Set<string>, writing = false): boolean {
+function canReachGenerator(
+  words: ShellCommand, names?: ReadonlySet<string>, seen?: Set<string>, writing = false, lifecycle: NpmLifecycle = "unknown",
+): boolean {
   if (writing && redirectsChangelog(words)) return true;
   const invocation = releaseHookCommand(words);
   if (!invocation) return hookSyntaxProblem(words) !== undefined && words.some(mentionsGenerator);
@@ -268,8 +270,11 @@ function canReachGenerator(words: ShellCommand, names?: ReadonlySet<string>, see
   if (DATA_CONSUMERS.has(name) || isPackageAdmin(program, parameters)) return false;
   const forward = scriptForward(name, parameters, names);
   if (forward?.target && names instanceof HookScriptNames) {
-    return names.sequence(forward.target, forward.lifecycle !== false).some(target => names.canGenerate(target, seen, writing))
-      || forward.args.some(mentionsGenerator);
+    const isNpm = forward.runner === "npm";
+    const enabled = forward.lifecycle ?? (isNpm ? lifecycleEnvironment(words, program) : undefined) ?? lifecycle;
+    return names.sequence(forward.target, !isNpm || enabled !== false).some(target =>
+      names.canGenerate(target, seen, writing, target === forward.target ? forward.args : [], enabled))
+      || (!writing && forward.args.some(mentionsGenerator));
   }
   const generator = generatorCommand(invocation);
   if (generator) return !writing || writesChangelog(generator.slice(1));
@@ -279,10 +284,10 @@ function canReachGenerator(words: ShellCommand, names?: ReadonlySet<string>, see
 /** Find Bash output redirections to the changelog even on non-generator commands. */
 function redirectsChangelog(words: ShellCommand): boolean {
   return words.some((word, index) => {
-    if (word.startsQuoted) return false;
-    const redirect = /^(?:[0-9]*>|&>)>?(.*)$/.exec(word.value);
-    const destination = redirect?.[1] || words[index + 1]?.value;
-    return redirect !== null && /^(?:\.\/)*CHANGELOG\.md$/.test(destination ?? "");
+    const redirect = shellRedirection(word);
+    if (!redirect?.operator.includes(">")) return false;
+    const destination = redirect.joined ? word.value.slice(redirect.operator.length) : words[index + 1]?.value;
+    return /^(?:\.\/)*CHANGELOG\.md$/.test(destination ?? "");
   });
 }
 
@@ -473,16 +478,22 @@ class HookScriptNames extends Set<string> {
   }
 
   /** Follow literal script references without recursively evaluating the wrapper's shell payload. */
-  canGenerate(name: string, seen = new Set<string>(), writing = false): boolean {
+  canGenerate(
+    name: string, seen = new Set<string>(), writing = false, args: readonly ShellToken[] = [], lifecycle: NpmLifecycle = "unknown",
+  ): boolean {
     if (!this.has(name) || seen.has(name)) return false;
-    seen.add(name);
+    const ancestors = new Set(seen).add(name);
+    const text = this.scripts.get(name)!;
+    const { commands, spans } = parseReleaseHook(text);
+    const recipient = args.length ? commandReceivingArguments(text, commands, spans) : undefined;
     let preceding: ReleaseContextChange | undefined;
-    for (const words of parseReleaseHook(this.scripts.get(name)!).commands) {
-      if (canReachGenerator(words, this, seen, writing)) return true;
+    for (const command of commands) {
+      const words = command === recipient ? [...command, ...args] : command;
+      if (canReachGenerator(words, this, ancestors, writing, lifecycle)) return true;
       if (!this.allowUnresolvedProjects) continue;
       if ((preceding?.directory || commandContextChanges(words).some(context => context.directory))
         && maySelectUnresolvedScript(words, this)) return true;
-      preceding = nextShellContext(words, preceding);
+      preceding = nextShellContext(command, preceding, words);
     }
     return false;
   }
@@ -756,35 +767,56 @@ function hookDateOptions(args: readonly ShellToken[]): ValidDateOption[] {
   });
 }
 
-/** Render a calendar version using the same day and suffix rules as pm-changelog. */
-function versionHeadingDay(version: string | undefined): string {
-  const match = version?.trim().match(/^v?(\d{4})\.(\d{1,2})\.(\d{1,2})(?:-\d+)?$/i);
+/** Normalize calendar padding while preserving the release's sequence suffix. */
+function calendarRelease(version: string | undefined): { day: string; suffix: string } {
+  const match = version?.trim().match(/^v?(\d{4})\.(\d{1,2})\.(\d{1,2})(-\d+)?$/i);
   if (match) {
-    const [, year, month, date] = match;
+    const [, year, month, date, suffix = ""] = match;
     const day = `${year}-${month.padStart(2, "0")}-${date.padStart(2, "0")}`;
     // The generator validates with Date.UTC, which shifts years 0 to 99.
-    if (Number(year) >= 100 && isRealCalendarDay(day)) return day;
+    if (Number(year) >= 100 && isRealCalendarDay(day)) return { day, suffix };
   }
   throw new Error(`Cannot verify the prepared release heading for calendar version ${JSON.stringify(version)}. A valid calendar version is required. ${RETIRE_UNPUBLISHED}`);
 }
 
-/** Compare the options on one generator command with the verified merge day. */
+/** Read the last explicit version option, which takes precedence over the manifest. */
+function literalReleaseVersion(args: ShellCommand, positions: readonly number[]): string | undefined {
+  let version: string | undefined;
+  for (const i of positions) {
+    const word = args[i].value;
+    const equals = word.indexOf("=");
+    const flag = equals === -1 ? word : word.slice(0, equals);
+    if (flag === "--version" || flag === "--release-version") {
+      version = equals === -1 ? args[i + 1]?.value ?? "" : word.slice(equals + 1);
+    }
+  }
+  return version;
+}
+
+/** Ensure a literal version selects the same release as the stamped manifest. */
+function assertReleaseCoordinate(explicit: string | undefined, packageVersion: string | undefined, advice = ""): void {
+  if (explicit === undefined || packageVersion === undefined) return;
+  const actual = calendarRelease(explicit);
+  const expected = calendarRelease(packageVersion);
+  if (actual.day + actual.suffix !== expected.day + expected.suffix) {
+    throw new Error(`Prepared release version ${JSON.stringify(explicit)} does not match package release version ${JSON.stringify(packageVersion)}.${advice}`);
+  }
+}
+
+/** Compare the options on one generator command with the verified merge day and release coordinate. */
 function assertHeadingOptions(words: ShellCommand, mergeDay: string, packageVersion?: string, names?: ReadonlySet<string>): void {
   const args = changelogInvocation(words, names)?.slice(1) ?? [];
   const positions = optionPositions(args);
-  for (const option of hookDateOptions(args)) {
-    let day: string;
-    if (option.kind === "version") {
-      let version = packageVersion;
-      for (const i of positions) {
-        const [flag, inline] = args[i].value.split("=");
-        if (flag === "--version" || flag === "--release-version") version = inline ?? args[i + 1]?.value;
+  const policies = hookDateOptions(args);
+  if (policies.length) {
+    const explicit = literalReleaseVersion(args, positions);
+    for (const option of policies) {
+      const day = option.kind === "version" ? calendarRelease(explicit ?? packageVersion).day : option.day;
+      if (day !== mergeDay) {
+        throw new Error(`Prepared release heading day ${day} differs from verified merge commit day ${mergeDay}. ${RETIRE_UNPUBLISHED}`);
       }
-      day = versionHeadingDay(version);
-    } else day = option.day;
-    if (day !== mergeDay) {
-      throw new Error(`Prepared release heading day ${day} differs from verified merge commit day ${mergeDay}. ${RETIRE_UNPUBLISHED}`);
     }
+    assertReleaseCoordinate(explicit, packageVersion, " " + RETIRE_UNPUBLISHED);
   }
   // In this mode the generator uses --until as the pending release timestamp.
   if (!hasVersionInput(args) || !positions.some(i => args[i].value === "--all-release-tags")) return;
@@ -889,6 +921,7 @@ function rewriteDateOptions(options: ValidDateOption[], headingDate: string, sou
 /** Rewrite all heading options received by the manifest's resolved release hooks. */
 export function rewriteReleaseHookDates(
   scripts: ReadonlyMap<string, string>, hooks: readonly string[], headingDate: string, lifecycle: NpmLifecycle = "unknown",
+  packageVersion?: string,
 ): Map<string, string> {
   validateReplacementDay(headingDate);
   const sources = new Map<string, EditableScript>();
@@ -900,7 +933,9 @@ export function rewriteReleaseHookDates(
       sources.set(name, source);
     }
     for (const token of words) owners.set(token, source);
-    const options = hookDateOptions(changelogInvocation(effective, names)?.slice(1) ?? []);
+    const args = changelogInvocation(effective, names)?.slice(1) ?? [];
+    const options = hookDateOptions(args);
+    if (options.length) assertReleaseCoordinate(literalReleaseVersion(args, optionPositions(args)), packageVersion);
     rewriteDateOptions(options, headingDate, token => owners.get(token)!);
     if (options.length > 0) {
       for (const separator of forwardedSeparators) {

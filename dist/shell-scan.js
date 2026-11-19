@@ -32,6 +32,21 @@
  * @packageDocumentation
  */
 const fixedOptionNames = new WeakMap();
+const redirections = new WeakMap();
+const REDIRECTION = /^(?:[0-9]*(?:>>|>\||<>|<<<|<<-?|[<>])&?|&>>?)/;
+/** Record operators from the original source, where quoting and escapes are still visible. */
+export function recordShellRedirection(token, source, start, end) {
+    if (!REDIRECTION.test(token.value))
+        return;
+    const raw = source.slice(start, end).replaceAll("\\\n", "");
+    const operator = REDIRECTION.exec(raw)?.[0];
+    if (operator !== undefined)
+        redirections.set(token, { operator, joined: raw.length > operator.length });
+}
+/** The literal shell operator and whether its destination is part of this word. */
+export function shellRedirection(token) {
+    return redirections.get(token);
+}
 /** A literal option name followed by an equals sign and a single-word expansion. */
 export function fixedOptionName(token) {
     return fixedOptionNames.get(token);
@@ -338,6 +353,7 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
         if (!started)
             return;
         const token = unresolvedAt === undefined ? { value, quoted, startsQuoted } : { value, quoted, unresolved: true, startsQuoted };
+        recordShellRedirection(token, text, wordStart, end);
         if (quoted && multipleWords)
             token.multipleWords = true;
         if (unresolvedAt !== undefined && quoted && !multipleWords) {
@@ -623,10 +639,10 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
                     continue;
                 }
             }
-            // `2>&1` is one redirection, not a command ended by a backgrounding `&`.
-            // The `&` belongs to the word only while that word is still an operator
-            // awaiting its target.
-            if (character === "&" && /^[0-9]*[<>]>?$/.test(value)) {
+            // Keep descriptor duplication and clobber redirections in the same
+            // command. A quoted or escaped operator prefix cannot introduce them.
+            if ((character === "|" && /^[0-9]*>$/.test(text.slice(wordStart, index)))
+                || (character === "&" && /^[0-9]*[<>]>?$/.test(text.slice(wordStart, index)))) {
                 value += character;
                 started = true;
                 continue;
@@ -722,10 +738,10 @@ function withoutRedirections(command) {
     const kept = [];
     for (let index = 0; index < command.length; index += 1) {
         const token = command[index];
-        const operator = token.startsQuoted ? undefined : /^(?:[0-9]*(?:>>?|<>|<<<|<<-?|<)&?|&>>?)/.exec(token.value)?.[0];
-        if (operator === undefined)
+        const redirect = shellRedirection(token);
+        if (!redirect)
             kept.push(token);
-        else if (operator === token.value)
+        else if (!redirect.joined)
             index += 1;
     }
     return kept;

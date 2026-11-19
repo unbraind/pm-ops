@@ -83,3 +83,17 @@ test("candidate snapshot refuses a staged dangling symlink", t => {
   assert.throws(() => mirrorTrackedSnapshot(source, candidate, env), /Cannot mirror tracked symbolic link: link/);
   assert.equal(git(candidate, "status", "--porcelain").toString(), "");
 });
+
+test("candidate snapshot refuses an unstaged symlink replacing a tracked ancestor", t => {
+  const file = "replaced/nested/child.txt";
+  const { source, candidate, env, git } = snapshotFixture(t, [file, "keep.txt"]);
+  const replacement = join(dirname(source), "replacement");
+  mkdirSync(join(replacement, "nested"), { recursive: true });
+  writeFileSync(join(replacement, "nested/child.txt"), "replacement contents\n");
+  rmSync(join(source, "replaced"), { recursive: true });
+  symlinkSync(replacement, join(source, "replaced"), "junction");
+  writeFileSync(join(source, "keep.txt"), "reviewed edit\n");
+  assert.throws(() => mirrorTrackedSnapshot(source, candidate, env), /Cannot mirror tracked symbolic link: replaced/);
+  assert.equal(readFileSync(join(candidate, file), "utf8"), "committed\n");
+  assert.equal(git(candidate, "status", "--porcelain").toString(), "");
+});

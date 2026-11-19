@@ -17,8 +17,14 @@ function snapshotEntry(path: string) {
 export function mirrorTrackedSnapshot(source: string, candidate: string, env: NodeJS.ProcessEnv): void {
   const tracked = (cwd: string) => execFileSync("git", ["ls-files", "-z"], { cwd, env, encoding: "utf8" }).split("\0").filter(Boolean);
   const files = new Set(tracked(source).filter(file => {
-    const entry = snapshotEntry(join(source, file));
-    if (entry?.isSymbolicLink()) throw new Error("Cannot mirror tracked symbolic link: " + file);
+    let path = "";
+    let entry;
+    for (const component of file.split("/")) {
+      path = join(path, component);
+      entry = snapshotEntry(join(source, path));
+      if (!entry) return false;
+      if (entry.isSymbolicLink()) throw new Error("Cannot mirror tracked symbolic link: " + path);
+    }
     return entry?.isFile();
   }));
   for (const file of tracked(candidate)) {

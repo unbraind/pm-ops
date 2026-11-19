@@ -79,6 +79,6 @@ export declare function includeEmptyReleaseSections(script: string, scriptNames?
 /** Refresh the inline pins, or restore the standing policy for a current version. */
 export declare function rewriteReleaseHeadingDate(script: string, headingDate: string, scriptNames?: ReadonlySet<string>): string;
 /** Rewrite all heading options received by the manifest's resolved release hooks. */
-export declare function rewriteReleaseHookDates(scripts: ReadonlyMap<string, string>, hooks: readonly string[], headingDate: string, lifecycle?: NpmLifecycle): Map<string, string>;
+export declare function rewriteReleaseHookDates(scripts: ReadonlyMap<string, string>, hooks: readonly string[], headingDate: string, lifecycle?: NpmLifecycle, packageVersion?: string): Map<string, string>;
 export {};
 //# sourceMappingURL=release-changelog-options.d.ts.map

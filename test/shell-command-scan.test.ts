@@ -321,3 +321,18 @@ test("the exported YAML dedenter preserves quoted-key decoding independently of 
     assert.equal(dedentRunBlocks(`  ${key}: |\n    npm publish --provenance`), `  ${key}: |\n`, key);
   }
 });
+
+test("quoted and escaped redirection characters stay in argv", () => {
+  for (const literal of ['2">"', "2'>'", String.raw`2\>`]) {
+    const [command] = tokenizeCommands(`pm-changelog --title ${literal} --check 2>"release log"`);
+    assert.deepEqual(commandArguments(command).map(word => word.value), ["--title", "2>", "--check"], literal);
+  }
+});
+
+test("a clobber redirection keeps its target out of argv without consuming a later pipe", () => {
+  for (const redirect of ['2>|"release log"', '>| "release log"']) {
+    const commands = tokenizeCommands(`pm-changelog ${redirect} --check | cat`);
+    assert.deepEqual(commands.map(commandName), ["pm-changelog", "cat"]);
+    assert.deepEqual(commandArguments(commands[0]).map(word => word.value), ["--check"], redirect);
+  }
+});

@@ -240,13 +240,37 @@ test("npm lifecycle follows workflow env, project config and explicit options", 
 test("uncertain npm lifecycle refuses possible changelog writes but permits read-only hooks", () => {
   const writer = "pm-changelog " + standing;
   for (const prehook of [writer, writer + " --output", writer + " -o CHANGELOG.md", writer + " --output=./CHANGELOG.md",
-    writer + " --output=\"$DEST\"", "printf heading &>CHANGELOG.md", "printf heading >> ./CHANGELOG.md", "npm run writer"]) {
+    writer + " --output=\"$DEST\"", "printf heading &>CHANGELOG.md", "printf heading >> ./CHANGELOG.md", "printf heading >| \"CHANGELOG.md\"", "npm run writer"]) {
     assert.throws(() => resolveChangelogHooks({ hook: writer, prehook, writer }, ["hook"]), /ignore-scripts.*prehook/, prehook);
   }
   for (const prehook of [writer + " --stdout", writer + " --check", writer + " --output other.md", writer + " --output=other.md",
-    "printf heading > other.md", "printf heading >", "printf '%s' '>CHANGELOG.md'", "echo done"]) {
+    "printf heading > other.md", "printf heading >", "printf '%s' '>CHANGELOG.md'", 'printf %s 2">CHANGELOG.md"', "echo done"]) {
     assert.ok(resolveChangelogHooks({ hook: writer, prehook }, ["hook"]).has("prehook"), prehook);
   }
+});
+
+test("uncertain npm lifecycle sees effective argv through nested forwards", () => {
+  const changes = "pm-changelog " + standing;
+  const scripts = { hook: "echo main", prehook: "", relay: "npm run changes --", changes };
+  for (const flag of ["--stdout", "--check", "--output=release.log"]) {
+    scripts.prehook = "npm run relay -- " + flag;
+    assert.ok(resolveChangelogHooks(scripts, ["hook"]).has("changes"), flag);
+  }
+  for (const prehook of ["npm run relay", "npm run relay -- --stdout > CHANGELOG.md", "npm run relay -- --pm-arg --check"]) {
+    assert.throws(() => resolveChangelogHooks({ ...scripts, prehook }, ["hook"]), /ignore-scripts.*prehook/, prehook);
+  }
+  assert.throws(() => resolveChangelogHooks({
+    ...scripts, prehook: "npm run relay -- --stdout", prechanges: changes,
+  }, ["hook"]), /ignore-scripts.*prehook/);
+  assert.ok(resolveChangelogHooks({
+    ...scripts, prehook: "npm run --ignore-scripts relay -- --stdout", prechanges: changes,
+  }, ["hook"]).has("changes"));
+  assert.throws(() => resolveChangelogHooks({
+    ...scripts, prehook: "npm run changes -- --check; npm run changes",
+  }, ["hook"]), /ignore-scripts.*prehook/);
+  assert.throws(() => resolveChangelogHooks({
+    ...scripts, prehook: "npm run changes || echo alternative # --stdout",
+  }, ["hook"]), /ignore-scripts.*prehook/);
 });
 
 test("script traversal without an npm configuration refuses an implicit writer", () => {
@@ -273,7 +297,7 @@ test("the date verifier uses workflow, job and step npm environment precedence",
 });
 
 test("release hooks preserve date options after joined and split redirections", () => {
-  for (const redirect of ["&>out", "&>>out", "&> out", "&>> out", "2>1", "2>>1", "2> 1"]) {
+  for (const redirect of ["&>out", "&>>out", "&> out", "&>> out", "2>1", "2>>1", "2> 1", ">| release.log", ">|release.log", "2>| release.log"]) {
     const hook = `pm-changelog ${redirect} ${standing}`;
     assert.deepEqual(auditInvocations([workflow(hook)]).failures, [], redirect);
     assert.equal(rewriteReleaseHookDates(new Map([["hook", hook]]), ["hook"], day).get("hook"),
@@ -328,6 +352,26 @@ test("continuation compares the version actually supplied to the generator", () 
     assert.throws(() => check(version), /Unresolved .* operand.*--release-version-from-package/);
   }
   assert.throws(() => check("--title $TITLE --release-version-from-package"), /multiword expansion/);
+});
+
+test("the date audit keeps a title containing a quoted redirection character", () => {
+  const command = 'pm-changelog --title 2">" --release-version-from-package';
+  assert.match(auditInvocations([workflow(command)]).failures[0], /neither --date-from-version/);
+  assert.deepEqual(auditInvocations([workflow(command + " --date-from-version")]).failures, []);
+});
+
+test("continuation binds heading date policies to the release coordinate", () => {
+  const version = "2026.1.2-1";
+  const check = (policy: string, selection: string) => assertReleaseHookHeadingDate(
+    new Map([["hook", "npm run changes -- " + selection], ["changes", "pm-changelog " + policy]]),
+    ["hook"], "2026-01-02", version);
+  for (const policy of ["--date-fallback 2026-01-02", "--date-from-version"]) {
+    for (const selection of ["--release-version-from-package", "--version=v2026.01.02-1", "--release-version 2026.1.2-1"]) {
+      assert.doesNotThrow(() => check(policy, selection));
+    }
+    assert.throws(() => check(policy, "--release-version-from-package --version=2026.1.2"), /release version .* does not match.*2026\.1\.2-1.*retire-unpublished/);
+  }
+  assert.throws(() => check("--date-fallback 2026-01-02", "--release-version 2026.1.1"), /release version .* does not match/);
 });
 
 test("continuation checks the pending heading cutoff for versioned all-release-tags hooks", () => {
@@ -539,7 +583,7 @@ test("implicit empty lifecycle scripts are skipped at release roots and in forwa
   assert.throws(() => resolveChangelogHooks(scripts, ["pre" + hook]), /Missing changelog hook/);
 });
 
-test("preparation refuses an invalid replacement before changing any manifest script", t => {
+test("preparation refuses invalid days and version mismatches before changing any manifest script", t => {
   const root = mkdtempSync(join(tmpdir(), "release-hook-invalid-date-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const scripts = { hook: "pm-changelog " + standing };
@@ -552,6 +596,14 @@ test("preparation refuses an invalid replacement before changing any manifest sc
   assert.equal(readFileSync(manifest, "utf8"), before);
   execFileSync(process.execPath, command, { cwd: root, env: { ...env, RELEASE_HEADING_DATE: day } });
   assert.match(JSON.parse(readFileSync(manifest, "utf8")).scripts.hook, /--date-fallback 2026-11-17/);
+  const wrong = JSON.stringify({ version: "2026.11.17", scripts: {
+    hook: "npm run changes -- --version=2026.11.16",
+    changes: "pm-changelog --date-fallback 2026-11-16",
+  } });
+  writeFileSync(manifest, wrong);
+  assert.throws(() => execFileSync(process.execPath, command, { cwd: root, env: { ...env, RELEASE_HEADING_DATE: day }, stdio: "pipe" }),
+    /release version "2026.11.16" does not match package release version "2026.11.17"/);
+  assert.equal(readFileSync(manifest, "utf8"), wrong);
 });
 
 test("indirect executable and argv bindings cannot hide a release command behind a passing sibling", () => {
