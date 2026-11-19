@@ -231,3 +231,15 @@ test("only a proven pre-existing occupied coordinate can retire without publicat
   ]) assert.throws(() => decideReleaseContinuation(c, { ...e, ...change }));
   assert.throws(() => decideReleaseContinuation({ ...c, npmPublish: false }, e), /identity disagrees/);
 });
+
+test("occupied retirement after a base change requires a single parent, the same version and no attempt", () => {
+  const c = candidateFixture(), e = evidenceFixture();
+  Object.assign(e, { registry: "unverified", registryPredatesPreparation: true, mergedParents: ["8".repeat(40)], mergedTree: "9".repeat(40) });
+  assert.equal(decideReleaseContinuation(c, e), "occupied");
+  for (const change of [
+    { attempted: true }, { mergedParents: [] }, { mergedParents: [c.baseSha, ...e.mergedParents] },
+    { mergedParents: [c.baseSha] }, { mergedParents: [""] }, { mergedTree: "" },
+    { version: "2026.11.5" }, { registryPredatesPreparation: false },
+    { tagSha: e.pr.mergedSha }, { releaseSha: e.pr.mergedSha }, { requiredChecks: ["FAILURE"] },
+  ]) assert.throws(() => decideReleaseContinuation(c, { ...e, ...change }));
+});

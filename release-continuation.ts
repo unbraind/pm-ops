@@ -147,10 +147,14 @@ export function decideReleaseContinuation(c: ReleaseCandidate, e: ContinuationEv
   }
   if (!e.pr.merged) return e.mainSha === c.baseSha ? "pending" : "refresh";
   if (e.pr.state !== "closed" || !e.pr.mergedSha) throw new Error("Merged source identity changed");
-  const changedSource = e.mergedTree !== c.tree || e.mergedParents.length !== 1 || e.mergedParents[0] !== c.baseSha || e.version !== c.version;
+  const parent = e.mergedParents.length === 1 ? e.mergedParents[0] : null;
+  const changedSource = e.mergedTree !== c.tree || parent !== c.baseSha || e.version !== c.version;
   if (e.requiredChecks.length === 0 || e.requiredChecks.some(state => state !== "SUCCESS")
     || !["APPROVED", ""].includes(e.reviewDecision)) throw new Error("Required protection proof is missing or not green; use reconcile-only with retire-unpublished for verified untouched intent");
-  if (c.npmPublish && !changedSource && e.registry === "unverified" && e.registryPredatesPreparation === true
+  // A protected squash onto a different base can retire an unused receipt for the same occupied version.
+  const unattemptedSquash = !e.attempted && e.version === c.version && parent !== null && parent !== c.baseSha
+    && /^[a-f0-9]{40}$/.test(parent) && /^[a-f0-9]{40}$/.test(e.mergedTree);
+  if (c.npmPublish && (!changedSource || unattemptedSquash) && e.registry === "unverified" && e.registryPredatesPreparation === true
     && e.tagSha === null && e.releaseSha === null) return "occupied";
   if ((e.tagSha !== null && e.tagSha !== e.pr.mergedSha) || (e.releaseSha !== null && (e.releaseSha !== e.pr.mergedSha || e.tagSha === null))
     || e.registry === "unverified") throw new Error("Live publication identity disagrees");

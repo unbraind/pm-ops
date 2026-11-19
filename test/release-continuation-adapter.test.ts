@@ -1423,6 +1423,24 @@ test("current-main probe retires a registry coordinate that predates preparation
   });
 });
 
+test("a protected squash onto a different base retires the pre-existing npm coordinate only without an attempt", async () => {
+  await withAdapter(async f => {
+    f.state.occupied = true;
+    f.state.parents = ["8".repeat(40)];
+    f.state.tree = "9".repeat(40);
+    const attempt = { user: { login: "github-actions[bot]" }, body: "<!-- pm-ops-publication-v1\n" + JSON.stringify({ candidate: releaseDigest(JSON.stringify(f.c)) }) + "\n-->" };
+    f.state.comments.push(attempt);
+    await assert.rejects(runReleaseContinuation("probe"), /identity disagrees/);
+    assertIntentRetained(f);
+    f.state.comments.pop();
+    await assert.rejects(runReleaseContinuation("verify"), /current-source identity/);
+    await assert.rejects(runReleaseContinuation("attempt"), /not admitted/);
+    assert.match(await probeOutput(f), /pending=false\naction=occupied/);
+    assert.deepEqual(parseCandidateReceipt(f.pr.body, true), f.receipt);
+    assert.equal(f.calls.filter(call => call.method !== "GET").length, 2);
+  });
+});
+
 test("occupied-coordinate retirement refuses ambiguous history, registry errors and old deliveries", async () => {
   for (const published of ["2026-11-06T03:00:00Z", "2026-11-06T04:00:00Z", "invalid"]) await withAdapter(async f => {
     f.state.occupied = true; f.state.coordinatePublishedAt = published;
