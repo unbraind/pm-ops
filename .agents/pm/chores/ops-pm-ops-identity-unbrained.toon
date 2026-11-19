@@ -1,0 +1,23 @@
+id: ops-pm-ops-identity-unbrained
+title: Use the unbrained commit identity
+description: "Apply the owner's 2026-11-19 commit identity decision to tracked text and PM history. Verify tracker integrity, canonical attribution, and package gates."
+type: Chore
+pm_format_version: 2
+status: open
+priority: 2
+tags: []
+created_at: "2026-11-19T13:57:37.901Z"
+updated_at: "2026-11-19T14:13:45.185Z"
+author: codex-sol
+comments[3]{created_at,author,text}:
+  "2026-11-19T13:58:20.229Z",codex-sol,"Round DT applies the owner-approved name and retains the approved noreply address. The public Git history remains intact. I will verify the tracker redactions, author mapping, and package gates."
+  "2026-11-19T14:00:59.330Z",codex-sol,The email-only mailmap remaps 38 legacy commits using the approved address. A name-specific exception preserves three historical attributions. Seventeen legacy author records use a different address and retain their historical attribution under the public privacy boundary.
+  "2026-11-19T14:13:35.654Z",codex-sol,"Verified the history and item redaction with zero seal mismatches. The linked identity and changelog tests passed with a longer runner deadline. Build, typecheck, and strict tracker health passed. No tracked legacy-name matches remain. The mailmap comparison records the historical second-address limitation."
+files[2]{path,scope}:
+  .agents/pm/chores/ops-hiee.toon,project
+  .mailmap,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref},updated_by,updated_at}:
+  node --test test/identity-audit.test.ts test/changelog-sections.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts,project,1200,codex-sol,"2026-11-19T14:01:05.832Z",local_mutation,chore/commit-identity-unbrained,codex-sol,"2026-11-19T14:07:01.723Z"
+docs[1]{path,scope}:
+  CHANGELOG.md,project
+body: ""
