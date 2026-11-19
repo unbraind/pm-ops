@@ -244,8 +244,28 @@ test("uncertain npm lifecycle refuses possible changelog writes but permits read
     assert.throws(() => resolveChangelogHooks({ hook: writer, prehook, writer }, ["hook"]), /ignore-scripts.*prehook/, prehook);
   }
   for (const prehook of [writer + " --stdout", writer + " --check", writer + " --output other.md", writer + " --output=other.md",
-    "printf heading > other.md", "printf heading >", "printf '%s' '>CHANGELOG.md'", 'printf %s 2">CHANGELOG.md"', "echo done"]) {
+    "printf heading > other.md", "printf heading >", "printf '%s' '>CHANGELOG.md'", 'printf %s 2">CHANGELOG.md"',
+    "printf heading > '$DEST'", writer + " --output='$DEST'", "echo done"]) {
     assert.ok(resolveChangelogHooks({ hook: writer, prehook }, ["hook"]).has("prehook"), prehook);
+  }
+});
+
+test("uncertain npm lifecycle refuses unresolved redirection destinations", () => {
+  const hook = "pm-changelog " + standing;
+  for (const prehook of ['printf heading > "$DEST"', 'printf heading >>"$DEST"', 'printf heading > CHANGELOG.[m]d']) {
+    assert.throws(() => resolveChangelogHooks({ hook, prehook }, ["hook"]), /ignore-scripts.*prehook/, prehook);
+  }
+});
+
+test("bracket patterns in release hook words can expand into multiple arguments", () => {
+  const command = "pm-changelog " + standing;
+  const pattern = "--title [ab].md";
+  const word = parseReleaseHook(command + " " + pattern).commands[0].at(-1);
+  assert.equal(word?.unresolved, true);
+  assert.equal(word?.multipleWords, true);
+  assert.match(auditInvocations([workflow(command + " " + pattern)]).failures[0], /multiword expansion/);
+  for (const literal of ["'[ab].md'", '"[ab].md"', "\\[ab].md"]) {
+    assert.deepEqual(auditInvocations([workflow(command + " --title " + literal)]).failures, []);
   }
 });
 
@@ -397,6 +417,15 @@ test("continuation checks the pending heading cutoff for versioned all-release-t
   assert.doesNotThrow(() => check(`${command.replace(" --all-release-tags", "")} --until 2026-11-16`));
   assert.doesNotThrow(() => check(`${command} --pm-arg --until=2026-11-16`));
   assert.doesNotThrow(() => check(`${command.replace("--all-release-tags", "--pm-arg --all-release-tags")} --until 2026-11-16`));
+});
+
+test("preparation checks the all-tags cutoff against the version day when a pin is unnecessary", () => {
+  const command = "pm-changelog --all-release-tags " + standing;
+  const rewrite = (cutoff: string) => rewriteReleaseHookDates(new Map([["hook", command + " " + cutoff]]),
+    ["hook"], "", false, "2026.11.17");
+  assert.equal(rewrite("--until=" + day).get("hook"), command + " --until=" + day);
+  assert.throws(() => rewrite("--until 2026-11-16"), /Remove --until or set it to 2026-11-17/);
+  assert.throws(() => rewrite('--until="$DAY"'), /Invalid --until operand.*Remove --until or set it to 2026-11-17/);
 });
 
 test("preparation and continuation refuse date overrides and alternate npm exec projects", () => {

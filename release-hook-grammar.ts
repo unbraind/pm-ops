@@ -145,7 +145,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
       if (quote !== "'" && char === "$" && /^\{[^}]*\[@\]/.test(text.slice(i))) problem = "Shell array expansion";
       if (!quote && char === "<" && text[i] === "<") heredoc = text.lastIndexOf("\n", i - 1) + 1;
       if (!quote && /[<>]/.test(char) && !/^\d*$/.test(value) && !/^(?:\d*[<>]|&(?:>|$))/.test(value)) problem = "Attached shell redirection";
-      if (!quote && /[*?]/.test(char)) { unresolved = true; splits = true; }
+      if (!quote && "*?[".includes(char)) { unresolved = true; splits = true; }
       if (!quote && /[()]/.test(char)) {
         problem ??= "Shell grouping or substitution";
         if (subshellDepth > 0 || (char === "(" && i === start + 1

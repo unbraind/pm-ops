@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { mergeChangelog } from "pm-changelog";
+import { changelogOutputTarget } from "../release-changelog-options.ts";
 import { execFileSync, spawnSync } from "../subprocess.ts";
 import { isMainInvocation } from "./main-invocation.ts";
 
@@ -15,22 +16,19 @@ export function describeEmptyReleases(markdown: string): string {
 
 /** Generate once, then use identical normalized bytes for writes, checks and notes. */
 export function runChangelog(args: readonly string[], cwd = process.cwd(), env = process.env): number {
+  const { output: { value: output }, invalidOption, check, stdout, consumed } = changelogOutputTarget(args.map(value => ({ value })));
+  if (invalidOption) throw new Error(`${invalidOption} requires a value`);
   const forwarded: string[] = [];
-  let output = "CHANGELOG.md";
   let mode = "replace";
-  let check = false;
-  let stdout = false;
   let summary = false;
   for (let index = 0; index < args.length; index++) {
+    if (consumed.has(index)) continue;
     const arg = args[index]!;
-    if (arg === "--output" || arg === "--mode") {
+    if (arg === "--mode") {
       const value = args[++index];
-      if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value`);
-      if (arg === "--output") output = value;
-      else mode = value;
-    } else if (arg === "--check") check = true;
-    else if (arg === "--stdout") stdout = true;
-    else if (arg === "--github-step-summary") summary = true;
+      if (!value || value.startsWith("--")) throw new Error("--mode requires a value");
+      mode = value;
+    } else if (arg === "--github-step-summary") summary = true;
     else forwarded.push(arg);
   }
   if (mode !== "replace" && mode !== "prepend") throw new Error("--mode must be replace or prepend");

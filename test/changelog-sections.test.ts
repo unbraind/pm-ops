@@ -160,6 +160,27 @@ test("full, check, prepend, pending release and notes share the policy over a re
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("the adapter writes short and long output options to the same targets used by lifecycle detection", () => {
+  const { root, env } = tracker();
+  try {
+    const generatorArgs = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22"];
+    const changelog = join(root, "CHANGELOG.md");
+    writeFileSync(changelog, "original");
+    for (const [filename, options] of [
+      ["preview.md", ["-o", "preview.md"]],
+      ["inline.md", ["-o=inline.md"]],
+      ["last.md", ["--output=unused.md", "--output", "other.md", "-o", "last.md"]],
+    ] as const) {
+      const prehook = ["node scripts/pm-changelog.ts --date-from-version", ...options].join(" ");
+      assert.ok(resolveChangelogHooks({ hook: "echo done", prehook }, ["hook"]).has("prehook"));
+      assert.equal(runChangelog([...generatorArgs, ...options], root, env), 0);
+      assert.match(readFileSync(join(root, filename), "utf8"), /^# Changelog/);
+      assert.equal(runChangelog([...generatorArgs, ...options, "--check"], root, env), 0);
+      assert.equal(readFileSync(changelog, "utf8"), "original");
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("tag generation refuses a plain tracker clearly while item generation works with no Git on PATH", () => {
   const { root, env } = tracker();
   try {
@@ -461,6 +482,40 @@ test("prepare pins forwarded options and continuation refuses their stale merge 
     const result = spawnSync(process.execPath, verify, { cwd: root, env, encoding: "utf8" });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /2026-11-16 differs from verified merge commit day 2026-11-17/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("preparation refuses a stale all-tags cutoff without writing any hooks", () => {
+  const { root, env } = tracker();
+  try {
+    releaseTags(root, env);
+    const day = "2026-11-17";
+    const stale = "2026-11-16";
+    const filename = join(root, "package.json");
+    const version = "2026.11.16";
+    const hooks = releaseCommands();
+    hooks["changelog:full"] += " --until " + stale;
+    hooks["changelog:check"] += " --until=" + stale;
+    const original = JSON.stringify({ version, scripts: hooks });
+    writeFileSync(filename, original);
+    const changelog = join(root, "CHANGELOG.md");
+    const fallback = restoreFixtureDatePolicy(args("changelog:full")).filter(arg => arg !== "--date-from-version");
+    assert.equal(runChangelog([...fallback, "--date-fallback", day, "--until", stale], root, env), 0);
+    const rendered = readFileSync(changelog, "utf8");
+    assert.match(rendered, /^## 2026\.11\.16 - 2026-11-16$/m);
+    const prepare = [resolve("scripts/prepare-release-changelog.ts")];
+    const releaseEnv = releaseStepEnv(root, env, day);
+    const result = spawnSync(process.execPath, prepare, { cwd: root, env: releaseEnv, encoding: "utf8" });
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stderr, /--until day 2026-11-16.*heading day 2026-11-17.*Remove --until or set it to 2026-11-17/);
+    assert.equal(readFileSync(filename, "utf8"), original);
+    assert.equal(readFileSync(changelog, "utf8"), rendered);
+    const compatible = Object.fromEntries(Object.entries(hooks).map(([name, command]) => [name, command.replace(stale, day)]));
+    writeFileSync(filename, JSON.stringify({ version, scripts: compatible }));
+    execFileSync(process.execPath, prepare, { cwd: root, env: releaseEnv });
+    execFileSync("npm", ["run", "changelog:full"], { cwd: root, env: releaseEnv });
+    execFileSync("npm", ["run", "changelog:check"], { cwd: root, env: releaseEnv });
+    assert.match(readFileSync(changelog, "utf8"), /^## 2026\.11\.16 - 2026-11-17$/m);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
