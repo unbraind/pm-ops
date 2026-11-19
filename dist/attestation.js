@@ -913,6 +913,7 @@ export function executableShellBodies(source) {
             const directory = step["working-directory"] ?? defaultRunDirectory(container.value) ?? defaultRunDirectory(data);
             if (directory !== undefined)
                 body.workingDirectory = directory;
+            body.environment = { ...mapping(data?.env), ...mapping(mapping(container.value)?.env), ...mapping(step.env) };
             bodies.push(body);
         }
     }

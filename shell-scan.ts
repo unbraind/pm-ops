@@ -741,31 +741,8 @@ export function isolateShellChildren(text: string, depth = 0, arithmetic = false
 }
 
 /**
- * True when an unquoted word is a redirection operator rather than a command word.
- *
- * A redirection and its target are not part of the command the shell runs, so
- * `> /dev/null npm publish` runs npm. A scan that reads words in order sees `>`
- * as the program and audits nothing. The forms accepted here are the ones a
- * workflow actually writes: the plain operators, a file-descriptor prefix
- * (`2>`, `2>>`), the duplicating forms (`>&`, `2>&1`, `&>`), and the read-write
- * form `<>`. `<>` has to be named explicitly: it is not `<` followed by `>`, so
- * without it the operator was read as a joined redirection that consumes no
- * target, its target `/dev/null` became the command word, and the real
- * `npm publish` after it was never audited.
- *
- * @param token - One command word.
- * @returns True when the word is a redirection operator.
- */
-function isRedirection(token: ShellToken): boolean {
-  if (token.startsQuoted) return false;
-  return /^(?:[0-9]*(?:>>?|<>|<<?<?)&?[0-9-]*|&>>?)$/.test(token.value);
-}
-
-/**
- * Drop a command's redirections, so only the words it runs remain.
- *
- * An operator written apart from its target (`> file`) consumes the word after
- * it; one written joined to it (`>file`, `2>&1`) consumes nothing further.
+ * Drop redirections from argv. Match the operator first so only a bare
+ * operator consumes a separate target, even when a joined target is numeric.
  *
  * @param command - One simple command's tokens.
  * @returns The command without its redirections.
@@ -774,14 +751,9 @@ function withoutRedirections(command: ShellCommand): ShellCommand {
   const kept: ShellCommand = [];
   for (let index = 0; index < command.length; index += 1) {
     const token = command[index]!;
-    if (!isRedirection(token)) {
-      // A joined form such as `>file` or `2>&1` is one word and takes no target.
-      if (!token.startsQuoted && /^(?:[0-9]*>>?|[0-9]*<<?<?|&>>?)[^\s]/.test(token.value)) continue;
-      kept.push(token);
-      continue;
-    }
-    // A bare operator takes the next word as its target.
-    if (!/&(?:[0-9]+-?|-)$/.test(token.value)) index += 1;
+    const operator = token.startsQuoted ? undefined : /^(?:[0-9]*(?:>>?|<>|<<<|<<-?|<)&?|&>>?)/.exec(token.value)?.[0];
+    if (operator === undefined) kept.push(token);
+    else if (operator === token.value) index += 1;
   }
   return kept;
 }

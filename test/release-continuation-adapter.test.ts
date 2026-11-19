@@ -1488,6 +1488,13 @@ test("heading-date continuation mirrors the generator at the committer offset de
       });
       await assert.rejects(runReleaseContinuation("heading-date"), new RegExp(`${wrongDay}.*${expectedDay}.*retire-unpublished`));
     }
+    const npmrc = join(root, ".npmrc");
+    write({ generate: script, check: script, notes: script, pregenerate: "pm-changelog --date-fallback 2026-11-06" });
+    await assert.rejects(runReleaseContinuation("heading-date"), /ignore-scripts.*pregenerate/);
+    writeFileSync(npmrc, "ignore-scripts=true\n");
+    await runReleaseContinuation("heading-date");
+    writeFileSync(npmrc, "ignore-scripts=false\n");
+    await assert.rejects(runReleaseContinuation("heading-date"), /2026-11-06.*2026-11-07.*retire-unpublished/);
     for (const bad of [undefined, null, 1, "", " "]) {
       write({ generate: script, check: script, notes: bad });
       await assert.rejects(runReleaseContinuation("heading-date"), /Missing changelog hook: notes/);

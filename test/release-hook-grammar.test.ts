@@ -1,15 +1,16 @@
 /** Exercise the release hook language at the same boundaries as npm and GitHub Actions. */
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { stringify } from "yaml";
 import { execFileSync } from "../subprocess.ts";
 import {
-  assertReleaseHeadingDate, assertReleaseHookHeadingDate, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHookDates,
+  assertReleaseHeadingDate, assertReleaseHookHeadingDate, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHookDates,
 } from "../release-changelog-options.ts";
 import { fixedOptionName, tokenizeCommands, tokenizeCommandsWithSpans, commandName, packageScriptCommand, releaseHookCommand } from "../shell-scan.ts";
+import { parseReleaseHook } from "../release-hook-grammar.ts";
 import { auditInvocations } from "../scripts/verify-release-changelog-date.ts";
 
 const standing = "--release-version-from-package --date-from-version";
@@ -38,6 +39,7 @@ test("npm runs the prepared pre/main/post hooks with separate argument lists", t
     disabled: "node ./pm-changelog.ts " + standing + " --title relay",
   };
   writeFileSync(join(root, "package.json"), JSON.stringify({ name: "fixture", scripts }));
+  writeFileSync(join(root, ".npmrc"), "ignore-scripts=false\n");
   writeFileSync(join(root, "pm-changelog.ts"), [
     'const fs = require("node:fs");',
     'const args = process.argv.slice(2);',
@@ -60,10 +62,36 @@ test("npm runs the prepared pre/main/post hooks with separate argument lists", t
   assert.deepEqual(calls.filter(args => args.includes("--stdout")), [calls[2]]);
   const prepared = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).scripts;
   assert.equal(prepared.predisabled, scripts.predisabled);
-  const hooks = resolveChangelogHooks(prepared, [hook]);
-  assertReleaseHookHeadingDate(hooks, [hook], day);
+  const hooks = resolveChangelogHooks(prepared, [hook], true);
+  assertReleaseHookHeadingDate(hooks, [hook], day, undefined, true);
   hooks.set("writer", scripts.writer);
-  assert.throws(() => assertReleaseHookHeadingDate(hooks, [hook], day, "2026.11.16"), /Manually dispatch.*retire-unpublished/);
+  assert.throws(() => assertReleaseHookHeadingDate(hooks, [hook], day, "2026.11.16", true), /Manually dispatch.*retire-unpublished/);
+});
+
+test("preparation and npm agree when the project disables lifecycle hooks", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-hook-npmrc-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const manifest = join(root, "package.json");
+  const scripts = {
+    hook: "node ./pm-changelog.ts " + standing + " --stdout",
+    prehook: "node ./pm-changelog.ts " + standing,
+  };
+  const npmrc = join(root, ".npmrc");
+  writeFileSync(npmrc, "ignore-scripts=true\n");
+  writeFileSync(join(root, "pm-changelog.ts"),
+    'if (!process.argv.includes("--stdout")) require("node:fs").writeFileSync("CHANGELOG.md", "ran");');
+  const env = { ...process.env, CHANGELOG_SCRIPT: "hook", CHANGELOG_CHECK_SCRIPT: "hook", NOTES_SCRIPT: "hook", RELEASE_HEADING_DATE: day };
+  for (const name of Object.keys(env).filter(key => /^npm_config_ignore_scripts$/i.test(key))) delete (env as NodeJS.ProcessEnv)[name];
+  for (const override of [false, true]) {
+    writeFileSync(manifest, JSON.stringify({ name: "fixture", scripts }));
+    const runEnv = override ? { ...env, npm_config_ignore_scripts: "false" } : env;
+    execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env: runEnv });
+    const prepared = JSON.parse(readFileSync(manifest, "utf8")).scripts;
+    if (override) assert.match(prepared.prehook, /--date-fallback 2026-11-17/);
+    else assert.equal(prepared.prehook, scripts.prehook);
+    execFileSync("npm", ["run", "hook"], { cwd: root, env: runEnv });
+    assert.equal(existsSync(join(root, "CHANGELOG.md")), override);
+  }
 });
 
 test("conflicting policies fail once across forwarded argv before either date can be rewritten", () => {
@@ -169,6 +197,102 @@ test("npm lifecycle controls respect option order and stop at the argument delim
   }
 });
 
+test("npm lifecycle follows workflow env, project config and explicit options", () => {
+  const writer = "pm-changelog " + standing;
+  const scripts = { hook: "npm run target", target: writer, prehook: writer, posttarget: writer };
+  const manifest = new Map(Object.entries(scripts));
+  for (const [config, env, enabled] of [
+    ["ignore-scripts=true", {}, false],
+    ["ignore-scripts=true\r\n'ignore-scripts' = 'false'", {}, true],
+    ["ignore-scripts=false # comment\n[section]\nignore-scripts=true", {}, true],
+    ["ignore-scripts", {}, false],
+    ["# ignored\nignore-scripts=true", { npm_config_ignore_scripts: "false" }, true],
+    ["ignore-scripts=false", { NPM_CONFIG_IGNORE_SCRIPTS: true }, false],
+    ["ignore-scripts=false", { npm_config_ignore_scripts: "" }, true],
+  ] as const) {
+    const lifecycle = npmLifecycle(config, env);
+    assert.equal(lifecycle, enabled);
+    const resolved = resolveChangelogHooks(scripts, ["hook"], lifecycle);
+    assert.equal(resolved.has("prehook"), enabled);
+    assert.equal(resolved.has("posttarget"), enabled);
+    const rewritten = rewriteReleaseHookDates(manifest, ["hook"], day, lifecycle);
+    assert.equal(rewritten.has("prehook"), enabled);
+    assert.equal(rewritten.has("posttarget"), enabled);
+    assert.doesNotThrow(() => assertReleaseHookHeadingDate(rewritten, ["hook"], day, undefined, lifecycle));
+  }
+  for (const lifecycle of [
+    npmLifecycle(undefined), npmLifecycle("ignore-scripts = ${EXTERNAL}"),
+    npmLifecycle("ignore-scripts=false\nignore-scripts[]=true"), npmLifecycle("ignore-scripts = 'false' # uncertain"),
+    npmLifecycle("ignore-scripts=false", { npm_config_ignore_scripts: "${{ vars.IGNORE_SCRIPTS }}" }),
+    npmLifecycle(undefined, { NPM_CONFIG_IGNORE_SCRIPTS: "true", npm_config_ignore_scripts: "false" }),
+  ]) {
+    assert.equal(lifecycle, "unknown");
+    assert.throws(() => resolveChangelogHooks(scripts, ["hook"], lifecycle), /ignore-scripts.*prehook.*user\/global/);
+  }
+  const nested = { hook: "npm run --ignore-scripts=false target", target: writer, posttarget: writer };
+  assert.ok(resolveChangelogHooks(nested, ["hook"], false).has("posttarget"));
+  nested.hook = "npm_config_ignore_scripts=true npm run target";
+  assert.ok(!resolveChangelogHooks(nested, ["hook"], true).has("posttarget"));
+  nested.hook = 'env npm_config_ignore_scripts="$EXTERNAL" npm run target';
+  assert.throws(() => resolveChangelogHooks(nested, ["hook"], true), /ignore-scripts.*posttarget/);
+});
+
+test("uncertain npm lifecycle refuses possible changelog writes but permits read-only hooks", () => {
+  const writer = "pm-changelog " + standing;
+  for (const prehook of [writer, writer + " --output", writer + " -o CHANGELOG.md", writer + " --output=./CHANGELOG.md",
+    writer + " --output=\"$DEST\"", "printf heading &>CHANGELOG.md", "printf heading >> ./CHANGELOG.md", "npm run writer"]) {
+    assert.throws(() => resolveChangelogHooks({ hook: writer, prehook, writer }, ["hook"]), /ignore-scripts.*prehook/, prehook);
+  }
+  for (const prehook of [writer + " --stdout", writer + " --check", writer + " --output other.md", writer + " --output=other.md",
+    "printf heading > other.md", "printf '%s' '>CHANGELOG.md'", "echo done"]) {
+    assert.ok(resolveChangelogHooks({ hook: writer, prehook }, ["hook"]).has("prehook"), prehook);
+  }
+});
+
+test("the date verifier uses workflow, job and step npm environment precedence", () => {
+  const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
+    target: "pm-changelog " + standing, pretarget: "pm-changelog " + standing,
+  } }) };
+  const file = { file: ".github/workflows/release.yml", text: stringify({
+    env: { npm_config_ignore_scripts: "${{ vars.EXTERNAL }}" },
+    jobs: {
+      configured: { env: { npm_config_ignore_scripts: "false" }, steps: [
+        { run: "npm run target" }, { env: { npm_config_ignore_scripts: "true" }, run: "npm run target" },
+      ] },
+      unresolved: { steps: [{ run: "npm run target" }] },
+    },
+  }) };
+  const result = auditInvocations([manifest, file, { file: ".npmrc", text: "ignore-scripts=true" }]);
+  assert.equal(result.failures.length, 1);
+  assert.match(result.failures[0], /ignore-scripts.*pretarget.*external env/);
+});
+
+test("release hooks preserve date options after joined and split redirections", () => {
+  for (const redirect of ["&>out", "&>>out", "&> out", "&>> out", "2>1", "2>>1", "2> 1"]) {
+    const hook = `pm-changelog ${redirect} ${standing}`;
+    assert.deepEqual(auditInvocations([workflow(hook)]).failures, [], redirect);
+    assert.equal(rewriteReleaseHookDates(new Map([["hook", hook]]), ["hook"], day).get("hook"),
+      `pm-changelog ${redirect} --release-version-from-package --date-fallback ${day}`);
+    assert.equal(releaseHookCommand(parseReleaseHook(hook).commands[0])?.[1].value, "--release-version-from-package");
+  }
+});
+
+test("Bun global switches preserve source generator argv on both sides of run", () => {
+  for (const prefix of ["bun --silent run", "bun run --silent", "bun --silent run --smol", "bun --silent"]) {
+    const hook = `${prefix} ./scripts/pm-changelog.ts ${standing}`;
+    assert.equal(rewriteReleaseHookDates(new Map([["hook", hook]]), ["hook"], day).get("hook"),
+      `${prefix} ./scripts/pm-changelog.ts --release-version-from-package --date-fallback ${day}`);
+  }
+});
+
+test("shell builtin and command prefixes preserve release directory changes", () => {
+  for (const change of ["builtin cd", "builtin -- pushd", "command cd", "command -p pushd", "command builtin cd", "builtin command cd"]) {
+    const hook = `${change} docs && pm-changelog ${standing}`;
+    assert.throws(() => resolveChangelogHooks({ hook }, ["hook"]), /context change.*(?:cd|pushd)/i, change);
+  }
+  assert.doesNotThrow(() => resolveChangelogHooks({ hook: "command -v cd && pm-changelog " + standing }, ["hook"]));
+});
+
 test("a descriptor duplication stays with its command before an output-filter pipeline", () => {
   const valid = "pm-changelog " + standing + " 2>&1 | grep Release";
   assert.deepEqual(auditInvocations([workflow(valid)]).failures, []);
@@ -256,7 +380,6 @@ test("release hook context changes are refused once at the entry point and after
     ["env -u npm_config_ignore_scripts npm run relay", "env -u"],
     ["env --unset=npm_config_ignore_scripts npm run relay", "env --unset"],
     ["env -i npm run relay", "env -i"],
-    ["env npm_config_ignore_scripts=true npm run relay", "env npm_config_ignore_scripts"],
     ["env 'PM_PATH=docs' npm run relay", "env PM_PATH"],
     ["PM_PATH=docs npm run relay", "PM_PATH assignment"],
     ["PM_PATH=docs; npm run relay", "PM_PATH assignment"],
@@ -299,6 +422,7 @@ test("canonical hook paths retain their directory, generator arguments and model
   const writer = "pm-changelog " + standing + " --pm-arg --pm-cwd --title cd";
   for (const second of [
     "env TZ=UTC timeout 60 npm run --ignore-scripts writer",
+    "env npm_config_ignore_scripts=true npm run writer",
     "exec -l npm run writer",
     "exec -a release-hook npm run writer",
     "npm run writer -- --title=--prefix",

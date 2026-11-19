@@ -69,7 +69,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
   let i = 0;
   while (i < text.length) {
     const ch = text[i];
-    if (/^[;&|\n]$/.test(ch)) {
+    if (/^[;&|\n]$/.test(ch) && !text.startsWith("&>", i)) {
       if (words.length) {
         if (ch === "&" && text[i + 1] !== "&") problems.set(words[0], "Shell background or descriptor operator &");
         if (ch === "|" && text[i + 1] !== "|") piped.add(words);
@@ -124,7 +124,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
     while (i < text.length) {
       const char = text[i];
       // Descriptor duplication is part of this redirection word, even before a pipe.
-      const descriptor = !quoted && char === "&" && /^[0-9]*[<>]>?$/.test(value);
+      const descriptor = !quoted && char === "&" && (/^[0-9]*[<>]>?$/.test(value) || (i === start && text[i + 1] === ">"));
       if (!quote && !descriptor && /[\s;&|]/.test(char)) break;
       i++;
       if (char === quote) { quote = ""; continue; }
@@ -143,7 +143,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
       }
       if (quote !== "'" && char === "$" && /^\{[^}]*\[@\]/.test(text.slice(i))) problem = "Shell array expansion";
       if (!quote && char === "<" && text[i] === "<") heredoc = text.lastIndexOf("\n", i - 1) + 1;
-      if (!quote && /[<>]/.test(char) && !/^\d*$/.test(value) && !/^\d*[<>]/.test(value)) problem = "Attached shell redirection";
+      if (!quote && /[<>]/.test(char) && !/^\d*$/.test(value) && !/^(?:\d*[<>]|&(?:>|$))/.test(value)) problem = "Attached shell redirection";
       if (!quote && /[*?]/.test(char)) { unresolved = true; splits = true; }
       if (!quote && /[()]/.test(char)) {
         problem ??= "Shell grouping or substitution";

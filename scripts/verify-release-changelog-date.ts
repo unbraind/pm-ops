@@ -40,7 +40,7 @@ import {
 import { isMainInvocation } from "./main-invocation.ts";
 import { tallyFlaggedInvocations } from "../invocation-audit.ts";
 import { executableShellBodies } from "../attestation.ts";
-import { hasVersionInput, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, visitChangelogScriptCommands } from "../release-changelog-options.ts";
+import { hasVersionInput, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, npmLifecycle, visitChangelogScriptCommands, type NpmLifecycle } from "../release-changelog-options.ts";
 
 import { describeReleaseContextChange, parseReleaseHook, refuseHook } from "../release-hook-grammar.ts";
 
@@ -157,14 +157,17 @@ function inspectProjectStep(file: string, text: string, line: number, directory:
 function invocationsAcross(sources: SourceFile[]): Invocation[] {
   const scripts = new Map<string, string>();
   const origins = new Map<string, string>();
+  const projectConfig = sources.find(source => source.file === ".npmrc")?.text;
+  const workflowSteps = new Map<string, NpmLifecycle>();
   const found: Invocation[] = [];
   const entryPoints = new Set<string>(HOOK_INPUTS.map(([, name]) => name));
   for (const source of sources) {
+    if (source.file === ".npmrc") continue;
     if (source.file === "package.json") {
       for (const [name, script] of manifestScripts(source)) scripts.set(name, script);
     } else {
       if (/^\.github\/workflows\/.*\.ya?ml$/.test(source.file)) addConfiguredHooks(source.text, entryPoints);
-      for (const { text, line, workingDirectory } of executableShellBodies(source)) {
+      for (const { text, line, workingDirectory, environment } of executableShellBodies(source)) {
         if (workingDirectory !== undefined && !(typeof workingDirectory === "string" && /^(?:\.\/)*\.?$/.test(workingDirectory))) {
           found.push(...inspectProjectStep(source.file, text, line, workingDirectory));
           continue;
@@ -172,6 +175,7 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
         const key = "\0run" + origins.size;
         origins.set(key, source.file);
         scripts.set(key, text);
+        workflowSteps.set(key, npmLifecycle(projectConfig, environment));
       }
     }
   }
@@ -181,7 +185,7 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
     const file = origins.get(name) ?? "package.json";
     const line = file === "package.json" ? text.slice(0, first).split("\n").length : undefined;
     found.push(...inspectCommand(effective, { file, line, command: text.slice(first, last) }, names, contextProblem));
-  }, undefined, undefined, entryPoints);
+  }, undefined, undefined, entryPoints, { lifecycle: npmLifecycle(projectConfig), workflowSteps });
   return found;
 }
 
@@ -348,7 +352,7 @@ export function generateHeading(bin: string, args: string[], cwd: string): Headi
 export function verify(root: string, today: string): VerifierResult {
   const tracked = execFileSync(
     "git",
-    ["ls-files", "--", "package.json", ".github/workflows/*.yml", ".github/workflows/*.yaml"],
+    ["ls-files", "--", "package.json", ".npmrc", ".github/workflows/*.yml", ".github/workflows/*.yaml"],
     { cwd: root, encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 },
   )
     .trimEnd()

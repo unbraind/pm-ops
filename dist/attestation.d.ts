@@ -102,6 +102,8 @@ interface ExecutableShellBody {
     line: number;
     /** Effective workflow step directory, including inherited run defaults. */
     workingDirectory?: unknown;
+    /** Workflow, job and step environment merged in execution precedence. */
+    environment?: Readonly<Record<string, unknown>>;
 }
 /** Extract structured commands together with their original scalar source ranges. */
 export declare function executableShellBodies(source: SourceFile): ExecutableShellBody[];

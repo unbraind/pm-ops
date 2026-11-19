@@ -152,21 +152,49 @@ function scriptForward(program, parameters, scriptNames) {
     const settings = afterNpmRunOptions(flags, 0, entry.optional, entry.lifecycle);
     return { target, runner: program, lifecycle: settings.lifecycle, optional: settings.optional, unsupported: flags[settings.index]?.value, args: separator < 0 ? [] : tail.slice(separator + 1) };
 }
-/** Read an explicit npm lifecycle environment assignment on the runner's command prefix. */
+/** Convert npm's literal ignore-scripts setting into lifecycle execution. */
+function lifecycleSetting(value) {
+    if (value === true || value === "true")
+        return false;
+    if (value === false || value === "false")
+        return true;
+    return "unknown";
+}
+/** Resolve CLI-independent npm configuration from the workflow env and project .npmrc. */
+export function npmLifecycle(projectConfig, environment = {}) {
+    const settings = Object.entries(environment)
+        .filter(([name, value]) => /^npm_config_ignore_scripts$/i.test(name) && value !== "")
+        .map(([, value]) => lifecycleSetting(value));
+    if (settings.length > 0)
+        return settings.every(setting => setting === settings[0]) ? settings[0] : "unknown";
+    let setting = "unknown";
+    for (const line of projectConfig?.split(/\r?\n/) ?? []) {
+        if (/^\s*\[[^\]]*\]\s*$/.test(line))
+            break;
+        const entry = /^\s*(["']?)ignore-scripts(\[\])?\1\s*(?:=\s*(.*)|[;#].*)?$/.exec(line);
+        if (!entry)
+            continue;
+        const raw = entry[3]?.trim();
+        const literal = raw?.replace(/^(["'])(true|false)\1$|^(true|false)\s*(?:[;#].*)?$/, "$2$3");
+        setting = entry[2] ? "unknown" : lifecycleSetting(literal ?? true);
+    }
+    return setting;
+}
+/** Read an explicit npm lifecycle assignment on the runner's command prefix. */
 function lifecycleEnvironment(words, program) {
     let setting;
     for (const token of words.slice(0, words.indexOf(program))) {
         const match = /^npm_config_ignore_scripts=(.*)$/i.exec(token.value);
-        if (match)
-            setting = match[1];
+        if (match && match[1] !== "")
+            setting = lifecycleSetting(match[1]);
     }
     return setting;
 }
-/** Resolve the same invocation graph used by preparation and continuation, including comment-only hooks. */
-export function resolveChangelogHooks(scripts, hooks) {
+/** Resolve the same graph used by preparation and continuation, including comment-only hooks. */
+export function resolveChangelogHooks(scripts, hooks, lifecycle = "unknown") {
     const all = new Map(Object.entries(scripts ?? {}).map(([key, value]) => [key, typeof value === "string" ? value : ""]));
     const resolved = new Map();
-    visitChangelogScriptCommands(all, ({ effective, names }) => { changelogInvocation(effective, names); }, hooks, resolved);
+    visitChangelogScriptCommands(all, ({ effective, names }) => { changelogInvocation(effective, names); }, hooks, resolved, undefined, { lifecycle });
     return resolved;
 }
 /** Administrative package operands are dependency names rather than commands. */
@@ -211,7 +239,9 @@ function generatorCommand(invocation) {
     const name = basename(program.value);
     if (name !== "node" && name !== "bun")
         return undefined;
-    let index = name === "bun" && parameters[0]?.value === "run" ? 1 : 0;
+    let index = name === "bun" ? afterRunOptions(name, parameters, 0).index : 0;
+    if (name === "bun" && parameters[index]?.value === "run")
+        index = afterRunOptions(name, parameters, index + 1).index;
     while (parameters[index]?.value === "--enable-source-maps" || BUN_LOCAL_RUN_SWITCHES.has(parameters[index]?.value))
         index++;
     const file = parameters[index];
@@ -220,7 +250,9 @@ function generatorCommand(invocation) {
     return undefined;
 }
 /** Look for a reachable generator without interpreting an opaque command as executable argv. */
-function canReachGenerator(words, names, seen) {
+function canReachGenerator(words, names, seen, writing = false) {
+    if (writing && redirectsChangelog(words))
+        return true;
     const invocation = releaseHookCommand(words);
     if (!invocation)
         return hookSyntaxProblem(words) !== undefined && words.some(mentionsGenerator);
@@ -230,10 +262,37 @@ function canReachGenerator(words, names, seen) {
         return false;
     const forward = scriptForward(name, parameters, names);
     if (forward?.target && names instanceof HookScriptNames) {
-        return names.sequence(forward.target, forward.lifecycle !== false).some(target => names.canGenerate(target, seen))
+        return names.sequence(forward.target, forward.lifecycle !== false).some(target => names.canGenerate(target, seen, writing))
             || forward.args.some(mentionsGenerator);
     }
-    return generatorCommand(invocation) !== undefined || words.some(mentionsGenerator) || referencesWriter(words, names, seen);
+    const generator = generatorCommand(invocation);
+    if (generator)
+        return !writing || writesChangelog(generator.slice(1));
+    return words.some(mentionsGenerator) || referencesWriter(words, names, seen);
+}
+/** Find Bash output redirections to the changelog even on non-generator commands. */
+function redirectsChangelog(words) {
+    return words.some((word, index) => {
+        if (word.startsQuoted)
+            return false;
+        const redirect = /^(?:[0-9]*>|&>)>?(.*)$/.exec(word.value);
+        const destination = redirect?.[1] || words[index + 1]?.value;
+        return redirect !== null && /^(?:\.\/)*CHANGELOG\.md$/.test(destination ?? "");
+    });
+}
+/** The usual generator destination is CHANGELOG.md; honor literal checks and alternate output. */
+function writesChangelog(args) {
+    let output = "CHANGELOG.md";
+    for (const index of optionPositions(args)) {
+        const word = args[index];
+        if (word.value === "--check" || word.value === "--stdout")
+            return false;
+        if (word.value === "--output" || word.value === "-o")
+            output = args[index + 1]?.value;
+        else if (word.value.startsWith("--output="))
+            output = word.value.slice("--output=".length);
+    }
+    return output === undefined || /(?:^|\/)CHANGELOG\.md$|[$*?]/.test(output);
 }
 /** Project selectors on runners precede the delimiter that separates generator arguments. */
 function runnerProjectOption([program, ...args]) {
@@ -266,15 +325,20 @@ function unsupportedSetSwitch(args) {
     }
     return undefined;
 }
+/** Expose the shell command beneath command and builtin prefixes. */
+function unwrapShellBuiltin(words) {
+    let command = releaseHookCommand(words);
+    while (command?.[0].value === "builtin") {
+        command = releaseHookCommand(command.slice(command[1]?.value === "--" ? 2 : 1));
+    }
+    return command;
+}
 /** A release hook cannot change shell parsing, builtin lookup, or pipeline isolation. */
 function unsupportedShellSemantics(words) {
     const first = shellCommandStart(words);
     if (first < 0)
         return undefined;
-    let command = releaseHookCommand(words.slice(first));
-    while (command?.[0].value === "builtin") {
-        command = releaseHookCommand(command.slice(command[1]?.value === "--" ? 2 : 1));
-    }
+    const command = unwrapShellBuiltin(words.slice(first));
     if (!command)
         return undefined;
     const [program, ...args] = command;
@@ -292,7 +356,7 @@ function shellContextChange(words) {
     if (first < 0)
         return undefined;
     const inner = words.slice(first);
-    const command = /^(?:command$|time$|[A-Za-z_]\w*\+?=)/.test(inner[0].value) ? releaseHookCommand(inner) ?? inner : inner;
+    const command = /^(?:builtin$|command$|time$|[A-Za-z_]\w*\+?=)/.test(inner[0].value) ? unwrapShellBuiltin(inner) ?? inner : inner;
     const [program, ...args] = command;
     const name = basename(program.value);
     if (/^(?:cd|pushd|popd)$/.test(name))
@@ -314,6 +378,16 @@ function shellContextChange(words) {
 function commandContextChanges(words) {
     const context = [];
     const invocation = releaseHookCommand(words, context);
+    // The npm forward resolver models this assignment, including dynamic values.
+    if (invocation && basename(invocation[0].value) === "npm" && scriptForward("npm", invocation.slice(1))) {
+        const known = lifecycleEnvironment(words, invocation[0]);
+        if (known !== undefined) {
+            const setting = /^(?:env )?npm_config_ignore_scripts assignment$/i;
+            for (let i = context.length - 1; i >= 0; i--)
+                if (setting.test(context[i].construct))
+                    context.splice(i, 1);
+        }
+    }
     const project = invocation && runnerProjectOption(invocation);
     if (project)
         context.push({ construct: project, directory: true });
@@ -410,13 +484,13 @@ class HookScriptNames extends Set {
         return this.has(name) && this.sequence(name, true).some(script => this.canGenerate(script, seen));
     }
     /** Follow literal script references without recursively evaluating the wrapper's shell payload. */
-    canGenerate(name, seen = new Set()) {
+    canGenerate(name, seen = new Set(), writing = false) {
         if (!this.has(name) || seen.has(name))
             return false;
         seen.add(name);
         let preceding;
         for (const words of parseReleaseHook(this.scripts.get(name)).commands) {
-            if (canReachGenerator(words, this, seen))
+            if (canReachGenerator(words, this, seen, writing))
                 return true;
             if (!this.allowUnresolvedProjects)
                 continue;
@@ -462,7 +536,7 @@ function commandReceivingArguments(text, commands, spans) {
     return commands.find(words => spans.get(words[0])?.start === start);
 }
 /** Scan local scripts in invocation order and join forwarded argv at its actual destination. */
-export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, entryPoints = new Set()) {
+export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, entryPoints = new Set(), npm = {}) {
     const names = new HookScriptNames(scripts);
     const knownWriters = new HookScriptNames(scripts, false);
     const targeted = new Set();
@@ -477,17 +551,16 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
             return undefined;
         const [program, ...parameters] = command;
         const forward = scriptForward(basename(program.value), parameters, names);
-        if (!forward || forward.lifecycle !== undefined)
+        if (forward?.runner !== "npm" || forward.lifecycle !== undefined)
             return forward;
-        const setting = lifecycleEnvironment(words, program);
-        return setting === undefined ? forward : { ...forward, lifecycle: setting !== "true" };
+        return { ...forward, lifecycle: lifecycleEnvironment(words, program) };
     }
     const visited = new Set();
     const withoutArgs = new Map();
     const recipients = new Map();
     const forwardedSeparators = new WeakSet();
     /** Walk one invocation, preserving token identity back to each supplying script. */
-    function visit(name, args, parents, lifecycle, releasePath) {
+    function visit(name, args, parents, lifecycle, releasePath, implicitNpm = false) {
         const chain = [...parents, name].join(" -> ");
         if (parents.includes(name)) {
             if (hooks)
@@ -513,7 +586,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
         const checkContext = releasePath || knownWriters.canGenerate(name)
             || (recipient !== undefined && canReachGenerator([...recipient, ...args], knownWriters));
         if (args.length === 0) {
-            const key = Number(checkContext) + ":" + Number(lifecycle) + ":" + name;
+            const key = Number(checkContext) + ":" + lifecycle + ":" + Number(implicitNpm) + ":" + name;
             const depth = hooks ? parents.length : 0;
             if ((withoutArgs.get(key) ?? -1) >= depth)
                 return;
@@ -521,6 +594,14 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
         }
         visited.add(name);
         const invocationNames = checkContext ? names : knownWriters;
+        if (implicitNpm && lifecycle === "unknown" && knownWriters.canGenerate(name, undefined, true)) {
+            const contextProblem = `Cannot determine npm ignore-scripts for lifecycle hook ${JSON.stringify(name)} that may write CHANGELOG.md. Set a literal workflow env or project .npmrc value; user/global npm config and external env are uncertain`;
+            if (hooks)
+                refuseHook(contextProblem);
+            const words = commands[0];
+            inspect({ name, names, text, words, effective: words, spans, forwardedSeparators: [], contextProblem });
+            return;
+        }
         resolved?.set(name, text);
         let preceding;
         for (const words of commands) {
@@ -551,26 +632,24 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
                 if (forward.forwardedSeparator)
                     forwardedSeparators.add(forward.forwardedSeparator);
                 const enabled = forward.lifecycle ?? lifecycle;
-                const sequence = names.sequence(forward.target, forward.runner !== "npm" || enabled);
+                const isNpm = forward.runner === "npm";
+                const sequence = names.sequence(forward.target, !isNpm || enabled !== false);
                 for (const target of sequence) {
-                    visit(target, target === forward.target ? forward.args : [], [...parents, name], enabled, checkContext);
+                    const main = target === forward.target;
+                    visit(target, main ? forward.args : [], [...parents, name], enabled, checkContext, isNpm && !main);
                 }
             }
         }
     }
-    if (hooks) {
-        for (const hook of hooks)
-            for (const name of names.sequence(hook, true))
-                visit(name, [], [], true, true);
+    const lifecycle = npm.lifecycle ?? "unknown";
+    for (const hook of hooks ?? entryPoints) {
+        if (!hooks && !names.has(hook))
+            continue;
+        for (const name of names.sequence(hook, lifecycle !== false))
+            visit(name, [], [], lifecycle, true, name !== hook);
+    }
+    if (hooks)
         return;
-    }
-    // Configured hooks and their lifecycle scripts remain release paths even
-    // when a project switch hides the generator in a different manifest.
-    for (const hook of entryPoints) {
-        if (names.has(hook))
-            for (const name of names.sequence(hook, true))
-                visit(name, [], [], true, true);
-    }
     for (const { commands } of parsed.values()) {
         for (const words of commands) {
             const forward = forwardToScript(words);
@@ -580,12 +659,12 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
     }
     for (const name of names) {
         if (!entryPoints.has(name) && !targeted.has(name))
-            visit(name, [], [], true, false);
+            visit(name, [], [], npm.workflowSteps?.get(name) ?? lifecycle, false);
     }
     // A disconnected cycle has no root. Its own commands still need auditing.
     for (const name of names) {
         if (!visited.has(name))
-            visit(name, [], [], true, false);
+            visit(name, [], [], npm.workflowSteps?.get(name) ?? lifecycle, false);
     }
 }
 /** Check standalone commands against the same context rule before reading their options. */
@@ -724,8 +803,8 @@ export function assertReleaseHeadingDate(scripts, mergeDay, packageVersion, scri
     }
 }
 /** Verify the complete generator argv from each release hook before publication. */
-export function assertReleaseHookHeadingDate(scripts, hooks, mergeDay, packageVersion) {
-    visitChangelogScriptCommands(scripts, ({ effective, names }) => assertHeadingOptions(effective, mergeDay, packageVersion, names), hooks);
+export function assertReleaseHookHeadingDate(scripts, hooks, mergeDay, packageVersion, lifecycle = "unknown") {
+    visitChangelogScriptCommands(scripts, ({ effective, names }) => assertHeadingOptions(effective, mergeDay, packageVersion, names), hooks, undefined, undefined, { lifecycle });
 }
 /** Apply source edits back to front so their offsets stay valid. */
 function applyHookEdits(script, edits) {
@@ -790,7 +869,7 @@ function rewriteDateOptions(options, headingDate, sourceOf) {
     }
 }
 /** Rewrite all heading options received by the manifest's resolved release hooks. */
-export function rewriteReleaseHookDates(scripts, hooks, headingDate) {
+export function rewriteReleaseHookDates(scripts, hooks, headingDate, lifecycle = "unknown") {
     validateReplacementDay(headingDate);
     const sources = new Map();
     const owners = new WeakMap();
@@ -812,7 +891,7 @@ export function rewriteReleaseHookDates(scripts, hooks, headingDate) {
                 owner.edits.set(span.start, { start: span.start, end: span.end + space.length, text: "" });
             }
         }
-    }, hooks);
+    }, hooks, undefined, undefined, { lifecycle });
     return new Map([...sources].map(([name, { text, edits }]) => [name, applyHookEdits(text, edits.values())]));
 }
 //# sourceMappingURL=release-changelog-options.js.map

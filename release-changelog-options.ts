@@ -135,7 +135,7 @@ function afterRunOptions(program: string, tokens: readonly ShellToken[], start: 
 
 /** Locate the target and optionality of a package-script forward. */
 function scriptForward(program: string, parameters: readonly ShellToken[], scriptNames?: ReadonlySet<string>): {
-  target: string | undefined; optional: boolean; runner: string; lifecycle?: boolean; unsupported?: string; args: readonly ShellToken[]; forwardedSeparator?: ShellToken;
+  target: string | undefined; optional: boolean; runner: string; lifecycle?: NpmLifecycle; unsupported?: string; args: readonly ShellToken[]; forwardedSeparator?: ShellToken;
 } | undefined {
   const command = afterRunOptions(program, parameters, 0);
   if (!isScriptForward(program, parameters[command.index]?.value)) return undefined;
@@ -156,21 +156,54 @@ function scriptForward(program: string, parameters: readonly ShellToken[], scrip
   return { target, runner: program, lifecycle: settings.lifecycle, optional: settings.optional, unsupported: flags[settings.index]?.value, args: separator < 0 ? [] : tail.slice(separator + 1) };
 }
 
-/** Read an explicit npm lifecycle environment assignment on the runner's command prefix. */
-function lifecycleEnvironment(words: ShellCommand, program: ShellToken): string | undefined {
-  let setting: string | undefined;
-  for (const token of words.slice(0, words.indexOf(program))) {
-    const match = /^npm_config_ignore_scripts=(.*)$/i.exec(token.value);
-    if (match) setting = match[1];
+/** Whether npm automatically runs the named script's pre/post scripts. */
+export type NpmLifecycle = boolean | "unknown";
+
+/** Convert npm's literal ignore-scripts setting into lifecycle execution. */
+function lifecycleSetting(value: unknown): NpmLifecycle {
+  if (value === true || value === "true") return false;
+  if (value === false || value === "false") return true;
+  return "unknown";
+}
+
+/** Resolve CLI-independent npm configuration from the workflow env and project .npmrc. */
+export function npmLifecycle(
+  projectConfig: string | undefined, environment: Readonly<Record<string, unknown>> = {},
+): NpmLifecycle {
+  const settings = Object.entries(environment)
+    .filter(([name, value]) => /^npm_config_ignore_scripts$/i.test(name) && value !== "")
+    .map(([, value]) => lifecycleSetting(value));
+  if (settings.length > 0) return settings.every(setting => setting === settings[0]) ? settings[0] : "unknown";
+
+  let setting: NpmLifecycle = "unknown";
+  for (const line of projectConfig?.split(/\r?\n/) ?? []) {
+    if (/^\s*\[[^\]]*\]\s*$/.test(line)) break;
+    const entry = /^\s*(["']?)ignore-scripts(\[\])?\1\s*(?:=\s*(.*)|[;#].*)?$/.exec(line);
+    if (!entry) continue;
+    const raw = entry[3]?.trim();
+    const literal = raw?.replace(/^(["'])(true|false)\1$|^(true|false)\s*(?:[;#].*)?$/, "$2$3");
+    setting = entry[2] ? "unknown" : lifecycleSetting(literal ?? true);
   }
   return setting;
 }
 
-/** Resolve the same invocation graph used by preparation and continuation, including comment-only hooks. */
-export function resolveChangelogHooks(scripts: Record<string, unknown> | undefined, hooks: readonly string[]): Map<string, string> {
+/** Read an explicit npm lifecycle assignment on the runner's command prefix. */
+function lifecycleEnvironment(words: ShellCommand, program: ShellToken): NpmLifecycle | undefined {
+  let setting: NpmLifecycle | undefined;
+  for (const token of words.slice(0, words.indexOf(program))) {
+    const match = /^npm_config_ignore_scripts=(.*)$/i.exec(token.value);
+    if (match && match[1] !== "") setting = lifecycleSetting(match[1]);
+  }
+  return setting;
+}
+
+/** Resolve the same graph used by preparation and continuation, including comment-only hooks. */
+export function resolveChangelogHooks(
+  scripts: Record<string, unknown> | undefined, hooks: readonly string[], lifecycle: NpmLifecycle = "unknown",
+): Map<string, string> {
   const all = new Map(Object.entries(scripts ?? {}).map(([key, value]) => [key, typeof value === "string" ? value : ""]));
   const resolved = new Map<string, string>();
-  visitChangelogScriptCommands(all, ({ effective, names }) => { changelogInvocation(effective, names); }, hooks, resolved);
+  visitChangelogScriptCommands(all, ({ effective, names }) => { changelogInvocation(effective, names); }, hooks, resolved, undefined, { lifecycle });
   return resolved;
 }
 
@@ -217,7 +250,8 @@ function generatorCommand(invocation: ShellCommand): ShellCommand | undefined {
   if (GENERATOR_TARGET.test(program.value)) return invocation;
   const name = basename(program.value);
   if (name !== "node" && name !== "bun") return undefined;
-  let index = name === "bun" && parameters[0]?.value === "run" ? 1 : 0;
+  let index = name === "bun" ? afterRunOptions(name, parameters, 0).index : 0;
+  if (name === "bun" && parameters[index]?.value === "run") index = afterRunOptions(name, parameters, index + 1).index;
   while (parameters[index]?.value === "--enable-source-maps" || BUN_LOCAL_RUN_SWITCHES.has(parameters[index]?.value)) index++;
   const file = parameters[index];
   if (file && !file.unresolved && GENERATOR_TARGET.test(file.value)) return parameters.slice(index);
@@ -225,7 +259,8 @@ function generatorCommand(invocation: ShellCommand): ShellCommand | undefined {
 }
 
 /** Look for a reachable generator without interpreting an opaque command as executable argv. */
-function canReachGenerator(words: ShellCommand, names?: ReadonlySet<string>, seen?: Set<string>): boolean {
+function canReachGenerator(words: ShellCommand, names?: ReadonlySet<string>, seen?: Set<string>, writing = false): boolean {
+  if (writing && redirectsChangelog(words)) return true;
   const invocation = releaseHookCommand(words);
   if (!invocation) return hookSyntaxProblem(words) !== undefined && words.some(mentionsGenerator);
   const [program, ...parameters] = invocation;
@@ -233,10 +268,34 @@ function canReachGenerator(words: ShellCommand, names?: ReadonlySet<string>, see
   if (DATA_CONSUMERS.has(name) || isPackageAdmin(program, parameters)) return false;
   const forward = scriptForward(name, parameters, names);
   if (forward?.target && names instanceof HookScriptNames) {
-    return names.sequence(forward.target, forward.lifecycle !== false).some(target => names.canGenerate(target, seen))
+    return names.sequence(forward.target, forward.lifecycle !== false).some(target => names.canGenerate(target, seen, writing))
       || forward.args.some(mentionsGenerator);
   }
-  return generatorCommand(invocation) !== undefined || words.some(mentionsGenerator) || referencesWriter(words, names, seen);
+  const generator = generatorCommand(invocation);
+  if (generator) return !writing || writesChangelog(generator.slice(1));
+  return words.some(mentionsGenerator) || referencesWriter(words, names, seen);
+}
+
+/** Find Bash output redirections to the changelog even on non-generator commands. */
+function redirectsChangelog(words: ShellCommand): boolean {
+  return words.some((word, index) => {
+    if (word.startsQuoted) return false;
+    const redirect = /^(?:[0-9]*>|&>)>?(.*)$/.exec(word.value);
+    const destination = redirect?.[1] || words[index + 1]?.value;
+    return redirect !== null && /^(?:\.\/)*CHANGELOG\.md$/.test(destination ?? "");
+  });
+}
+
+/** The usual generator destination is CHANGELOG.md; honor literal checks and alternate output. */
+function writesChangelog(args: ShellCommand): boolean {
+  let output: string | undefined = "CHANGELOG.md";
+  for (const index of optionPositions(args)) {
+    const word = args[index];
+    if (word.value === "--check" || word.value === "--stdout") return false;
+    if (word.value === "--output" || word.value === "-o") output = args[index + 1]?.value;
+    else if (word.value.startsWith("--output=")) output = word.value.slice("--output=".length);
+  }
+  return output === undefined || /(?:^|\/)CHANGELOG\.md$|[$*?]/.test(output);
 }
 
 /** Project selectors on runners precede the delimiter that separates generator arguments. */
@@ -264,14 +323,20 @@ function unsupportedSetSwitch(args: ShellCommand): string | undefined {
   return undefined;
 }
 
+/** Expose the shell command beneath command and builtin prefixes. */
+function unwrapShellBuiltin(words: ShellCommand): ShellCommand | undefined {
+  let command = releaseHookCommand(words);
+  while (command?.[0].value === "builtin") {
+    command = releaseHookCommand(command.slice(command[1]?.value === "--" ? 2 : 1));
+  }
+  return command;
+}
+
 /** A release hook cannot change shell parsing, builtin lookup, or pipeline isolation. */
 function unsupportedShellSemantics(words: ShellCommand): string | undefined {
   const first = shellCommandStart(words);
   if (first < 0) return undefined;
-  let command = releaseHookCommand(words.slice(first));
-  while (command?.[0].value === "builtin") {
-    command = releaseHookCommand(command.slice(command[1]?.value === "--" ? 2 : 1));
-  }
+  const command = unwrapShellBuiltin(words.slice(first));
   if (!command) return undefined;
   const [program, ...args] = command;
   if (program.value === "set") return unsupportedSetSwitch(args);
@@ -288,7 +353,7 @@ function shellContextChange(words: ShellCommand): ReleaseContextChange | undefin
   const first = shellCommandStart(words);
   if (first < 0) return undefined;
   const inner = words.slice(first);
-  const command = /^(?:command$|time$|[A-Za-z_]\w*\+?=)/.test(inner[0].value) ? releaseHookCommand(inner) ?? inner : inner;
+  const command = /^(?:builtin$|command$|time$|[A-Za-z_]\w*\+?=)/.test(inner[0].value) ? unwrapShellBuiltin(inner) ?? inner : inner;
   const [program, ...args] = command;
   const name = basename(program.value);
   if (/^(?:cd|pushd|popd)$/.test(name)) return { construct: name, directory: true };
@@ -308,6 +373,14 @@ function shellContextChange(words: ShellCommand): ReleaseContextChange | undefin
 function commandContextChanges(words: ShellCommand): ReleaseContextChange[] {
   const context: ReleaseContextChange[] = [];
   const invocation = releaseHookCommand(words, context);
+  // The npm forward resolver models this assignment, including dynamic values.
+  if (invocation && basename(invocation[0].value) === "npm" && scriptForward("npm", invocation.slice(1))) {
+    const known = lifecycleEnvironment(words, invocation[0]);
+    if (known !== undefined) {
+      const setting = /^(?:env )?npm_config_ignore_scripts assignment$/i;
+      for (let i = context.length - 1; i >= 0; i--) if (setting.test(context[i].construct)) context.splice(i, 1);
+    }
+  }
   const project = invocation && runnerProjectOption(invocation);
   if (project) context.push({ construct: project, directory: true });
   const generator = invocation && generatorCommand(invocation);
@@ -400,12 +473,12 @@ class HookScriptNames extends Set<string> {
   }
 
   /** Follow literal script references without recursively evaluating the wrapper's shell payload. */
-  canGenerate(name: string, seen = new Set<string>()): boolean {
+  canGenerate(name: string, seen = new Set<string>(), writing = false): boolean {
     if (!this.has(name) || seen.has(name)) return false;
     seen.add(name);
     let preceding: ReleaseContextChange | undefined;
     for (const words of parseReleaseHook(this.scripts.get(name)!).commands) {
-      if (canReachGenerator(words, this, seen)) return true;
+      if (canReachGenerator(words, this, seen, writing)) return true;
       if (!this.allowUnresolvedProjects) continue;
       if ((preceding?.directory || commandContextChanges(words).some(context => context.directory))
         && maySelectUnresolvedScript(words, this)) return true;
@@ -471,10 +544,18 @@ function commandReceivingArguments(
   return commands.find(words => spans.get(words[0])?.start === start);
 }
 
+/** Lifecycle inputs for direct npm hooks and standalone workflow shell bodies. */
+interface NpmLifecycleInputs {
+  /** Configuration inherited by the configured hooks. */
+  lifecycle?: NpmLifecycle;
+  /** Static environment of each standalone workflow step. */
+  workflowSteps?: ReadonlyMap<string, NpmLifecycle>;
+}
+
 /** Scan local scripts in invocation order and join forwarded argv at its actual destination. */
 export function visitChangelogScriptCommands(
   scripts: ReadonlyMap<string, string>, inspect: (entry: ChangelogScriptCommand) => void, hooks?: readonly string[],
-  resolved?: Map<string, string>, entryPoints: ReadonlySet<string> = new Set(),
+  resolved?: Map<string, string>, entryPoints: ReadonlySet<string> = new Set(), npm: NpmLifecycleInputs = {},
 ): void {
   const names = new HookScriptNames(scripts);
   const knownWriters = new HookScriptNames(scripts, false);
@@ -490,9 +571,8 @@ export function visitChangelogScriptCommands(
     if (!command) return undefined;
     const [program, ...parameters] = command;
     const forward = scriptForward(basename(program.value), parameters, names);
-    if (!forward || forward.lifecycle !== undefined) return forward;
-    const setting = lifecycleEnvironment(words, program);
-    return setting === undefined ? forward : { ...forward, lifecycle: setting !== "true" };
+    if (forward?.runner !== "npm" || forward.lifecycle !== undefined) return forward;
+    return { ...forward, lifecycle: lifecycleEnvironment(words, program) };
   }
 
   const visited = new Set<string>();
@@ -501,7 +581,9 @@ export function visitChangelogScriptCommands(
   const forwardedSeparators = new WeakSet<ShellToken>();
 
   /** Walk one invocation, preserving token identity back to each supplying script. */
-  function visit(name: string, args: readonly ShellToken[], parents: readonly string[], lifecycle: boolean, releasePath: boolean): void {
+  function visit(
+    name: string, args: readonly ShellToken[], parents: readonly string[], lifecycle: NpmLifecycle, releasePath: boolean, implicitNpm = false,
+  ): void {
     const chain = [...parents, name].join(" -> ");
     if (parents.includes(name)) {
       if (hooks) refuseHook("Changelog script forward cycle: " + chain);
@@ -523,13 +605,20 @@ export function visitChangelogScriptCommands(
     const checkContext = releasePath || knownWriters.canGenerate(name)
       || (recipient !== undefined && canReachGenerator([...recipient, ...args], knownWriters));
     if (args.length === 0) {
-      const key = Number(checkContext) + ":" + Number(lifecycle) + ":" + name;
+      const key = Number(checkContext) + ":" + lifecycle + ":" + Number(implicitNpm) + ":" + name;
       const depth = hooks ? parents.length : 0;
       if ((withoutArgs.get(key) ?? -1) >= depth) return;
       withoutArgs.set(key, depth);
     }
     visited.add(name);
     const invocationNames = checkContext ? names : knownWriters;
+    if (implicitNpm && lifecycle === "unknown" && knownWriters.canGenerate(name, undefined, true)) {
+      const contextProblem = `Cannot determine npm ignore-scripts for lifecycle hook ${JSON.stringify(name)} that may write CHANGELOG.md. Set a literal workflow env or project .npmrc value; user/global npm config and external env are uncertain`;
+      if (hooks) refuseHook(contextProblem);
+      const words = commands[0];
+      inspect({ name, names, text, words, effective: words, spans, forwardedSeparators: [], contextProblem });
+      return;
+    }
     resolved?.set(name, text);
     let preceding: ReleaseContextChange | undefined;
     for (const words of commands) {
@@ -555,23 +644,22 @@ export function visitChangelogScriptCommands(
         if (!names.has(forward.target) && (forward.optional || !hooks)) continue;
         if (forward.forwardedSeparator) forwardedSeparators.add(forward.forwardedSeparator);
         const enabled = forward.lifecycle ?? lifecycle;
-        const sequence = names.sequence(forward.target, forward.runner !== "npm" || enabled);
+        const isNpm = forward.runner === "npm";
+        const sequence = names.sequence(forward.target, !isNpm || enabled !== false);
         for (const target of sequence) {
-          visit(target, target === forward.target ? forward.args : [], [...parents, name], enabled, checkContext);
+          const main = target === forward.target;
+          visit(target, main ? forward.args : [], [...parents, name], enabled, checkContext, isNpm && !main);
         }
       }
     }
   }
 
-  if (hooks) {
-    for (const hook of hooks) for (const name of names.sequence(hook, true)) visit(name, [], [], true, true);
-    return;
+  const lifecycle = npm.lifecycle ?? "unknown";
+  for (const hook of hooks ?? entryPoints) {
+    if (!hooks && !names.has(hook)) continue;
+    for (const name of names.sequence(hook, lifecycle !== false)) visit(name, [], [], lifecycle, true, name !== hook);
   }
-  // Configured hooks and their lifecycle scripts remain release paths even
-  // when a project switch hides the generator in a different manifest.
-  for (const hook of entryPoints) {
-    if (names.has(hook)) for (const name of names.sequence(hook, true)) visit(name, [], [], true, true);
-  }
+  if (hooks) return;
   for (const { commands } of parsed.values()) {
     for (const words of commands) {
       const forward = forwardToScript(words);
@@ -579,11 +667,11 @@ export function visitChangelogScriptCommands(
     }
   }
   for (const name of names) {
-    if (!entryPoints.has(name) && !targeted.has(name)) visit(name, [], [], true, false);
+    if (!entryPoints.has(name) && !targeted.has(name)) visit(name, [], [], npm.workflowSteps?.get(name) ?? lifecycle, false);
   }
   // A disconnected cycle has no root. Its own commands still need auditing.
   for (const name of names) {
-    if (!visited.has(name)) visit(name, [], [], true, false);
+    if (!visited.has(name)) visit(name, [], [], npm.workflowSteps?.get(name) ?? lifecycle, false);
   }
 }
 
@@ -722,8 +810,11 @@ export function assertReleaseHeadingDate(scripts: readonly string[], mergeDay: s
 }
 
 /** Verify the complete generator argv from each release hook before publication. */
-export function assertReleaseHookHeadingDate(scripts: ReadonlyMap<string, string>, hooks: readonly string[], mergeDay: string, packageVersion?: string): void {
-  visitChangelogScriptCommands(scripts, ({ effective, names }) => assertHeadingOptions(effective, mergeDay, packageVersion, names), hooks);
+export function assertReleaseHookHeadingDate(
+  scripts: ReadonlyMap<string, string>, hooks: readonly string[], mergeDay: string, packageVersion?: string, lifecycle: NpmLifecycle = "unknown",
+): void {
+  visitChangelogScriptCommands(scripts, ({ effective, names }) => assertHeadingOptions(effective, mergeDay, packageVersion, names), hooks,
+    undefined, undefined, { lifecycle });
 }
 
 type HookEdit = ShellTokenSpan & { text: string };
@@ -796,7 +887,9 @@ function rewriteDateOptions(options: ValidDateOption[], headingDate: string, sou
 }
 
 /** Rewrite all heading options received by the manifest's resolved release hooks. */
-export function rewriteReleaseHookDates(scripts: ReadonlyMap<string, string>, hooks: readonly string[], headingDate: string): Map<string, string> {
+export function rewriteReleaseHookDates(
+  scripts: ReadonlyMap<string, string>, hooks: readonly string[], headingDate: string, lifecycle: NpmLifecycle = "unknown",
+): Map<string, string> {
   validateReplacementDay(headingDate);
   const sources = new Map<string, EditableScript>();
   const owners = new WeakMap<ShellToken, EditableScript>();
@@ -817,6 +910,6 @@ export function rewriteReleaseHookDates(scripts: ReadonlyMap<string, string>, ho
         owner.edits.set(span.start, { start: span.start, end: span.end + space.length, text: "" });
       }
     }
-  }, hooks);
+  }, hooks, undefined, undefined, { lifecycle });
   return new Map([...sources].map(([name, { text, edits }]) => [name, applyHookEdits(text, edits.values())]));
 }

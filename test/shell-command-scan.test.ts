@@ -28,6 +28,13 @@ test("the command prefix ends after each timeout's duration", () => {
   assert.deepEqual(commandArguments(tokens!).map(({ value }) => value), ["--version"]);
 });
 
+test("joined numeric redirection targets preserve the next option", () => {
+  for (const redirect of ["2>1", "2>>1", "2>&1", "2> 1", "<> input", "<<- EOF"]) {
+    const [tokens] = tokenizeCommands(`npm publish ${redirect} --provenance`);
+    assert.deepEqual(commandArguments(tokens!).map(({ value }) => value), ["publish", "--provenance"], redirect);
+  }
+});
+
 test("an unknown array reference is left in place rather than erased", () => {
   // Erasing it would turn "this scan does not understand the command" into
   // "this command carries no flags", which reads as a pass.

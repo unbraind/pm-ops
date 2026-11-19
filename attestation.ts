@@ -739,6 +739,8 @@ interface ExecutableShellBody {
   line: number;
   /** Effective workflow step directory, including inherited run defaults. */
   workingDirectory?: unknown;
+  /** Workflow, job and step environment merged in execution precedence. */
+  environment?: Readonly<Record<string, unknown>>;
 }
 
 /** Split Compose's string command syntax into argv; operators and expansions are not shell. */
@@ -943,6 +945,7 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
       const body = bodyAt([...container.path, "steps", index, "run"], step.run);
       const directory = step["working-directory"] ?? defaultRunDirectory(container.value) ?? defaultRunDirectory(data);
       if (directory !== undefined) body.workingDirectory = directory;
+      body.environment = { ...mapping(data?.env), ...mapping(mapping(container.value)?.env), ...mapping(step.env) };
       bodies.push(body);
     }
   }

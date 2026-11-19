@@ -11,8 +11,12 @@ export declare function hasVersionInput(args: readonly ShellToken[]): boolean;
 export declare function isRealCalendarDay(day: string): boolean;
 /** Mirror pm-changelog by preserving the date prefix of the committer timestamp. */
 export declare function releaseCommitDay(timestamp: string): string;
-/** Resolve the same invocation graph used by preparation and continuation, including comment-only hooks. */
-export declare function resolveChangelogHooks(scripts: Record<string, unknown> | undefined, hooks: readonly string[]): Map<string, string>;
+/** Whether npm automatically runs the named script's pre/post scripts. */
+export type NpmLifecycle = boolean | "unknown";
+/** Resolve CLI-independent npm configuration from the workflow env and project .npmrc. */
+export declare function npmLifecycle(projectConfig: string | undefined, environment?: Readonly<Record<string, unknown>>): NpmLifecycle;
+/** Resolve the same graph used by preparation and continuation, including comment-only hooks. */
+export declare function resolveChangelogHooks(scripts: Record<string, unknown> | undefined, hooks: readonly string[], lifecycle?: NpmLifecycle): Map<string, string>;
 /** Whether a non-root step could run a generator or delegate to its local package scripts. */
 export declare function needsReleaseProject(words: ShellCommand, names?: ReadonlySet<string>): boolean;
 /** Read generator arguments during an audit, where only declared forwards are trusted. */
@@ -36,8 +40,15 @@ export interface ChangelogScriptCommand {
     /** Context refusal for an audit that collects diagnostics instead of throwing. */
     contextProblem?: string;
 }
+/** Lifecycle inputs for direct npm hooks and standalone workflow shell bodies. */
+interface NpmLifecycleInputs {
+    /** Configuration inherited by the configured hooks. */
+    lifecycle?: NpmLifecycle;
+    /** Static environment of each standalone workflow step. */
+    workflowSteps?: ReadonlyMap<string, NpmLifecycle>;
+}
 /** Scan local scripts in invocation order and join forwarded argv at its actual destination. */
-export declare function visitChangelogScriptCommands(scripts: ReadonlyMap<string, string>, inspect: (entry: ChangelogScriptCommand) => void, hooks?: readonly string[], resolved?: Map<string, string>, entryPoints?: ReadonlySet<string>): void;
+export declare function visitChangelogScriptCommands(scripts: ReadonlyMap<string, string>, inspect: (entry: ChangelogScriptCommand) => void, hooks?: readonly string[], resolved?: Map<string, string>, entryPoints?: ReadonlySet<string>, npm?: NpmLifecycleInputs): void;
 type DateOption = {
     kind: "version";
     first: ShellToken;
@@ -62,12 +73,12 @@ export declare function readReleaseDateOptions(args: readonly ShellToken[]): Dat
 /** Refuse publication when a standalone generator's heading differs from the verified merge day. */
 export declare function assertReleaseHeadingDate(scripts: readonly string[], mergeDay: string, packageVersion?: string, scriptNames?: ReadonlySet<string>): void;
 /** Verify the complete generator argv from each release hook before publication. */
-export declare function assertReleaseHookHeadingDate(scripts: ReadonlyMap<string, string>, hooks: readonly string[], mergeDay: string, packageVersion?: string): void;
+export declare function assertReleaseHookHeadingDate(scripts: ReadonlyMap<string, string>, hooks: readonly string[], mergeDay: string, packageVersion?: string, lifecycle?: NpmLifecycle): void;
 /** Enable empty sections on each generator while preserving shell operators and redirections. */
 export declare function includeEmptyReleaseSections(script: string, scriptNames?: ReadonlySet<string>): string;
 /** Refresh the inline pins, or restore the standing policy for a current version. */
 export declare function rewriteReleaseHeadingDate(script: string, headingDate: string, scriptNames?: ReadonlySet<string>): string;
 /** Rewrite all heading options received by the manifest's resolved release hooks. */
-export declare function rewriteReleaseHookDates(scripts: ReadonlyMap<string, string>, hooks: readonly string[], headingDate: string): Map<string, string>;
+export declare function rewriteReleaseHookDates(scripts: ReadonlyMap<string, string>, hooks: readonly string[], headingDate: string, lifecycle?: NpmLifecycle): Map<string, string>;
 export {};
 //# sourceMappingURL=release-changelog-options.d.ts.map

@@ -1,15 +1,16 @@
 /** Persist the date and empty-section policies used by release changelog hooks. */
-import { readFileSync, writeFileSync } from "node:fs";
-import { includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHookDates } from "../release-changelog-options.ts";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHookDates } from "../release-changelog-options.ts";
 
 try {
   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
   const headingDate = (process.env.RELEASE_HEADING_DATE || "").trim();
   let changed = false;
   const hooks = [process.env.CHANGELOG_SCRIPT!, process.env.CHANGELOG_CHECK_SCRIPT!, process.env.NOTES_SCRIPT!];
-  const resolved = resolveChangelogHooks(pkg.scripts, hooks);
+  const lifecycle = npmLifecycle(existsSync(".npmrc") ? readFileSync(".npmrc", "utf8") : undefined, process.env);
+  const resolved = resolveChangelogHooks(pkg.scripts, hooks, lifecycle);
   const scriptNames = new Set(resolved.keys());
-  const datedHooks = rewriteReleaseHookDates(resolved, hooks, headingDate);
+  const datedHooks = rewriteReleaseHookDates(resolved, hooks, headingDate, lifecycle);
   for (const [name, script] of resolved) {
     const dated = datedHooks.get(name) ?? script;
     if (dated !== script) {
