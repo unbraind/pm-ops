@@ -8,7 +8,7 @@
  * unknown wrappers and ambiguous policies require a canonical invocation.
  */
 import { basename } from "node:path";
-import { RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand, shellRedirection, } from "./shell-scan.js";
+import { RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand, shellRedirection, withoutRedirections, } from "./shell-scan.js";
 import { describeReleaseContextChange, mentionsGenerator, hookSyntaxProblem, isIsolatedReleaseCommand, literalOptionName, parseReleaseHook, refuseHook, } from "./release-hook-grammar.js";
 /** The flag that makes an untagged heading version-derived. */
 export const DATE_FLAG = "--date-from-version";
@@ -183,7 +183,7 @@ export function npmLifecycle(projectConfig, environment = {}) {
 /** Read an explicit npm lifecycle assignment on the runner's command prefix. */
 function lifecycleEnvironment(words, program) {
     let setting;
-    for (const token of words.slice(0, words.indexOf(program))) {
+    for (const token of withoutRedirections(words.slice(0, words.indexOf(program)))) {
         const match = /^npm_config_ignore_scripts=(.*)$/i.exec(token.value);
         if (match && match[1] !== "")
             setting = lifecycleSetting(match[1]);
@@ -882,6 +882,41 @@ export function includeEmptyReleaseSections(script, scriptNames) {
         edits.set(offset, { start: offset, end: offset, text: before ? INCLUDE_EMPTY_FLAG + " " : " " + INCLUDE_EMPTY_FLAG });
     }
     return applyHookEdits(script, edits.values());
+}
+/** Add the saved flag to the configured main command when its output comes from a custom script. */
+export function includeEmptyCustomHook(script, scripts) {
+    const { commands, spans } = parseReleaseHook(script);
+    const last = commands.at(-1);
+    if (!last)
+        return script;
+    const invocation = releaseHookCommand(last);
+    if (!invocation)
+        return script;
+    const names = new Set(scripts.keys());
+    let current = invocation;
+    // Resolution has already checked the forward graph for cycles. Only follow
+    // each main script's final command: pre/post hooks receive independent argv.
+    while (current) {
+        if (generatorCommand(current))
+            return script;
+        const forward = scriptForward(basename(current[0].value), current.slice(1), names);
+        const target = forward?.target && scripts.get(forward.target);
+        const tail = target && parseReleaseHook(target).commands.at(-1);
+        current = tail ? releaseHookCommand(tail) : undefined;
+    }
+    const forward = scriptForward(basename(invocation[0].value), invocation.slice(1), names);
+    const npm = forward?.runner === "npm";
+    const args = npm ? forward.args : invocation.slice(1);
+    if (args.some(word => word.value === INCLUDE_EMPTY_FLAG))
+        return script;
+    const missingDelimiter = npm && !invocation.some(word => word.value === "--");
+    const flag = invocation.find(word => word.value === INCLUDE_EMPTY_FLAG);
+    if (missingDelimiter && flag) {
+        const offset = spans.get(flag).start;
+        return script.slice(0, offset) + "-- " + script.slice(offset);
+    }
+    const end = spans.get(invocation.at(-1)).end;
+    return script.slice(0, end) + (missingDelimiter ? " -- " : " ") + INCLUDE_EMPTY_FLAG + script.slice(end);
 }
 /** An empty replacement restores the standing version policy. */
 function validateReplacementDay(headingDate) {

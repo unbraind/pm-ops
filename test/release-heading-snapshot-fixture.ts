@@ -15,7 +15,8 @@ function snapshotEntry(path: string) {
 
 /** Remove obsolete clone files before copying the source's existing tracked files. */
 export function mirrorTrackedSnapshot(source: string, candidate: string, env: NodeJS.ProcessEnv): void {
-  const tracked = (cwd: string) => execFileSync("git", ["ls-files", "-z"], { cwd, env, encoding: "utf8" }).split("\0").filter(Boolean);
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+  const tracked = (cwd: string) => decoder.decode(execFileSync("git", ["ls-files", "-z"], { cwd, env })).split("\0").filter(Boolean);
   const files = new Set(tracked(source).filter(file => {
     let path = "";
     let entry;

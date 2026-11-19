@@ -131,6 +131,14 @@ export declare function isolateShellChildren(text: string, depth?: number, arith
     children: ShellChildRegion[];
 };
 /**
+ * Drop redirections from argv. Match the operator first so only a bare
+ * operator consumes a separate target, even when a joined target is numeric.
+ *
+ * @param command - One simple command's tokens.
+ * @returns The command without its redirections.
+ */
+export declare function withoutRedirections(command: ShellCommand): ShellCommand;
+/**
  * Whether a command's program is reached through a spawning wrapper.
  *
  * `xargs npm` and `parallel npm` name a publisher whose arguments arrive on

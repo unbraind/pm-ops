@@ -252,7 +252,7 @@ export function auditInvocations(sources: SourceFile[]): VerifierResult {
     },
     {
       noun: "generator",
-      flag: DATE_FLAG,
+      flag: `a release date policy (${DATE_FLAG} or a pinned ${FALLBACK_DATE_FLAG} day)`,
       emptyScan: "no generator invocation was found in any tracked file - the scan is looking in the wrong place",
     },
   );

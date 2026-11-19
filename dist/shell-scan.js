@@ -734,7 +734,7 @@ export function isolateShellChildren(text, depth = 0, arithmetic = false) {
  * @param command - One simple command's tokens.
  * @returns The command without its redirections.
  */
-function withoutRedirections(command) {
+export function withoutRedirections(command) {
     const kept = [];
     for (let index = 0; index < command.length; index += 1) {
         const token = command[index];

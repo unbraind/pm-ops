@@ -97,3 +97,14 @@ test("candidate snapshot refuses an unstaged symlink replacing a tracked ancesto
   assert.equal(readFileSync(join(candidate, file), "utf8"), "committed\n");
   assert.equal(git(candidate, "status", "--porcelain").toString(), "");
 });
+
+test("invalid UTF-8 in either index aborts before the candidate changes", { skip: process.platform === "win32" }, t => {
+  for (const checkout of ["source", "candidate"] as const) {
+    const fixture = snapshotFixture(t, ["keep.txt"]);
+    writeFileSync(Buffer.concat([Buffer.from(fixture[checkout] + "/"), Buffer.from([0xff])]), "raw pathname");
+    fixture.git(fixture[checkout], "add", "--", ".");
+    writeFileSync(join(fixture.source, "keep.txt"), "new contents");
+    assert.throws(() => mirrorTrackedSnapshot(fixture.source, fixture.candidate, fixture.env), /utf-8/i);
+    assert.equal(readFileSync(join(fixture.candidate, "keep.txt"), "utf8"), "committed\n");
+  }
+});

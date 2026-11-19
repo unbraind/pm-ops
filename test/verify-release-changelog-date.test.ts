@@ -75,7 +75,7 @@ test("a resumed release's pinned --date-fallback day is accepted, and only with 
   const pinned = "pm-changelog --pm-root .agents/pm --release-version-from-package --date-fallback 2026-11-16";
   const result = auditInvocations([{ file: "package.json", text: manifest(pinned) }]);
   assert.deepEqual(result.failures, []);
-  assert.equal(result.notes.length, 1, "the pinned day must be reported as verified");
+  assert.match(result.notes[0]!, /a release date policy \(.*--date-from-version or a pinned --date-fallback day\)/);
   // The resumed spelling the release commit writes is quoted the same way in
   // every script, but the scan must not let the flag through without a day:
   // that is the clock again, just spelled differently.

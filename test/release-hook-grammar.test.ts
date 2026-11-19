@@ -187,6 +187,7 @@ test("npm lifecycle controls respect option order and stop at the argument delim
     ["npm run target --ignore-scripts=false", true],
     ["npm run --ignore-scripts target --no-ignore-scripts", true],
     ["npm run target -- --ignore-scripts", true],
+    ["> 'npm_config_ignore_scripts=true' npm run --no-ignore-scripts target", true],
     ["env NPM_CONFIG_IGNORE_SCRIPTS=true npm run target", false],
     ["npm_config_ignore_scripts=false npm run target", true],
     ["env npm_config_ignore_scripts=true npm run --ignore-scripts=false target", true],
@@ -195,6 +196,16 @@ test("npm lifecycle controls respect option order and stop at the argument delim
     assert.equal(hooks.has("pretarget"), enabled, source);
     assert.equal(hooks.has("posttarget"), enabled, source);
   }
+});
+
+test("a redirection filename cannot disable an npm pre-hook", () => {
+  const scripts = {
+    hook: "> 'npm_config_ignore_scripts=true' npm run writer",
+    writer: "node notes.js", prewriter: "pm-changelog " + standing,
+  };
+  const hooks = resolveChangelogHooks(scripts, ["hook"], true);
+  assert.ok(hooks.has("prewriter"));
+  assert.match(rewriteReleaseHookDates(hooks, ["hook"], day, true).get("prewriter")!, /--date-fallback 2026-11-17/);
 });
 
 test("npm lifecycle follows workflow env, project config and explicit options", () => {

@@ -1573,6 +1573,8 @@ test("heading-date continuation mirrors the generator at the committer offset de
   const root = mkdtempSync(join(tmpdir(), "continuation-heading-"));
   const env = { NPM_PROJECT_PATH: root, RELEASE_TIMEZONE: "Europe/Vienna", CHANGELOG_SCRIPT: "generate", CHANGELOG_CHECK_SCRIPT: "check", NOTES_SCRIPT: "notes" };
   const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
+  const lifecycle = Object.entries(process.env).filter(([key]) => /^npm_config_ignore_scripts$/i.test(key));
+  for (const [key] of lifecycle) delete process.env[key];
   Object.assign(process.env, env);
   try {
     execFileSync("git", ["init", "--quiet"], { cwd: root });
@@ -1615,6 +1617,7 @@ test("heading-date continuation mirrors the generator at the committer offset de
     write(undefined);
     await assert.rejects(runReleaseContinuation("heading-date"), /Missing changelog hook: generate/);
   } finally {
+    Object.assign(process.env, Object.fromEntries(lifecycle));
     Object.keys(env).forEach(key => {
       const saved = previous[key];
       if (saved !== undefined) process.env[key] = saved;

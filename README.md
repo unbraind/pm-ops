@@ -723,7 +723,12 @@ cannot model:
   `--prefix`, `-C` or `--workspace`, and a workflow `working-directory` outside
   the root package.
 - Environment edits such as `env -u`, `env -i`, or setting, exporting or
-  unsetting `npm_config_*` or `PM_*` variables in the hook.
+  unsetting `npm_config_*` or `PM_*` variables in the hook. For an npm
+  forward the resolver supports the literal lifecycle setting, for example
+  `env npm_config_ignore_scripts=true npm run writer`. A workflow environment
+  value or project `.npmrc` can also set `ignore-scripts`. When its value is
+  unknown, preparation refuses an implicit pre/post hook that may write
+  `CHANGELOG.md`.
 - Wrappers outside the supported list, including `nohup`, at any depth.
 
 The refusal names the construct and gives the canonical form. Run

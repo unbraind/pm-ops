@@ -176,6 +176,9 @@ test("the adapter writes short and long output options to the same targets used 
       assert.equal(runChangelog([...generatorArgs, ...options], root, env), 0);
       assert.match(readFileSync(join(root, filename), "utf8"), /^# Changelog/);
       assert.equal(runChangelog([...generatorArgs, ...options, "--check"], root, env), 0);
+      writeFileSync(join(root, filename), "stale preview");
+      assert.equal(runChangelog([...generatorArgs, ...options, "--check"], root, env), 1);
+      assert.equal(readFileSync(join(root, filename), "utf8"), "stale preview");
       assert.equal(readFileSync(changelog, "utf8"), "original");
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -333,6 +336,35 @@ test("custom notes keep the saved option before shell terminators and comments",
   }
 });
 
+test("custom notes receive the saved argument through npm independently of pre/post generators", t => {
+  const root = mkdtempSync(join(tmpdir(), "custom-notes-argv-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const manifest = join(root, "package.json");
+  const env = { ...releaseStepEnv(root, process.env), npm_config_ignore_scripts: "false" };
+  const prepare = [resolve("scripts/prepare-release-changelog.ts")];
+  writeFileSync(join(root, "notes.mjs"), 'console.log(JSON.stringify(process.argv.slice(2)));');
+  writeFileSync(join(root, "pm-changelog.ts"), 'require("node:fs").writeFileSync("preview.md", JSON.stringify(process.argv.slice(2)));');
+  for (const [main, expected, argv] of [
+    ["node notes.mjs", "node notes.mjs --include-empty", ["--include-empty"]],
+    ["npm run render", "npm run render -- --include-empty", ["--include-empty"]],
+    ["npm run render -- --title", "npm run render -- --title --include-empty", ["--title", "--include-empty"]],
+    ["npm run render --include-empty", "npm run render -- --include-empty", ["--include-empty"]],
+  ] as const) {
+    const preview = "node pm-changelog.ts --version=2026.11.17 --date-from-version --output preview.md";
+    const scripts = { "changelog:full": "# skip", "changelog:check": "# skip", "prerelease:notes": preview,
+      "release:notes": main, render: "node notes.mjs" };
+    writeFileSync(manifest, JSON.stringify({ scripts }));
+    execFileSync(process.execPath, prepare, { cwd: root, env });
+    const prepared = readFileSync(manifest, "utf8");
+    assert.equal(JSON.parse(prepared).scripts["release:notes"], expected);
+    const output = execFileSync("npm", ["run", "--silent", "release:notes"], { cwd: root, env, encoding: "utf8" });
+    assert.deepEqual(JSON.parse(output.trim().split("\n").at(-1)!), argv);
+    assert.ok(JSON.parse(readFileSync(join(root, "preview.md"), "utf8")).includes("--include-empty"));
+    execFileSync(process.execPath, prepare, { cwd: root, env });
+    assert.equal(readFileSync(manifest, "utf8"), prepared);
+  }
+});
+
 test("prepare commits the heading its tag produces, for same-day and resumed releases", () => {
   const script = changelogStepScript();
   // The fixture starts from this repository's standing scripts, exactly as a
@@ -341,7 +373,7 @@ test("prepare commits the heading its tag produces, for same-day and resumed rel
   // while the candidate is untagged, then main runs them again once tagged.
   for (const [version, headingDate, tagDay] of [
     ["2026.10.23", "", "2026-10-23T14:00:00Z"],
-    ["2026.10.23", "2026-10-24", "2026-10-26T12:00:00Z"],
+    ["2026.10.23", "2026-10-24", "2026-10-26T23:30:00Z"],
   ] as const) {
     const { root, env } = tracker();
     try {
@@ -375,7 +407,8 @@ test("prepare commits the heading its tag produces, for same-day and resumed rel
         const refreshed = runBashFixture(script, { cwd: root, env: { ...releaseEnv, RELEASE_HEADING_DATE: nextDay }, encoding: "utf8" });
         assert.equal(refreshed.status, 0, refreshed.stdout + refreshed.stderr);
         assert.match(committedReleaseNotes(readFileSync(join(root, "CHANGELOG.md"), "utf8"), version), /^No tracked changes/);
-        assert.match(readFileSync(join(root, "CHANGELOG.md"), "utf8"), /^## 2026\.10\.23 - 2026-10-26$/m);
+        const heading = readFileSync(join(root, "CHANGELOG.md"), "utf8").split("\n").find(line => line.startsWith(`## ${version} -`));
+        assert.equal(heading, `## ${version} - ${nextDay}`, "use the committer day across Vienna midnight");
       }
       // The release PR's gate runs while the candidate is untagged.
       execFileSync("npm", ["run", "release:check"], { cwd: root, env: releaseEnv });

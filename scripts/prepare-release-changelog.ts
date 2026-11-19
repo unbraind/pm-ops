@@ -1,29 +1,8 @@
 /** Persist the date and empty-section policies used by release changelog hooks. */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import {
-  changelogArguments, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHookDates,
-  visitChangelogScriptCommands,
+  includeEmptyCustomHook, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHookDates,
 } from "../release-changelog-options.ts";
-import { parseReleaseHook } from "../release-hook-grammar.ts";
-
-/** Check whether preparation already handles empty sections through a generator reached by this hook. */
-function usesGenerator(scripts: ReadonlyMap<string, string>, hook: string, lifecycle: ReturnType<typeof npmLifecycle>): boolean {
-  let found = false;
-  visitChangelogScriptCommands(scripts, ({ effective, names }) => {
-    if (changelogArguments(effective, names)) found = true;
-  }, [hook], undefined, undefined, { lifecycle });
-  return found;
-}
-
-/** Save the custom flag before the final command's trailing shell syntax. */
-function includeEmptyCustomHook(script: string): string {
-  const { commands, spans } = parseReleaseHook(script);
-  const command = commands.at(-1);
-  if (!command || command.some(word => word.value === "--include-empty")) return script;
-  const end = spans.get(command.at(-1)!)!.end;
-  return script.slice(0, end) + " --include-empty" + script.slice(end);
-}
-
 try {
   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
   const headingDate = (process.env.RELEASE_HEADING_DATE || "").trim();
@@ -44,8 +23,8 @@ try {
       console.log(`::notice::Release commit adds --include-empty to generator invocations in package.json script "${name}" so later changelog checks agree with this dependency-only release.`);
     }
     // Preserve the released workflow's saved argument for configured custom hooks.
-    if (hooks.includes(name) && !usesGenerator(resolved, name, lifecycle)) {
-      const custom = includeEmptyCustomHook(prepared);
+    if (hooks.includes(name)) {
+      const custom = includeEmptyCustomHook(prepared, resolved);
       if (custom !== prepared) {
         console.log(`::notice::Release commit adds --include-empty to custom package.json script "${name}".`);
       }
