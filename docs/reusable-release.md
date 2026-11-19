@@ -121,7 +121,7 @@ These are the explicit job permission requests in `.github/workflows/daily-relea
 | `release-enabled` | boolean | `true` | Approval gate; pass the existing repository variable comparison for unapproved packages |
 | `npm-project-dir` | string | `.` | Relative npm project directory; Rust uses the crate root |
 | `node-version` | string | `22.18.0` | Node runtime for release tools; npm is pinned separately to 11.21.0; semver selectors must admit a supported stable runtime |
-| `retire-unpublished` | boolean | `false` | Explicit operator cancellation, with reconcile-only enabled; supports open, manually closed or merged owned intent and unavailable preparation evidence, but refuses any attempt/hook journal, npm coordinate, tag or Release |
+| `retire-unpublished` | boolean | `false` | Explicit operator cancellation with reconcile-only enabled. Supports owned open, manually closed or merged intent, including failed npm attempts after the visibility window. See [operator retirement](#operator-retirement). |
 | `release-timezone` | string | `Europe/Vienna` | Calendar timezone for the single daily release |
 | `rust` | boolean | `false` | Use Cargo versioning and just release-check instead of npm project hooks |
 | `rust-toolchain` | string | `1.90.0` | Rust stable toolchain including clippy and rustfmt |
@@ -288,4 +288,21 @@ failed publication attempts do not block this path because the immutable npm
 coordinate demonstrably predates them. It never publishes, tags or deletes that
 version. Missing, invalid or newer publication timestamps retain the existing
 refusal: they cannot distinguish an unrelated artifact from delayed provenance
-for this release. Explicit `retire-unpublished` retains its stricter absence rules.
+for this release.
+
+### Operator retirement
+
+Run the release caller with `reconcile-only: true` and `retire-unpublished: true`
+to retire an owned unpublished candidate. This works even when the preparation
+run or artifact is unavailable. For an npm candidate with a publication journal,
+the live check for the exact version must start more than ten minutes after the
+latest recorded attempt (using the later of its recorded timestamp and GitHub
+comment time) and return 404. Candidates without an attempt have no waiting period.
+
+If the check starts too soon, wait out the window and rerun retirement. If npm is
+unavailable, retry when the exact version can be checked. If npm shows the
+version, verify provenance and reconcile publication. If a tag, GitHub Release
+or post-release hook journal exists, verify and reconcile the existing evidence.
+If the attempt journal is unreadable or does not match the candidate, verify
+the journal and its timestamp before retrying. Successful retirement preserves the
+candidate receipt and allows fresh preparation on a later run.

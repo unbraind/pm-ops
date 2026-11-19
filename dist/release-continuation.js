@@ -47,6 +47,8 @@ export function verifyReleaseHandoff(candidate, manifest, notes, packageBytes) {
     if (`sha512-${createHash("sha512").update(packageBytes).digest("base64")}` !== candidate.packageIntegrity)
         throw new Error("Stale package integrity");
 }
+/** Match the ten-minute npm visibility window in the daily publish workflow. */
+export const publicationSettleMs = 10 * 60_000;
 /** Bind every transition to the freshly read same-repository bot branch and exact candidate head. */
 function assertContinuationIdentity(c, e) {
     validateReleaseCandidate(c);
@@ -57,9 +59,25 @@ function assertContinuationIdentity(c, e) {
 /** Cancel owned unpublished intent even when its obsolete preparation evidence is unavailable. */
 export function decideUnpublishedRetirement(c, e) {
     assertContinuationIdentity(c, e);
-    if (e.registry === "absent" && !e.attempted && e.tagSha === null && e.releaseSha === null)
-        return "retire";
-    throw new Error("Operator retirement refused: publication evidence or an ambiguous attempt exists");
+    if (e.retireUnpublished !== true)
+        throw new Error("Operator retirement requires you to explicitly set retire-unpublished=true in a reconcile-only run.");
+    if (e.releaseSha !== null)
+        throw new Error("Operator retirement refused because a GitHub Release exists. Reconcile the existing release.");
+    if (e.tagSha !== null)
+        throw new Error("Operator retirement refused because a Git tag exists. Reconcile publication for the existing tag.");
+    if (e.registry === "unverified")
+        throw new Error("Operator retirement refused because npm registry evidence is unavailable. Retry retirement when the live version check succeeds.");
+    if (e.registry !== "absent")
+        throw new Error("Operator retirement refused because the version exists on npm. Verify provenance and reconcile publication.");
+    if (e.attempted) {
+        const timing = e.retirementTiming;
+        if (!timing)
+            throw new Error("Operator retirement refused because the attempt outcome is ambiguous. Verify the publication journal and exact npm version before retrying.");
+        if (!(timing.registryCheckedAt > timing.lastAttemptAt + publicationSettleMs)) {
+            throw new Error("Operator retirement refused while the attempt is settling. Wait until more than 10 minutes after the latest publish attempt, then rerun retirement for a fresh npm check.");
+        }
+    }
+    return "retire";
 }
 /** Plan from authoritative metadata; verifyReleaseHandoff binds bytes before executing the plan. */
 export function decideReleaseContinuation(c, e) {
