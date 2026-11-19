@@ -177,6 +177,8 @@ test("prepare rebuilds and checks the trusted planner before loading it", () => 
   assert.match(build.run, /npm ci .*--ignore-scripts/);
   assert.match(build.run, /rm -rf -- dist\/\s+npm run build\s+git diff --exit-code -- dist\//);
   assert.match(build.run, /git status --porcelain=v1 --untracked-files=all --ignored=matching -- dist\//);
+  const candidate = step("Update release version");
+  assert.match(candidate.run, /if \[\[ -n "\$BUILD_SCRIPT" \]\]; then\s+rm -rf -- dist\s+npm run "\$BUILD_SCRIPT"\s+fi/);
 });
 
 test("prepare rejects obsolete tracked tools and leaves the candidate checkout alone", t => {
