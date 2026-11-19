@@ -536,7 +536,7 @@ function commandReceivingArguments(text, commands, spans) {
     return commands.find(words => spans.get(words[0])?.start === start);
 }
 /** Scan local scripts in invocation order and join forwarded argv at its actual destination. */
-export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, entryPoints = new Set(), npm = {}) {
+export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, entryPoints = new Set(), npm = { lifecycle: "unknown" }) {
     const names = new HookScriptNames(scripts);
     const knownWriters = new HookScriptNames(scripts, false);
     const targeted = new Set();
@@ -641,7 +641,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
             }
         }
     }
-    const lifecycle = npm.lifecycle ?? "unknown";
+    const { lifecycle, workflowSteps } = npm;
     for (const hook of hooks ?? entryPoints) {
         if (!hooks && !names.has(hook))
             continue;
@@ -659,12 +659,12 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
     }
     for (const name of names) {
         if (!entryPoints.has(name) && !targeted.has(name))
-            visit(name, [], [], npm.workflowSteps?.get(name) ?? lifecycle, false);
+            visit(name, [], [], workflowSteps?.get(name) ?? lifecycle, false);
     }
     // A disconnected cycle has no root. Its own commands still need auditing.
     for (const name of names) {
         if (!visited.has(name))
-            visit(name, [], [], npm.workflowSteps?.get(name) ?? lifecycle, false);
+            visit(name, [], [], workflowSteps?.get(name) ?? lifecycle, false);
     }
 }
 /** Check standalone commands against the same context rule before reading their options. */

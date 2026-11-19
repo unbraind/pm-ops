@@ -547,7 +547,7 @@ function commandReceivingArguments(
 /** Lifecycle inputs for direct npm hooks and standalone workflow shell bodies. */
 interface NpmLifecycleInputs {
   /** Configuration inherited by the configured hooks. */
-  lifecycle?: NpmLifecycle;
+  lifecycle: NpmLifecycle;
   /** Static environment of each standalone workflow step. */
   workflowSteps?: ReadonlyMap<string, NpmLifecycle>;
 }
@@ -555,7 +555,7 @@ interface NpmLifecycleInputs {
 /** Scan local scripts in invocation order and join forwarded argv at its actual destination. */
 export function visitChangelogScriptCommands(
   scripts: ReadonlyMap<string, string>, inspect: (entry: ChangelogScriptCommand) => void, hooks?: readonly string[],
-  resolved?: Map<string, string>, entryPoints: ReadonlySet<string> = new Set(), npm: NpmLifecycleInputs = {},
+  resolved?: Map<string, string>, entryPoints: ReadonlySet<string> = new Set(), npm: NpmLifecycleInputs = { lifecycle: "unknown" },
 ): void {
   const names = new HookScriptNames(scripts);
   const knownWriters = new HookScriptNames(scripts, false);
@@ -654,7 +654,7 @@ export function visitChangelogScriptCommands(
     }
   }
 
-  const lifecycle = npm.lifecycle ?? "unknown";
+  const { lifecycle, workflowSteps } = npm;
   for (const hook of hooks ?? entryPoints) {
     if (!hooks && !names.has(hook)) continue;
     for (const name of names.sequence(hook, lifecycle !== false)) visit(name, [], [], lifecycle, true, name !== hook);
@@ -667,11 +667,11 @@ export function visitChangelogScriptCommands(
     }
   }
   for (const name of names) {
-    if (!entryPoints.has(name) && !targeted.has(name)) visit(name, [], [], npm.workflowSteps?.get(name) ?? lifecycle, false);
+    if (!entryPoints.has(name) && !targeted.has(name)) visit(name, [], [], workflowSteps?.get(name) ?? lifecycle, false);
   }
   // A disconnected cycle has no root. Its own commands still need auditing.
   for (const name of names) {
-    if (!visited.has(name)) visit(name, [], [], npm.workflowSteps?.get(name) ?? lifecycle, false);
+    if (!visited.has(name)) visit(name, [], [], workflowSteps?.get(name) ?? lifecycle, false);
   }
 }
 

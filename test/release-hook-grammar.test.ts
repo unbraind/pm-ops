@@ -7,7 +7,7 @@ import test from "node:test";
 import { stringify } from "yaml";
 import { execFileSync } from "../subprocess.ts";
 import {
-  assertReleaseHeadingDate, assertReleaseHookHeadingDate, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHookDates,
+  assertReleaseHeadingDate, assertReleaseHookHeadingDate, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHookDates, visitChangelogScriptCommands,
 } from "../release-changelog-options.ts";
 import { fixedOptionName, tokenizeCommands, tokenizeCommandsWithSpans, commandName, packageScriptCommand, releaseHookCommand } from "../shell-scan.ts";
 import { parseReleaseHook } from "../release-hook-grammar.ts";
@@ -244,9 +244,14 @@ test("uncertain npm lifecycle refuses possible changelog writes but permits read
     assert.throws(() => resolveChangelogHooks({ hook: writer, prehook, writer }, ["hook"]), /ignore-scripts.*prehook/, prehook);
   }
   for (const prehook of [writer + " --stdout", writer + " --check", writer + " --output other.md", writer + " --output=other.md",
-    "printf heading > other.md", "printf '%s' '>CHANGELOG.md'", "echo done"]) {
+    "printf heading > other.md", "printf heading >", "printf '%s' '>CHANGELOG.md'", "echo done"]) {
     assert.ok(resolveChangelogHooks({ hook: writer, prehook }, ["hook"]).has("prehook"), prehook);
   }
+});
+
+test("script traversal without an npm configuration refuses an implicit writer", () => {
+  const scripts = new Map([["hook", "echo main"], ["prehook", "pm-changelog " + standing]]);
+  assert.throws(() => visitChangelogScriptCommands(scripts, () => {}, ["hook"]), /ignore-scripts.*prehook/);
 });
 
 test("the date verifier uses workflow, job and step npm environment precedence", () => {

@@ -43,7 +43,7 @@ export interface ChangelogScriptCommand {
 /** Lifecycle inputs for direct npm hooks and standalone workflow shell bodies. */
 interface NpmLifecycleInputs {
     /** Configuration inherited by the configured hooks. */
-    lifecycle?: NpmLifecycle;
+    lifecycle: NpmLifecycle;
     /** Static environment of each standalone workflow step. */
     workflowSteps?: ReadonlyMap<string, NpmLifecycle>;
 }
