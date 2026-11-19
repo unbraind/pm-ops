@@ -2,13 +2,11 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: in_progress
+status: open
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-19T22:20:19.979Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-19T22:36:23.054Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[74]:
+comments[76]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -240,6 +238,12 @@ comments[74]:
   - created_at: "2026-11-19T22:20:16.449Z"
     author: codex-sol
     text: "Round EF review found two acceptance regressions in the targeted guards. A directory change isolated to a loop-condition pipeline leaves the parent directory intact. An unqualified dist/cli.js env assignment can refer to a package's own CLI. Both reproduced before the refinement, and the focused regressions now pass."
+  - created_at: "2026-11-19T22:23:06.261Z"
+    author: codex-sol
+    text: Round EF refinement 36e9197 narrows PRRT_kwDOTOTl1M65cxi6 to directory changes that can affect the parent hook and PRRT_kwDOTOTl1M65kAkZ to bindings with a pm-changelog executable. The other three thread mappings remain dee85cd. The refined direct suites passed 74 tests and the fleet scan accepted 142 roots and 144 bodies across 39 repositories.
+  - created_at: "2026-11-19T22:36:12.285Z"
+    author: codex-sol
+    text: "The published PR branch head for Round EF is 9a60093. Required CI and CodeQL passed, and Greptile scored 1/5 with the two acceptance findings addressed locally by 36e9197. The refinement passed the 74 focused tests, typecheck, lint, duplication, docstring, changelog check, and the fleet scan. Full coverage and release-heading acceptance for the refinement were still running when these items were released."
 files[22]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
