@@ -165,7 +165,7 @@ export function parseReleaseHook(text) {
                 heredoc = text.lastIndexOf("\n", i - 1) + 1;
             if (!quote && /[<>]/.test(char) && !/^\d*$/.test(value) && !/^(?:\d*[<>]|&(?:>|$))/.test(value))
                 problem = "Attached shell redirection";
-            if (!quote && /[*?]/.test(char)) {
+            if (!quote && "*?[".includes(char)) {
                 unresolved = true;
                 splits = true;
             }

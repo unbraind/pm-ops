@@ -68,6 +68,14 @@ type DateOption = {
     last: ShellToken;
     day: string;
 };
+/** Resolve the output, inspection flags, and argv consumed by the changelog adapter. */
+export declare function changelogOutputTarget(args: readonly Pick<ShellToken, "value" | "unresolved">[]): {
+    output: Pick<ShellToken, "unresolved" | "value">;
+    invalidOption: string | undefined;
+    check: boolean;
+    stdout: boolean;
+    consumed: Set<number>;
+};
 /** Decode literal date options and retain their shell words for edits. */
 export declare function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[];
 /** Refuse publication when a standalone generator's heading differs from the verified merge day. */

@@ -272,28 +272,24 @@ function canReachGenerator(words, names, seen, writing = false, lifecycle = "unk
         return !writing || writesChangelog(generator.slice(1));
     return words.some(mentionsGenerator) || referencesWriter(words, names, seen);
 }
-/** Find Bash output redirections to the changelog even on non-generator commands. */
+/** Find definite or possible Bash writes to the changelog, including on helper commands. */
 function redirectsChangelog(words) {
     return words.some((word, index) => {
         const redirect = shellRedirection(word);
         if (!redirect?.operator.includes(">"))
             return false;
-        const destination = redirect.joined ? word.value.slice(redirect.operator.length) : words[index + 1]?.value;
+        const target = redirect.joined ? word : words[index + 1];
+        if (target?.unresolved)
+            return true;
+        const destination = redirect.joined ? word.value.slice(redirect.operator.length) : target?.value;
         return /^(?:\.\/)*CHANGELOG\.md$/.test(destination ?? "");
     });
 }
-/** The usual generator destination is CHANGELOG.md; honor literal checks and alternate output. */
+/** Classify only the generator outputs that may write the changelog. */
 function writesChangelog(args) {
-    let output = "CHANGELOG.md";
-    for (const index of optionPositions(args)) {
-        const word = args[index];
-        if (word.value === "--check" || word.value === "--stdout")
-            return false;
-        const destination = /^(?:--output|-o)(?:=(.*))?$/s.exec(word.value);
-        if (destination)
-            output = destination[1] ?? args[index + 1]?.value;
-    }
-    return output === undefined || /(?:^|\/)CHANGELOG\.md$|[$*?]/.test(output);
+    const { output, invalidOption, check, stdout } = changelogOutputTarget(args);
+    return !check && !stdout
+        && (invalidOption !== undefined || output.unresolved === true || /(?:^|\/)CHANGELOG\.md$/.test(output.value));
 }
 /** Project selectors on runners precede the delimiter that separates generator arguments. */
 function runnerProjectOption([program, ...args]) {
@@ -695,6 +691,36 @@ function optionPositions(args) {
     }
     return positions;
 }
+/** Resolve the output, inspection flags, and argv consumed by the changelog adapter. */
+export function changelogOutputTarget(args) {
+    let output = { value: "CHANGELOG.md" };
+    let invalidOption;
+    let check = false;
+    let stdout = false;
+    const consumed = new Set();
+    for (const index of optionPositions(args)) {
+        const word = args[index];
+        if (word.value === "--check" || word.value === "--stdout") {
+            check ||= word.value === "--check";
+            stdout ||= word.value === "--stdout";
+            consumed.add(index);
+            continue;
+        }
+        const match = /^(-o|--output)(?:=(.*))?$/s.exec(word.value);
+        if (!match)
+            continue;
+        const target = match[2] === undefined ? args[index + 1] : { value: match[2], unresolved: word.unresolved };
+        if (!target?.value || target.value.startsWith("--")) {
+            invalidOption ??= match[1];
+            continue;
+        }
+        output = target;
+        consumed.add(index);
+        if (match[2] === undefined)
+            consumed.add(index + 1);
+    }
+    return { output, invalidOption, check, stdout, consumed };
+}
 /** Decode literal date options and retain their shell words for edits. */
 export function readReleaseDateOptions(args) {
     const options = [];
@@ -800,7 +826,10 @@ function assertHeadingOptions(words, mergeDay, packageVersion, names) {
         }
         assertReleaseCoordinate(explicit, packageVersion, " " + RETIRE_UNPUBLISHED);
     }
-    // In this mode the generator uses --until as the pending release timestamp.
+    assertAllTagsCutoff(args, positions, mergeDay, packageVersion, " " + RETIRE_UNPUBLISHED);
+}
+/** All-tags generation uses an explicit cutoff as the pending release timestamp. */
+function assertAllTagsCutoff(args, positions, headingDate, packageVersion, advice = "") {
     if (!hasVersionInput(args) || !positions.some(i => args[i].value === "--all-release-tags"))
         return;
     for (const i of positions) {
@@ -808,12 +837,13 @@ function assertHeadingOptions(words, mergeDay, packageVersion, names) {
         const [flag] = token.value.split("=", 1);
         if (flag !== UNTIL_FLAG)
             continue;
+        const day = headingDate || calendarRelease(literalReleaseVersion(args, positions) ?? packageVersion).day;
         const cutoff = token.value === flag ? args[i + 1]?.value : token.value.slice(flag.length + 1);
         if (!cutoff || !isRealCalendarDay(cutoff)) {
-            throw new Error(`Invalid --until operand for a versioned --all-release-tags hook, expected a real YYYY-MM-DD day. Remove --until or set it to ${mergeDay}. ${RETIRE_UNPUBLISHED}`);
+            throw new Error(`Invalid --until operand for a versioned --all-release-tags hook, expected a real YYYY-MM-DD day. Remove --until or set it to ${day}.${advice}`);
         }
-        if (cutoff !== mergeDay) {
-            throw new Error(`The --until day ${cutoff} overrides the prepared release heading day ${mergeDay}. Remove --until or set it to ${mergeDay}. ${RETIRE_UNPUBLISHED}`);
+        if (cutoff !== day) {
+            throw new Error(`The --until day ${cutoff} overrides the prepared release heading day ${day}. Remove --until or set it to ${day}.${advice}`);
         }
     }
 }
@@ -905,8 +935,10 @@ export function rewriteReleaseHookDates(scripts, hooks, headingDate, lifecycle =
             owners.set(token, source);
         const args = changelogInvocation(effective, names)?.slice(1) ?? [];
         const options = hookDateOptions(args);
+        const positions = optionPositions(args);
         if (options.length)
-            assertReleaseCoordinate(literalReleaseVersion(args, optionPositions(args)), packageVersion);
+            assertReleaseCoordinate(literalReleaseVersion(args, positions), packageVersion);
+        assertAllTagsCutoff(args, positions, headingDate, packageVersion);
         rewriteDateOptions(options, headingDate, token => owners.get(token));
         if (options.length > 0) {
             for (const separator of forwardedSeparators) {
