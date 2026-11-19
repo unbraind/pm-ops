@@ -402,6 +402,10 @@ test("a directory change in a loop condition is refused before rewriting", () =>
   }
   assert.doesNotThrow(() => resolveChangelogHooks({ hook: "while false; do echo cd; done; " + writer }, ["hook"]));
   assert.doesNotThrow(() => resolveChangelogHooks({ hook: "\\while cd docs; " + writer }, ["hook"]));
+  const piped = "while cd docs | cat; do break; done; " + writer;
+  assert.doesNotThrow(() => resolveChangelogHooks({ hook: piped }, ["hook"]));
+  assert.doesNotThrow(() => rewriteReleaseHeadingDate(piped, day));
+  assert.deepEqual(auditInvocations([workflow(piped)]).failures, []);
 });
 
 test("a descriptor duplication joins a continuation before it is refused", () => {
@@ -444,9 +448,13 @@ test("a generator assignment cannot cross an npm run forward", () => {
   assert.match(auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts }) }]).failures[0], reason);
   assert.throws(() => resolveChangelogHooks({ ...scripts, "changelog:full": "env 'GEN=pm-changelog' npm run writer" },
     ["changelog:full"]), reason);
+  assert.throws(() => resolveChangelogHooks({ ...scripts, "changelog:full": "GEN=./node_modules/pm-changelog/dist/cli.js npm run writer" },
+    ["changelog:full"]), reason);
   for (const hook of ["TZ=UTC npm run writer", "GEN= npm run writer", "exec -a GEN=pm-changelog npm run writer"]) {
     assert.doesNotThrow(() => resolveChangelogHooks({ hook, writer: "pm-changelog " + standing }, ["hook"]));
   }
+  const unrelated = { "changelog:full": "pm-changelog " + standing, smoke: "BIN=dist/cli.js npm run test:cli", "test:cli": "node scripts/smoke.mjs" };
+  assert.deepEqual(auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts: unrelated }) }]).failures, []);
 });
 
 test("opaque argv expansion cannot conceal a versioned generator", () => {

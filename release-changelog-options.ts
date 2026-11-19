@@ -28,6 +28,7 @@ const UNTIL_FLAG = "--until";
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 /** Match executables and registry package specifiers left by package runner prefixes. */
 const GENERATOR_TARGET = /^pm-changelog@[^/]+$|(?:^|\/)(?:pm-changelog(?:\.ts)?|dist\/cli\.js)$/;
+const GENERATOR_BINDING = /^pm-changelog@[^/]+$|(?:^|\/)pm-changelog(?:\.ts|\/dist\/cli\.js)?$/;
 /** The three generator inputs that bind a heading to a release. */
 export const VERSION_INPUTS = ["--release-version-from-package", "--release-version", "--version"] as const;
 
@@ -414,7 +415,7 @@ function releaseContextProblem(
 ): string | undefined {
   if (hookPath) {
     if (words.some(isContinuedDescriptor)) return "Continued descriptor redirection" + SCRIPT_FILE_ADVICE;
-    const loopChange = isReleaseLoopCondition(words) ? shellContextChange(words) : undefined;
+    const loopChange = isReleaseLoopCondition(words) && !isIsolatedReleaseCommand(words) ? shellContextChange(words) : undefined;
     if (loopChange?.directory) return "Directory change " + loopChange.construct + " in a loop condition" + SCRIPT_FILE_ADVICE;
   }
   const shell = hookPath ? unsupportedShellSemantics(words) : undefined;
@@ -446,7 +447,7 @@ function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<stri
   const forward = scriptForward(name, parameters, scriptNames);
   if (forward?.runner === "npm") {
     const binding = assignments.map(word => /^([A-Za-z_]\w*)\+?=(.+)$/.exec(word.value))
-      .find(match => match && GENERATOR_TARGET.test(match[2]));
+      .find(match => match && GENERATOR_BINDING.test(match[2]));
     if (binding) refuseHook("Generator binding through variable assignment " + binding[1] + " crosses an npm run forward" + SCRIPT_FILE_ADVICE);
   }
   if (forward?.runner === "pnpm" && forward.target && scriptNames instanceof HookScriptNames

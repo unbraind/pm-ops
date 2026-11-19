@@ -12,7 +12,7 @@ import {
 const problems = new WeakMap<ShellToken, string>();
 const indirectTargets = new WeakSet<ShellToken>();
 const optionNames = new WeakMap<ShellToken, string>();
-const isolatedCommands = new WeakSet<ShellCommand>();
+const isolatedCommands = new WeakSet<ShellToken>();
 const loopConditions = new WeakSet<ShellToken>();
 const continuedDescriptors = new WeakSet<ShellToken>();
 const braceExpansions = new WeakSet<ShellToken>();
@@ -20,7 +20,7 @@ const BRACE_EXPANSION = /(?<!\$)\{(?:[^{}]*,[^{}]*|(?:-?\d+\.\.-?\d+|[A-Za-z]\.\
 
 /** Whether shell edits in this command are local to a pipeline stage or subshell. */
 export function isIsolatedReleaseCommand(words: ShellCommand): boolean {
-  return isolatedCommands.has(words);
+  return isolatedCommands.has(words[0]);
 }
 
 /** Whether the command belongs to the condition list of a while or until loop. */
@@ -89,7 +89,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
       }
       if (loops.includes(true)) loopConditions.add(words[0]);
       if (inSubshell) {
-        isolatedCommands.add(words);
+        isolatedCommands.add(words[0]);
         if (!hookSyntaxProblem(words)) problems.set(words[0], "Shell grouping or substitution");
       }
       commands.push(words);
@@ -215,7 +215,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
   // Keep the ordinary output-filter pipeline used by release workflows.
   let upstream: ShellCommand[] = [];
   for (const command of commands) {
-    if (upstream.length || piped.has(command)) isolatedCommands.add(command);
+    if (upstream.length || piped.has(command)) isolatedCommands.add(command[0]);
     if (upstream.length) {
       const sink = releaseHookCommand(command)?.[0];
       if (!sink || sink.unresolved || !/^(?:cat|awk|sed|grep|head|tail|cut|tr|sort|uniq|wc)$/.test(basename(sink.value))) {
