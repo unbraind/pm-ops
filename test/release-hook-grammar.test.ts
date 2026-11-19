@@ -252,7 +252,7 @@ test("uncertain npm lifecycle refuses possible changelog writes but permits read
 test("uncertain npm lifecycle sees effective argv through nested forwards", () => {
   const changes = "pm-changelog " + standing;
   const scripts = { hook: "echo main", prehook: "", relay: "npm run changes --", changes };
-  for (const flag of ["--stdout", "--check", "--output=release.log"]) {
+  for (const flag of ["--stdout", "--check", "--output=release.log", "-o=release.log"]) {
     scripts.prehook = "npm run relay -- " + flag;
     assert.ok(resolveChangelogHooks(scripts, ["hook"]).has("changes"), flag);
   }
@@ -264,6 +264,9 @@ test("uncertain npm lifecycle sees effective argv through nested forwards", () =
   }, ["hook"]), /ignore-scripts.*prehook/);
   assert.ok(resolveChangelogHooks({
     ...scripts, prehook: "npm run --ignore-scripts relay -- --stdout", prechanges: changes,
+  }, ["hook"]).has("changes"));
+  assert.ok(resolveChangelogHooks({
+    ...scripts, prehook: "bun run changes -- --check",
   }, ["hook"]).has("changes"));
   assert.throws(() => resolveChangelogHooks({
     ...scripts, prehook: "npm run changes -- --check; npm run changes",

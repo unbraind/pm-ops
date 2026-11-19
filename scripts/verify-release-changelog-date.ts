@@ -30,7 +30,7 @@ import { execFileSync } from "../subprocess.ts";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { isMap, isScalar, LineCounter, parse, parseDocument } from "yaml";
+import { isMap, isScalar, LineCounter, parse, parseDocument, type YAMLMap } from "yaml";
 import {
   type ShellCommand,
   type ShellToken,
@@ -123,9 +123,9 @@ function manifestScripts(source: SourceFile): Map<string, { text: string; line?:
     throw new Error(`${source.file}: scripts must be an object`);
   }
   const lines = new LineCounter();
-  const { contents } = parseDocument(source.text, { schema: "json", uniqueKeys: false, lineCounter: lines });
-  // JSON.parse keeps the last duplicate key. Use the same property for its source location.
-  const scriptMap = isMap(contents) ? contents.items.slice().reverse().find(({ key }) => isScalar(key) && key.value === "scripts")?.value : undefined;
+  const { contents } = parseDocument<YAMLMap>(source.text, { schema: "json", uniqueKeys: false, lineCounter: lines });
+  // JSON.parse already proved the root is a map and retains the last duplicate key.
+  const scriptMap = contents!.items.slice().reverse().find(({ key }) => isScalar(key) && key.value === "scripts")?.value;
   const locations = new Map<string, number>();
   if (isMap(scriptMap)) {
     for (const { key } of scriptMap.items) {

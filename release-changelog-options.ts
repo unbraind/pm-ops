@@ -297,8 +297,8 @@ function writesChangelog(args: ShellCommand): boolean {
   for (const index of optionPositions(args)) {
     const word = args[index];
     if (word.value === "--check" || word.value === "--stdout") return false;
-    if (word.value === "--output" || word.value === "-o") output = args[index + 1]?.value;
-    else if (word.value.startsWith("--output=")) output = word.value.slice("--output=".length);
+    const destination = /^(?:--output|-o)(?:=(.*))?$/s.exec(word.value);
+    if (destination) output = destination[1] ?? args[index + 1]?.value;
   }
   return output === undefined || /(?:^|\/)CHANGELOG\.md$|[$*?]/.test(output);
 }

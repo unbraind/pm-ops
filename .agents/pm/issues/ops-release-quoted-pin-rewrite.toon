@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-19T05:49:32.674Z"
+updated_at: "2026-11-19T05:54:59.357Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -14,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[50]:
+comments[51]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -166,6 +166,9 @@ comments[50]:
   - created_at: "2026-11-19T05:49:29.624Z"
     author: codex-sol
     text: "Round DG verification with Node 24.19.0 and npm 11.21.0 passed typecheck, lint, duplication (0%), docstrings, and changelog:check. The linked focused, coverage, and rewritten release acceptance commands run directly under the round instructions."
+  - created_at: "2026-11-19T05:54:57.215Z"
+    author: codex-sol
+    text: "Round DG follow-up in this commit covers PRRT_kwDOTOTl1M65SNKn through Bun and the generator short output alias, and removes an unreachable root-map condition in the PRRT_kwDOTOTl1M65TI8S manifest location code. All focused assertions for these follow-ups passed."
 files[21]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
