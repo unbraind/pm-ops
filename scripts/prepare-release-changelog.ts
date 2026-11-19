@@ -1,6 +1,18 @@
 /** Persist the date and empty-section policies used by release changelog hooks. */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHookDates } from "../release-changelog-options.ts";
+import {
+  changelogArguments, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHookDates,
+  visitChangelogScriptCommands,
+} from "../release-changelog-options.ts";
+
+/** Check whether preparation already handles empty sections through a generator reached by this hook. */
+function usesGenerator(scripts: ReadonlyMap<string, string>, hook: string, lifecycle: ReturnType<typeof npmLifecycle>): boolean {
+  let found = false;
+  visitChangelogScriptCommands(scripts, ({ effective, names }) => {
+    if (changelogArguments(effective, names)) found = true;
+  }, [hook], undefined, undefined, { lifecycle });
+  return found;
+}
 
 try {
   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
@@ -17,9 +29,14 @@ try {
       const policy = headingDate ? "pins the heading to " + headingDate : "restores the version-derived heading policy";
       console.log(`::notice::Release commit ${policy} in package.json script "${name}".`);
     }
-    const prepared = includeEmptyReleaseSections(dated, scriptNames);
+    let prepared = includeEmptyReleaseSections(dated, scriptNames);
     if (prepared !== dated) {
       console.log(`::notice::Release commit adds --include-empty to generator invocations in package.json script "${name}" so later changelog checks agree with this dependency-only release.`);
+    }
+    // Preserve the released workflow's saved argument for configured custom hooks.
+    if (hooks.includes(name) && !prepared.split(/\s+/).includes("--include-empty") && !usesGenerator(resolved, name, lifecycle)) {
+      prepared += " --include-empty";
+      console.log(`::notice::Release commit adds --include-empty to custom package.json script "${name}".`);
     }
     if (prepared !== script) {
       pkg.scripts[name] = prepared;

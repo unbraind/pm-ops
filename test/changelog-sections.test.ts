@@ -240,7 +240,7 @@ test("release workflow uses the same npm policy for generation, drift checking a
   assert.match(step, /npm run --silent "\$NOTES_SCRIPT" > /);
 });
 
-test("dependency-only release windows pass release:check when all three hooks forward to one generator", () => {
+test("dependency-only release windows support forwarded generators and custom notes hooks", () => {
   const { root, env } = tracker();
   try {
     releaseTags(root, env);
@@ -277,6 +277,23 @@ test("dependency-only release windows pass release:check when all three hooks fo
     assert.equal(readFileSync(join(root, "package.json"), "utf8"), prepared);
     assert.equal(runBashFixture(script, { cwd: root, env: releaseEnv, encoding: "utf8" }).status, 0);
     assert.equal(readFileSync(join(root, "package.json"), "utf8"), prepared, "preparation is idempotent");
+    mkdirSync(join(root, "tools"));
+    writeFileSync(join(root, "tools", "notes.mjs"),
+      'if (process.argv.includes("--include-empty")) console.log("Dependency update.");\n');
+    const custom = { ...commands, "release:notes": "node tools/notes.mjs" };
+    const manifest = join(root, "package.json");
+    writeFileSync(manifest, JSON.stringify({ name: "sample-changelog", version: "2026.10.23", scripts: custom }));
+    const customResult = runBashFixture(script, { cwd: root, env: releaseEnv, encoding: "utf8" });
+    assert.equal(customResult.status, 0, customResult.stdout + customResult.stderr);
+    assert.equal(readFileSync(join(root, "RELEASE_NOTES.md"), "utf8"), "Dependency update.\n");
+    const customPrepared = readFileSync(manifest, "utf8");
+    assert.deepEqual(JSON.parse(customPrepared).scripts, {
+      ...custom,
+      "release:notes": custom["release:notes"] + " --include-empty",
+      changes: commands.changes + " --include-empty",
+    });
+    assert.equal(runBashFixture(script, { cwd: root, env: releaseEnv, encoding: "utf8" }).status, 0);
+    assert.equal(readFileSync(manifest, "utf8"), customPrepared, "the custom hook keeps one saved flag");
     for (const value of [undefined, "", " ", 42]) {
       const invalid = JSON.parse(prepared) as { scripts: Record<string, unknown> };
       invalid.scripts["release:notes"] = value;

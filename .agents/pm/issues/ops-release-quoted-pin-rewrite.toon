@@ -6,7 +6,9 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-19T09:13:59.968Z"
+updated_at: "2026-11-19T11:48:32.408Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -14,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[55]:
+comments[57]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -181,6 +183,12 @@ comments[55]:
   - created_at: "2026-11-19T09:13:55.997Z"
     author: codex-sol
     text: "Round DM mapping to d00b9b1f8e6db9942c4e6ec5ca344e42c4600d21: PRRT_kwDOTOTl1M65YXjm (unresolved redirect), PRRT_kwDOTOTl1M65YXjq (shared adapter output), PRRT_kwDOTOTl1M65YXj2 (bracket pathname expansion). The regressions pass; typecheck, lint, duplication (0%), docstring and changelog:check passed. The linked broader suite and final coverage and acceptance gates are in progress."
+  - created_at: "2026-11-19T11:44:38.957Z"
+    author: codex-sol
+    text: Round DR investigates CodeRabbit thread PRRT_kwDOTOTl1M65cxic on pm-ops#295. The v2026.11.18 workflow both persisted and forwarded --include-empty for custom release hooks. Preserve the dependency-only custom notes contract and verify it through the workflow step.
+  - created_at: "2026-11-19T11:48:32.408Z"
+    author: codex-sol
+    text: The regression reproduced empty notes and workflow exit 1. The preparer now saves --include-empty on configured custom hooks and keeps generator-backed hooks on the existing argument and date rewrite path.
 files[22]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
@@ -204,7 +212,7 @@ files[22]{path,scope}:
   test/release-runtime.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[40]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[41]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -245,6 +253,7 @@ tests[40]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_TEST_DEPTH=quick npm run coverage,project,codex-sol,"2026-11-19T06:35:39.871Z",local_mutation,fix/release-hook-wrapper-options-bm
   PM_TEST_DEPTH=quick node test/release-heading-full-gate.acceptance.ts,project,codex-sol,"2026-11-19T06:35:39.871Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-concurrency=2 test/changelog-sections.test.ts test/continuation-runtime.test.ts test/continuation-selection.test.ts test/daily-release.test.ts test/daily-release-workflow.test.ts test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/release-discovery-evidence.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-prepare-restart.test.ts test/release-runtime.test.ts test/release-runtime-windows.test.ts test/release-verification.test.ts test/shell-command-scan.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts test/verify-release-completeness.test.ts,project,codex-sol,"2026-11-19T09:09:55.617Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-name-pattern='dependency-only release windows' test/changelog-sections.test.ts,project,codex-sol,"2026-11-19T11:48:28.301Z",local_mutation,fix/release-hook-wrapper-options-bm
 docs[2]{path,scope}:
   docs/reusable-release.md,project
   README.md,project

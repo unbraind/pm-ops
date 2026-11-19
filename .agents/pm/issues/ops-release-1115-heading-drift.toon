@@ -7,10 +7,12 @@ status: in_progress
 priority: 2
 tags[3]: "area:release","gh:unbraind/pm-ops#292","gh:unbraind/pm-ops#295"
 created_at: "2026-11-16T19:17:51.165Z"
-updated_at: "2026-11-19T09:14:02.270Z"
+updated_at: "2026-11-19T11:48:15.588Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: "Resolve the existing tagged release-heading date policy mismatch; npm run changelog:check and release date checks agree before and after rollover without changing historical tags."
-comments[84]{created_at,author,text}:
+comments[86]{created_at,author,text}:
   "2026-11-16T19:18:50.836Z",codex-sol,"Verified npm run changelog:check fails on untouched origin/main c29fe88 as well as the fix branch. Tag v2026.11.15 targets c29fe88 with commit time 2026-11-16T17:43:01Z. Regeneration changes only the first heading date from 2026-11-15 to 2026-11-16. No historical tags or changelog content were changed for #290."
   "2026-11-16T19:24:41.440Z","harness:claude-code","2026-11-16 20:0xZ (orchestrator): root cause filed as unbraind/pm-ops#292. v2026.11.15 was prepared and tagged on 11-16, prepare rendered the heading from the version (2026-11-15), and after tagging pm-changelog uses the real tag date (2026-11-16, by design per pm-changelog#120). Regenerated CHANGELOG.md in PR #291 so 'npm run changelog:check' passes on this branch (exit 0); main stays red until #291 or another regeneration merges."
   "2026-11-16T22:58:09.756Z",pi-ops-292,"Root cause (issue #292): prepare renders the pending version's heading with --date-from-version, so a resumed candidate (version day before today) is stamped with its version day. The release step then tags it today; pm-changelog by design derives a tagged window's heading from the tag commit date (pm-changelog#120), so post-tag regeneration on unchanged main renders a different day and changelog:check is red on main. The release PR's own CI passes (candidate still untagged), so the failure only appears after the merge.\n\nDesign: use the generator's existing --date-fallback flag (applies only while no release tag exists; ignored once the tag exists, so it matches post-tag invocations byte-for-byte). decideDailyRelease now outputs heading_date: today in RELEASE_TIMEZONE, padded ISO, when the version's calendar day is before today; empty for a same-day release, which is therefore unchanged. The 'Generate changelog and release notes' step, in the same in-place package.json policy rewrite that already appends --include-empty, swaps --date-from-version for --date-fallback <heading_date> in the three changelog scripts when resumed, refreshes a stale pin when a candidate is re-prepared on a later day, and restores --date-from-version when the pending version is current again. The release commit carries the pinned spelling, so the release PR's CI (untagged candidate), prepare's nested release:check and post-tag checks on main all regenerate the same bytes with no follow-up regeneration. The date verifier accepts a pinned --date-fallback day (explicit ISO day only) as an equally clock-free alternative to --date-from-version. Rust/justfile releases (CHANGELOG_DATE derived from the tag name) keep their own spelling and are not touched."
@@ -95,7 +97,9 @@ comments[84]{created_at,author,text}:
   "2026-11-19T09:03:40.744Z",codex-sol,"Round DM on 3bd0c0e: reproducing stale all-tags cutoff through preparation and checking refusal leaves hooks untouched."
   "2026-11-19T09:09:39.834Z",codex-sol,"Red on 3bd0c0e: the pinned generator rendered November 16 with a November 17 fallback and the preparation CLI rewrote the manifest successfully. The fixed CLI refuses the conflict without changing the manifest or changelog, and corrected full/check hooks agree on November 17."
   "2026-11-19T09:13:57.826Z",codex-sol,"Round DM mapping to d00b9b1f8e6db9942c4e6ec5ca344e42c4600d21: PRRT_kwDOTOTl1M65YXjw (refuse a conflicting all-tags --until before writing hooks). The real adapter reproduces the stale heading on the old policy and full/check agree after correcting the cutoff. Changelog regeneration produced no diff. The linked broader suite and final coverage and acceptance gates are in progress."
-files[31]{path,scope}:
+  "2026-11-19T11:44:34.087Z",codex-sol,Round DR investigates CodeRabbit thread PRRT_kwDOTOTl1M65cxic on pm-ops#295. The v2026.11.18 workflow both persisted and forwarded --include-empty for custom release hooks. Preserve the dependency-only custom notes contract and verify it through the workflow step.
+  "2026-11-19T11:48:15.507Z",codex-sol,The regression reproduced empty notes and workflow exit 1. The preparer now saves --include-empty on configured custom hooks and keeps generator-backed hooks on the existing argument and date rewrite path.
+files[32]{path,scope}:
   .github/workflows/daily-release.yml,project
   CHANGELOG.md,project
   daily-release.ts,project
@@ -111,6 +115,7 @@ files[31]{path,scope}:
   release-continuation.ts,project
   release-hook-grammar.ts,project
   scripts/pm-changelog.ts,project
+  scripts/prepare-release-changelog.ts,project
   scripts/release-continuation.ts,project
   scripts/verify-release-changelog-date.ts,project
   shell-scan.ts,project
@@ -127,7 +132,7 @@ files[31]{path,scope}:
   test/release-workflow.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[40]:
+tests[41]:
   - command: npm run typecheck
     scope: project
     provenance:
@@ -412,6 +417,13 @@ tests[40]:
     provenance:
       author: codex-sol
       created_at: "2026-11-19T09:10:00.696Z"
+      source_kind: local_mutation
+      source_ref: fix/release-hook-wrapper-options-bm
+  - command: node --test --test-name-pattern='dependency-only release windows' test/changelog-sections.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-19T11:48:10.249Z"
       source_kind: local_mutation
       source_ref: fix/release-hook-wrapper-options-bm
 docs[3]{path,scope}:
