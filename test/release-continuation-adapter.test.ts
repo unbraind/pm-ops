@@ -1488,6 +1488,54 @@ test("current-main probe retires a registry coordinate that predates preparation
   });
 });
 
+test("a changed squash parent keeps occupied and failed-attempt retirement distinct", async t => {
+  const attemptedAt = "2026-11-06T04:00:00.000Z";
+  const boundary = Date.parse(attemptedAt) + publicationSettleMs;
+  const clock = t.mock.method(Date, "now", () => boundary + 1);
+  const scenarios = [
+    { name: "pre-existing version without an attempt", occupied: true, attempted: false, operator: false, clockOffset: 1, action: "occupied" },
+    { name: "pre-existing version with an attempt", occupied: true, attempted: true, operator: false, clockOffset: 1, error: /identity disagrees/ },
+    { name: "absent version with an attempt in automatic mode", occupied: false, attempted: true, operator: false, clockOffset: 1, error: /Merged source changed with publication evidence/ },
+    { name: "pre-existing version in operator mode", occupied: true, attempted: true, operator: true, clockOffset: 1, error: /version exists on npm/ },
+    { name: "absent version at the settle boundary", occupied: false, attempted: true, operator: true, clockOffset: 0, error: /Wait until more than 10 minutes/ },
+    { name: "absent version after the settle window", occupied: false, attempted: true, operator: true, clockOffset: 1, action: "retire" },
+  ];
+  for (const scenario of scenarios) await t.test(scenario.name, async () => {
+    await withAdapter(async f => {
+      f.state.occupied = scenario.occupied;
+      f.state.parents = ["8".repeat(40)];
+      f.state.tree = "9".repeat(40);
+      process.env.RETIRE_UNPUBLISHED = String(scenario.operator);
+      clock.mock.mockImplementation(() => boundary + scenario.clockOffset);
+      if (scenario.attempted) f.state.comments.push({
+        user: { login: "github-actions[bot]" }, created_at: attemptedAt,
+        body: "<!-- pm-ops-publication-v1\n" + JSON.stringify({
+          candidate: releaseDigest(JSON.stringify(f.c)), commit: f.pr.merge_commit_sha, attemptedAt,
+        }) + "\n-->",
+      });
+
+      if (scenario.error) {
+        await assert.rejects(runReleaseContinuation("probe"), scenario.error);
+        assertIntentRetained(f);
+        return;
+      }
+      if (scenario.action === "occupied") {
+        await assert.rejects(runReleaseContinuation("verify"), /current-source identity/);
+        await assert.rejects(runReleaseContinuation("attempt"), /not admitted/);
+      }
+      assert.match(await probeOutput(f), new RegExp(`pending=false\\naction=${scenario.action}\\n`));
+      assert.equal(parseCandidateReceipt(f.pr.body), null);
+      assert.deepEqual(parseCandidateReceipt(f.pr.body, true), f.receipt);
+      const writes = f.calls.filter(call => call.method !== "GET");
+      assert.deepEqual(writes.map(call => [call.method, call.path]), [
+        ["POST", `repos/${f.c.repository}/issues/${f.pr.number}/comments`],
+        ["PATCH", `repos/${f.c.repository}/pulls/${f.pr.number}`],
+      ]);
+      assert.ok(!existsSync(join(f.root, "hooks")));
+    });
+  });
+});
+
 test("occupied-coordinate retirement refuses ambiguous history, registry errors and old deliveries", async () => {
   for (const published of ["2026-11-06T03:00:00Z", "2026-11-06T04:00:00Z", "invalid"]) await withAdapter(async f => {
     f.state.occupied = true; f.state.coordinatePublishedAt = published;
