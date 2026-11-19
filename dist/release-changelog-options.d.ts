@@ -44,6 +44,8 @@ export interface ChangelogScriptCommand {
 interface NpmLifecycleInputs {
     /** Configuration inherited by the configured hooks. */
     lifecycle: NpmLifecycle;
+    /** Inspect only explicitly invoked scripts when classifying the configured main command. */
+    mainOnly?: boolean;
     /** Static environment of each standalone workflow step. */
     workflowSteps?: ReadonlyMap<string, NpmLifecycle>;
 }
@@ -84,8 +86,8 @@ export declare function assertReleaseHeadingDate(scripts: readonly string[], mer
 export declare function assertReleaseHookHeadingDate(scripts: ReadonlyMap<string, string>, hooks: readonly string[], mergeDay: string, packageVersion?: string, lifecycle?: NpmLifecycle): void;
 /** Enable empty sections on each generator while preserving shell operators and redirections. */
 export declare function includeEmptyReleaseSections(script: string, scriptNames?: ReadonlySet<string>): string;
-/** Add the saved flag to the configured main command when its output comes from a custom script. */
-export declare function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<string, string>): string;
+/** Save the custom flag on the final command, after npm's own argument boundary. */
+export declare function includeEmptyCustomHook(script: string): string;
 /** Refresh the inline pins, or restore the standing policy for a current version. */
 export declare function rewriteReleaseHeadingDate(script: string, headingDate: string, scriptNames?: ReadonlySet<string>): string;
 /** Rewrite all heading options received by the manifest's resolved release hooks. */

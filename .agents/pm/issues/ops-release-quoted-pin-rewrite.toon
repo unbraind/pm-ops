@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-19T19:14:30.713Z"
+updated_at: "2026-11-19T19:20:04.465Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -16,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[63]:
+comments[64]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -207,6 +207,9 @@ comments[63]:
   - created_at: "2026-11-19T19:14:30.712Z"
     author: codex-sol
     text: "Independent DY fixes cover cxiu (literal npm lifecycle setting), kAjg (redirection filename is not an assignment), kAj6 (npm argument delimiter), kAkC (pre/post-independent custom output) and kAkO (both accepted date policies in the success note). Custom notes argv was verified with npm, including an idempotent second preparation."
+  - created_at: "2026-11-19T19:20:02.297Z"
+    author: codex-sol
+    text: "Focused suite caught an extra flag on trailing helper commands. Main-only traversal now follows explicit forwards, preserves generator sequences with trailing helpers, and excludes lifecycle siblings at every depth. Real npm receives the repaired flag even with a generator in prerender."
 files[22]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
@@ -230,7 +233,7 @@ files[22]{path,scope}:
   test/release-runtime.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[43]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[44]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -274,6 +277,7 @@ tests[43]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-name-pattern='dependency-only release windows' test/changelog-sections.test.ts,project,codex-sol,"2026-11-19T11:48:28.301Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-name-pattern='custom notes keep' test/changelog-sections.test.ts,project,codex-sol,"2026-11-19T12:46:41.210Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test test/release-hook-grammar.test.ts test/changelog-sections.test.ts test/verify-release-changelog-date.test.ts,project,codex-sol,"2026-11-19T19:13:33.940Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-name-pattern='custom notes receive|preparation follows two forwards' test/changelog-sections.test.ts,project,codex-sol,"2026-11-19T19:20:04.317Z",local_mutation,fix/release-hook-wrapper-options-bm
 docs[2]{path,scope}:
   docs/reusable-release.md,project
   README.md,project

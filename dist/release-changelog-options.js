@@ -148,7 +148,10 @@ function scriptForward(program, parameters, scriptNames) {
         return { target, runner: program, optional: entry.optional, args: separator ? tail.slice(1) : tail };
     }
     const separator = tail.findIndex(token => token.value === "--" && !token.unresolved);
-    const flags = separator < 0 ? tail : tail.slice(0, separator);
+    // An older preparation saved this flag on npm itself. npm consumes it,
+    // so it contributes no generator argv until preparation repairs the hook.
+    const legacyFlag = separator < 0 && tail.at(-1)?.value === INCLUDE_EMPTY_FLAG;
+    const flags = separator < 0 && !legacyFlag ? tail : tail.slice(0, separator);
     const settings = afterNpmRunOptions(flags, 0, entry.optional, entry.lifecycle);
     return { target, runner: program, lifecycle: settings.lifecycle, optional: settings.optional, unsupported: flags[settings.index]?.value, args: separator < 0 ? [] : tail.slice(separator + 1) };
 }
@@ -634,7 +637,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
                     forwardedSeparators.add(forward.forwardedSeparator);
                 const enabled = forward.lifecycle ?? lifecycle;
                 const isNpm = forward.runner === "npm";
-                const sequence = names.sequence(forward.target, !isNpm || enabled !== false);
+                const sequence = names.sequence(forward.target, !npm.mainOnly && (!isNpm || enabled !== false));
                 for (const target of sequence) {
                     const main = target === forward.target;
                     visit(target, main ? forward.args : [], [...parents, name], enabled, checkContext, isNpm && !main);
@@ -646,7 +649,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
     for (const hook of hooks ?? entryPoints) {
         if (!hooks && !names.has(hook))
             continue;
-        for (const name of names.sequence(hook, lifecycle !== false))
+        for (const name of names.sequence(hook, !npm.mainOnly && lifecycle !== false))
             visit(name, [], [], lifecycle, true, name !== hook);
     }
     if (hooks)
@@ -883,28 +886,13 @@ export function includeEmptyReleaseSections(script, scriptNames) {
     }
     return applyHookEdits(script, edits.values());
 }
-/** Add the saved flag to the configured main command when its output comes from a custom script. */
-export function includeEmptyCustomHook(script, scripts) {
+/** Save the custom flag on the final command, after npm's own argument boundary. */
+export function includeEmptyCustomHook(script) {
     const { commands, spans } = parseReleaseHook(script);
-    const last = commands.at(-1);
-    if (!last)
-        return script;
-    const invocation = releaseHookCommand(last);
+    const invocation = releaseHookCommand(commands.at(-1) ?? []);
     if (!invocation)
         return script;
-    const names = new Set(scripts.keys());
-    let current = invocation;
-    // Resolution has already checked the forward graph for cycles. Only follow
-    // each main script's final command: pre/post hooks receive independent argv.
-    while (current) {
-        if (generatorCommand(current))
-            return script;
-        const forward = scriptForward(basename(current[0].value), current.slice(1), names);
-        const target = forward?.target && scripts.get(forward.target);
-        const tail = target && parseReleaseHook(target).commands.at(-1);
-        current = tail ? releaseHookCommand(tail) : undefined;
-    }
-    const forward = scriptForward(basename(invocation[0].value), invocation.slice(1), names);
+    const forward = scriptForward(basename(invocation[0].value), invocation.slice(1));
     const npm = forward?.runner === "npm";
     const args = npm ? forward.args : invocation.slice(1);
     if (args.some(word => word.value === INCLUDE_EMPTY_FLAG))

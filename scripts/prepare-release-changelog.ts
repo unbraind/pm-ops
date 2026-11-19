@@ -1,8 +1,19 @@
 /** Persist the date and empty-section policies used by release changelog hooks. */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import {
-  includeEmptyCustomHook, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHookDates,
+  changelogArguments, includeEmptyCustomHook, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHookDates,
+  visitChangelogScriptCommands,
 } from "../release-changelog-options.ts";
+
+/** Test the main invocation and its explicit forwards independently of their lifecycle siblings. */
+function usesMainGenerator(scripts: ReadonlyMap<string, string>, hook: string, lifecycle: ReturnType<typeof npmLifecycle>): boolean {
+  let found = false;
+  visitChangelogScriptCommands(scripts, ({ effective, names }) => {
+    if (changelogArguments(effective, names)) found = true;
+  }, [hook], undefined, undefined, { lifecycle, mainOnly: true });
+  return found;
+}
+
 try {
   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
   const headingDate = (process.env.RELEASE_HEADING_DATE || "").trim();
@@ -23,8 +34,8 @@ try {
       console.log(`::notice::Release commit adds --include-empty to generator invocations in package.json script "${name}" so later changelog checks agree with this dependency-only release.`);
     }
     // Preserve the released workflow's saved argument for configured custom hooks.
-    if (hooks.includes(name)) {
-      const custom = includeEmptyCustomHook(prepared, resolved);
+    if (hooks.includes(name) && !usesMainGenerator(resolved, name, lifecycle)) {
+      const custom = includeEmptyCustomHook(prepared);
       if (custom !== prepared) {
         console.log(`::notice::Release commit adds --include-empty to custom package.json script "${name}".`);
       }

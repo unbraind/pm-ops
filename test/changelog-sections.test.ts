@@ -351,7 +351,8 @@ test("custom notes receive the saved argument through npm independently of pre/p
     ["npm run render --include-empty", "npm run render -- --include-empty", ["--include-empty"]],
   ] as const) {
     const preview = "node pm-changelog.ts --version=2026.11.17 --date-from-version --output preview.md";
-    const scripts = { "changelog:full": "# skip", "changelog:check": "# skip", "prerelease:notes": preview,
+    const lifecycleHook = main.startsWith("npm") ? "prerender" : "prerelease:notes";
+    const scripts = { "changelog:full": "# skip", "changelog:check": "# skip", [lifecycleHook]: preview,
       "release:notes": main, render: "node notes.mjs" };
     writeFileSync(manifest, JSON.stringify({ scripts }));
     execFileSync(process.execPath, prepare, { cwd: root, env });
@@ -416,6 +417,8 @@ test("prepare commits the heading its tag produces, for same-day and resumed rel
       // Main after tagging: the gate passes with no follow-up regeneration.
       execFileSync("npm", ["run", "release:check"], { cwd: root, env: releaseEnv });
       const committed = readFileSync(join(root, "CHANGELOG.md"), "utf8");
+      const timestamp = execFileSync("git", ["show", "-s", "--format=%cI", `v${version}`], { cwd: root, env, encoding: "utf8" });
+      assert.ok(committed.split("\n").includes(`## ${version} - ${timestamp.slice(0, 10)}`));
       execFileSync("npm", ["run", "changelog:full"], { cwd: root, env: releaseEnv });
       assert.equal(readFileSync(join(root, "CHANGELOG.md"), "utf8"), committed, `${version} ${headingDate}: post-tag regeneration must equal the prepared bytes`);
       if (headingDate) {
