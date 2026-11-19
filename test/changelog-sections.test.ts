@@ -347,13 +347,16 @@ test("custom notes receive the saved argument through npm independently of pre/p
   for (const [main, expected, argv] of [
     ["node notes.mjs", "node notes.mjs --include-empty", ["--include-empty"]],
     ["npm run render", "npm run render -- --include-empty", ["--include-empty"]],
+    ["npm run relay", "npm run relay -- -- --include-empty", ["--include-empty"]],
+    ["npm run relay -- --include-empty", "npm run relay -- -- --include-empty", ["--include-empty"]],
+    ["npm run ready", "npm run ready -- --include-empty", ["--include-empty"]],
     ["npm run render -- --title", "npm run render -- --title --include-empty", ["--title", "--include-empty"]],
     ["npm run render --include-empty", "npm run render -- --include-empty", ["--include-empty"]],
   ] as const) {
     const preview = "node pm-changelog.ts --version=2026.11.17 --date-from-version --output preview.md";
     const lifecycleHook = main.startsWith("npm") ? "prerender" : "prerelease:notes";
     const scripts = { "changelog:full": "# skip", "changelog:check": "# skip", [lifecycleHook]: preview,
-      "release:notes": main, render: "node notes.mjs" };
+      "release:notes": main, relay: "npm run render", ready: "npm run render --", render: "node notes.mjs" };
     writeFileSync(manifest, JSON.stringify({ scripts }));
     execFileSync(process.execPath, prepare, { cwd: root, env });
     const prepared = readFileSync(manifest, "utf8");

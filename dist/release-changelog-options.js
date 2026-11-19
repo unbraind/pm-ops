@@ -886,25 +886,41 @@ export function includeEmptyReleaseSections(script, scriptNames) {
     }
     return applyHookEdits(script, edits.values());
 }
-/** Save the custom flag on the final command, after npm's own argument boundary. */
-export function includeEmptyCustomHook(script) {
+/** Count npm option boundaries between a configured custom hook and its final executable. */
+function customForwardDelimiters(invocation, scripts) {
+    const names = new Set(scripts.keys());
+    let count = 0;
+    for (let depth = 0; depth <= MAX_SCRIPT_FORWARDS; depth++) {
+        const forward = scriptForward(basename(invocation[0].value), invocation.slice(1), names);
+        if (!forward)
+            return count;
+        if (forward.runner === "npm" && !invocation.some(word => word.value === "--"))
+            count++;
+        const text = scripts.get(forward.target);
+        if (!text)
+            return count; // An optional missing target runs no command.
+        const { commands, spans } = parseReleaseHook(text);
+        const recipient = commandReceivingArguments(text, commands, spans);
+        const next = recipient && releaseHookCommand([...recipient, ...forward.args]);
+        if (!next)
+            refuseHook("Custom script " + JSON.stringify(forward.target) + " cannot receive forwarded arguments. Move the logic into a script file");
+        invocation = next;
+    }
+    refuseHook("Custom script forward depth exceeds " + MAX_SCRIPT_FORWARDS);
+}
+/** Save the flag and any npm delimiters on the root caller, preserving shared target scripts. */
+export function includeEmptyCustomHook(script, scripts) {
     const { commands, spans } = parseReleaseHook(script);
     const invocation = releaseHookCommand(commands.at(-1) ?? []);
     if (!invocation)
         return script;
-    const forward = scriptForward(basename(invocation[0].value), invocation.slice(1));
-    const npm = forward?.runner === "npm";
-    const args = npm ? forward.args : invocation.slice(1);
-    if (args.some(word => word.value === INCLUDE_EMPTY_FLAG))
-        return script;
-    const missingDelimiter = npm && !invocation.some(word => word.value === "--");
     const flag = invocation.find(word => word.value === INCLUDE_EMPTY_FLAG);
-    if (missingDelimiter && flag) {
-        const offset = spans.get(flag).start;
-        return script.slice(0, offset) + "-- " + script.slice(offset);
-    }
-    const end = spans.get(invocation.at(-1)).end;
-    return script.slice(0, end) + (missingDelimiter ? " -- " : " ") + INCLUDE_EMPTY_FLAG + script.slice(end);
+    const count = customForwardDelimiters(invocation, scripts);
+    if (flag && count === 0)
+        return script;
+    const offset = flag ? spans.get(flag).start : spans.get(invocation.at(-1)).end;
+    const addition = flag ? "-- ".repeat(count) : " " + "-- ".repeat(count) + INCLUDE_EMPTY_FLAG;
+    return script.slice(0, offset) + addition + script.slice(offset);
 }
 /** An empty replacement restores the standing version policy. */
 function validateReplacementDay(headingDate) {

@@ -7,7 +7,7 @@ import test from "node:test";
 import { stringify } from "yaml";
 import { execFileSync } from "../subprocess.ts";
 import {
-  assertReleaseHeadingDate, assertReleaseHookHeadingDate, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHookDates, visitChangelogScriptCommands,
+  assertReleaseHeadingDate, assertReleaseHookHeadingDate, includeEmptyCustomHook, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHookDates, visitChangelogScriptCommands,
 } from "../release-changelog-options.ts";
 import { fixedOptionName, tokenizeCommands, tokenizeCommandsWithSpans, commandName, packageScriptCommand, releaseHookCommand } from "../shell-scan.ts";
 import { parseReleaseHook } from "../release-hook-grammar.ts";
@@ -177,6 +177,16 @@ test("release grammar retains escaped and quoted words, continuation and comment
   assert.throws(() => resolveChangelogHooks({ hook: 12 }, ["hook"]), /Missing changelog hook/);
   assert.throws(() => resolveChangelogHooks({ hook: "npm run bad", bad: false }, ["hook"]), /missing or empty/);
   assert.throws(() => assertReleaseHookHeadingDate(new Map([["hook", "pm-changelog --version v2026.11.16"]]), ["hook"], day), /without a date policy/);
+});
+
+test("custom notes delimiters follow explicit forwards and refuse unreachable argv", () => {
+  const scripts = new Map([["render", "node notes.js"], ["cycle", "npm run cycle"], ["comment", "node notes.js # no argv"],
+    ["bun-render", "bun run render"]]);
+  assert.equal(includeEmptyCustomHook("npm run --if-present missing", scripts), "npm run --if-present missing -- --include-empty");
+  assert.equal(includeEmptyCustomHook("npm run bun-render", scripts), "npm run bun-render -- --include-empty");
+  assert.equal(includeEmptyCustomHook(">", scripts), ">");
+  assert.throws(() => includeEmptyCustomHook("npm run comment", scripts), /cannot receive forwarded arguments/);
+  assert.throws(() => includeEmptyCustomHook("npm run cycle", scripts), /forward depth exceeds/);
 });
 
 test("npm lifecycle controls respect option order and stop at the argument delimiter", () => {
