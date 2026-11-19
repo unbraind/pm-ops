@@ -9,7 +9,7 @@ import { originalPublicationSigner, verifyRegistryProvenance, type ProvenanceIde
 import { pathToFileURL } from "node:url";
 import {
   cargoPackageVersion, decideReleaseContinuation, decideUnpublishedRetirement, ownsContinuationPr, releaseConfigDigest, releaseDigest, validateReleaseCandidate, verifyReleaseHandoff,
-  type ContinuationEvidence, type ContinuationPr, type ReleaseCandidate,
+  type ContinuationEvidence, type ContinuationPr, type ReleaseCandidate, type RetirementEvidence,
 } from "../release-continuation.ts";
 
 /** Durable PR body receipt; its candidate must match the original trusted run artifact. */
@@ -29,6 +29,7 @@ export type ReleaseApi = (path: string, method?: string, body?: unknown) => Prom
 const marker = "<!-- pm-ops-candidate-v1\n";
 const retiredMarker = "<!-- pm-ops-retired-candidate-v1\n";
 const attemptMarker = "<!-- pm-ops-publication-v1\n";
+const postHookMarker = "<!-- pm-ops-post-hook-v1\n";
 
 /** Read a required workflow value without printing credentials or environment state. */
 function required(name: string): string {
@@ -145,7 +146,9 @@ export async function registryJson(path: string): Promise<unknown> {
   const response = await fetch(`https://registry.npmjs.org/${path}`, { signal: AbortSignal.timeout(30_000), cache: "no-store" });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`Registry evidence unavailable: ${response.status}`);
-  return response.json();
+  const data: unknown = await response.json();
+  if (data === null) throw new Error("Registry evidence unavailable: empty JSON response");
+  return data;
 }
 
 /** Authenticate registry provenance and bind every source field before reconciliation. */
@@ -212,6 +215,28 @@ export async function releaseWaitReason(number: number, head: string, repository
   return `still settling (merge state: ${state}): inspect required checks and review decisions.`;
 }
 
+/** Find the latest candidate-bound attempt using both the recorded and GitHub comment times. */
+function latestPublicationAttempt(comments: { body: string; created_at: string }[], c: ReleaseCandidate): number | undefined {
+  if (comments.length === 0) return undefined;
+  const digest = releaseDigest(JSON.stringify(c));
+  let latest = -Infinity;
+  for (const comment of comments) {
+    try {
+      if (!comment.body.endsWith("\n-->")) throw new Error("Incomplete attempt receipt");
+      const record = JSON.parse(comment.body.slice(attemptMarker.length, -4)) as { candidate: string; attemptedAt: string };
+      const recordedAt = Date.parse(record.attemptedAt), createdAt = Date.parse(comment.created_at);
+      if (record.candidate !== digest || !Number.isFinite(recordedAt) || new Date(recordedAt).toISOString() !== record.attemptedAt
+        || !Number.isFinite(createdAt)) {
+        throw new Error("Attempt identity or timestamp disagrees");
+      }
+      latest = Math.max(latest, recordedAt, createdAt);
+    } catch (cause) {
+      throw new Error("Operator retirement refused because the publication journal is ambiguous. Verify the attempt identity and timestamp before retrying.", { cause });
+    }
+  }
+  return latest;
+}
+
 /** Re-read live planning metadata and registry provenance; execution separately binds downloaded bytes. */
 export async function inspectCandidate(receipt: CandidateReceipt, options: {
   repository: string; triggerSha: string; workflow: string; publishingWorkflowRef: string; configDigest: string; timezone: string; now: string; retireUnpublished?: boolean; prNumber?: number;
@@ -234,11 +259,26 @@ verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mai
   if (options.retireUnpublished === true) {
     const tagSha = await tagCommit(api, options.repository, c.tag);
     const release = await api(`${repo}/releases/tags/${c.tag}`);
-    const registry = c.npmPublish && await readRegistry(`${encodeURIComponent(c.packageName)}/${c.version}`) !== null ? "unverified" : "absent";
-    const comments = await pages<{ user: { login: string }; body: string }>(api, `${repo}/issues/${pr.number}/comments`);
-    const attempted = comments.some(comment => comment.user.login === "github-actions[bot]"
-      && (comment.body.startsWith(attemptMarker) || comment.body.startsWith("<!-- pm-ops-post-hook-v1\n")));
-    const action = decideUnpublishedRetirement(c, { ...options, defaultBranch: metadata.default_branch, pr: identity(pr), registry, attempted, tagSha, releaseSha: release ? tagSha ?? "present" : null });
+    const comments = (await pages<{ user: { login: string }; body: string; created_at: string }>(api, `${repo}/issues/${pr.number}/comments`))
+      .filter(comment => comment.user.login === "github-actions[bot]");
+    if (comments.some(comment => comment.body.startsWith(postHookMarker))) {
+      throw new Error("Operator retirement refused because a post-release hook journal exists. Verify the hook outcome and reconcile publication.");
+    }
+    const lastAttemptAt = latestPublicationAttempt(comments.filter(comment => comment.body.startsWith(attemptMarker)), c);
+    let registry: RetirementEvidence["registry"] = "absent";
+    let retirementTiming: RetirementEvidence["retirementTiming"];
+    if (c.npmPublish) {
+      // A response arriving after the settle window cannot make an early request fresh.
+      const registryCheckedAt = Date.now();
+      try {
+        if (await readRegistry(`${encodeURIComponent(c.packageName)}/${c.version}`) !== null) registry = "present";
+      } catch (cause) {
+        throw new Error("Operator retirement refused because the npm registry check failed. Rerun retirement when the exact version can be checked.", { cause });
+      }
+      if (lastAttemptAt !== undefined) retirementTiming = { lastAttemptAt, registryCheckedAt };
+    }
+    const action = decideUnpublishedRetirement(c, { ...options, defaultBranch: metadata.default_branch, pr: identity(pr),
+      registry, attempted: lastAttemptAt !== undefined, retirementTiming, tagSha, releaseSha: release ? tagSha ?? "present" : null });
     return { action, pr, mainSha: main.object.sha, toolsSha: c.toolsSha ?? c.baseSha, signerWorkflow: "" };
   }
   const run = await api(`${repo}/actions/runs/${c.runId}/attempts/${c.runAttempt}`) as {
@@ -287,7 +327,7 @@ verify?: typeof verifySigstoreBundle): Promise<{ action: string; pr: RestPr; mai
   const attempts = comments.filter(comment => comment.user.login === "github-actions[bot]" && comment.body.startsWith(attemptMarker))
     .map(comment => JSON.parse(comment.body.slice(attemptMarker.length, -4)) as { candidate: string });
   if (attempts.some(attempt => attempt.candidate !== releaseDigest(JSON.stringify(c)))) throw new Error("Publication attempt identity disagrees; operator reconciliation is required");
-  const attempted = attempts.length !== 0 || comments.some(comment => comment.user.login === "github-actions[bot]" && comment.body.startsWith("<!-- pm-ops-post-hook-v1\n"));
+  const attempted = attempts.length !== 0 || comments.some(comment => comment.user.login === "github-actions[bot]" && comment.body.startsWith(postHookMarker));
   let publishedToday = false;
   if (pr.merged && !configChanged && (registry === "absent" || (!c.npmPublish && !release))) {
     const today = day(options.now, options.timezone);
@@ -408,15 +448,14 @@ async function reconcilePostHook(receipt: CandidateReceipt, pr: RestPr, reposito
   const script = process.env.POST_RELEASE_SCRIPT;
   if (!script) return;
   if (!/^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$/.test(script)) throw new Error("Unsafe post-release script");
-  const marker = "<!-- pm-ops-post-hook-v1\n";
   const fingerprint = releaseDigest(JSON.stringify({ candidate: receipt.candidate, commit: pr.merge_commit_sha, script }));
   const endpoint = "repos/" + repository + "/issues/" + pr.number + "/comments";
   const comments = await pages<{ user: { login: string }; body: string }>(githubApi, endpoint);
-  const records = comments.filter(comment => comment.user.login === "github-actions[bot]" && comment.body.startsWith(marker))
-    .map(comment => JSON.parse(comment.body.slice(marker.length, -4)) as { fingerprint: string; state: string }).filter(record => record.fingerprint === fingerprint);
+  const records = comments.filter(comment => comment.user.login === "github-actions[bot]" && comment.body.startsWith(postHookMarker))
+    .map(comment => JSON.parse(comment.body.slice(postHookMarker.length, -4)) as { fingerprint: string; state: string }).filter(record => record.fingerprint === fingerprint);
   if (records.some(record => record.state === "complete")) return;
   if (completionOnly || records.length) throw new Error("Post-release hook is incomplete or ambiguous; preserve intent for operator verification");
-  const record = async (state: string) => githubApi(endpoint, "POST", { body: marker + JSON.stringify({ fingerprint, state }) + "\n-->" });
+  const record = async (state: string) => githubApi(endpoint, "POST", { body: postHookMarker + JSON.stringify({ fingerprint, state }) + "\n-->" });
   await record("attempt");
   execFileSync("npm", ["run", script], { cwd: process.env.NPM_PROJECT_PATH ?? ".", stdio: "inherit" });
   await record("complete");
