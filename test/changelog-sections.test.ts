@@ -310,6 +310,29 @@ test("dependency-only release windows support forwarded generators and custom no
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("custom notes keep the saved option before shell terminators and comments", t => {
+  const root = mkdtempSync(join(tmpdir(), "custom-notes-shell-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const manifest = join(root, "package.json");
+  const env = releaseStepEnv(root, process.env);
+  const prepare = [resolve("scripts/prepare-release-changelog.ts")];
+  writeFileSync(join(root, "notes.mjs"), 'console.log(JSON.stringify(process.argv.slice(2)));\n');
+  for (const suffix of [";", "\n", "; # notes end\n"]) {
+    const hooks = {
+      "changelog:full": "# No changelog generation needed.",
+      "changelog:check": "# No changelog check needed.",
+      "release:notes": "node notes.mjs" + suffix,
+    };
+    writeFileSync(manifest, JSON.stringify({ scripts: hooks }));
+    execFileSync(process.execPath, prepare, { cwd: root, env });
+    const prepared = readFileSync(manifest, "utf8");
+    assert.deepEqual(JSON.parse(prepared).scripts, { ...hooks, "release:notes": "node notes.mjs --include-empty" + suffix });
+    assert.equal(execFileSync("npm", ["run", "--silent", "release:notes"], { cwd: root, env, encoding: "utf8" }), '["--include-empty"]\n');
+    execFileSync(process.execPath, prepare, { cwd: root, env });
+    assert.equal(readFileSync(manifest, "utf8"), prepared);
+  }
+});
+
 test("prepare commits the heading its tag produces, for same-day and resumed releases", () => {
   const script = changelogStepScript();
   // The fixture starts from this repository's standing scripts, exactly as a

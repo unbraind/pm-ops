@@ -4,6 +4,7 @@ import {
   changelogArguments, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHookDates,
   visitChangelogScriptCommands,
 } from "../release-changelog-options.ts";
+import { parseReleaseHook } from "../release-hook-grammar.ts";
 
 /** Check whether preparation already handles empty sections through a generator reached by this hook. */
 function usesGenerator(scripts: ReadonlyMap<string, string>, hook: string, lifecycle: ReturnType<typeof npmLifecycle>): boolean {
@@ -12,6 +13,15 @@ function usesGenerator(scripts: ReadonlyMap<string, string>, hook: string, lifec
     if (changelogArguments(effective, names)) found = true;
   }, [hook], undefined, undefined, { lifecycle });
   return found;
+}
+
+/** Save the custom flag before the final command's trailing shell syntax. */
+function includeEmptyCustomHook(script: string): string {
+  const { commands, spans } = parseReleaseHook(script);
+  const command = commands.at(-1);
+  if (!command || command.some(word => word.value === "--include-empty")) return script;
+  const end = spans.get(command.at(-1)!)!.end;
+  return script.slice(0, end) + " --include-empty" + script.slice(end);
 }
 
 try {
@@ -34,9 +44,12 @@ try {
       console.log(`::notice::Release commit adds --include-empty to generator invocations in package.json script "${name}" so later changelog checks agree with this dependency-only release.`);
     }
     // Preserve the released workflow's saved argument for configured custom hooks.
-    if (hooks.includes(name) && !prepared.split(/\s+/).includes("--include-empty") && !usesGenerator(resolved, name, lifecycle)) {
-      prepared += " --include-empty";
-      console.log(`::notice::Release commit adds --include-empty to custom package.json script "${name}".`);
+    if (hooks.includes(name) && !usesGenerator(resolved, name, lifecycle)) {
+      const custom = includeEmptyCustomHook(prepared);
+      if (custom !== prepared) {
+        console.log(`::notice::Release commit adds --include-empty to custom package.json script "${name}".`);
+      }
+      prepared = custom;
     }
     if (prepared !== script) {
       pkg.scripts[name] = prepared;
