@@ -2,11 +2,13 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: open
+status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-19T22:36:23.054Z"
+updated_at: "2026-11-19T23:48:29.970Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -14,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[76]:
+comments[78]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -244,6 +246,12 @@ comments[76]:
   - created_at: "2026-11-19T22:36:12.285Z"
     author: codex-sol
     text: "The published PR branch head for Round EF is 9a60093. Required CI and CodeQL passed, and Greptile scored 1/5 with the two acceptance findings addressed locally by 36e9197. The refinement passed the 74 focused tests, typecheck, lint, duplication, docstring, changelog check, and the fleet scan. Full coverage and release-heading acceptance for the refinement were still running when these items were released."
+  - created_at: "2026-11-19T23:45:19.016Z"
+    author: codex-sol
+    text: Round EH adds regressions for npm consuming a pre-delimiter notes flag and for shell redirections hiding a directory change before a forwarded changelog writer. The scope is limited to the two Greptile findings.
+  - created_at: "2026-11-19T23:48:23.731Z"
+    author: codex-sol
+    text: "The red tests confirmed that a flag before npm's delimiter is consumed and can also cause a refusal when a lifecycle generator is reachable. Preparation removes that legacy npm option and saves a forwarded flag while retaining the title argument and existing npm boundaries. The shell guard strips redirections before locating the assignment-prefixed command, including command and builtin cd."
 files[22]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
@@ -267,7 +275,7 @@ files[22]{path,scope}:
   test/release-runtime.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[48]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[49]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -316,6 +324,7 @@ tests[48]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/multiline-quote.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-permissions-docs.test.ts test/release-review.test.ts test/release-runtime.test.ts test/release-verification.test.ts test/shell-command-scan.test.ts test/verify-release-changelog-date.test.ts,project,codex-sol,"2026-11-19T21:44:07.321Z",local_mutation,fix/release-hook-wrapper-options-bm
   node test/packed-consumer.acceptance.ts,project,codex-sol,"2026-11-19T21:53:50.396Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test test/release-hook-grammar.test.ts test/shell-command-scan.test.ts,project,codex-sol,"2026-11-19T22:20:19.722Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-name-pattern='custom notes receive|redirections and assignments' test/changelog-sections.test.ts test/release-hook-grammar.test.ts,project,codex-sol,"2026-11-19T23:48:29.681Z",local_mutation,fix/release-hook-wrapper-options-bm
 docs[2]{path,scope}:
   docs/reusable-release.md,project
   README.md,project

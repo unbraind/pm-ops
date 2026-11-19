@@ -408,6 +408,19 @@ test("a directory change in a loop condition is refused before rewriting", () =>
   assert.deepEqual(auditInvocations([workflow(piped)]).failures, []);
 });
 
+test("redirections and assignments cannot hide a directory change before a forwarded writer", () => {
+  const writer = "pm-changelog --release-version-from-package --date-fallback " + day;
+  const reason = /release hook context change cd/i;
+  for (const prefix of ["2>&1 cd docs", "2> log FIXTURE=1 command cd docs", "FIXTURE=1 2>&1 builtin cd docs"]) {
+    const hook = prefix + "; npm run writer";
+    const scripts = { hook, writer };
+    assert.throws(() => resolveChangelogHooks(scripts, ["hook"]), reason);
+    assert.throws(() => assertReleaseHookHeadingDate(new Map(Object.entries(scripts)), ["hook"], day), reason);
+  }
+  const hook = "2>&1; npm run writer";
+  assert.ok(resolveChangelogHooks({ hook, writer }, ["hook"]).has("writer"));
+});
+
 test("a descriptor duplication joins a continuation before it is refused", () => {
   const writer = "pm-changelog " + standing;
   const continuation = "\\" + "\n";

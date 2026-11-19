@@ -140,6 +140,7 @@ function afterRunOptions(program: string, tokens: readonly ShellToken[], start: 
 /** Locate the target and optionality of a package-script forward. */
 function scriptForward(program: string, parameters: readonly ShellToken[], scriptNames?: ReadonlySet<string>): {
   target: string | undefined; optional: boolean; runner: string; lifecycle?: NpmLifecycle; unsupported?: string; args: readonly ShellToken[]; forwardedSeparator?: ShellToken;
+  npmSeparator?: ShellToken;
 } | undefined {
   const command = afterRunOptions(program, parameters, 0);
   if (!isScriptForward(program, parameters[command.index]?.value)) return undefined;
@@ -158,9 +159,11 @@ function scriptForward(program: string, parameters: readonly ShellToken[], scrip
   // An older preparation saved this flag on npm itself. npm consumes it,
   // so it contributes no generator argv until preparation repairs the hook.
   const legacyFlag = separator < 0 && tail.at(-1)?.value === INCLUDE_EMPTY_FLAG;
-  const flags = separator < 0 && !legacyFlag ? tail : tail.slice(0, separator);
+  const flags = separator < 0 ? (legacyFlag ? tail.slice(0, -1) : tail)
+    : tail.slice(0, separator).filter(token => token.value !== INCLUDE_EMPTY_FLAG);
   const settings = afterNpmRunOptions(flags, 0, entry.optional, entry.lifecycle);
-  return { target, runner: program, lifecycle: settings.lifecycle, optional: settings.optional, unsupported: flags[settings.index]?.value, args: separator < 0 ? [] : tail.slice(separator + 1) };
+  return { target, runner: program, lifecycle: settings.lifecycle, optional: settings.optional, unsupported: flags[settings.index]?.value,
+    args: separator < 0 ? [] : tail.slice(separator + 1), npmSeparator: tail[separator] };
 }
 
 /** Whether npm automatically runs the named script's pre/post scripts. */
@@ -364,8 +367,10 @@ function shellCommandStart(words: ShellCommand): number {
 function shellContextChange(words: ShellCommand): ReleaseContextChange | undefined {
   const first = shellCommandStart(words);
   if (first < 0) return undefined;
-  const inner = words.slice(first);
-  const command = /^(?:builtin$|command$|time$|[A-Za-z_]\w*\+?=)/.test(inner[0].value) ? unwrapShellBuiltin(inner) ?? inner : inner;
+  const inner = withoutRedirections(words.slice(first));
+  const head = inner[0];
+  if (!head) return undefined;
+  const command = /^(?:builtin$|command$|time$|[A-Za-z_]\w*\+?=)/.test(head.value) ? unwrapShellBuiltin(inner) ?? inner : inner;
   const [program, ...args] = command;
   const name = basename(program.value);
   if (/^(?:cd|pushd|popd)$/.test(name)) return { construct: name, directory: true };
@@ -947,7 +952,7 @@ function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<
   for (let depth = 0; depth <= MAX_SCRIPT_FORWARDS; depth++) {
     const forward = scriptForward(basename(invocation[0].value), invocation.slice(1), names);
     if (!forward) return count;
-    if (forward.runner === "npm" && !invocation.some(word => word.value === "--")) count++;
+    if (forward.runner === "npm" && !forward.npmSeparator) count++;
     const text = scripts.get(forward.target!);
     if (!text) return count; // An optional missing target runs no command.
     const { commands, spans } = parseReleaseHook(text);
@@ -964,12 +969,24 @@ export function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<stri
   const { commands, spans } = parseReleaseHook(script);
   const invocation = releaseHookCommand(commands.at(-1) ?? []);
   if (!invocation) return script;
-  const flag = invocation.find(word => word.value === INCLUDE_EMPTY_FLAG);
+  const [program, ...args] = invocation;
+  const separator = scriptForward(basename(program.value), args)?.npmSeparator;
+  const boundary = separator ? args.indexOf(separator) : -1;
+  const flag = args.slice(boundary + 1).find(word => word.value === INCLUDE_EMPTY_FLAG);
+  const edits: HookEdit[] = [];
+  for (const word of args.slice(0, Math.max(0, boundary))) {
+    if (word.value !== INCLUDE_EMPTY_FLAG) continue;
+    const { start, end } = spans.get(word)!;
+    const padding = /^[ \t]*/.exec(script.slice(end))![0].length;
+    edits.push({ start, end: end + padding, text: "" });
+  }
   const count = customForwardDelimiters(invocation, scripts);
-  if (flag && count === 0) return script;
-  const offset = flag ? spans.get(flag)!.start : spans.get(invocation.at(-1)!)!.end;
-  const addition = flag ? "-- ".repeat(count) : " " + "-- ".repeat(count) + INCLUDE_EMPTY_FLAG;
-  return script.slice(0, offset) + addition + script.slice(offset);
+  if (!flag || count > 0) {
+    const offset = flag ? spans.get(flag)!.start : spans.get(invocation.at(-1)!)!.end;
+    const text = flag ? "-- ".repeat(count) : " " + "-- ".repeat(count) + INCLUDE_EMPTY_FLAG;
+    edits.push({ start: offset, end: offset, text });
+  }
+  return applyHookEdits(script, edits);
 }
 
 /** An empty replacement restores the standing version policy. */

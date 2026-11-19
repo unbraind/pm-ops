@@ -352,6 +352,9 @@ test("custom notes receive the saved argument through npm independently of pre/p
     ["npm run ready", "npm run ready -- --include-empty", ["--include-empty"]],
     ["npm run render -- --title", "npm run render -- --title --include-empty", ["--title", "--include-empty"]],
     ["npm run render --include-empty", "npm run render -- --include-empty", ["--include-empty"]],
+    ["npm run render --include-empty -- --title Notes", "npm run render -- --title Notes --include-empty", ["--title", "Notes", "--include-empty"]],
+    ['npm run render "--include-empty" -- --include-empty', "npm run render -- --include-empty", ["--include-empty"]],
+    ["npm run relay --include-empty -- --include-empty", "npm run relay -- -- --include-empty", ["--include-empty"]],
   ] as const) {
     const preview = "node pm-changelog.ts --version=2026.11.17 --date-from-version --output preview.md";
     const lifecycleHook = main.startsWith("npm") ? "prerender" : "prerelease:notes";
