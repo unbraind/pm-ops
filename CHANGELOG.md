@@ -1,10 +1,14 @@
 # Changelog
 
-## 2026.11.19 - 2026-11-19
+## Unreleased
 
 ### Fixed
 
 - Verify the clean trusted release-tool build before daily release planning ([ops-b2bs](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-b2bs.toon))
+
+## 2026.11.19 - 2026-11-19
+
+No tracked changes.
 
 ## 2026.11.18 - 2026-11-18
 
