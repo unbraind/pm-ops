@@ -2,13 +2,11 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: in_progress
+status: open
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-19T12:46:41.688Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-19T12:47:07.538Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[59]:
+comments[60]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -195,6 +193,9 @@ comments[59]:
   - created_at: "2026-11-19T12:45:23.760Z"
     author: codex-sol
     text: The first Round DR push passed local release gates. Greptile found that appending the saved custom flag after a shell terminator can run it as a separate command. Correct the insertion using the existing shell spans and retest the dependency-only custom hook.
+  - created_at: "2026-11-19T12:47:00.420Z"
+    author: codex-sol
+    text: "Round DR follow-up: Greptile discussion r4628856648 maps to d604c8c0321fef59bd585eb3dc16bf36e42f9e5c. The CodeRabbit compatibility fix PRRT_kwDOTOTl1M65cxic started in 9935c3d91fedcd56dd64f8f5eebf892a38834a6a. The custom flag now uses the final shell word's source span and preserves semicolon and newline separators, comments and repeated preparation."
 files[22]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
