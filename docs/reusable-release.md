@@ -280,12 +280,15 @@ policies skip this pending-version lookup.
 
 A merged candidate whose npm coordinate lacks matching provenance can be retired
 automatically when registry publication history proves the version existed before
-the trusted preparation run began. This requires the existing candidate ownership,
-preparation, merged-source and protection proofs, no tag or GitHub Release, and a
-probe triggered at current main. The probe emits a notice, preserves the exact
-receipt under the retired marker, and permits fresh daily preparation. Recorded
-failed publication attempts do not block this path because the immutable npm
-coordinate demonstrably predates them. It never publishes, tags or deletes that
+the trusted preparation run began. The probe checks candidate ownership, trusted
+preparation, required checks and reviews, and the absence of a tag and GitHub
+Release. If the protected squash landed on a different base, it can retire the
+receipt only when the merge has one parent, the package name and version still
+match, and there is no publication or post-hook attempt. A probe triggered at
+current main emits a notice, preserves the exact receipt under the retired marker,
+and permits fresh daily preparation. When the merge matches the prepared source,
+the probe can retire a receipt with a recorded attempt because the immutable npm
+coordinate predates that attempt. It never publishes, tags or deletes that
 version. Missing, invalid or newer publication timestamps retain the existing
 refusal: they cannot distinguish an unrelated artifact from delayed provenance
 for this release. Explicit `retire-unpublished` retains its stricter absence rules.
