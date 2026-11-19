@@ -34,6 +34,14 @@
 const fixedOptionNames = new WeakMap();
 const redirections = new WeakMap();
 const REDIRECTION = /^(?:[0-9]*(?:>>|>\||<>|<<<|<<-?|[<>])&?|&>>?)/;
+/** Whether this operator continues a literal redirection after shell line joining. */
+export function isRedirectionSuffix(source, start, end) {
+    const operator = source[end];
+    if (operator !== "&" && operator !== "|")
+        return false;
+    const prefix = source.slice(start, end).replaceAll("\\\n", "");
+    return operator === "&" ? /^[0-9]*[<>]>?$/.test(prefix) : /^[0-9]*>$/.test(prefix);
+}
 /** Record operators from the original source, where quoting and escapes are still visible. */
 export function recordShellRedirection(token, source, start, end) {
     if (!REDIRECTION.test(token.value))
@@ -641,8 +649,7 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
             }
             // Keep descriptor duplication and clobber redirections in the same
             // command. A quoted or escaped operator prefix cannot introduce them.
-            if ((character === "|" && /^[0-9]*>$/.test(text.slice(wordStart, index)))
-                || (character === "&" && /^[0-9]*[<>]>?$/.test(text.slice(wordStart, index)))) {
+            if (isRedirectionSuffix(text, wordStart, index)) {
                 value += character;
                 started = true;
                 continue;
@@ -979,11 +986,13 @@ export const RELEASE_PROJECT_OPTION = /^(?:-[Cw]|--(?:prefix|cwd|dir|chdir|filte
 /** Environment names whose values can change npm or the generator's behavior. */
 export const RELEASE_CONTEXT_VARIABLE = /^(?:npm_config_|pm_)[\w]+(?=\+?=|$)/i;
 /** Locate a release command using only wrappers with explicit argv boundaries. */
-export function releaseHookCommand(input, context) {
+export function releaseHookCommand(input, context, assignments) {
     const words = withoutRedirections(input);
     let i = 0;
     while (i < words.length && !words[i].startsQuoted && /^[A-Za-z_]\w*\+?=/.test(words[i].value)) {
-        const variable = RELEASE_CONTEXT_VARIABLE.exec(words[i++].value)?.[0];
+        const assignment = words[i++];
+        assignments?.push(assignment);
+        const variable = RELEASE_CONTEXT_VARIABLE.exec(assignment.value)?.[0];
         if (variable)
             context?.push({ construct: variable + " assignment" });
     }
@@ -1016,7 +1025,9 @@ export function releaseHookCommand(input, context) {
         }
         if (wrapper === "env") {
             while (/^[A-Za-z_][A-Za-z_0-9]*=/.test(words[i]?.value ?? "")) {
-                const variable = RELEASE_CONTEXT_VARIABLE.exec(words[i++].value)?.[0];
+                const assignment = words[i++];
+                assignments?.push(assignment);
+                const variable = RELEASE_CONTEXT_VARIABLE.exec(assignment.value)?.[0];
                 if (variable)
                     context?.push({ construct: "env " + variable + " assignment" });
             }

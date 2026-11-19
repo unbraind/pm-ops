@@ -4,14 +4,30 @@
  * construct retained on its command. Source spans always refer to the input.
  */
 import { basename } from "node:path";
-import { heredocBodyLines, heredocExpansionLines, recordShellRedirection, releaseHookCommand } from "./shell-scan.js";
+import { heredocBodyLines, heredocExpansionLines, isRedirectionSuffix, recordShellRedirection, releaseHookCommand, shellRedirection, } from "./shell-scan.js";
 const problems = new WeakMap();
 const indirectTargets = new WeakSet();
 const optionNames = new WeakMap();
 const isolatedCommands = new WeakSet();
+const loopConditions = new WeakSet();
+const continuedDescriptors = new WeakSet();
+const braceExpansions = new WeakSet();
+const BRACE_EXPANSION = /(?<!\$)\{(?:[^{}]*,[^{}]*|(?:-?\d+\.\.-?\d+|[A-Za-z]\.\.[A-Za-z])(?:\.\.-?\d+)?)\}/;
 /** Whether shell edits in this command are local to a pipeline stage or subshell. */
 export function isIsolatedReleaseCommand(words) {
     return isolatedCommands.has(words);
+}
+/** Whether the command belongs to the condition list of a while or until loop. */
+export function isReleaseLoopCondition(words) {
+    return loopConditions.has(words[0]);
+}
+/** Whether the shell joined source lines inside a descriptor redirection. */
+export function isContinuedDescriptor(word) {
+    return continuedDescriptors.has(word);
+}
+/** Whether this word includes unquoted shell brace expansion. */
+export function hasBraceExpansion(word) {
+    return braceExpansions.has(word);
 }
 /** Return the first unsupported construct in the command. */
 export function hookSyntaxProblem(words) {
@@ -40,6 +56,7 @@ export function parseReleaseHook(text) {
     const bindings = new Set();
     let words = [];
     const piped = new Set();
+    const loops = [];
     let subshellDepth = 0;
     let inSubshell = false;
     let heredoc = -1;
@@ -47,6 +64,21 @@ export function parseReleaseHook(text) {
     /** Retain unsupported subshell commands for inspection without propagating their edits. */
     function finishCommand() {
         if (words.length > 0) {
+            for (const word of words) {
+                if (word.quoted || !/^(?:while|until|for|select|do|done|if|then|elif|else|\{|!)$/.test(word.value))
+                    break;
+                const span = spans.get(word);
+                if (text.slice(span.start, span.end).replaceAll("\\\n", "") !== word.value)
+                    break;
+                if (/^(?:while|until|for|select)$/.test(word.value))
+                    loops.push(/^(?:while|until)$/.test(word.value));
+                if (word.value === "do" && loops.length)
+                    loops[loops.length - 1] = false;
+                if (word.value === "done")
+                    loops.pop();
+            }
+            if (loops.includes(true))
+                loopConditions.add(words[0]);
             if (inSubshell) {
                 isolatedCommands.add(words);
                 if (!hookSyntaxProblem(words))
@@ -117,6 +149,8 @@ export function parseReleaseHook(text) {
         const start = i;
         const startsQuoted = ch === "'" || ch === '"';
         let value = "";
+        // Keep the position of quoted or escaped data without interpreting its braces.
+        let unquoted = "";
         let quote = "";
         let problem;
         let quoted = false;
@@ -127,8 +161,8 @@ export function parseReleaseHook(text) {
             const char = text[i];
             // Redirection operators can contain characters that otherwise end a command.
             if (!quote && /[\s;&|]/.test(char)
-                && !(char === "&" && (i === start ? text[i + 1] === ">" : /^[0-9]*[<>]>?$/.test(text.slice(start, i))))
-                && !(char === "|" && /^[0-9]*>$/.test(text.slice(start, i))))
+                && !(i === start && text.startsWith("&>", i))
+                && !isRedirectionSuffix(text, start, i))
                 break;
             i++;
             if (char === quote) {
@@ -138,6 +172,7 @@ export function parseReleaseHook(text) {
             if (!quote && (char === "'" || char === '"')) {
                 quoted = true;
                 quote = char;
+                unquoted += "\0";
                 continue;
             }
             if (char === "\\" && quote !== "'" && (!quote || /["$`\\\n]/.test(text[i]))) {
@@ -146,8 +181,11 @@ export function parseReleaseHook(text) {
                     break;
                 }
                 const escaped = text[i++];
-                if (escaped !== "\n")
+                if (escaped !== "\n") {
                     value += escaped;
+                    if (!quote)
+                        unquoted += "\0";
+                }
                 continue;
             }
             if (quote !== "'" && (char === "$" || char === "`")) {
@@ -178,11 +216,17 @@ export function parseReleaseHook(text) {
                 }
             }
             value += char;
+            if (!quote)
+                unquoted += char;
         }
         if (quote)
             problem = "malformed shell arguments (unterminated quote)";
         const token = { value, startsQuoted, quoted, unresolved };
         recordShellRedirection(token, text, start, i);
+        if (shellRedirection(token)?.operator.endsWith("&") && text.slice(start, i).includes("\\\n"))
+            continuedDescriptors.add(token);
+        if (BRACE_EXPANSION.test(unquoted))
+            braceExpansions.add(token);
         if (unresolved && [...value.matchAll(/\$\{?([A-Za-z_][A-Za-z_0-9]*)/g)].some(match => bindings.has(match[1])))
             indirectTargets.add(token);
         if (!startsQuoted && mentionsGenerator(token)) {

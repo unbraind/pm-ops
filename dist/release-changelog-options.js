@@ -7,9 +7,9 @@
  * Source spans belong to the script that wrote each word. Shell evaluation,
  * unknown wrappers and ambiguous policies require a canonical invocation.
  */
-import { basename } from "node:path";
+import { basename, posix } from "node:path";
 import { RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand, shellRedirection, withoutRedirections, } from "./shell-scan.js";
-import { describeReleaseContextChange, mentionsGenerator, hookSyntaxProblem, isIsolatedReleaseCommand, literalOptionName, parseReleaseHook, refuseHook, } from "./release-hook-grammar.js";
+import { describeReleaseContextChange, hasBraceExpansion, hookSyntaxProblem, isContinuedDescriptor, isIsolatedReleaseCommand, isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, } from "./release-hook-grammar.js";
 /** The flag that makes an untagged heading version-derived. */
 export const DATE_FLAG = "--date-from-version";
 /** The option that pins the heading day of a resumed release. */
@@ -55,6 +55,8 @@ const VALUE_OPTIONS = new Set([
 const INCLUDE_EMPTY_FLAG = "--include-empty";
 const MAX_SCRIPT_FORWARDS = 8;
 const RETIRE_UNPUBLISHED = "Refusing to publish. Manually dispatch the workflow with retire-unpublished set to retire the unpublished candidate.";
+const SCRIPT_FILE_ADVICE = ". Move the logic into a script file";
+const CHANGELOG_TRAVERSAL = "Path traversal in a redirection destination writes CHANGELOG.md" + SCRIPT_FILE_ADVICE;
 /** Whether a YYYY-MM-DD string names an existing day, including years 0–99. */
 export function isRealCalendarDay(day) {
     if (!ISO_DAY.test(day))
@@ -276,23 +278,24 @@ function canReachGenerator(words, names, seen, writing = false, lifecycle = "unk
     return words.some(mentionsGenerator) || referencesWriter(words, names, seen);
 }
 /** Find definite or possible Bash writes to the changelog, including on helper commands. */
-function redirectsChangelog(words) {
+function redirectsChangelog(words, traversalOnly = false) {
     return words.some((word, index) => {
         const redirect = shellRedirection(word);
         if (!redirect?.operator.includes(">"))
             return false;
         const target = redirect.joined ? word : words[index + 1];
         if (target?.unresolved)
-            return true;
-        const destination = redirect.joined ? word.value.slice(redirect.operator.length) : target?.value;
-        return /^(?:\.\/)*CHANGELOG\.md$/.test(destination ?? "");
+            return !traversalOnly;
+        const destination = redirect.joined ? word.value.slice(redirect.operator.length) : target?.value ?? "";
+        return posix.normalize(destination) === "CHANGELOG.md"
+            && (!traversalOnly || destination.split("/").includes(".."));
     });
 }
 /** Classify only the generator outputs that may write the changelog. */
 function writesChangelog(args) {
     const { output, invalidOption, check, stdout } = changelogOutputTarget(args);
     return !check && !stdout
-        && (invalidOption !== undefined || output.unresolved === true || /(?:^|\/)CHANGELOG\.md$/.test(output.value));
+        && (invalidOption !== undefined || output.unresolved === true || /(?:^|\/)CHANGELOG\.md$/.test(posix.normalize(output.value)));
 }
 /** Project selectors on runners precede the delimiter that separates generator arguments. */
 function runnerProjectOption([program, ...args]) {
@@ -348,7 +351,9 @@ function unsupportedShellSemantics(words) {
 }
 /** Locate the command after any shell list introducers. */
 function shellCommandStart(words) {
-    return words.findIndex(word => word.quoted || !/^(?:if|then|elif|else|do|\{|!)$/.test(word.value));
+    const inCondition = isReleaseLoopCondition(words);
+    return words.findIndex(word => word.quoted || (!/^(?:if|then|elif|else|do|\{|!)$/.test(word.value)
+        && !(inCondition && /^(?:while|until)$/.test(word.value))));
 }
 /** Shell edits apply to later commands in this script and to their descendants. */
 function shellContextChange(words) {
@@ -406,6 +411,13 @@ function nextShellContext(words, preceding, effective = words) {
 }
 /** Apply one context rule to the shell path and the effective argv at each script depth. */
 function releaseContextProblem(words, names, preceding, hookPath = true) {
+    if (hookPath) {
+        if (words.some(isContinuedDescriptor))
+            return "Continued descriptor redirection" + SCRIPT_FILE_ADVICE;
+        const loopChange = isReleaseLoopCondition(words) ? shellContextChange(words) : undefined;
+        if (loopChange?.directory)
+            return "Directory change " + loopChange.construct + " in a loop condition" + SCRIPT_FILE_ADVICE;
+    }
     const shell = hookPath ? unsupportedShellSemantics(words) : undefined;
     if (shell)
         return describeReleaseContextChange(shell);
@@ -417,7 +429,8 @@ function releaseContextProblem(words, names, preceding, hookPath = true) {
 }
 /** Return the generator word and arguments, or refuse a possible hook behind an unknown wrapper. */
 function changelogInvocation(words, scriptNames, audit = false) {
-    const invocation = releaseHookCommand(words);
+    const assignments = [];
+    const invocation = releaseHookCommand(words, undefined, assignments);
     const mentions = words.some(mentionsGenerator);
     const problem = hookSyntaxProblem(words);
     if (problem && (mentions || referencesWriter(words, scriptNames))) {
@@ -435,6 +448,12 @@ function changelogInvocation(words, scriptNames, audit = false) {
     const [program, ...parameters] = invocation;
     const name = basename(program.value);
     const forward = scriptForward(name, parameters, scriptNames);
+    if (forward?.runner === "npm") {
+        const binding = assignments.map(word => /^([A-Za-z_]\w*)\+?=(.+)$/.exec(word.value))
+            .find(match => match && GENERATOR_TARGET.test(match[2]));
+        if (binding)
+            refuseHook("Generator binding through variable assignment " + binding[1] + " crosses an npm run forward" + SCRIPT_FILE_ADVICE);
+    }
     if (forward?.runner === "pnpm" && forward.target && scriptNames instanceof HookScriptNames
         && ["pre", "post"].some(prefix => scriptNames.canGenerate(prefix + forward.target))) {
         refuseHook("Configuration-dependent pnpm lifecycle writer for " + JSON.stringify(forward.target));
@@ -450,8 +469,13 @@ function changelogInvocation(words, scriptNames, audit = false) {
     if (program.unresolved && mentionsGenerator(program))
         refuseHook("Indirect pm-changelog executable " + JSON.stringify(program.value));
     const generator = generatorCommand(invocation);
-    if (generator)
+    if (generator) {
+        const args = generator.slice(1);
+        if (args.some(hasBraceExpansion) && (hasVersionInput(args) || args.some(({ value }) => /^--date(?:[-=]|$)/.test(value)))) {
+            refuseHook("Unquoted brace expansion in versioned generator options" + SCRIPT_FILE_ADVICE);
+        }
         return generator;
+    }
     if (name === "npm" && subcommand?.value === "exec" && mentions) {
         refuseHook("Unsupported npm exec options before pm-changelog. Use npm exec -- pm-changelog in the current project");
     }
@@ -599,7 +623,8 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
         visited.add(name);
         const invocationNames = checkContext ? names : knownWriters;
         if (implicitNpm && lifecycle === "unknown" && knownWriters.canGenerate(name, undefined, true)) {
-            const contextProblem = `Cannot determine npm ignore-scripts for lifecycle hook ${JSON.stringify(name)} that may write CHANGELOG.md. Set a literal workflow env or project .npmrc value; user/global npm config and external env are uncertain`;
+            const lifecycleProblem = `Cannot determine npm ignore-scripts for lifecycle hook ${JSON.stringify(name)} that may write CHANGELOG.md. Set a literal workflow env or project .npmrc value; user/global npm config and external env are uncertain`;
+            const contextProblem = commands.some(words => redirectsChangelog(words, true)) ? lifecycleProblem + ". " + CHANGELOG_TRAVERSAL : lifecycleProblem;
             if (hooks)
                 refuseHook(contextProblem);
             const words = commands[0];

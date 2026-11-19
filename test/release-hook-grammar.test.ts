@@ -7,7 +7,7 @@ import test from "node:test";
 import { stringify } from "yaml";
 import { execFileSync } from "../subprocess.ts";
 import {
-  assertReleaseHeadingDate, assertReleaseHookHeadingDate, includeEmptyCustomHook, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHookDates, visitChangelogScriptCommands,
+  assertReleaseHeadingDate, assertReleaseHookHeadingDate, includeEmptyCustomHook, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHeadingDate, rewriteReleaseHookDates, visitChangelogScriptCommands,
 } from "../release-changelog-options.ts";
 import { fixedOptionName, tokenizeCommands, tokenizeCommandsWithSpans, commandName, packageScriptCommand, releaseHookCommand } from "../shell-scan.ts";
 import { parseReleaseHook } from "../release-hook-grammar.ts";
@@ -375,6 +375,78 @@ test("a descriptor duplication stays with its command before an output-filter pi
   const conflicting = valid.replace("2>&1", "2>&1 --date-fallback 2026-11-17");
   assert.match(auditInvocations([workflow(conflicting)]).failures[0], /Mutually exclusive/);
   assert.match(auditInvocations([workflow("pm-changelog " + standing + " & grep Release")]).failures[0], /background/);
+});
+
+test("a traversing redirection is classified as a CHANGELOG write", () => {
+  const writer = "pm-changelog " + standing;
+  const traversal = 'printf heading > "docs/../CHANGELOG.md"';
+  const scripts = { hook: writer, prehook: traversal };
+  const reason = /path traversal.*CHANGELOG\.md.*script file/i;
+  assert.throws(() => resolveChangelogHooks(scripts, ["hook"]), reason);
+  assert.ok(resolveChangelogHooks(scripts, ["hook"], true).has("prehook"));
+  assert.throws(() => resolveChangelogHooks({ ...scripts, prehook: "npm run helper", helper: traversal }, ["hook"]),
+    /ignore-scripts.*prehook.*CHANGELOG\.md/);
+  const configured = { "changelog:full": writer, "prechangelog:full": traversal, "release:notes": writer };
+  assert.match(auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts: configured }) }]).failures[0], reason);
+  assert.ok(resolveChangelogHooks({ ...scripts, prehook: traversal.replace("CHANGELOG.md", "other.md") }, ["hook"]).has("prehook"));
+});
+
+test("a directory change in a loop condition is refused before rewriting", () => {
+  const writer = "pm-changelog " + standing;
+  const reason = /directory change (?:cd|pushd) in a loop condition.*script file/i;
+  for (const condition of ["while cd docs; do", "until true; builtin pushd docs; do", "while if true; then cd docs; fi; do"]) {
+    const hook = condition + " :; break; done; " + writer;
+    assert.throws(() => resolveChangelogHooks({ hook }, ["hook"]), reason);
+    assert.throws(() => rewriteReleaseHeadingDate(hook, day), reason);
+    assert.match(auditInvocations([workflow(hook)]).failures[0], reason);
+  }
+  assert.doesNotThrow(() => resolveChangelogHooks({ hook: "while false; do echo cd; done; " + writer }, ["hook"]));
+  assert.doesNotThrow(() => resolveChangelogHooks({ hook: "\\while cd docs; " + writer }, ["hook"]));
+});
+
+test("a descriptor duplication joins a continuation before it is refused", () => {
+  const writer = "pm-changelog " + standing;
+  const continuation = "\\" + "\n";
+  const reason = /continued descriptor redirection.*script file/i;
+  for (const redirect of ["2>" + continuation + "&1", "2" + continuation + ">&1", "2>&" + continuation + "1"]) {
+    const hook = writer + " " + redirect + " | grep Release";
+    const [command] = parseReleaseHook(hook).commands;
+    assert.equal(command.at(-1)?.value, "2>&1");
+    assert.throws(() => resolveChangelogHooks({ hook }, ["hook"]), reason);
+    assert.throws(() => assertReleaseHeadingDate([hook], day, "2026.11.17"), reason);
+    assert.match(auditInvocations([workflow(hook)]).failures[0], reason);
+  }
+  assert.doesNotThrow(() => resolveChangelogHooks({ hook: writer + " " + continuation + "--title release" }, ["hook"]));
+});
+
+test("versioned generator options refuse unquoted brace expansion", () => {
+  const writer = "pm-changelog " + standing;
+  const reason = /unquoted brace expansion.*versioned generator options.*script file/i;
+  for (const arg of ["--{date-from-version,date-fallback}=2026-11-17", "--title=release-{1..3}", "--title={'one',two}"]) {
+    const hook = writer + " " + arg;
+    assert.throws(() => resolveChangelogHooks({ hook }, ["hook"]), reason);
+    assert.match(auditInvocations([workflow(hook)]).failures[0], reason);
+    const forwarded = "npm run writer -- " + arg;
+    assert.throws(() => rewriteReleaseHookDates(new Map([["hook", forwarded], ["writer", writer]]), ["hook"], day), reason);
+  }
+  for (const arg of ["--title='{one,two}'", '--title="{one,two}"', "--title=\\{one,two}", "--title={one}", "--title={one..two}"]) {
+    assert.doesNotThrow(() => resolveChangelogHooks({ hook: writer + " " + arg }, ["hook"]));
+  }
+  assert.throws(() => resolveChangelogHooks({ hook: "pm-changelog --date-from-version --title={one,two}" }, ["hook"]), reason);
+  assert.doesNotThrow(() => resolveChangelogHooks({ hook: "pm-changelog --stdout --title={one,two}" }, ["hook"]));
+});
+
+test("a generator assignment cannot cross an npm run forward", () => {
+  const scripts = { "changelog:full": 'GEN="pm-changelog" npm run writer', writer: '"$GEN" ' + standing };
+  const reason = /generator binding through variable assignment GEN.*npm run forward.*script file/i;
+  assert.throws(() => resolveChangelogHooks(scripts, ["changelog:full"]), reason);
+  assert.throws(() => assertReleaseHookHeadingDate(new Map(Object.entries(scripts)), ["changelog:full"], day), reason);
+  assert.match(auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts }) }]).failures[0], reason);
+  assert.throws(() => resolveChangelogHooks({ ...scripts, "changelog:full": "env 'GEN=pm-changelog' npm run writer" },
+    ["changelog:full"]), reason);
+  for (const hook of ["TZ=UTC npm run writer", "GEN= npm run writer", "exec -a GEN=pm-changelog npm run writer"]) {
+    assert.doesNotThrow(() => resolveChangelogHooks({ hook, writer: "pm-changelog " + standing }, ["hook"]));
+  }
 });
 
 test("opaque argv expansion cannot conceal a versioned generator", () => {

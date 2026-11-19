@@ -60,6 +60,8 @@ export interface ShellToken {
 }
 /** One simple command: the words it would run, in order. */
 export type ShellCommand = ShellToken[];
+/** Whether this operator continues a literal redirection after shell line joining. */
+export declare function isRedirectionSuffix(source: string, start: number, end: number): boolean;
 /** Record operators from the original source, where quoting and escapes are still visible. */
 export declare function recordShellRedirection(token: ShellToken, source: string, start: number, end: number): void;
 /** The literal shell operator and whether its destination is part of this word. */
@@ -209,7 +211,7 @@ export interface ReleaseContextChange {
     directory?: boolean;
 }
 /** Locate a release command using only wrappers with explicit argv boundaries. */
-export declare function releaseHookCommand(input: ShellCommand, context?: ReleaseContextChange[]): ShellCommand | undefined;
+export declare function releaseHookCommand(input: ShellCommand, context?: ReleaseContextChange[], assignments?: ShellToken[]): ShellCommand | undefined;
 /**
  * List a command's arguments -- everything after its program name.
  *

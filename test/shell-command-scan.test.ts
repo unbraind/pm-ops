@@ -35,6 +35,20 @@ test("joined numeric redirection targets preserve the next option", () => {
   }
 });
 
+test("continued descriptor duplication preserves the remaining argv", () => {
+  const continuation = "\\" + "\n";
+  for (const redirect of ["2>" + continuation + "&1", "2" + continuation + ">&1", "2>&" + continuation + "1"]) {
+    const commands = tokenizeCommands("printf " + redirect + " example | cat");
+    assert.deepEqual(commands.map(commandName), ["printf", "cat"]);
+    assert.deepEqual(commandArguments(commands[0]).map(word => word.value), ["example"], redirect);
+  }
+  for (const literal of ['2">"', "2\\>"]) {
+    const commands = tokenizeCommands("printf " + literal + continuation + "& cat");
+    assert.deepEqual(commands.map(commandName), ["printf", "cat"]);
+    assert.deepEqual(commandArguments(commands[0]).map(word => word.value), ["2>"], literal);
+  }
+});
+
 test("an unknown array reference is left in place rather than erased", () => {
   // Erasing it would turn "this scan does not understand the command" into
   // "this command carries no flags", which reads as a pass.

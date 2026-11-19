@@ -70,6 +70,14 @@ const fixedOptionNames = new WeakMap<ShellToken, string>();
 const redirections = new WeakMap<ShellToken, { operator: string; joined: boolean }>();
 const REDIRECTION = /^(?:[0-9]*(?:>>|>\||<>|<<<|<<-?|[<>])&?|&>>?)/;
 
+/** Whether this operator continues a literal redirection after shell line joining. */
+export function isRedirectionSuffix(source: string, start: number, end: number): boolean {
+  const operator = source[end];
+  if (operator !== "&" && operator !== "|") return false;
+  const prefix = source.slice(start, end).replaceAll("\\\n", "");
+  return operator === "&" ? /^[0-9]*[<>]>?$/.test(prefix) : /^[0-9]*>$/.test(prefix);
+}
+
 /** Record operators from the original source, where quoting and escapes are still visible. */
 export function recordShellRedirection(token: ShellToken, source: string, start: number, end: number): void {
   if (!REDIRECTION.test(token.value)) return;
@@ -673,8 +681,7 @@ function scanShellCommands(
       }
       // Keep descriptor duplication and clobber redirections in the same
       // command. A quoted or escaped operator prefix cannot introduce them.
-      if ((character === "|" && /^[0-9]*>$/.test(text.slice(wordStart, index)))
-        || (character === "&" && /^[0-9]*[<>]>?$/.test(text.slice(wordStart, index)))) {
+      if (isRedirectionSuffix(text, wordStart, index)) {
         value += character;
         started = true;
         continue;
@@ -1027,11 +1034,13 @@ export interface ReleaseContextChange {
 }
 
 /** Locate a release command using only wrappers with explicit argv boundaries. */
-export function releaseHookCommand(input: ShellCommand, context?: ReleaseContextChange[]): ShellCommand | undefined {
+export function releaseHookCommand(input: ShellCommand, context?: ReleaseContextChange[], assignments?: ShellToken[]): ShellCommand | undefined {
   const words = withoutRedirections(input);
   let i = 0;
   while (i < words.length && !words[i].startsQuoted && /^[A-Za-z_]\w*\+?=/.test(words[i].value)) {
-    const variable = RELEASE_CONTEXT_VARIABLE.exec(words[i++].value)?.[0];
+    const assignment = words[i++];
+    assignments?.push(assignment);
+    const variable = RELEASE_CONTEXT_VARIABLE.exec(assignment.value)?.[0];
     if (variable) context?.push({ construct: variable + " assignment" });
   }
   while (i < words.length) {
@@ -1059,7 +1068,9 @@ export function releaseHookCommand(input: ShellCommand, context?: ReleaseContext
     }
     if (wrapper === "env") {
       while (/^[A-Za-z_][A-Za-z_0-9]*=/.test(words[i]?.value ?? "")) {
-        const variable = RELEASE_CONTEXT_VARIABLE.exec(words[i++].value)?.[0];
+        const assignment = words[i++];
+        assignments?.push(assignment);
+        const variable = RELEASE_CONTEXT_VARIABLE.exec(assignment.value)?.[0];
         if (variable) context?.push({ construct: "env " + variable + " assignment" });
       }
     }

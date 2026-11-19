@@ -1,6 +1,12 @@
 import { type ShellCommand, type ShellToken, type ShellTokenSpan } from "./shell-scan.ts";
 /** Whether shell edits in this command are local to a pipeline stage or subshell. */
 export declare function isIsolatedReleaseCommand(words: ShellCommand): boolean;
+/** Whether the command belongs to the condition list of a while or until loop. */
+export declare function isReleaseLoopCondition(words: ShellCommand): boolean;
+/** Whether the shell joined source lines inside a descriptor redirection. */
+export declare function isContinuedDescriptor(word: ShellToken): boolean;
+/** Whether this word includes unquoted shell brace expansion. */
+export declare function hasBraceExpansion(word: ShellToken): boolean;
 /** Return the first unsupported construct in the command. */
 export declare function hookSyntaxProblem(words: ShellCommand): string | undefined;
 /** Literal generator references and shell words referencing a local generator binding. */

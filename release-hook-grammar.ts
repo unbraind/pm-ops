@@ -4,16 +4,38 @@
  * construct retained on its command. Source spans always refer to the input.
  */
 import { basename } from "node:path";
-import { heredocBodyLines, heredocExpansionLines, recordShellRedirection, releaseHookCommand, type ShellCommand, type ShellToken, type ShellTokenSpan } from "./shell-scan.ts";
+import {
+  heredocBodyLines, heredocExpansionLines, isRedirectionSuffix, recordShellRedirection, releaseHookCommand, shellRedirection,
+  type ShellCommand, type ShellToken, type ShellTokenSpan,
+} from "./shell-scan.ts";
 
 const problems = new WeakMap<ShellToken, string>();
 const indirectTargets = new WeakSet<ShellToken>();
 const optionNames = new WeakMap<ShellToken, string>();
 const isolatedCommands = new WeakSet<ShellCommand>();
+const loopConditions = new WeakSet<ShellToken>();
+const continuedDescriptors = new WeakSet<ShellToken>();
+const braceExpansions = new WeakSet<ShellToken>();
+const BRACE_EXPANSION = /(?<!\$)\{(?:[^{}]*,[^{}]*|(?:-?\d+\.\.-?\d+|[A-Za-z]\.\.[A-Za-z])(?:\.\.-?\d+)?)\}/;
 
 /** Whether shell edits in this command are local to a pipeline stage or subshell. */
 export function isIsolatedReleaseCommand(words: ShellCommand): boolean {
   return isolatedCommands.has(words);
+}
+
+/** Whether the command belongs to the condition list of a while or until loop. */
+export function isReleaseLoopCondition(words: ShellCommand): boolean {
+  return loopConditions.has(words[0]);
+}
+
+/** Whether the shell joined source lines inside a descriptor redirection. */
+export function isContinuedDescriptor(word: ShellToken): boolean {
+  return continuedDescriptors.has(word);
+}
+
+/** Whether this word includes unquoted shell brace expansion. */
+export function hasBraceExpansion(word: ShellToken): boolean {
+  return braceExpansions.has(word);
 }
 
 /** Return the first unsupported construct in the command. */
@@ -48,6 +70,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
   const bindings = new Set<string>();
   let words: ShellCommand = [];
   const piped = new Set<ShellCommand>();
+  const loops: boolean[] = [];
   let subshellDepth = 0;
   let inSubshell = false;
   let heredoc = -1;
@@ -56,6 +79,15 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
   /** Retain unsupported subshell commands for inspection without propagating their edits. */
   function finishCommand(): void {
     if (words.length > 0) {
+      for (const word of words) {
+        if (word.quoted || !/^(?:while|until|for|select|do|done|if|then|elif|else|\{|!)$/.test(word.value)) break;
+        const span = spans.get(word)!;
+        if (text.slice(span.start, span.end).replaceAll("\\\n", "") !== word.value) break;
+        if (/^(?:while|until|for|select)$/.test(word.value)) loops.push(/^(?:while|until)$/.test(word.value));
+        if (word.value === "do" && loops.length) loops[loops.length - 1] = false;
+        if (word.value === "done") loops.pop();
+      }
+      if (loops.includes(true)) loopConditions.add(words[0]);
       if (inSubshell) {
         isolatedCommands.add(words);
         if (!hookSyntaxProblem(words)) problems.set(words[0], "Shell grouping or substitution");
@@ -115,6 +147,8 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
     const start = i;
     const startsQuoted = ch === "'" || ch === '"';
     let value = "";
+    // Keep the position of quoted or escaped data without interpreting its braces.
+    let unquoted = "";
     let quote = "";
     let problem: string | undefined;
     let quoted = false;
@@ -125,15 +159,18 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
       const char = text[i];
       // Redirection operators can contain characters that otherwise end a command.
       if (!quote && /[\s;&|]/.test(char)
-        && !(char === "&" && (i === start ? text[i + 1] === ">" : /^[0-9]*[<>]>?$/.test(text.slice(start, i))))
-        && !(char === "|" && /^[0-9]*>$/.test(text.slice(start, i)))) break;
+        && !(i === start && text.startsWith("&>", i))
+        && !isRedirectionSuffix(text, start, i)) break;
       i++;
       if (char === quote) { quote = ""; continue; }
-      if (!quote && (char === "'" || char === '"')) { quoted = true; quote = char; continue; }
+      if (!quote && (char === "'" || char === '"')) { quoted = true; quote = char; unquoted += "\0"; continue; }
       if (char === "\\" && quote !== "'" && (!quote || /["$`\\\n]/.test(text[i]))) {
         if (i === text.length) { problem = "Incomplete shell escape"; break; }
         const escaped = text[i++];
-        if (escaped !== "\n") value += escaped;
+        if (escaped !== "\n") {
+          value += escaped;
+          if (!quote) unquoted += "\0";
+        }
         continue;
       }
       if (quote !== "'" && (char === "$" || char === "`")) {
@@ -155,10 +192,13 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
         }
       }
       value += char;
+      if (!quote) unquoted += char;
     }
     if (quote) problem = "malformed shell arguments (unterminated quote)";
     const token: ShellToken = { value, startsQuoted, quoted, unresolved };
     recordShellRedirection(token, text, start, i);
+    if (shellRedirection(token)?.operator.endsWith("&") && text.slice(start, i).includes("\\\n")) continuedDescriptors.add(token);
+    if (BRACE_EXPANSION.test(unquoted)) braceExpansions.add(token);
     if (unresolved && [...value.matchAll(/\$\{?([A-Za-z_][A-Za-z_0-9]*)/g)].some(match => bindings.has(match[1]))) indirectTargets.add(token);
     if (!startsQuoted && mentionsGenerator(token)) {
       const binding = /^([A-Za-z_][A-Za-z_0-9]*)=/.exec(value);
