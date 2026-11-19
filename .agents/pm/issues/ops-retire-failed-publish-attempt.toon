@@ -1,0 +1,33 @@
+id: ops-retire-failed-publish-attempt
+title: Allow operator retirement after failed npm publish attempts
+description: A durable publish attempt blocks later release candidates even when npm never accepted the tarball. Recover through explicit operator retirement after a settled exact-version registry check confirms absence and GitHub has no tag or Release.
+type: Issue
+status: in_progress
+priority: 1
+tags[2]: "area:release","gh:unbraind/pm-ops#302"
+created_at: "2026-11-19T02:44:22.140Z"
+updated_at: "2026-11-19T05:46:59.026Z"
+author: codex-sol
+comments[5]{created_at,author,text}:
+  "2026-11-19T02:44:27.519Z",codex-sol,"Plan: read the candidate-bound publication journal before the live version check. Require the explicit operator flag, an absence check started after the latest recorded attempt plus the ten-minute npm visibility window, and no tag, Release or post-hook journal. Cover settled and unsettled attempts, present and unreadable registry responses, and unchanged no-attempt recovery. Run the linked tests and local typecheck, lint, duplication, docstring, full coverage and regenerated changelog gates."
+  "2026-11-19T02:49:39.062Z",codex-sol,"The linked continuation and reference suite passed all 277 tests. Typecheck, lint, zero-duplication, docstring and changelog regeneration and drift checks passed. The live-read fixture also rejects an early request that returns after settlement and a successful HTTP response with an empty JSON body."
+  "2026-11-19T03:06:26.357Z",codex-sol,"The first full suite had 1,989 passes, no failures and two opt-in real-repository skips. The branch gate identified one uncovered refusal for a truncated attempt-journal marker. Added an exact fixture and restarted the full coverage gate."
+  "2026-11-19T03:26:11.134Z",codex-sol,"Final linked continuation and reference suite passed 278 tests without skips. npm run coverage passed with 100% statements, branches, functions and lines across 50 source files, 1,990 passing tests and two opt-in real-repository skips. Typecheck, lint, duplication at 0%, docstring and changelog checks passed. Nearby release changes in pm-ops#295 and pm-ops#301 may require coordination when they land."
+  "2026-11-19T05:46:57.673Z",codex-sol,"Merged origin/main at 095a6f4 for PR #303. The protected changed-parent squash retains automatic occupied handling for a version that predates preparation when no attempt exists. Explicit retirement after a journaled failure requires a fresh exact-version 404 more than ten minutes after the latest attempt and no publication or post-hook evidence. The six-case adapter matrix distinguishes both decisions and their refusal paths. Regenerated tracked source maps and ran changelog:full after fetching tags. Focused command linked on this item: 623 passed, two opt-in real-repository tests skipped. Typecheck, test build, lint, duplication (0%), docstring (378 declarations), and changelog:check passed. npm run coverage: 1,998 passed, the same two opt-in skips, and 100% statements, branches, functions and lines across 50 sources. pm validate passed history and storage integrity and reported the same twelve pre-adoption completeness violations as the branch baseline, documented in ops-utza."
+files[8]{path,scope}:
+  dist/release-continuation.d.ts,project
+  dist/release-continuation.d.ts.map,project
+  dist/release-continuation.js,project
+  dist/release-continuation.js.map,project
+  release-continuation.ts,project
+  scripts/release-continuation.ts,project
+  test/release-continuation-adapter.test.ts,project
+  test/release-continuation.test.ts,project
+tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/attestation-union.test.ts test/daily-release-workflow.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-permissions-docs.test.ts test/release-prepare-restart.test.ts test/release-review.test.ts test/release-runtime.test.ts test/release-verification.test.ts,project,300,codex-sol,"2026-11-19T02:47:08.011Z",local_mutation,fix/retire-failed-publish-attempt
+  node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/daily-release-workflow.test.ts test/ops.test.ts test/publish-indirection-corpus.test.ts test/regex-array.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-permissions-docs.test.ts test/release-prepare-restart.test.ts test/release-repair.test.ts test/release-review.test.ts test/release-runtime.test.ts test/release-verification.test.ts test/verify-release-changelog-sections.test.ts,project,300,codex-sol,"2026-11-19T05:33:49.235Z",local_mutation,fix/retire-failed-publish-attempt
+docs[3]{path,scope}:
+  docs/release-migration.md,project
+  docs/reusable-release.md,project
+  README.md,project
+body: ""

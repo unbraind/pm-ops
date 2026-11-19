@@ -644,6 +644,14 @@ snapshot and HTTP bridge bindings used by the CLI. Config roots resolve relative
 to the config file. Command/schema discovery in core, pm-web's database doctor,
 and Cargo package readiness are separate checks.
 
+## Daily release recovery
+
+If npm publish attempts failed and the exact version still returns a live 404
+more than ten minutes after the latest recorded attempt, run the release caller
+with `retire-unpublished: true` and `reconcile-only: true`. Retirement also requires
+an owned candidate with no tag, GitHub Release or post-release hook journal.
+See the [release recovery instructions](docs/reusable-release.md#operator-retirement).
+
 ## Without git
 
 The repository changelog scripts require Git for release-tag windows and refuse

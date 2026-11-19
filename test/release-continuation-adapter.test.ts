@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import { parse } from "yaml";
 import { assertNoNpmInstalls } from "./npm-bootstrap-contract.ts";
 import { candidateFixture, evidenceFixture } from "./release-continuation-fixture.ts";
-import { releaseConfigDigest, releaseDigest } from "../release-continuation.ts";
+import { publicationSettleMs, releaseConfigDigest, releaseDigest } from "../release-continuation.ts";
 import { candidateBody, publishingSignerWorkflow, releaseWaitReason, retiredCandidateBody, discoverCandidatePrs, parseCandidateReceipt, inspectCandidate as inspectProductionCandidate, closeSuperseded, requiredProtection, approveRequiredWorkflowRuns, githubApi, registryJson, runReleaseContinuation as runProductionContinuation, normalizeWorkflowPath, type ReleaseApi } from "../scripts/release-continuation.ts";
 
 /** Isolate the cryptographic network boundary in transport fixtures; real signed bundles have separate tests. */
@@ -38,7 +38,7 @@ function remoteFixture() {
   const publicationRun = { ...run, head_sha: e.pr.mergedSha, referenced_workflows: [{ path: "unbraind/pm-ops/.github/workflows/daily-release.yml@refs/heads/main", sha: "8".repeat(40) }] };
   const artifact = { expired: false, workflow_run: { id: c.runId }, name: `verified-daily-release-${c.headSha}` };
   const calls: { path: string; method: string; body?: unknown }[] = [];
-  const state = { tag: null as string | null, release: false, registry: false, registryUnavailable: false, occupied: false, coordinatePublishedAt: "2026-10-12T12:00:00Z", checks: ["SUCCESS"], comments: [] as { user: { login: string }; body: string }[], publishedAt: "", npmPublishedAt: "2026-11-05T12:00:00Z", main: e.mainSha, tree: c.tree, parents: [c.baseSha], pkgVersion: c.version, pkgName: c.packageName };
+  const state = { tag: null as string | null, release: false, registry: false, registryUnavailable: false, occupied: false, coordinatePublishedAt: "2026-10-12T12:00:00Z", checks: ["SUCCESS"], comments: [] as { user: { login: string }; body: string; created_at?: string }[], publishedAt: "", npmPublishedAt: "2026-11-05T12:00:00Z", main: e.mainSha, tree: c.tree, parents: [c.baseSha], pkgVersion: c.version, pkgName: c.packageName };
   const api: ReleaseApi = async (path, method = "GET", body) => {
     calls.push({ path, method, body });
     if (method !== "GET") return {};
@@ -122,7 +122,7 @@ async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { ro
         if (control.write404 || control.writes === control.failWriteAt) return new Response("{}", { status: 404 });
       }
       data = await f.api(path, init?.method, body);
-      if (init?.method === "POST" && path.endsWith("/comments") && body?.body) f.state.comments.push({ user: { login: "github-actions[bot]" }, body: body.body });
+      if (init?.method === "POST" && path.endsWith("/comments") && body?.body) f.state.comments.push({ user: { login: "github-actions[bot]" }, body: body.body, created_at: new Date().toISOString() });
       if (init?.method === "PATCH" && body?.body && !control.ignorePersistence) Object.assign(f.pr, { body: body.body });
       if (init?.method === "PATCH" && body?.state && !control.ignorePersistence) Object.assign(f.pr, { state: body.state });
     } else if (url.startsWith("https://registry.npmjs.org/")) data = await f.registry(url.slice("https://registry.npmjs.org/".length));
@@ -267,18 +267,83 @@ test("operator retirement confirms closure and refuses a missing close write", a
 });
 
 test("operator cancellation preserves all publication evidence and supports legacy GitHub-only receipts", async () => {
-  for (const evidence of ["tag", "release", "release-with-tag", "registry", "attempt", "hook"]) {
+  for (const [evidence, remedy] of [
+    ["tag", /Reconcile publication for the existing tag/],
+    ["release", /Reconcile the existing release/],
+    ["release-with-tag", /Reconcile the existing release/],
+    ["registry", /Verify provenance and reconcile publication/],
+    ["attempt", /Verify the attempt identity and timestamp/],
+    ["hook", /Verify the hook outcome and reconcile publication/],
+  ] as const) {
     const f = remoteFixture();
     if (evidence.includes("tag")) Object.assign(f.state, { tag: f.e.pr.mergedSha });
     if (evidence.startsWith("release")) Object.assign(f.state, { release: true });
     if (evidence === "registry") Object.assign(f.state, { registry: true });
     if (["attempt", "hook"].includes(evidence)) f.state.comments.push({ user: { login: "github-actions[bot]" }, body: `<!-- pm-ops-${evidence === "attempt" ? "publication" : "post-hook"}-v1\n{}\n-->` });
-    await assert.rejects(inspectCandidate(f.receipt, { ...f.options, retireUnpublished: true }, f.api, f.registry), /retirement refused/, evidence);
+    await assert.rejects(inspectCandidate(f.receipt, { ...f.options, retireUnpublished: true }, f.api, f.registry), remedy, evidence);
     assertIntentRetained(f);
   }
   const f = remoteFixture(); delete f.c.toolsSha; f.c.npmPublish = false; f.pr.body = candidateBody(f.receipt);
   const result = await inspectCandidate(f.receipt, { ...f.options, retireUnpublished: true }, f.api, f.registry);
   assert.equal(result.action, "retire"); assert.equal(result.toolsSha, f.c.baseSha);
+});
+
+test("operator retirement refuses a publication journal with an incomplete closing marker", async () => {
+  const f = remoteFixture();
+  const attemptedAt = "2026-11-06T04:00:00.000Z";
+  f.state.comments.push({
+    user: { login: "github-actions[bot]" }, created_at: attemptedAt,
+    body: "<!-- pm-ops-publication-v1\n" + JSON.stringify({ candidate: releaseDigest(JSON.stringify(f.c)), attemptedAt }) + "\nBAD",
+  });
+  await assert.rejects(inspectCandidate(f.receipt, { ...f.options, retireUnpublished: true }, f.api, f.registry), /Verify the attempt identity and timestamp/);
+  assertIntentRetained(f);
+});
+
+test("operator retirement requires a fresh exact-version 404 after the latest durable publish attempt", async t => {
+  const lastAttempt = Date.parse("2026-11-06T04:15:00Z");
+  const boundary = lastAttempt + publicationSettleMs;
+  const clock = t.mock.method(Date, "now", () => boundary + 1);
+  for (const [scenario, message] of [
+    ["settled", null],
+    ["settling", /Wait until more than 10 minutes/],
+    ["present", /version exists on npm\. Verify provenance/],
+    ["outage", /registry check failed\. Rerun/],
+    ["empty", /registry check failed\. Rerun/],
+  ] as const) await withAdapter(async f => {
+    process.env.RETIRE_UNPUBLISHED = "true";
+    const addAttempt = (recordedAt: number, createdAt: number) => f.state.comments.push({
+      user: { login: "github-actions[bot]" }, created_at: new Date(createdAt).toISOString(),
+      body: "<!-- pm-ops-publication-v1\n" + JSON.stringify({
+        candidate: releaseDigest(JSON.stringify(f.c)), commit: f.pr.merge_commit_sha, attemptedAt: new Date(recordedAt).toISOString(),
+      }) + "\n-->",
+    });
+    addAttempt(lastAttempt - 60_000, lastAttempt);
+    addAttempt(lastAttempt - 120_000, lastAttempt - 120_000);
+    clock.mock.mockImplementation(() => scenario === "settling" ? boundary - 1 : boundary + 1);
+    const transport = globalThis.fetch;
+    let reads = 0;
+    globalThis.fetch = async (url, init) => {
+      if (String(url) !== `https://registry.npmjs.org/${f.c.packageName}/${f.c.version}`) return transport(url, init);
+      assert.ok(f.calls.some(call => call.path.includes("/comments?")), "the registry read follows journal discovery");
+      reads++;
+      clock.mock.mockImplementation(() => boundary + 1);
+      if (scenario === "empty") return new Response("null");
+      return transport(url, init);
+    };
+    f.state.registry = scenario === "present";
+    f.state.registryUnavailable = scenario === "outage";
+    if (message) {
+      await assert.rejects(runReleaseContinuation("probe"), message, scenario);
+      assertIntentRetained(f);
+    } else {
+      await runReleaseContinuation("probe");
+      assert.deepEqual(parseCandidateReceipt(f.pr.body, true), f.receipt);
+      assert.match(readFileSync(join(f.root, "output"), "utf8"), /pending=false\naction=retire/);
+      assert.equal(f.control.writes, 2, "only the retirement comment and receipt update");
+      assert.ok(!existsSync(join(f.root, "hooks")));
+    }
+    assert.equal(reads, 1);
+  });
 });
 
 test("approval selects exact-head protected workflow runs across pages without a CI name assumption", async () => {
@@ -1423,21 +1488,51 @@ test("current-main probe retires a registry coordinate that predates preparation
   });
 });
 
-test("a protected squash onto a different base retires the pre-existing npm coordinate only without an attempt", async () => {
-  await withAdapter(async f => {
-    f.state.occupied = true;
-    f.state.parents = ["8".repeat(40)];
-    f.state.tree = "9".repeat(40);
-    const attempt = { user: { login: "github-actions[bot]" }, body: "<!-- pm-ops-publication-v1\n" + JSON.stringify({ candidate: releaseDigest(JSON.stringify(f.c)) }) + "\n-->" };
-    f.state.comments.push(attempt);
-    await assert.rejects(runReleaseContinuation("probe"), /identity disagrees/);
-    assertIntentRetained(f);
-    f.state.comments.pop();
-    await assert.rejects(runReleaseContinuation("verify"), /current-source identity/);
-    await assert.rejects(runReleaseContinuation("attempt"), /not admitted/);
-    assert.match(await probeOutput(f), /pending=false\naction=occupied/);
-    assert.deepEqual(parseCandidateReceipt(f.pr.body, true), f.receipt);
-    assert.equal(f.calls.filter(call => call.method !== "GET").length, 2);
+test("a changed squash parent keeps occupied and failed-attempt retirement distinct", async t => {
+  const attemptedAt = "2026-11-06T04:00:00.000Z";
+  const boundary = Date.parse(attemptedAt) + publicationSettleMs;
+  const clock = t.mock.method(Date, "now", () => boundary + 1);
+  const scenarios = [
+    { name: "pre-existing version without an attempt", occupied: true, attempted: false, operator: false, clockOffset: 1, action: "occupied" },
+    { name: "pre-existing version with an attempt", occupied: true, attempted: true, operator: false, clockOffset: 1, error: /identity disagrees/ },
+    { name: "absent version with an attempt in automatic mode", occupied: false, attempted: true, operator: false, clockOffset: 1, error: /Merged source changed with publication evidence/ },
+    { name: "pre-existing version in operator mode", occupied: true, attempted: true, operator: true, clockOffset: 1, error: /version exists on npm/ },
+    { name: "absent version at the settle boundary", occupied: false, attempted: true, operator: true, clockOffset: 0, error: /Wait until more than 10 minutes/ },
+    { name: "absent version after the settle window", occupied: false, attempted: true, operator: true, clockOffset: 1, action: "retire" },
+  ];
+  for (const scenario of scenarios) await t.test(scenario.name, async () => {
+    await withAdapter(async f => {
+      f.state.occupied = scenario.occupied;
+      f.state.parents = ["8".repeat(40)];
+      f.state.tree = "9".repeat(40);
+      process.env.RETIRE_UNPUBLISHED = String(scenario.operator);
+      clock.mock.mockImplementation(() => boundary + scenario.clockOffset);
+      if (scenario.attempted) f.state.comments.push({
+        user: { login: "github-actions[bot]" }, created_at: attemptedAt,
+        body: "<!-- pm-ops-publication-v1\n" + JSON.stringify({
+          candidate: releaseDigest(JSON.stringify(f.c)), commit: f.pr.merge_commit_sha, attemptedAt,
+        }) + "\n-->",
+      });
+
+      if (scenario.error) {
+        await assert.rejects(runReleaseContinuation("probe"), scenario.error);
+        assertIntentRetained(f);
+        return;
+      }
+      if (scenario.action === "occupied") {
+        await assert.rejects(runReleaseContinuation("verify"), /current-source identity/);
+        await assert.rejects(runReleaseContinuation("attempt"), /not admitted/);
+      }
+      assert.match(await probeOutput(f), new RegExp(`pending=false\\naction=${scenario.action}\\n`));
+      assert.equal(parseCandidateReceipt(f.pr.body), null);
+      assert.deepEqual(parseCandidateReceipt(f.pr.body, true), f.receipt);
+      const writes = f.calls.filter(call => call.method !== "GET");
+      assert.deepEqual(writes.map(call => [call.method, call.path]), [
+        ["POST", `repos/${f.c.repository}/issues/${f.pr.number}/comments`],
+        ["PATCH", `repos/${f.c.repository}/pulls/${f.pr.number}`],
+      ]);
+      assert.ok(!existsSync(join(f.root, "hooks")));
+    });
   });
 });
 
