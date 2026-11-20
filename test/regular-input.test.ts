@@ -1,5 +1,6 @@
 /** Behavioral input-boundary regressions; never leave a blocking read in the test process. */
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import test from "node:test";
 import fs, { mkdtempSync, writeFileSync, rmSync, constants } from "node:fs";
 import { spawnSync } from "../subprocess.ts";
@@ -12,7 +13,7 @@ import { createDiagnosticPlan, executeDiagnosticPlan } from "../diagnostic-plans
 import { readGithubRelease } from "../release-completeness.ts";
 
 /** Run isolated real input consumers without Git or a possibility of hanging the parent. */
-function refuseInChild(root: string, path: string): void {
+async function refuseInChild(root: string, path: string): Promise<void> {
   const module = (file: string) => JSON.stringify(new URL(`../${file}.ts`, import.meta.url).href);
   const script = `import assert from 'node:assert/strict';
     import {readDiagnosticPlan} from ${module("diagnostic-plans")};
@@ -23,23 +24,58 @@ function refuseInChild(root: string, path: string): void {
     import {qualityMeasurementProvider} from ${module("assurance")};
     import {runReleaseCaller} from ${module("scripts/release-caller")};
     import {readRegularInput} from ${module("regular-input")};
-    const path=process.argv[1];
-    for (const [read,code] of [[()=>readDiagnosticPlan(path),'invalid_plan'],[()=>auditBackendConfigFile(path),'invalid_backend_config'],[()=>auditEvidenceExpiryFiles('.',path,path),'invalid_policy'],[()=>auditEvidenceExpiryFiles('.',process.argv[2],path),'invalid_versions']]) {
-      await assert.rejects(read(),e=>e.code===code && /regular/.test(e.remedy));
-    }
-    assert.throws(()=>readRegularInput(path),e=>e.code==='invalid_input' && /regular/.test(e.remedy));
-    assert.throws(()=>runReleaseCaller(path,()=>{}),e=>e.code==='invalid_input');
-    assert.throws(()=>qualityMeasurementProvider.resolve({provider:'pm-ops-quality',key:'coverage-percent',parameters:{dimension:'lines',report:path},trigger:'ci',pm_root:process.cwd()+'/.agents/pm',repo_root:process.cwd()}),e=>e.code==='invalid_input');
-    const harness=await createExtensionTestHarness(extension,{name:'pm-ops',capabilities:['commands','renderers','schema','parser','services']});
-    try { await assert.rejects(harness.runCommand({command:'ops policy',pmRoot:process.cwd()+'/.agents/pm',options:{policy:path,repos:process.cwd()}}),e=>e.code==='invalid_input'); }
-    finally {await harness.deactivate();}
-    console.log('8 typed refusals');`;
-  const result = spawnSync(process.execPath, ["--input-type=module", "-e", script, path, join(root, "policy.json")], {
-    cwd: root, timeout: 5000, killSignal: "SIGKILL", encoding: "utf8",
+    process.once('message', async (message) => {
+      assert.equal(message, 'read');
+      const path=process.argv[1];
+      for (const [read,code] of [[()=>readDiagnosticPlan(path),'invalid_plan'],[()=>auditBackendConfigFile(path),'invalid_backend_config'],[()=>auditEvidenceExpiryFiles('.',path,path),'invalid_policy'],[()=>auditEvidenceExpiryFiles('.',process.argv[2],path),'invalid_versions']]) {
+        await assert.rejects(read(),e=>e.code===code && /regular/.test(e.remedy));
+      }
+      assert.throws(()=>readRegularInput(path),e=>e.code==='invalid_input' && /regular/.test(e.remedy));
+      assert.throws(()=>runReleaseCaller(path,()=>{}),e=>e.code==='invalid_input');
+      assert.throws(()=>qualityMeasurementProvider.resolve({provider:'pm-ops-quality',key:'coverage-percent',parameters:{dimension:'lines',report:path},trigger:'ci',pm_root:process.cwd()+'/.agents/pm',repo_root:process.cwd()}),e=>e.code==='invalid_input');
+      const harness=await createExtensionTestHarness(extension,{name:'pm-ops',capabilities:['commands','renderers','schema','parser','services']});
+      try { await assert.rejects(harness.runCommand({command:'ops policy',pmRoot:process.cwd()+'/.agents/pm',options:{policy:path,repos:process.cwd()}}),e=>e.code==='invalid_input'); }
+      finally {await harness.deactivate();}
+      process.send('refused', () => process.disconnect());
+    });
+    process.send('ready');`;
+  const child = spawn(process.execPath, ["--input-type=module", "-e", script, path, join(root, "policy.json")], {
+    cwd: root, stdio: ["ignore", "ignore", "inherit", "ipc"],
     env: { ...process.env, PATH: "", GIT_CEILING_DIRECTORIES: dirname(root) },
   });
-  assert.equal(result.error, undefined, "input reader exceeded the external subprocess timeout");
-  assert.equal(result.status, 0, result.stderr); assert.match(result.stdout, /8 typed refusals/);
+  await new Promise<void>((resolve, reject) => {
+    let failure: Error | undefined;
+    let phase = "startup";
+    let timer: NodeJS.Timeout;
+    const stop = (error: Error): void => {
+      if (failure) return;
+      failure = error;
+      child.kill("SIGKILL");
+    };
+    const startDeadline = (nextPhase: string, ms: number): void => {
+      clearTimeout(timer);
+      phase = nextPhase;
+      timer = setTimeout(() => stop(new Error(`artifact reader ${phase} exceeded ${ms} ms`)), ms);
+    };
+    startDeadline("startup", 60_000);
+    child.on("error", stop);
+    child.on("message", (message) => {
+      if (failure) return;
+      if (message === "ready" && phase === "startup") {
+        startDeadline("input refusal", 5_000);
+        child.send("read");
+      } else if (message === "refused" && phase === "input refusal") {
+        // Let Node finish normally so coverage from the assertions is written.
+        startDeadline("shutdown", 60_000);
+      }
+    });
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      if (failure) reject(failure);
+      else if (code !== 0 || phase !== "shutdown") reject(new Error(`artifact reader exited during ${phase} (${signal ?? code})`));
+      else resolve();
+    });
+  });
 }
 
 test("all artifact readers refuse a writerless FIFO, socket, device, directory and over-limit input within a subprocess timeout", async () => {
@@ -53,13 +89,14 @@ test("all artifact readers refuse a writerless FIFO, socket, device, directory a
     writeFileSync(join(root, "policy.json"), JSON.stringify({ version: 1, claims: [{ id: "health", kind: "health", receipt: { gate_id: "gate", assertion_id: "health", tree_id: "tree", evaluated_at: "2026-10-24T00:00:00.000Z" }, scope: { kind: "all" }, max_age_seconds: 1, versions: { package: "1" } }] }));
     if (process.platform !== "win32") {
       const fifo = join(root, "plan.fifo"); assert.equal(spawnSync("mkfifo", [fifo]).status, 0);
-      refuseInChild(root, fifo);
-      for (const path of ["/dev/null", "/dev/zero"]) refuseInChild(root, path);
+      await refuseInChild(root, fifo);
+      for (const path of ["/dev/null", "/dev/zero"]) await refuseInChild(root, path);
       const path = join(root, "plan.sock");
-      await new Promise<void>((done) => { socket.listen(path, done); }); refuseInChild(root, path);
+      await new Promise<void>((done) => { socket.listen(path, done); });
+      await refuseInChild(root, path);
     }
-    refuseInChild(root, root);
-    const big = join(root, "big.json"); writeFileSync(big, " ".repeat(16 * 1024 * 1024 + 1)); refuseInChild(root, big);
+    await refuseInChild(root, root);
+    const big = join(root, "big.json"); writeFileSync(big, " ".repeat(16 * 1024 * 1024 + 1)); await refuseInChild(root, big);
   } finally { if (socket.listening) await new Promise<void>((done, reject) => { socket.close((error) => error ? reject(error) : done()); }); rmSync(root, { recursive: true, force: true }); }
 });
 
