@@ -2,13 +2,11 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: in_progress
+status: open
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-20T04:39:51.007Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-20T05:20:20.817Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[89]:
+comments[93]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -285,6 +283,18 @@ comments[89]:
   - created_at: "2026-11-20T04:39:42.864Z"
     author: codex-sol
     text: "Round EO release logic: classify inherited references by executable, runtime entry and version or date option position. Keep adjacent redirection destinations distinct. Follow workflow npm lifecycle settings to default hooks and find the final custom notes renderer through forwards. The preview test now requires fresh output and checks an explicitly disabled lifecycle. The pinned fleet still accepts 142 hooks and 144 bodies."
+  - created_at: "2026-11-20T04:40:32.283Z"
+    author: codex-sol
+    text: "Round EO thread-to-commit map. 24d844c: PRRT_kwDOTOTl1M650IRm and PRRT_kwDOTOTl1M650SdF distinguish inherited ordinary values from generator and policy positions; PRRT_kwDOTOTl1M650SdI separates consecutive redirection destinations; PRRT_kwDOTOTl1M650SdM routes the empty-section flag to the final custom notes renderer; PRRT_kwDOTOTl1M650SdP uses the lifecycle from workflow invocations of default entries; PRRT_kwDOTOTl1M650SdR preserves combined output redirections on the original command; PRRT_kwDOTOTl1M650SdV requires a fresh preview for every lifecycle row. accb464: PRRT_kwDOTOTl1M650Sda disables tag signing in fixture repositories; PRRT_kwDOTOTl1M650Sdd injects invalid UTF-8 directly into the source or candidate index."
+  - created_at: "2026-11-20T04:50:34.872Z"
+    author: codex-sol
+    text: "Round EO focused suite: 767/767 passed across 19 test files, zero skipped. The four historical scanner controls passed with their expected assertion failures on reverted code. Both earlier packed acceptance commands passed with npm and native Bun. Typecheck, test compilation, lint, docstrings, zero duplication and changelog:check passed. Regenerating the changelog produced identical bytes with ops-b2bs under Unreleased."
+  - created_at: "2026-11-20T04:58:49.854Z"
+    author: codex-sol
+    text: "Standalone npm run coverage passed on the final implementation: 53 sources at 100% statements, branches, functions and lines. Of 2,127 tests, 2,125 passed and the two opt-in real-data checks skipped. The bounded artifact-reader test passed. Full rewritten-candidate acceptance is running."
+  - created_at: "2026-11-20T05:20:14.631Z"
+    author: codex-sol
+    text: "The rewritten-candidate acceptance command node test/release-heading-full-gate.acceptance.ts passed its complete release:check with 100% statements, branches, functions and lines across 53 sources (2,125 passed, two opt-in skips, zero failures). The date pin, changelog checks, release tools audit, package dry run and lifecycle checks passed. Both implementation commits have been verified."
 files[23]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
