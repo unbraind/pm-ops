@@ -76,9 +76,11 @@ function quoteFixtureArgument(argument: string): string {
 /** The workflow step this suite executes, read straight from the YAML so reverting its policy breaks the proof. */
 function changelogStepScript(): string {
   const workflow = parse(readFileSync(resolve(".github/workflows/daily-release.yml"), "utf8")) as { jobs: { prepare: { steps: { name?: string; run?: string }[] } } };
-  const script = workflow.jobs.prepare.steps.find(step => step.name === "Generate changelog and release notes")?.run;
-  assert.ok(script);
-  return script;
+  return ["Prepare npm changelog hooks", "Generate changelog and release notes"].map(name => {
+    const script = workflow.jobs.prepare.steps.find(step => step.name === name)?.run;
+    assert.ok(script, name);
+    return script;
+  }).join("\n");
 }
 
 /** Fixture npm scripts that call this repository's generator with the standing policy. */
@@ -92,7 +94,7 @@ function releaseCommands(generator = resolve("scripts/pm-changelog.ts"), node = 
 
 /** Release-step environment over one fixture tracker, with the resumed heading date when given. */
 function releaseStepEnv(root: string, env: NodeJS.ProcessEnv, headingDate = ""): NodeJS.ProcessEnv {
-  return { ...env, IS_RUST: "false", CONTINUATION_SCRIPT: resolve("scripts/release-continuation.ts"), CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check", NOTES_SCRIPT: "release:notes", RELEASE_HEADING_DATE: headingDate, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: join(root, "summary.md"), NPM_CONFIG_USERCONFIG: "/dev/null" };
+  return { ...env, IS_RUST: "false", GITHUB_OUTPUT: join(root, "step-outputs"), CONTINUATION_SCRIPT: resolve("scripts/release-continuation.ts"), CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check", NOTES_SCRIPT: "release:notes", RELEASE_HEADING_DATE: headingDate, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: join(root, "summary.md"), NPM_CONFIG_USERCONFIG: "/dev/null" };
 }
 
 /** Commit the prepared release files with a controlled committer timestamp. */
@@ -662,9 +664,9 @@ test("date edits retain source ownership when a caller supplies the fallback ope
     ["changes", "pm-changelog --date-fallback"],
   ]);
   assert.deepEqual(Object.fromEntries(rewriteReleaseHookDates(scripts, ["hook"], "2026-11-17")), {
-    hook: "pnpm run relay --  --check",
+    hook: "pnpm run relay -- 2026-11-17 --check",
     relay: scripts.get("relay"),
-    changes: "pm-changelog --date-fallback 2026-11-17",
+    changes: "pm-changelog --date-fallback",
   });
   scripts.set("hook", "eval 'pnpm run changes -- --date-from-version'");
   scripts.set("changes", "pm-changelog");
@@ -886,4 +888,41 @@ test("preparation preserves a quoted expansion in a non-date option value", () =
   const prefix = 'pm-changelog --release-version-from-package --item-url-base="$ITEM_URL_BASE"';
   assert.equal(rewriteReleaseHeadingDate(`${prefix} --date-from-version`, "2026-11-17"),
     `${prefix} --date-fallback 2026-11-17`);
+});
+
+test("shared writers keep preview date operands and refuse an incompatible restore before writing", () => {
+  const root = mkdtempSync(join(tmpdir(), "shared-heading-"));
+  try {
+    const manifest = join(root, "package.json");
+    const scripts = { release: "npm run changes -- 2026-11-16", preview: "npm run changes -- 2026-10-01", changes: "pm-changelog --date-fallback" };
+    writeFileSync(manifest, JSON.stringify({ scripts }));
+    const env = { ...process.env, CHANGELOG_SCRIPT: "release", CHANGELOG_CHECK_SCRIPT: "release", NOTES_SCRIPT: "release", RELEASE_HEADING_DATE: "2026-11-17" };
+    const prepare = [resolve("scripts/prepare-release-changelog.ts")];
+    execFileSync(process.execPath, prepare, { cwd: root, env });
+    const before = readFileSync(manifest, "utf8");
+    const prepared = JSON.parse(before).scripts;
+    assert.equal(prepared.changes, "pm-changelog --include-empty --date-fallback");
+    assert.equal(prepared.preview, scripts.preview);
+    assert.equal(prepared.release, "npm run changes -- 2026-11-17");
+    const failed = spawnSync(process.execPath, prepare, { cwd: root, env: { ...env, RELEASE_HEADING_DATE: "" }, encoding: "utf8" });
+    assert.match(failed.stderr, /forwarded date operand/i);
+    assert.equal(failed.status, 1);
+    assert.equal(readFileSync(manifest, "utf8"), before);
+    for (const preview of ["bun changes", "npm run \"$SCRIPT\"", "npm run relay -- 2026-10-01"]) {
+      const withPreview = { ...prepared, preview };
+      if (preview.includes("relay")) {
+        withPreview.release = "npm run relay -- 2026-11-17";
+        withPreview.relay = "npm run changes --";
+      }
+      writeFileSync(manifest, JSON.stringify({ scripts: withPreview }));
+      assert.throws(() => execFileSync(process.execPath, prepare, { cwd: root, env: { ...env, RELEASE_HEADING_DATE: "" } }), /forwarded date operand/);
+    }
+    delete prepared.preview;
+    prepared.unrelated = null;
+    prepared.other = "npm run helper";
+    prepared.helper = "echo ready";
+    writeFileSync(manifest, JSON.stringify({ scripts: prepared }));
+    execFileSync(process.execPath, prepare, { cwd: root, env: { ...env, RELEASE_HEADING_DATE: "" } });
+    assert.match(JSON.parse(readFileSync(manifest, "utf8")).scripts.changes, /--date-from-version$/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -23,6 +23,8 @@ export declare function needsReleaseProject(words: ShellCommand, names?: Readonl
 export declare function changelogArguments(words: ShellCommand, scriptNames: ReadonlySet<string>): ShellToken[] | undefined;
 /** One command in a decoded manifest script, with its source and effective argv. */
 export interface ChangelogScriptCommand {
+    /** Script forwards leading to this invocation, from the root to its caller. */
+    parents: readonly string[];
     /** Name of the script that supplied the command. */
     name: string;
     /** Local script names available to this command. */

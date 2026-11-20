@@ -2,11 +2,13 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: open
+status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-20T15:30:43.998Z"
+updated_at: "2026-11-20T21:12:53.069Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -14,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[114]:
+comments[115]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -358,6 +360,9 @@ comments[114]:
   - created_at: "2026-11-20T15:30:12.026Z"
     author: codex-sol
     text: "Round EX verification on merged source 28c678d. The 26 focused files passed 1403 tests with two opt-in skips. The reader and runtime subset passed 14 of 14. Typecheck, test build, lint, duplication, docstring and all four historical refusal controls passed. The fleet accepted 142 hooks and 144 bodies across 39 manifests. npm and native Bun validated the same packed artifact. Full coverage passed 2138 tests with two opt-in skips and 100 percent statements, branches, functions and lines across 53 files. With the official release tag v2026.11.20 still absent, the pinned generator moves ops-b2bs from Unreleased into the pending release. The standalone changelog check and the candidate acceptance gate both reproduced this drift. The checked-in changelog retains the requested Unreleased entry. The PR branch remains at bd592c4."
+  - created_at: "2026-11-20T21:12:53.065Z"
+    author: codex-sol
+    text: All 268 baseline tests passed. Twelve paired behavior checks failed on the starting head. Padding and comment controls matched on both versions. The regulator for regex performance is CodeQL alert 25. Preparation now keeps a forwarded date with its caller and checks other script contracts before restoring the version policy.
 files[24]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project

@@ -90,7 +90,7 @@ async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { ro
   const values: Record<string, string> = { GITHUB_REPOSITORY: f.c.repository, GH_TOKEN: "synthetic-token", RELEASE_CONFIG: "{}", CALLER_WORKFLOW: `${f.c.repository}/${f.c.workflow}@refs/heads/main`,
     RUNNER_TEMP: root, GITHUB_WORKSPACE: root, GITHUB_OUTPUT: join(root, "output"), NPM_PROJECT_DIR: ".", TRIGGER_SHA: f.e.triggerSha, RELEASE_TIMEZONE: "Europe/Vienna", RELEASE_PR_NUMBER: "42", RELEASE_BRANCH: f.pr.head.ref,
     REMOTE_BRANCH_SHA: f.c.headSha, ARTIFACT_ID: "20", RELEASE_BASE_SHA: f.c.baseSha, VERIFIED_COMMIT: f.c.headSha, VERIFIED_TREE: f.c.tree, NPM_VERSION: f.c.version, RELEASE_TAG: f.c.tag,
-    PACKAGE_NAME: f.c.packageName, CLI_VERSION: f.c.cliVersion, PM_OPS_VERSION: f.c.opsVersion, WORKFLOW_TOOLS_SHA: f.c.toolsSha!, GITHUB_ENV: join(root, "env"), PUBLISHING_WORKFLOW_REF: f.options.publishingWorkflowRef, GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", NPM_PUBLISH: "true", IS_RUST: "false", RELEASE_FIXTURE: root,
+    PREPARED_NPM_LIFECYCLE: "unknown", PACKAGE_NAME: f.c.packageName, CLI_VERSION: f.c.cliVersion, PM_OPS_VERSION: f.c.opsVersion, WORKFLOW_TOOLS_SHA: f.c.toolsSha!, GITHUB_ENV: join(root, "env"), PUBLISHING_WORKFLOW_REF: f.options.publishingWorkflowRef, GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", NPM_PUBLISH: "true", IS_RUST: "false", RELEASE_FIXTURE: root,
     PATH: `${root}:${process.env.PATH}` };
   const saved = new Map([...Object.keys(values), "CANDIDATE_RECEIPT", "SUPERSEDED_PR_NUMBERS", "POST_RELEASE_SCRIPT", "NPM_PROJECT_PATH", "RETIRE_UNPUBLISHED", "RELEASE_COMMIT"].map(key => [key, process.env[key]]));
   Object.assign(process.env, values);
@@ -650,7 +650,9 @@ test("pilot schedules the shared workflow hourly and daily; empty reconciliation
 test("entry point captures npm and GitHub-only manifests without executing package bytes", async () => {
   await withAdapter(async f => {
     await runReleaseContinuation("manifest");
-    assert.equal(JSON.parse(readFileSync(join(f.handoff, "candidate.json"), "utf8")).packageSha256, f.c.packageSha256);
+    const prepared = JSON.parse(readFileSync(join(f.handoff, "candidate.json"), "utf8"));
+    assert.equal(prepared.packageSha256, f.c.packageSha256);
+    assert.equal(prepared.npmLifecycle, "unknown");
     process.env.IS_RUST = "true"; process.env.NPM_PUBLISH = "false"; process.env.PACKAGE_NAME = ""; delete process.env.CLI_VERSION;
     await runReleaseContinuation("manifest");
     const rust = JSON.parse(readFileSync(join(f.handoff, "candidate.json"), "utf8")) as { packageName: string; cliVersion: string; npmPublish: boolean; packageSha256: string };
@@ -1611,6 +1613,21 @@ test("heading-date continuation mirrors the generator at the committer offset de
     await runReleaseContinuation("heading-date");
     writeFileSync(npmrc, "ignore-scripts=false\n");
     await assert.rejects(runReleaseContinuation("heading-date"), /2026-11-06.*2026-11-07.*retire-unpublished/);
+    const savedPolicy = process.env.PREPARED_NPM_LIFECYCLE;
+    try {
+      process.env.PREPARED_NPM_LIFECYCLE = "false";
+      await runReleaseContinuation("heading-date");
+      writeFileSync(npmrc, "ignore-scripts=true\\n");
+      process.env.PREPARED_NPM_LIFECYCLE = "true";
+      await assert.rejects(runReleaseContinuation("heading-date"), /retire-unpublished/);
+      for (const value of ["unknown", "", "invalid"]) {
+        process.env.PREPARED_NPM_LIFECYCLE = value;
+        await assert.rejects(runReleaseContinuation("heading-date"), /ignore-scripts.*pregenerate/);
+      }
+    } finally {
+      if (savedPolicy === undefined) delete process.env.PREPARED_NPM_LIFECYCLE;
+      else process.env.PREPARED_NPM_LIFECYCLE = savedPolicy;
+    }
     for (const bad of [undefined, null, 1, "", " "]) {
       write({ generate: script, check: script, notes: bad });
       await assert.rejects(runReleaseContinuation("heading-date"), /Missing changelog hook: notes/);

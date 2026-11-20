@@ -31,14 +31,16 @@ try {
   const manifest = JSON.parse(readFileSync(join(candidate, "package.json"), "utf8")) as { scripts: Record<string, string> };
   assert.match(manifest.scripts["release:check"]!, /npm run coverage/);
   const definition = parse(readFileSync(join(candidate, ".github/workflows/daily-release.yml"), "utf8"));
-  const generation = definition.jobs.prepare.steps.find((step: { name?: string }) => step.name === "Generate changelog and release notes");
   const releaseEnv = {
     ...env, IS_RUST: "false", CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check",
     NOTES_SCRIPT: "release:notes", RELEASE_HEADING_DATE: "2026-11-17", RUNNER_TEMP: root,
     GITHUB_STEP_SUMMARY: join(root, "summary.md"), CONTINUATION_SCRIPT: join(candidate, "scripts/release-continuation.ts"),
   };
-  const prepared = runBashFixture(generation.run, { cwd: candidate, env: releaseEnv, encoding: "utf8" });
-  assert.equal(prepared.status, 0, prepared.stdout + prepared.stderr);
+  for (const name of ["Prepare npm changelog hooks", "Generate changelog and release notes"]) {
+    const step = definition.jobs.prepare.steps.find((entry: { name?: string }) => entry.name === name);
+    const prepared = runBashFixture(step.run, { cwd: candidate, env: { ...releaseEnv, GITHUB_OUTPUT: join(root, name + ".out") }, encoding: "utf8" });
+    assert.equal(prepared.status, 0, prepared.stdout + prepared.stderr);
+  }
   const rewritten = JSON.parse(readFileSync(join(candidate, "package.json"), "utf8")) as { scripts: Record<string, string> };
   assert.match(rewritten.scripts["changelog:full"]!, /--date-fallback 2026-11-17/);
   execFileSync("npm", ["run", "release:check"], { cwd: candidate, env: releaseEnv, stdio: "inherit" });

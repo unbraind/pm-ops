@@ -875,9 +875,15 @@ function defaultRunSetting(container, key) {
     return typeof run === "string" ? run : mapping(run)?.[key];
 }
 const IGNORE_SCRIPTS_ENV = "npm_config_ignore_scripts";
-const ENV_FILE = /\s*(>>?)\s*("?)\$(?:GITHUB_ENV|\{GITHUB_ENV\})\2(?:\s+#.*)?\s*$/;
+const ENV_PATH = /^(?:"\$(?:GITHUB_ENV|\{GITHUB_ENV\})"|\$(?:GITHUB_ENV|\{GITHUB_ENV\}))(?:\s+#.*)?$/;
+const READ_ENV_FILE = /^cat\s+(?:"\$(?:GITHUB_ENV|\{GITHUB_ENV\})"|\$(?:GITHUB_ENV|\{GITHUB_ENV\}))$/;
 /** Decode one literal NAME=value record emitted by echo or printf. */
-function literalEnvironmentRecord(print) {
+function literalEnvironmentRecord(print, stepEnv) {
+    const variable = /^echo "([A-Za-z_]\w*)=\$(\w+)"$/.exec(print);
+    if (variable) {
+        const value = stepEnv?.[variable[2]];
+        return typeof value === "string" && /^[\w.-]*$/.test(value) ? variable[1] + "=" + value : undefined;
+    }
     const echo = /^(?:echo\s+|printf\s+(['"])%s\\n\1\s+)(['"]?)([A-Za-z_]\w*=[\w.-]*)\2$/.exec(print);
     if (echo)
         return echo[3];
@@ -887,37 +893,46 @@ function literalEnvironmentRecord(print) {
     const format = /^printf\s+(['"])([A-Za-z_]\w*=)%s\\n\1\s+(['"]?)([\w.-]+)\3$/.exec(print);
     return format ? format[2] + format[4] : undefined;
 }
-/** Read straight-line shell writes, retaining uncertainty for conditional or computed records. */
-function writtenIgnoreScripts(text, conditional) {
-    if (!text.includes("GITHUB_ENV"))
-        return undefined;
-    let setting;
-    let straightLine = !conditional;
-    for (const part of text.split(/\r?\n/)) {
+/** Model one runner environment file, which starts empty for each step. */
+function writtenIgnoreScripts(text, conditional, stepEnv) {
+    let records = {};
+    const lines = text.split(/\r?\n/);
+    const bodies = heredocBodyLines(lines);
+    for (const [index, part] of lines.entries()) {
         const line = part.trim();
-        if (!line || line.startsWith("#") || /^(?:set -[eu]+(?:o pipefail)?|echo [\w .-]+)$/.test(line))
+        if (bodies[index] || /^cat <<'[\w.-]+'$/.test(line))
             continue;
-        const target = ENV_FILE.exec(line);
-        if (!target) {
-            straightLine = false;
-            if (line.includes("GITHUB_ENV") && /[>|]/.test(line))
-                setting = "unknown";
+        if (/^if test -f [\w.-]+; then$/.test(line) || line === "fi") {
+            conditional = true;
             continue;
         }
-        if (target[1] === ">" && straightLine)
-            setting = undefined;
-        const record = literalEnvironmentRecord(line.slice(0, target.index).trim());
-        if (record === undefined) {
-            setting = "unknown";
-            straightLine = false;
+        if (!line || line.startsWith("#") || /^(?:true|:|set -[eu]+(?:o pipefail)?|echo [\w .-]+)$/.test(line)
+            || READ_ENV_FILE.test(line))
+            continue;
+        const redirect = line.indexOf(">");
+        if (redirect < 0)
+            return undefined;
+        const append = line[redirect + 1] === ">";
+        const destination = line.slice(redirect + (append ? 2 : 1)).trimStart();
+        if (!ENV_PATH.test(destination))
+            return undefined;
+        const print = line.slice(0, redirect).trimEnd();
+        const record = literalEnvironmentRecord(print, stepEnv);
+        if (record === undefined)
+            return undefined;
+        if (!append) {
+            if (conditional) {
+                for (const key of Object.keys(records))
+                    records[key] = "unknown";
+            }
+            else
+                records = {};
         }
-        else {
-            const [name, value] = record.split("=");
-            if (name.toLowerCase() === IGNORE_SCRIPTS_ENV)
-                setting = value;
-        }
+        const [name, value] = record.split("=");
+        if (name.toLowerCase() === IGNORE_SCRIPTS_ENV)
+            records[name] = conditional ? "unknown" : value;
     }
-    return setting === undefined || straightLine ? setting : "unknown";
+    return records;
 }
 /** Extract structured commands together with their original scalar source ranges. */
 export function executableShellBodies(source) {
@@ -955,30 +970,32 @@ export function executableShellBodies(source) {
         const runner = job["runs-on"];
         const posixRunner = [runner].flat().some(label => typeof label === "string" && /^(?:ubuntu-|macos-|linux$|macos$)/i.test(label));
         const defaultShell = defaultRunSetting(job, "shell") ?? defaultRunSetting(data, "shell");
-        let inheritedIgnoreScripts;
+        const inherited = {};
+        let unknownNames = false;
         for (const [index, value] of steps.entries()) {
             const step = mapping(value);
-            if (step === undefined || !Object.hasOwn(step, "run"))
+            if (step === undefined || !Object.hasOwn(step, "run")) {
+                if (step?.if !== false)
+                    unknownNames = true;
                 continue;
+            }
             const body = bodyAt([...container.path, "steps", index, "run"], step.run);
             const directory = step["working-directory"] ?? defaultRunSetting(job, "working-directory") ?? defaultRunSetting(data, "working-directory");
             if (directory !== undefined)
                 body.workingDirectory = directory;
-            const environment = { ...mapping(data?.env), ...mapping(job.env) };
-            if (inheritedIgnoreScripts !== undefined) {
-                for (const key of Object.keys(environment))
-                    if (key.toLowerCase() === IGNORE_SCRIPTS_ENV)
-                        delete environment[key];
-                if (!Object.keys(mapping(step.env) ?? {}).some(key => key.toLowerCase() === IGNORE_SCRIPTS_ENV)) {
-                    environment[IGNORE_SCRIPTS_ENV] = inheritedIgnoreScripts;
-                }
-            }
-            body.environment = { ...environment, ...mapping(step.env) };
+            const environment = { ...mapping(data?.env), ...mapping(job.env), ...inherited, ...mapping(step.env) };
+            if (unknownNames)
+                environment[IGNORE_SCRIPTS_ENV] = "unknown";
+            body.environment = environment;
             if (step.if !== false) {
                 const shell = step.shell ?? defaultShell;
                 const shellKnown = shell === undefined ? posixRunner : typeof shell === "string" && /^(?:bash|sh)(?:\s|$)/.test(shell);
-                const conditional = !shellKnown || (step.if !== undefined && step.if !== true) || Boolean(step["continue-on-error"]);
-                inheritedIgnoreScripts = writtenIgnoreScripts(body.text, conditional) ?? inheritedIgnoreScripts;
+                const conditional = (step.if !== undefined && step.if !== true) || Boolean(step["continue-on-error"]);
+                const records = shellKnown ? writtenIgnoreScripts(body.text, conditional, mapping(step.env)) : undefined;
+                if (records === undefined)
+                    unknownNames = true;
+                else
+                    Object.assign(inherited, records);
             }
             bodies.push(body);
         }

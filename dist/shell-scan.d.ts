@@ -47,6 +47,8 @@ export interface ShellToken {
     unresolved?: boolean;
     /** True when unresolved expansion can produce multiple arguments despite some quoting. */
     multipleWords?: true;
+    /** Literal reserved word in shell command position, as identified by the release lexer. */
+    releaseKeyword?: true;
     /**
      * True when the word's FIRST character came from inside quotes.
      *
@@ -60,6 +62,8 @@ export interface ShellToken {
 }
 /** One simple command: the words it would run, in order. */
 export type ShellCommand = ShellToken[];
+/** Recognize Bash combined output redirection across physical line continuations. */
+export declare function isCombinedOutputRedirect(source: string, index: number): boolean;
 /** Whether this operator continues a literal redirection after shell line joining. */
 export declare function isRedirectionSuffix(source: string, start: number, end: number): boolean;
 /** Record operators from the original source, where quoting and escapes are still visible. */

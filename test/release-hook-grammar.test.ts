@@ -86,9 +86,13 @@ test("preparation and npm agree when the project disables lifecycle hooks", t =>
   for (const name of Object.keys(env).filter(key => /^npm_config_ignore_scripts$/i.test(key))) delete (env as NodeJS.ProcessEnv)[name];
   for (const override of [false, true]) {
     writeFileSync(manifest, JSON.stringify({ name: "fixture", scripts }));
-    const runEnv = override ? { ...env, npm_config_ignore_scripts: "false" } : env;
-    execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env: runEnv });
+    const output = join(root, "outputs");
+    writeFileSync(output, "");
+    const runEnv = { ...env, GITHUB_OUTPUT: join(root, "outer-job-outputs"), ...(override ? { npm_config_ignore_scripts: "false" } : {}) };
+    execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts"), output], { cwd: root, env: runEnv });
     const prepared = JSON.parse(readFileSync(manifest, "utf8")).scripts;
+    assert.equal(existsSync(runEnv.GITHUB_OUTPUT), false);
+    assert.equal(readFileSync(output, "utf8"), "npm_lifecycle=" + override + "\n");
     if (override) assert.match(prepared.prehook, /--date-fallback 2026-11-17/);
     else assert.equal(prepared.prehook, scripts.prehook);
     execFileSync(process.execPath, [npmCli(), "run", "hook"], { cwd: root, env: runEnv });
@@ -628,7 +632,7 @@ test("continuation compares the version actually supplied to the generator", () 
   for (const version of ["--version=2026.11.16", "--release-version 2026.11.16"]) {
     assert.throws(() => check(version), /2026-11-16 differs.*retire-unpublished/);
   }
-  assert.throws(() => check("--version"), /valid calendar version/);
+  assert.throws(() => check("--version"), /--version requires a value/);
   for (const version of ['--version "$TAG"', '--version="$TAG"', '--release-version "$TAG"']) {
     assert.throws(() => check(version), /Unresolved .* operand.*--release-version-from-package/);
   }
@@ -1001,11 +1005,12 @@ test("GITHUB_ENV lifecycle writes apply to later steps within their job", () => 
     file: ".github/workflows/release.yml", text: stringify({ jobs: { release: { "runs-on": "ubuntu-latest", steps }, ...jobs } }, { aliasDuplicateObjects: false }),
   }]).failures;
   const observed = (steps: object[], job: object = {}, defaults = {}) => executableShellBodies({ file: ".github/workflows/release.yml",
-    text: stringify({ defaults, env: { NPM_CONFIG_IGNORE_SCRIPTS: "false" }, jobs: { release: { "runs-on": "ubuntu-latest", ...job, steps } } }, { aliasDuplicateObjects: false }),
+    text: stringify({ defaults, env: { npm_config_ignore_scripts: "false" }, jobs: { release: { "runs-on": "ubuntu-latest", ...job, steps } } }, { aliasDuplicateObjects: false }),
   }).map(body => npmLifecycle(undefined, body.environment));
+  const read = { run: "true" };
   const reset = { run: "printf 'npm_config_ignore_scripts=%s\\n' false >> $GITHUB_ENV" };
-  assert.deepEqual(observed([write, consume, reset, consume]), [true, false, false, true]);
-  assert.deepEqual(observed([write, { ...consume, env: { NPM_CONFIG_IGNORE_SCRIPTS: "false" } }, consume]), [true, true, false]);
+  assert.deepEqual(observed([write, read, reset, consume]), [true, false, false, true]);
+  assert.deepEqual(observed([write, { ...read, env: { npm_config_ignore_scripts: "false" } }, consume]), [true, true, false]);
   assert.deepEqual(observed([write, { run: 'cat settings >> "$GITHUB_ENV"' }, consume]), [true, false, "unknown"]);
   assert.deepEqual(observed([write, { run: 'echo npm_config_ignore_scripts=false | tee -a "$GITHUB_ENV"' }, consume]), [true, false, "unknown"]);
   assert.deepEqual(observed([write, { run: 'cat "$GITHUB_ENV"' }, consume]), [true, false, false]);
@@ -1027,8 +1032,13 @@ test("GITHUB_ENV lifecycle writes apply to later steps within their job", () => 
   assert.deepEqual(audit([write, { ...consume, env: { npm_config_ignore_scripts: "false" } }]), []);
   assert.match(audit([write, consume], { separate: { steps: [consume] } })[0], /Cannot determine npm ignore-scripts/);
   assert.match(audit([{ run: write.run + "\n" + consume.run }])[0], /Cannot determine npm ignore-scripts/);
+  const computed = { run: 'echo "npm_config_ignore_scripts=$SETTING" >> "$GITHUB_ENV"' };
+  for (const env of [{}, { SETTING: "true\nOTHER=yes" }, { SETTING: "${{ inputs.policy }}" }]) {
+    assert.match(audit([{ ...computed, env }, { ...consume, env: { npm_config_ignore_scripts: "true" } }])[0], /Cannot determine npm ignore-scripts/);
+    assert.deepEqual(audit([{ ...computed, env }, { run: "npm --ignore-scripts run " + entry }]), []);
+  }
   for (const uncertain of [
-    { run: 'echo "npm_config_ignore_scripts=$SETTING" >> "$GITHUB_ENV"' },
+    { run: 'echo "npm_config_ignore_scripts=$SETTING" >> "$GITHUB_ENV"', env: { SETTING: "unresolved" } },
     { ...write, if: "${{ inputs.skip }}" },
     { run: "if test -f optional; then\n" + write.run + "\nfi" },
     { run: "cat <<'TEXT'\n" + write.run + "\nTEXT" },
@@ -1093,4 +1103,119 @@ test("release fixtures can invoke npm without a platform launcher on PATH", t =>
   const cli = npmCli();
   assert.match(execFileSync(process.execPath, [cli, "run", "ready"], options), /ready/);
   assert.throws(() => execFileSync(process.execPath, [cli, "run", "absent"], options), /Missing script/);
+});
+
+test("conditional hook bodies resolve the writer and keep closing keywords intact", () => {
+  const writer = "pm-changelog " + standing;
+  const hook = "if true; then npm run writer; fi";
+  const scripts = resolveChangelogHooks({ hook, writer }, ["hook"]);
+  assert.equal(scripts.get("writer"), writer);
+  assert.doesNotThrow(() => assertReleaseHookHeadingDate(rewriteReleaseHookDates(scripts, ["hook"], day), ["hook"], day));
+  assert.throws(() => resolveChangelogHooks({ hook: hook.replace("then ", "then wrapper "), writer }, ["hook"]), /wrapper/);
+  for (const kw of ['"then"', "\\then"]) {
+    assert.throws(() => resolveChangelogHooks({ hook: kw + " npm run writer", writer }, ["hook"]), /wrapper/);
+  }
+});
+
+test("conditional notes keep their generator and custom argument recipients", () => {
+  const notes = "if true\nthen\npm-changelog --stdout\nfi";
+  const prepared = includeEmptyReleaseSections(notes);
+  assert.equal(includeEmptyCustomHook("fi", new Map(), true), "fi");
+  assert.equal(includeEmptyCustomHook("npm run nested", new Map([["nested", prepared]]), true), "npm run nested");
+  assert.throws(() => includeEmptyCustomHook("npm run nested", new Map([["nested", notes.replace("pm-changelog --stdout", "node notes.js")]])), /cannot receive forwarded arguments/);
+  const inline = "if true; then node notes.js; fi";
+  assert.equal(includeEmptyCustomHook(inline, new Map()), inline.replace("notes.js", "notes.js --include-empty"));
+  assert.equal(includeEmptyCustomHook(prepared, new Map(), true), notes.replace("--stdout", "--stdout --include-empty"));
+  assert.equal(includeEmptyCustomHook(notes.replace("pm-changelog --stdout", "node notes.js"), new Map()),
+    notes.replace("pm-changelog --stdout", "node notes.js --include-empty"));
+});
+
+test("environment-file matching handles padding, comments and other destinations", () => {
+  const pad = " ".repeat(128);
+  const prefix = "echo npm_config_ignore_scripts=true" + pad;
+  const policy = (run: string) => npmLifecycle(undefined, executableShellBodies({ file: ".github/workflows/env.yml", text: stringify({ jobs: { prepare: { "runs-on": "ubuntu-latest", steps: [{ run }, { run: "true" }] } } }) })[1].environment);
+  for (const file of ['$GITHUB_ENV', '"${GITHUB_ENV}"']) {
+    assert.equal(policy(prefix + ">>" + pad + file + pad + "# comment >"), false);
+    assert.equal(policy(prefix + ">>" + pad + file + ".other"), "unknown");
+  }
+});
+
+test("intervening actions and environment file replacements invalidate the lifecycle policy", () => {
+  const known = { run: 'echo npm_config_ignore_scripts=true >> "$GITHUB_ENV"' };
+  const observed = (...steps: object[]) => {
+    const source = { file: ".github/workflows/env.yml", text: stringify({ jobs: { release: {
+      "runs-on": "ubuntu-latest", steps: [known, ...steps, { run: "npm run hook" }],
+    } } }) };
+    return npmLifecycle("ignore-scripts=true", executableShellBodies(source).at(-1)!.environment);
+  };
+  for (const step of [{ uses: "./example" }, { uses: "example/action@v1" }, { run: 'cp settings "$GITHUB_ENV"' }, { run: "node helper.js" }]) {
+    assert.equal(observed(step), "unknown");
+    assert.equal(observed({ ...step, if: false }), false);
+  }
+  const conditionalReplace = 'echo npm_config_ignore_scripts=false >> "$GITHUB_ENV"\nif test -f optional; then\necho OTHER=yes > "$GITHUB_ENV"\nfi';
+  assert.equal(observed({ run: conditionalReplace }), "unknown");
+  assert.equal(observed({ run: 'echo "$RECORD" >> "$GITHUB_ENV"' }), "unknown");
+  assert.equal(observed({ uses: "./example" }, { run: 'echo npm_config_ignore_scripts=true >> "$GITHUB_ENV"' }), "unknown");
+  for (const run of ['cat "$GITHUB_ENV"', "echo ready", "true"]) assert.equal(observed({ run }), false);
+});
+
+test("POSIX lifecycle environment records preserve distinct keys through empty overrides", () => {
+  const lower = "npm_config_ignore_scripts", upper = lower.toUpperCase();
+  const observed = (writes: string[], env: object) => {
+    const steps = [...writes.map(record => ({ run: "echo " + record + " >> $GITHUB_ENV" })), { run: "npm run hook", env }];
+    const source = { file: ".github/workflows/env.yml", text: stringify({ jobs: { release: { "runs-on": "ubuntu-latest", steps } } }) };
+    return npmLifecycle("ignore-scripts=true", executableShellBodies(source).at(-1)!.environment);
+  };
+  assert.equal(observed([lower + "=false"], { [upper]: "" }), true);
+  assert.equal(observed([upper + "=false"], { [lower]: "" }), true);
+  assert.equal(observed([lower + "=true", upper + "=false"], {}), "unknown");
+  assert.equal(observed([upper + "=false"], { [upper]: "true" }), false);
+});
+
+test("summary is read-only for the direct CLI and a possible write through the repository adapter", () => {
+  for (const invocation of ["pm-changelog", "npx pm-changelog@1", "node dist/cli.js"]) {
+    assert.doesNotThrow(() => resolveChangelogHooks({ hook: "true", prehook: invocation + " --summary" }, ["hook"]));
+  }
+  for (const prehook of ["node scripts/pm-changelog.ts --summary", "pm-changelog --pm-arg --summary", "pm-changelog --summary >CHANGELOG.md"]) {
+    assert.throws(() => resolveChangelogHooks({ hook: "true", prehook }, ["hook"]), /ignore-scripts/);
+  }
+});
+
+test("each explicit release version requires its own operand", () => {
+  for (const flag of ["--version", "--release-version"]) {
+    for (const missing of [flag, flag + "=", flag + " ''"]) {
+      const script = "pm-changelog " + missing + " --release-version 2026.11.17 --date-from-version";
+      assert.throws(() => rewriteReleaseHeadingDate(script, day), /requires a value/);
+    }
+    for (const joiner of [" ", "="]) {
+      const script = "pm-changelog " + flag + joiner + "2026.11.16 --release-version 2026.11.17 --date-from-version";
+      assert.doesNotThrow(() => assertReleaseHeadingDate([script], day, "2026.11.17"));
+    }
+  }
+});
+
+test("expandable here-documents refuse command substitution and preserve literal text", () => {
+  for (const literal of [String.raw`\$(printf fixture)`, "plain text"]) {
+    const script = "cat <<END\n" + literal + "\nEND";
+    assert.equal(includeEmptyReleaseSections(script), script);
+  }
+  for (const body of ["$(printf fixture)", "`printf fixture`", "$\\\n(printf fixture)"]) {
+    assert.throws(() => includeEmptyReleaseSections("cat <<END\n" + body + "\nEND"), /Here-document/);
+    const quoted = "cat <<'END'\n" + body + "\nEND";
+    assert.equal(includeEmptyReleaseSections(quoted), quoted);
+  }
+});
+
+test("joined combined redirects belong to their command in both scanners", () => {
+  for (const op of ["&>", "&>>"]) {
+    const operator = "&\\\n\\\n" + op.slice(1);
+    for (const gap of ["", " "]) {
+      const text = "pm-changelog --stdout" + gap + operator + "log & echo done";
+      for (const commands of [parseReleaseHook(text).commands, tokenizeCommands(text)]) {
+        assert.equal(commands.length, 2);
+        assert.deepEqual(releaseHookCommand(commands[0])?.map(word => word.value), ["pm-changelog", "--stdout"]);
+        assert.deepEqual(shellRedirection(commands[0].at(-1)!), { operator: op, joined: true });
+      }
+    }
+  }
 });

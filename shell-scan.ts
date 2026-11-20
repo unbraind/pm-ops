@@ -51,6 +51,8 @@ export interface ShellToken {
   unresolved?: boolean;
   /** True when unresolved expansion can produce multiple arguments despite some quoting. */
   multipleWords?: true;
+  /** Literal reserved word in shell command position, as identified by the release lexer. */
+  releaseKeyword?: true;
   /**
    * True when the word's FIRST character came from inside quotes.
    *
@@ -69,6 +71,14 @@ export type ShellCommand = ShellToken[];
 const fixedOptionNames = new WeakMap<ShellToken, string>();
 const redirections = new WeakMap<ShellToken, { operator: string; joined: boolean }>();
 const REDIRECTION = /^(?:[0-9]*(?:>>|>\||<>|<<<|<<-?|[<>])&?|&>>?)/;
+
+/** Recognize Bash combined output redirection across physical line continuations. */
+export function isCombinedOutputRedirect(source: string, index: number): boolean {
+  if (source[index] !== "&") return false;
+  let next = index + 1;
+  while (source.startsWith("\\\n", next)) next += 2;
+  return source[next] === ">";
+}
 
 /** Whether this operator continues a literal redirection after shell line joining. */
 export function isRedirectionSuffix(source: string, start: number, end: number): boolean {
@@ -679,7 +689,7 @@ function scanShellCommands(
           continue;
         }
       }
-      if (text.startsWith("&>", index)) {
+      if (isCombinedOutputRedirect(text, index)) {
         endWord(index);
         wordStart = index;
         value = character;
@@ -1044,6 +1054,7 @@ export interface ReleaseContextChange {
 export function releaseHookCommand(input: ShellCommand, context?: ReleaseContextChange[], assignments?: ShellToken[]): ShellCommand | undefined {
   const words = withoutRedirections(input);
   let i = 0;
+  while (words[i]?.releaseKeyword) i++;
   while (i < words.length && !words[i].startsQuoted && /^[A-Za-z_]\w*\+?=/.test(words[i].value)) {
     const assignment = words[i++];
     assignments?.push(assignment);

@@ -617,6 +617,20 @@ jobs:
               npm run "$BUILD_SCRIPT"
             fi
           fi
+      - name: Prepare npm changelog hooks
+        id: changelog
+        if: steps.decide.outputs.should_release == 'true' && !inputs.rust
+        working-directory: ${{ env.NPM_PROJECT_PATH }}
+        env:
+          RELEASE_HEADING_DATE: ${{ steps.decide.outputs.heading_date }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The tree-change decision already admitted this release. Dependency
+          # and workflow changes still need notes without a closed tracker item.
+          # Persist the same policy for nested release:check and post-tag checks.
+          RELEASE_TOOLS="${CONTINUATION_SCRIPT%/scripts/*}"
+          node "$RELEASE_TOOLS/scripts/prepare-release-changelog.ts" "${GITHUB_OUTPUT:-}"
       - name: Generate changelog and release notes
         if: steps.decide.outputs.should_release == 'true'
         working-directory: ${{ env.NPM_PROJECT_PATH }}
@@ -631,11 +645,6 @@ jobs:
             just changelog-check
             just release-notes > "$RUNNER_TEMP/RELEASE_NOTES.md"
           else
-            # The tree-change decision already admitted this release. Dependency
-            # and workflow changes still need notes without a closed tracker item.
-            # Persist the same policy for nested release:check and post-tag checks.
-            RELEASE_TOOLS="${CONTINUATION_SCRIPT%/scripts/*}"
-            node "$RELEASE_TOOLS/scripts/prepare-release-changelog.ts"
             npm run "$CHANGELOG_SCRIPT"
             npm run "$CHANGELOG_CHECK_SCRIPT"
             npm run --silent "$NOTES_SCRIPT" > "$RUNNER_TEMP/RELEASE_NOTES.md"
@@ -736,6 +745,7 @@ jobs:
         env:
           RELEASE_BASE_SHA: ${{ steps.decide.outputs.base_sha }}
           WORKFLOW_TOOLS_SHA: ${{ job.workflow_sha }}
+          PREPARED_NPM_LIFECYCLE: ${{ steps.changelog.outputs.npm_lifecycle }}
           VERIFIED_COMMIT: ${{ steps.pack.outputs.commit }}
           VERIFIED_TREE: ${{ steps.pack.outputs.tree }}
           NPM_VERSION: ${{ steps.decide.outputs.npm_version }}
@@ -1181,6 +1191,8 @@ jobs:
       - name: Check prepared heading day before publication
         if: steps.continue.outputs.action == 'publish' && !inputs.rust
         shell: bash
+        env:
+          PREPARED_NPM_LIFECYCLE: ${{ steps.continue.outputs.npmLifecycle }}
         run: node "$CONTINUATION_SCRIPT" heading-date
       - name: Verify npm will accept this workflow's OIDC identity
         if: steps.continue.outputs.action == 'publish' && inputs.npm-publish
@@ -1356,6 +1368,7 @@ jobs:
         if: steps.continue.outputs.action != 'complete' && steps.extra_publish.outcome == 'success'
         shell: bash
         env:
+          PREPARED_NPM_LIFECYCLE: ${{ steps.continue.outputs.npmLifecycle }}
           RELEASE_TAG: ${{ needs.reconcile.outputs.tag }}
         run: |
           set -euo pipefail

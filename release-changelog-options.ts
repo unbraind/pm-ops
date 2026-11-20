@@ -306,7 +306,7 @@ function canReachGenerator(
       || (!writing && forward.args.some(mentionsGenerator));
   }
   const generator = generatorCommand(invocation);
-  if (generator) return !writing || writesChangelog(generator.slice(1));
+  if (generator) return !writing || writesChangelog(generator);
   return words.some(mentionsGenerator) || referencesWriter(words, names, seen);
 }
 
@@ -324,9 +324,10 @@ function redirectsChangelog(words: ShellCommand, traversalOnly = false): boolean
 }
 
 /** Classify only the generator outputs that may write the changelog. */
-function writesChangelog(args: ShellCommand): boolean {
-  const { output, invalidOption, check, stdout } = changelogOutputTarget(args);
-  return !check && !stdout
+function writesChangelog([program, ...args]: ShellCommand): boolean {
+  const { output, invalidOption, check, stdout, positions } = changelogOutputTarget(args);
+  const summary = !program.value.endsWith("pm-changelog.ts") && positions.some(index => args[index].value === "--summary");
+  return !summary && !check && !stdout
     && (invalidOption !== undefined || output.unresolved === true || /(?:^|\/)CHANGELOG\.md$/.test(posix.normalize(output.value)));
 }
 
@@ -571,6 +572,8 @@ export function changelogArguments(words: ShellCommand, scriptNames: ReadonlySet
 
 /** One command in a decoded manifest script, with its source and effective argv. */
 export interface ChangelogScriptCommand {
+  /** Script forwards leading to this invocation, from the root to its caller. */
+  parents: readonly string[];
   /** Name of the script that supplied the command. */
   name: string;
   /** Local script names available to this command. */
@@ -596,6 +599,7 @@ function commandReceivingArguments(
   const marker = "__pm_ops_forwarded_argument__";
   const appended = parseReleaseHook(text + " " + marker);
   const recipient = appended.commands.find(words => words.length > 1 && words.at(-1)!.value === marker
+    && !(words.length === 2 && words[0].releaseKeyword)
     && appended.spans.get(words.at(-1)!)?.start === text.length + 1);
   if (!recipient) return undefined;
   const start = appended.spans.get(recipient[0])!.start;
@@ -707,7 +711,7 @@ export function visitChangelogScriptCommands(
       const contextProblem = commands.some(words => redirectsChangelog(words, true)) ? lifecycleProblem + ". " + CHANGELOG_TRAVERSAL : lifecycleProblem;
       if (hooks) refuseHook(contextProblem);
       const words = commands[0];
-      inspect({ name, names, text, words, effective: words, spans, forwardedSeparators: [], contextProblem });
+      inspect({ parents, name, names, text, words, effective: words, spans, forwardedSeparators: [], contextProblem });
       return;
     }
     resolved?.set(name, text);
@@ -723,10 +727,10 @@ export function visitChangelogScriptCommands(
       if (checkContext) preceding = nextShellContext(words, preceding, effective);
       if (contextProblem) {
         if (hooks) refuseHook(contextProblem);
-        inspect({ name, names, text, words, effective, spans, forwardedSeparators: separators, contextProblem });
+        inspect({ parents, name, names, text, words, effective, spans, forwardedSeparators: separators, contextProblem });
         return;
       }
-      inspect({ name, names: invocationNames, text, words, effective, spans, forwardedSeparators: separators });
+      inspect({ parents, name, names: invocationNames, text, words, effective, spans, forwardedSeparators: separators });
       if (forward) {
         if (forward.target === undefined) {
           if (hooks) refuseHook(`Cannot resolve changelog script forward in ${JSON.stringify(name)}: expected a literal package.json script name`);
@@ -849,6 +853,10 @@ export function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[
     if ((flag === "--version" || flag === "--release-version") && (token.unresolved || (token.value === flag && args[index + 1]?.unresolved))) {
       refuseHook(`Unresolved ${flag} operand. Use --release-version-from-package or supply a literal release version`);
     }
+    if (flag === "--version" || flag === "--release-version") {
+      const value = token.value === flag ? args[index + 1]?.value : token.value.slice(flag.length + 1);
+      if (!value || value.startsWith("--")) refuseHook(flag + " requires a value");
+    }
     if (VALUE_OPTIONS.has(token.value) && args[index + 1]?.multipleWords) {
       refuseHook(`Unquoted or multiword expansion in the operand of ${token.value}`);
     }
@@ -909,7 +917,7 @@ function literalReleaseVersion(args: ShellCommand, positions: readonly number[])
     const equals = word.indexOf("=");
     const flag = equals === -1 ? word : word.slice(0, equals);
     if (flag === "--version" || flag === "--release-version") {
-      version = equals === -1 ? args[i + 1]?.value ?? "" : word.slice(equals + 1);
+      version = equals === -1 ? args[i + 1].value : word.slice(equals + 1);
     }
   }
   return version;
@@ -1009,6 +1017,11 @@ export function includeEmptyReleaseSections(script: string, scriptNames?: Readon
   return applyHookEdits(script, edits.values());
 }
 
+/** Closing shell keywords cannot receive arguments intended for a notes renderer. */
+function finalHookCommand(commands: ShellCommand[]): ShellCommand {
+  return commands.filter(words => !words[0].releaseKeyword || words.length > 1).at(-1) ?? [];
+}
+
 /** Count npm option boundaries between a configured custom hook and its final executable. */
 function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<string, string>, hasGenerator: boolean): number | undefined {
   const names = new Set(scripts.keys());
@@ -1029,7 +1042,7 @@ function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<
     if (!text) return hasGenerator ? undefined : count; // An optional missing target runs no command.
     const { commands, spans } = parseReleaseHook(text);
     const recipient = commandReceivingArguments(text, commands, spans);
-    const producer = releaseOutputProducer(recipient ?? commands.at(-1) ?? []);
+    const producer = releaseOutputProducer(recipient ?? finalHookCommand(commands));
     if (producer !== recipient) blockedTarget = forward.target;
     const next = releaseHookCommand(producer === recipient ? [...producer, ...forward.args] : producer);
     if (!next) refuseHook("Custom script " + JSON.stringify(forward.target) + " cannot receive forwarded arguments. Move the logic into a script file");
@@ -1041,7 +1054,7 @@ function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<
 /** Save the flag and any npm delimiters on the root caller, preserving shared target scripts. */
 export function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<string, string>, hasGenerator = false): string {
   const { commands, spans } = parseReleaseHook(script);
-  const invocation = releaseHookCommand(releaseOutputProducer(commands.at(-1) ?? []));
+  const invocation = releaseHookCommand(releaseOutputProducer(finalHookCommand(commands)));
   if (!invocation) return script;
   const [program, ...args] = invocation;
   const separator = scriptForward(basename(program.value), args)?.npmSeparator;
@@ -1095,7 +1108,9 @@ function rewriteDateOptions(options: ValidDateOption[], headingDate: string, sou
 
     // A redirection between the option and its operand can be dropped from
     // argv by commandCandidates. Preserve it when rewriting the source.
-    if (firstSource !== lastSource || (option.first !== option.last
+    if (firstSource !== lastSource && headingDate) {
+      lastSource.edits.set(last.start, { ...last, text: headingDate });
+    } else if (firstSource !== lastSource || (option.first !== option.last
       && !/^(?:[ \t\r]|\\\n)*$/.test(firstSource.text.slice(first.end, last.start)))) {
       lastSource.edits.set(last.start, { ...last, text: "" });
       firstSource.edits.set(first.start, { ...first, text: replacement });
@@ -1111,12 +1126,14 @@ export function rewriteReleaseHookDates(
   packageVersion?: string,
 ): Map<string, string> {
   validateReplacementDay(headingDate);
-  const sources = new Map<string, EditableScript>();
-  const owners = new WeakMap<ShellToken, EditableScript>();
-  visitChangelogScriptCommands(scripts, ({ name, names, text, spans, words, effective, forwardedSeparators }) => {
+  type ScriptSource = EditableScript & { name: string };
+  const sources = new Map<string, ScriptSource>();
+  const owners = new WeakMap<ShellToken, ScriptSource>();
+  const changedContracts = new Set<string>();
+  visitChangelogScriptCommands(scripts, ({ parents, name, names, text, spans, words, effective, forwardedSeparators }) => {
     let source = sources.get(name);
     if (!source) {
-      source = { text, spans, edits: new Map() };
+      source = { name, text, spans, edits: new Map() };
       sources.set(name, source);
     }
     for (const token of words) owners.set(token, source);
@@ -1129,6 +1146,14 @@ export function rewriteReleaseHookDates(
     const positions = optionPositions(args);
     if (options.length) assertReleaseCoordinate(literalReleaseVersion(args, positions), packageVersion);
     assertAllTagsCutoff(args, positions, headingDate, packageVersion);
+    if (!headingDate) {
+      for (const { first, last } of options) {
+        const caller = owners.get(last)!;
+        if (owners.get(first) === caller) continue;
+        const path = [...parents, name];
+        for (const target of path.slice(path.indexOf(caller.name) + 1)) changedContracts.add(target);
+      }
+    }
     rewriteDateOptions(options, headingDate, token => owners.get(token)!);
     if (options.length > 0) {
       for (const separator of separators) {
@@ -1139,5 +1164,20 @@ export function rewriteReleaseHookDates(
       }
     }
   }, hooks, undefined, undefined, { lifecycle });
+  if (changedContracts.size) {
+    for (const [name, text] of scripts) {
+      if (sources.has(name)) continue;
+      for (const words of parseReleaseHook(text).commands) {
+        const callers = candidateScriptRunners(words);
+        if (callers.some(([runner, ...args]) => {
+          const forward = scriptForward(basename(runner.value), args);
+          const target = forward?.target ?? bunShorthand(runner, args);
+          return (forward && !target) || (target && changedContracts.has(target));
+        }) || scriptReferenceWords(words).some(word => changedContracts.has(word))) {
+          refuseHook("Restoring a forwarded date operand would change the argument contract used by " + JSON.stringify(name));
+        }
+      }
+    }
+  }
   return new Map([...sources].map(([name, { text, edits }]) => [name, applyHookEdits(text, edits.values())]));
 }

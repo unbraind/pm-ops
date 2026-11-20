@@ -1071,3 +1071,15 @@ test("continuation enforces the merge day before publish and still tags after mi
     } finally { rmSync(root, { recursive: true, force: true }); }
   }
 });
+
+test("both heading checks receive the lifecycle value recorded for the verified candidate", () => {
+  const generation = step("Generate changelog and release notes");
+  const manifest = step("Record immutable release candidate");
+  const policy = step("Prepare npm changelog hooks");
+  assert.equal(workflow.jobs.prepare.steps.indexOf(policy) + 1, workflow.jobs.prepare.steps.indexOf(generation));
+  assert.doesNotMatch(policy.run, /npm run/);
+  assert.equal(manifest.env?.PREPARED_NPM_LIFECYCLE, "${{ steps." + policy.id + ".outputs.npm_lifecycle }}");
+  const checks = workflow.jobs.release.steps.filter(entry => entry.run?.includes('"$CONTINUATION_SCRIPT" heading-date'));
+  assert.equal(checks.length, 2);
+  for (const entry of checks) assert.equal(entry.env?.PREPARED_NPM_LIFECYCLE, "${{ steps.continue.outputs.npmLifecycle }}");
+});

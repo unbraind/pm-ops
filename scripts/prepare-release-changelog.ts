@@ -1,5 +1,5 @@
 /** Persist the date and empty-section policies used by release changelog hooks. */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import {
   changelogArguments, includeEmptyCustomHook, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHookDates,
   visitChangelogScriptCommands,
@@ -22,7 +22,8 @@ try {
   const lifecycle = npmLifecycle(existsSync(".npmrc") ? readFileSync(".npmrc", "utf8") : undefined, process.env);
   const resolved = resolveChangelogHooks(pkg.scripts, hooks, lifecycle);
   const scriptNames = new Set(resolved.keys());
-  const datedHooks = rewriteReleaseHookDates(resolved, hooks, headingDate, lifecycle, pkg.version);
+  const allScripts = new Map(Object.entries(pkg.scripts).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+  const datedHooks = rewriteReleaseHookDates(allScripts, hooks, headingDate, lifecycle, pkg.version);
   for (const [name, script] of resolved) {
     const dated = datedHooks.get(name) ?? script;
     if (dated !== script) {
@@ -49,6 +50,7 @@ try {
     }
   }
   if (changed) writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+  if (process.argv[2]) appendFileSync(process.argv[2], "npm_lifecycle=" + lifecycle + "\n");
 } catch (error) {
   console.error((error as Error).message);
   process.exitCode = 1;

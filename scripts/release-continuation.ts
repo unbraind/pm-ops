@@ -461,12 +461,21 @@ async function reconcilePostHook(receipt: CandidateReceipt, pr: RestPr, reposito
   await record("complete");
 }
 
+/** Decode the verified preparation output, including absent legacy receipt fields. */
+function preparedLifecycle(value: string | undefined): boolean | "unknown" {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return "unknown";
+}
+
 /** Invoke one bounded workflow transition; every schedule starts with discovery, never preparation. */
 export async function runReleaseContinuation(mode: string | undefined, verifyProvenance?: typeof verifySigstoreBundle): Promise<void> {
   if (mode === "heading-date") {
     const project = required("NPM_PROJECT_PATH");
     const npmrc = join(project, ".npmrc");
-    const lifecycle = npmLifecycle(existsSync(npmrc) ? readFileSync(npmrc, "utf8") : undefined, process.env);
+    const lifecycle = process.env.PREPARED_NPM_LIFECYCLE === undefined
+      ? npmLifecycle(existsSync(npmrc) ? readFileSync(npmrc, "utf8") : undefined, process.env)
+      : preparedLifecycle(process.env.PREPARED_NPM_LIFECYCLE);
     const pkg = JSON.parse(readFileSync(join(project, "package.json"), "utf8")) as { version?: string; scripts: Record<string, string> };
     const hooks = ["CHANGELOG_SCRIPT", "CHANGELOG_CHECK_SCRIPT", "NOTES_SCRIPT"].map(required);
     const scripts = resolveChangelogHooks(pkg.scripts, hooks, lifecycle);
@@ -505,6 +514,7 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
   if (mode === "manifest") {
     const packageBytes = process.env.IS_RUST === "true" ? Buffer.alloc(0) : readFileSync(join(handoff, "package.tgz"));
     const c: ReleaseCandidate = {
+      npmLifecycle: preparedLifecycle(process.env.PREPARED_NPM_LIFECYCLE),
       schema: 1, repository, defaultBranch: "main", baseSha: required("RELEASE_BASE_SHA"), headSha: required("VERIFIED_COMMIT"), tree: required("VERIFIED_TREE"),
       version: required("NPM_VERSION"), tag: required("RELEASE_TAG"), packageName: process.env.PACKAGE_NAME || "github-only",
       packageSha256: releaseDigest(packageBytes), packageIntegrity: `sha512-${createHash("sha512").update(packageBytes).digest("base64")}`,

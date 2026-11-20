@@ -34,6 +34,15 @@
 const fixedOptionNames = new WeakMap();
 const redirections = new WeakMap();
 const REDIRECTION = /^(?:[0-9]*(?:>>|>\||<>|<<<|<<-?|[<>])&?|&>>?)/;
+/** Recognize Bash combined output redirection across physical line continuations. */
+export function isCombinedOutputRedirect(source, index) {
+    if (source[index] !== "&")
+        return false;
+    let next = index + 1;
+    while (source.startsWith("\\\n", next))
+        next += 2;
+    return source[next] === ">";
+}
 /** Whether this operator continues a literal redirection after shell line joining. */
 export function isRedirectionSuffix(source, start, end) {
     const operator = source[end];
@@ -647,7 +656,7 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
                     continue;
                 }
             }
-            if (text.startsWith("&>", index)) {
+            if (isCombinedOutputRedirect(text, index)) {
                 endWord(index);
                 wordStart = index;
                 value = character;
@@ -996,6 +1005,8 @@ export const RELEASE_CONTEXT_VARIABLE = /^(?:npm_config_|pm_)[\w]+(?=\+?=|$)/i;
 export function releaseHookCommand(input, context, assignments) {
     const words = withoutRedirections(input);
     let i = 0;
+    while (words[i]?.releaseKeyword)
+        i++;
     while (i < words.length && !words[i].startsQuoted && /^[A-Za-z_]\w*\+?=/.test(words[i].value)) {
         const assignment = words[i++];
         assignments?.push(assignment);

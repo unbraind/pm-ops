@@ -5,7 +5,7 @@
  */
 import { basename } from "node:path";
 import {
-  commandName, heredocBodyLines, heredocExpansionLines, isRedirectionSuffix, isShellEvaluator, recordShellRedirection, releaseHookCommand, shellRedirection,
+  commandName, heredocBodyLines, heredocExpansionLines, isCombinedOutputRedirect, isRedirectionSuffix, isShellEvaluator, recordShellRedirection, releaseHookCommand, shellRedirection,
   type ShellCommand, type ShellToken, type ShellTokenSpan,
 } from "./shell-scan.ts";
 
@@ -101,9 +101,10 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
   function finishCommand(): void {
     if (words.length > 0) {
       for (const word of words) {
-        if (word.quoted || !/^(?:while|until|for|select|do|done|if|then|elif|else|\{|!)$/.test(word.value)) break;
+        if (word.quoted || !/^(?:while|until|for|select|do|done|if|then|elif|else|fi|\}|\{|!)$/.test(word.value)) break;
         const span = spans.get(word)!;
         if (text.slice(span.start, span.end).replaceAll("\\\n", "") !== word.value) break;
+        if (/^(?:if|then|elif|else|fi|done|\})$/.test(word.value)) word.releaseKeyword = true;
         if (/^(?:while|until|for|select)$/.test(word.value)) loops.push(/^(?:while|until)$/.test(word.value));
         if (word.value === "do" && loops.length) loops[loops.length - 1] = false;
         if (word.value === "done") loops.pop();
@@ -122,7 +123,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
   let i = 0;
   while (i < text.length) {
     const ch = text[i];
-    if (/^[;&|\n]$/.test(ch) && !text.startsWith("&>", i)) {
+    if (/^[;&|\n]$/.test(ch) && !isCombinedOutputRedirect(text, i)) {
       const opener = words;
       if (words.length) {
         if (ch === "&" && text[i + 1] !== "&") problems.set(words[0], "Shell background or descriptor operator &");
@@ -138,9 +139,9 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
         const expansions = heredocExpansionLines(lines);
         const start = i + 1;
         let end = start;
-        let evaluates = false;
+        const expandable: string[] = [];
         for (let line = 1; line < lines.length && bodies[line]; line++) {
-          if (expansions[line] && /\$\(|`/.test(lines[line])) evaluates = true;
+          expandable.push(expansions[line] ? lines[line] : "");
           end += lines[line].length + 1;
         }
         end = Math.min(text.length, end);
@@ -153,6 +154,10 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
             if (!piped.has(stage)) break;
           }
         }
+        // An escaped dollar or backtick is data. A joined newline contributes no character.
+        const expanded = expandable.join("\n").replace(/\\([\\$`\n])/g, (_, char: string) => char === "\n" ? "" : "\0");
+        const evaluates = /\$\(|`/.test(expanded);
+        if (evaluates) possibleGeneratorTargets.add(body);
         heredocCommands.clear();
         if ((mentionsGenerator(body) || /\b(?:npm|pnpm|bun)\s+run\b/.test(body.value)) && (evaluates || !standalone || !isCatHeredoc(opener))) {
           problems.set(body, "Here-document with a possible generator command");
@@ -193,7 +198,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
       const char = text[i];
       // Redirection operators can contain characters that otherwise end a command.
       if (!quote && /[\s;&|]/.test(char)
-        && !(i === start && text.startsWith("&>", i))
+        && !(i === start && isCombinedOutputRedirect(text, i))
         && !isRedirectionSuffix(text, start, i)) break;
       if (!quote && text.startsWith("<<", i) && !/^[0-9<]*$/.test(value)) break;
       // A new operator ends an attached or separate destination. Keep the
