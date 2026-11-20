@@ -1578,6 +1578,7 @@ test("heading-date continuation mirrors the generator at the committer offset de
   Object.assign(process.env, env);
   try {
     execFileSync("git", ["init", "--quiet"], { cwd: root });
+    execFileSync("git", ["config", "--local", "tag.gpgSign", "false"], { cwd: root });
     const script = 'pm-changelog --date-fallback "2026-11-07"';
     const write = (scripts: unknown) => writeFileSync(join(root, "package.json"), JSON.stringify({ scripts }));
     for (const [timestamp, expectedDay] of [

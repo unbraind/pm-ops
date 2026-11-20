@@ -1,7 +1,7 @@
 /** Verify disposable release candidates preserve the reviewed source snapshot. */
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execFileSync } from "../subprocess.ts";
@@ -98,11 +98,16 @@ test("candidate snapshot refuses an unstaged symlink replacing a tracked ancesto
   assert.equal(git(candidate, "status", "--porcelain").toString(), "");
 });
 
-test("invalid UTF-8 in either index aborts before the candidate changes", { skip: process.platform === "win32" }, t => {
+test("invalid UTF-8 in either index aborts before the candidate changes", t => {
   for (const checkout of ["source", "candidate"] as const) {
     const fixture = snapshotFixture(t, ["keep.txt"]);
-    writeFileSync(Buffer.concat([Buffer.from(fixture[checkout] + "/"), Buffer.from([0xff])]), "raw pathname");
-    fixture.git(fixture[checkout], "add", "--", ".");
+    const cwd = fixture[checkout];
+    const blob = fixture.git(cwd, "rev-parse", "HEAD:keep.txt").toString().trim();
+    execFileSync("git", ["update-index", "-z", "--index-info"], {
+      cwd, env: fixture.env, input: Buffer.concat([Buffer.from(`100644 ${blob}\t`), Buffer.from([0xff, 0])]),
+    });
+    assert.deepEqual(fixture.git(fixture[checkout], "ls-files", "-z").subarray(-2), Buffer.from([0xff, 0]));
+    assert.equal(readdirSync(fixture[checkout], { encoding: "buffer" }).some(name => name.includes(0xff)), false);
     writeFileSync(join(fixture.source, "keep.txt"), "new contents");
     assert.throws(() => mirrorTrackedSnapshot(fixture.source, fixture.candidate, fixture.env), /utf-8/i);
     assert.equal(readFileSync(join(fixture.candidate, "keep.txt"), "utf8"), "committed\n");

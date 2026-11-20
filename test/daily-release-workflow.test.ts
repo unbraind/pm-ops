@@ -1039,6 +1039,7 @@ test("continuation enforces the merge day before publish and still tags after mi
         GIT_AUTHOR_DATE: "2026-10-22T12:00:00Z", GIT_COMMITTER_DATE: `${mergeDay}T00:30:00+02:00`,
       };
       const git = (...args: string[]) => execFileSync("git", args, { cwd: project, env, encoding: "utf8" }).trim();
+      git("config", "--local", "tag.gpgSign", "false");
       const dateOption = pinDay ? `"--date-fallback" '${pinDay}'` : "--date-from-version";
       writeFileSync(join(project, "package.json"), JSON.stringify({
         version: "2026.10.23-2", scripts: { changelog: `pm-changelog --release-version-from-package ${dateOption}` },
