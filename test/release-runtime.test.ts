@@ -21,8 +21,20 @@ function sourceFixture(root: string, name = "pm-ops", version = "9999.1.1"): str
 
 /** Remove a test-owned npm fixture after Windows releases its temporary Node executable. */
 function removeRuntimeFixture(root: string): void {
-  // Node retries EBUSY and EPERM with linear backoff, totaling up to 10.5 seconds.
-  rmSync(root, { recursive: true, force: true, maxRetries: 14, retryDelay: 100 });
+  // Node's own maxRetries covers per-entry unlink errors, but Node 22.18.0 throws EBUSY/EPERM from the
+  // first directory removal without entering that loop, so the whole operation is retried here as well:
+  // linear backoff, about 10.5 seconds in total, after which a persistent lock still fails the test.
+  const transient = new Set(["EBUSY", "EPERM", "ENOTEMPTY"]);
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      rmSync(root, { recursive: true, force: true, maxRetries: 14, retryDelay: 100 });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? "";
+      if (!transient.has(code) || attempt >= 13) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100 * (attempt + 1));
+    }
+  }
 }
 
 /** Restore synthetic runtime identity and remove its disposable source checkout. */
