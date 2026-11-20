@@ -14,11 +14,17 @@ const indirectTargets = new WeakSet<ShellToken>();
 const variableReferences = new WeakMap<ShellToken, string[]>();
 const optionNames = new WeakMap<ShellToken, string>();
 const isolatedCommands = new WeakSet<ShellToken>();
+const pipelineProducers = new WeakMap<ShellCommand, ShellCommand>();
 const loopConditions = new WeakSet<ShellToken>();
 const continuedDescriptors = new WeakSet<ShellToken>();
 const braceExpansions = new WeakSet<ShellToken>();
 const BRACE_EXPANSION = /(?<!\$)\{(?:[^{}]*,[^{}]*|(?:-?\d+\.\.-?\d+|[A-Za-z]\.\.[A-Za-z])(?:\.\.-?\d+)?)\}/;
 const VARIABLE_REFERENCE = /^(?:\\\n)*(?:\{(?:\\\n)*[!#]?(?:\\\n)*)?([A-Za-z_](?:\w|\\\n)*)/;
+
+/** Return the producing command upstream of a supported output filter. */
+export function releaseOutputProducer(command: ShellCommand): ShellCommand {
+  return pipelineProducers.get(command) ?? command;
+}
 
 /** Whether shell edits in this command are local to a pipeline stage or subshell. */
 export function isIsolatedReleaseCommand(words: ShellCommand): boolean {
@@ -238,7 +244,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
       const sink = releaseHookCommand(command)?.[0];
       if (!sink || sink.unresolved || !/^(?:cat|awk|sed|grep|head|tail|cut|tr|sort|uniq|wc)$/.test(basename(sink.value))) {
         for (const source of upstream) problems.set(source[0], "Pipeline to an opaque executable");
-      }
+      } else pipelineProducers.set(command, upstream[0]);
     }
     if (piped.has(command)) upstream.push(command);
     else upstream = [];

@@ -9,7 +9,7 @@
  */
 import { basename, posix } from "node:path";
 import { RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand, shellRedirection, withoutRedirections, } from "./shell-scan.js";
-import { describeReleaseContextChange, hasBraceExpansion, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand, isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, } from "./release-hook-grammar.js";
+import { describeReleaseContextChange, hasBraceExpansion, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand, isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, releaseOutputProducer, } from "./release-hook-grammar.js";
 /** The flag that makes an untagged heading version-derived. */
 export const DATE_FLAG = "--date-from-version";
 /** The option that pins the heading day of a resumed release. */
@@ -979,9 +979,10 @@ function customForwardDelimiters(invocation, scripts, hasGenerator) {
             return hasGenerator ? undefined : count; // An optional missing target runs no command.
         const { commands, spans } = parseReleaseHook(text);
         const recipient = commandReceivingArguments(text, commands, spans);
-        if (!recipient)
+        const producer = releaseOutputProducer(recipient ?? commands.at(-1) ?? []);
+        if (producer !== recipient)
             blockedTarget = forward.target;
-        const next = releaseHookCommand(recipient ? [...recipient, ...forward.args] : commands.at(-1) ?? []);
+        const next = releaseHookCommand(producer === recipient ? [...producer, ...forward.args] : producer);
         if (!next)
             refuseHook("Custom script " + JSON.stringify(forward.target) + " cannot receive forwarded arguments. Move the logic into a script file");
         invocation = next;
@@ -991,7 +992,7 @@ function customForwardDelimiters(invocation, scripts, hasGenerator) {
 /** Save the flag and any npm delimiters on the root caller, preserving shared target scripts. */
 export function includeEmptyCustomHook(script, scripts, hasGenerator = false) {
     const { commands, spans } = parseReleaseHook(script);
-    const invocation = releaseHookCommand(commands.at(-1) ?? []);
+    const invocation = releaseHookCommand(releaseOutputProducer(commands.at(-1) ?? []));
     if (!invocation)
         return script;
     const [program, ...args] = invocation;

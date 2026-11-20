@@ -14,7 +14,7 @@ import {
 } from "./shell-scan.ts";
 import {
   describeReleaseContextChange, hasBraceExpansion, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand,
-  isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook,
+  isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, releaseOutputProducer,
 } from "./release-hook-grammar.ts";
 
 /** The flag that makes an untagged heading version-derived. */
@@ -1004,8 +1004,9 @@ function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<
     if (!text) return hasGenerator ? undefined : count; // An optional missing target runs no command.
     const { commands, spans } = parseReleaseHook(text);
     const recipient = commandReceivingArguments(text, commands, spans);
-    if (!recipient) blockedTarget = forward.target;
-    const next = releaseHookCommand(recipient ? [...recipient, ...forward.args] : commands.at(-1) ?? []);
+    const producer = releaseOutputProducer(recipient ?? commands.at(-1) ?? []);
+    if (producer !== recipient) blockedTarget = forward.target;
+    const next = releaseHookCommand(producer === recipient ? [...producer, ...forward.args] : producer);
     if (!next) refuseHook("Custom script " + JSON.stringify(forward.target) + " cannot receive forwarded arguments. Move the logic into a script file");
     invocation = next;
   }
@@ -1015,7 +1016,7 @@ function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<
 /** Save the flag and any npm delimiters on the root caller, preserving shared target scripts. */
 export function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<string, string>, hasGenerator = false): string {
   const { commands, spans } = parseReleaseHook(script);
-  const invocation = releaseHookCommand(commands.at(-1) ?? []);
+  const invocation = releaseHookCommand(releaseOutputProducer(commands.at(-1) ?? []));
   if (!invocation) return script;
   const [program, ...args] = invocation;
   const separator = scriptForward(basename(program.value), args)?.npmSeparator;

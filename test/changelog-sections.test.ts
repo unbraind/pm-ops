@@ -384,6 +384,28 @@ test("custom notes receive the saved argument through npm independently of pre/p
   }
 });
 
+test("a notes generator pipes its output through filters without forwarding generator options to them", t => {
+  const root = mkdtempSync(join(tmpdir(), "notes-pipeline-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const env = releaseStepEnv(root, process.env);
+  const generator = "node pm-changelog.ts --release-version-from-package --date-from-version --stdout";
+  const pipeline = generator + " | cat | head -n 1";
+  writeFileSync(join(root, "pm-changelog.ts"), 'console.log(JSON.stringify(process.argv.slice(2)));');
+  for (const main of [pipeline, "npm run writer"]) {
+    const scripts = { "release:notes": main, "changelog:full": "# skip", "changelog:check": "# skip", writer: pipeline };
+    const manifest = join(root, "package.json");
+    writeFileSync(manifest, JSON.stringify({ scripts }));
+    execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env });
+    const prepared = JSON.parse(readFileSync(manifest, "utf8")).scripts;
+    const changed = pipeline.replace(generator, generator + " --include-empty");
+    assert.equal(prepared["release:notes"], main === pipeline ? changed : main);
+    const result = runBashFixture(main === pipeline ? prepared["release:notes"] : prepared.writer,
+      { cwd: root, encoding: "utf8", env });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), [...generator.split(" ").slice(2), "--include-empty"]);
+  }
+});
+
 test("prepare commits the heading its tag produces, for same-day and resumed releases", () => {
   const script = changelogStepScript();
   // The fixture starts from this repository's standing scripts, exactly as a

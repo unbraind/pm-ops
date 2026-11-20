@@ -183,6 +183,14 @@ test("custom notes delimiters follow explicit forwards and refuse unreachable ar
   const scripts = new Map([["render", "node notes.js"], ["cycle", "npm run cycle"], ["comment", "node notes.js # no argv"],
     ["bun-render", "bun run render"]]);
   assert.equal(includeEmptyCustomHook("npm run --if-present missing", scripts), "npm run --if-present missing -- --include-empty");
+  const mixedPipeline = "pm-changelog --output preview.md; node notes.mjs | cat";
+  assert.equal(includeEmptyCustomHook(mixedPipeline, scripts, true), mixedPipeline.replace("notes.mjs", "notes.mjs --include-empty"));
+  for (const filter of ["cat", "awk", "sed", "grep", "head", "tail", "cut", "tr", "sort", "uniq", "wc"]) {
+    const pipeline = "pm-changelog --stdout --include-empty | " + filter;
+    assert.equal(includeEmptyCustomHook(pipeline, scripts, true), pipeline);
+    scripts.set("pipeline", pipeline);
+    assert.equal(includeEmptyCustomHook("npm run pipeline", scripts, true), "npm run pipeline");
+  }
   for (const tail of ["true --stdout", "false", ":", "git add CHANGELOG.md", "git diff --exit-code"]) {
     const script = "pm-changelog --stdout && " + tail;
     assert.equal(includeEmptyCustomHook(script, scripts, true), script);
