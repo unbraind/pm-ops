@@ -60,6 +60,13 @@ export function refuseHook(construct) {
 export function describeReleaseContextChange(construct) {
     return "Unsupported release hook context change " + construct + ". Run the generator from the root package directory";
 }
+/** Check the parsed shape of a plain cat command reading one here-document. */
+function isCatHeredoc(words) {
+    if (words[0]?.value !== "cat" || !words[1])
+        return false;
+    const input = shellRedirection(words[1]);
+    return (input?.operator === "<<" || input?.operator === "<<-") && words.length === (input.joined ? 2 : 3);
+}
 /** Split only on unquoted shell list operators. Never execute or recursively guess a payload. */
 export function parseReleaseHook(text) {
     const commands = [];
@@ -104,6 +111,7 @@ export function parseReleaseHook(text) {
     while (i < text.length) {
         const ch = text[i];
         if (/^[;&|\n]$/.test(ch) && !text.startsWith("&>", i)) {
+            const opener = words;
             if (words.length) {
                 if (ch === "&" && text[i + 1] !== "&")
                     problems.set(words[0], "Shell background or descriptor operator &");
@@ -129,7 +137,8 @@ export function parseReleaseHook(text) {
                 }
                 end = Math.min(text.length, end);
                 const body = { value: text.slice(start, end), quoted: true, startsQuoted: true };
-                if ((mentionsGenerator(body) || /\b(?:npm|pnpm|bun)\s+run\b/.test(body.value)) && (evaluates || !/^\s*cat\s+<<-?\s*['"]?\w+['"]?\s*$/.test(lines[0]))) {
+                const standalone = !text.slice(heredoc, spans.get(opener[0])?.start ?? i).trim();
+                if ((mentionsGenerator(body) || /\b(?:npm|pnpm|bun)\s+run\b/.test(body.value)) && (evaluates || !standalone || !isCatHeredoc(opener))) {
                     problems.set(body, "Here-document with a possible generator command");
                     spans.set(body, { start, end });
                     commands.push([body]);

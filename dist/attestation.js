@@ -871,7 +871,8 @@ function publishInvocationsInArgv(source, argv) {
 }
 /** Read the default directory attached to workflow or job run steps. */
 function defaultRunDirectory(container) {
-    return mapping(mapping(mapping(container)?.defaults)?.run)?.["working-directory"];
+    const run = mapping(mapping(container)?.defaults)?.run;
+    return typeof run === "string" ? run : mapping(run)?.["working-directory"];
 }
 /** Extract structured commands together with their original scalar source ranges. */
 export function executableShellBodies(source) {

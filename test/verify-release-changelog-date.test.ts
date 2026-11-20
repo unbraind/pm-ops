@@ -273,6 +273,23 @@ test("non-root workflow steps refuse local forwards and direct generators withou
   assert.deepEqual(auditInvocations([source, { file, text: step.replace("npm run changes", "echo done") }]).failures, []);
 });
 
+test("expression-valued run defaults require an explicit root working directory", () => {
+  const file = ".github/workflows/release.yml";
+  const source = { file: "package.json", text: JSON.stringify({ scripts: { "release:notes": FLAGGED } }) };
+  const run = workflowRun("npm run release:notes");
+  const expression = "${{ fromJSON(vars.RUN_DEFAULTS) }}";
+  const defaults = "defaults:\n  run: " + expression + "\n";
+  const jobDefault = run.replace("    steps:", defaults.replace(/^(.+)/gm, "    $1") + "    steps:");
+  assert.deepEqual(auditInvocations([source, { file, text: run }]).failures, []);
+  for (const text of [jobDefault, defaults + run]) {
+    const override = text.replace("        run:", "        working-directory: ./\n        run:");
+    assert.deepEqual(auditInvocations([source, { file, text: override }]).failures, []);
+    const { failures } = auditInvocations([source, { file, text }]);
+    assert.equal(failures.length, 1);
+    assert.match(failures[0], /working-directory.*RUN_DEFAULTS.*root package directory/);
+  }
+});
+
 test("a pinned --date-fallback day must exist on the calendar, not merely be shaped like one", () => {
   // The regression CodeRabbit found: `2026-02-30` passes the shape regex and
   // therefore the audit, yet no calendar ever produces that heading. Both

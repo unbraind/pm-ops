@@ -238,6 +238,29 @@ test("a redirection filename cannot disable an npm pre-hook", () => {
   assert.match(rewriteReleaseHookDates(hooks, ["hook"], day, true).get("prewriter")!, /--date-fallback 2026-11-17/);
 });
 
+test("an exec argv zero operand cannot disable npm lifecycle writers", () => {
+  const hooks = ["changelog:full"];
+  const writer = "pm-changelog " + standing;
+  const prewriter = writer + " --title pre";
+  for (const [command, enabled] of [
+    ["env npm_config_ignore_scripts=true npm run writer", false],
+    ["exec -a npm_config_ignore_scripts=true npm run writer", true],
+  ] as const) {
+    const scripts = { "changelog:full": command, writer, prewriter };
+    const graph = resolveChangelogHooks(scripts, hooks, true);
+    assert.equal(graph.has("prewriter"), enabled, command);
+    assert.equal(rewriteReleaseHookDates(graph, hooks, day, true).get("prewriter"),
+      enabled ? prewriter.replace("--date-from-version", "--date-fallback " + day) : undefined, command);
+    const stale = new Map(Object.entries({ ...scripts, prewriter: prewriter.replace("--date-from-version", "--date-fallback 2026-11-16") }));
+    const verify = () => assertReleaseHookHeadingDate(stale, hooks, day, "2026.11.17", true);
+    if (enabled) assert.throws(verify, /2026-11-16.*2026-11-17/);
+    else assert.doesNotThrow(verify);
+    const { failures } = auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts }) }]);
+    assert.equal(failures.length, Number(enabled), command);
+    if (enabled) assert.match(failures[0], /Cannot determine npm ignore-scripts.*prewriter/);
+  }
+});
+
 test("npm lifecycle follows workflow env, project config and explicit options", () => {
   const writer = "pm-changelog " + standing;
   const scripts = { hook: "npm run target", target: writer, prehook: writer, posttarget: writer };
@@ -921,6 +944,28 @@ test("literal here-document data is never rewritten and opaque executable bodies
   }
   const title = 'pm-changelog --title "first\ncat <<END\n' + body + '\nEND\nlast" ' + standing;
   assert.deepEqual(auditInvocations([workflow(title)]).failures, []);
+});
+
+test("punctuation in a literal cat here-document delimiter preserves data and the next command", () => {
+  const body = "$(pm-changelog --version v2026.11.16)";
+  const next = "pm-changelog " + standing;
+  for (const delimiter of ["'END-LOG'", '"END-LOG"', "END\\-LOG"]) {
+    const data = "cat <<" + delimiter + "\n" + body + "\nEND-LOG\n";
+    assert.deepEqual(auditInvocations([workflow(data + next)]).failures, [], delimiter);
+    assert.equal(includeEmptyReleaseSections(data + next), data + next + " --include-empty", delimiter);
+  }
+});
+
+test("punctuation in a here-document delimiter does not hide executable generator text", () => {
+  const body = "pm-changelog --version v2026.11.16";
+  for (const [opener, data] of [
+    ["sh <<'END-LOG'", body],
+    ["cat <<'END-LOG' | sh", body],
+    ["cat <<END-LOG", "$(" + body + ")"],
+  ]) {
+    const script = opener + "\n" + data + "\nEND-LOG";
+    assert.throws(() => includeEmptyReleaseSections(script), /Here-document.*Use a direct/, opener);
+  }
 });
 
 test("a computed lifecycle switch or opaque runner cannot conceal an implicit-only writer", () => {

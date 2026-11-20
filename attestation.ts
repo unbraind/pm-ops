@@ -908,7 +908,8 @@ function publishInvocationsInArgv(source: SourceFile, argv: ShellCommand): Publi
 
 /** Read the default directory attached to workflow or job run steps. */
 function defaultRunDirectory(container: unknown): unknown {
-  return mapping(mapping(mapping(container)?.defaults)?.run)?.["working-directory"];
+  const run = mapping(mapping(container)?.defaults)?.run;
+  return typeof run === "string" ? run : mapping(run)?.["working-directory"];
 }
 
 /** Extract structured commands together with their original scalar source ranges. */

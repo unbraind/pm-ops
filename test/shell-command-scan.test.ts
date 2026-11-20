@@ -13,7 +13,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-import { bashArrayDeclarations, bashArrays, commandArguments, commandName, dedentRunBlocks, expandArrays, joinContinuations, tokenizeCommands } from "../shell-scan.ts";
+import { bashArrayDeclarations, bashArrays, commandArguments, commandName, dedentRunBlocks, expandArrays, joinContinuations, shellRedirection, tokenizeCommands } from "../shell-scan.ts";
 import { auditPublishAttestation, publishInvocationsIn } from "../attestation.ts";
 import { isMainInvocation } from "../scripts/main-invocation.ts";
 
@@ -46,6 +46,21 @@ test("continued descriptor duplication preserves the remaining argv", () => {
     const commands = tokenizeCommands("printf " + literal + continuation + "& cat");
     assert.deepEqual(commands.map(commandName), ["printf", "cat"]);
     assert.deepEqual(commandArguments(commands[0]).map(word => word.value), ["2>"], literal);
+  }
+});
+
+test("attached combined output redirections end the word and standalone ampersands end the command", () => {
+  const literal = tokenizeCommands("printf 'hi&>out'&echo done");
+  assert.deepEqual(literal.map(commandName), ["printf", "echo"]);
+  assert.deepEqual(commandArguments(literal[0]).map(word => word.value), ["hi&>out"]);
+  for (const operator of ["&>", "&>>"]) {
+    for (const space of [" ", ""]) {
+      const commands = tokenizeCommands("printf hi" + space + operator + "'release log'&echo done");
+      assert.deepEqual(commands.map(commandName), ["printf", "echo"]);
+      assert.deepEqual(commandArguments(commands[0]).map(word => word.value), ["hi"]);
+      assert.equal(commands[0][2].value, operator + "release log");
+      assert.deepEqual(shellRedirection(commands[0][2]), { operator, joined: true });
+    }
   }
 });
 

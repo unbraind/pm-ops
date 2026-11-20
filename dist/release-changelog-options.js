@@ -189,9 +189,9 @@ export function npmLifecycle(projectConfig, environment = {}) {
     return setting;
 }
 /** Read an explicit npm lifecycle assignment on the runner's command prefix. */
-function lifecycleEnvironment(words, program) {
+function lifecycleEnvironment(assignments) {
     let setting;
-    for (const token of withoutRedirections(words.slice(0, words.indexOf(program)))) {
+    for (const token of assignments) {
         const match = /^npm_config_ignore_scripts=(.*)$/i.exec(token.value);
         if (match && match[1] !== "")
             setting = lifecycleSetting(match[1]);
@@ -261,7 +261,8 @@ function generatorCommand(invocation) {
 function canReachGenerator(words, names, seen, writing = false, lifecycle = "unknown") {
     if (writing && redirectsChangelog(words))
         return true;
-    const invocation = releaseHookCommand(words);
+    const assignments = [];
+    const invocation = releaseHookCommand(words, undefined, assignments);
     if (!invocation)
         return hookSyntaxProblem(words) !== undefined && words.some(mentionsGenerator);
     const [program, ...parameters] = invocation;
@@ -271,7 +272,7 @@ function canReachGenerator(words, names, seen, writing = false, lifecycle = "unk
     const forward = scriptForward(name, parameters, names);
     if (forward?.target && names instanceof HookScriptNames) {
         const isNpm = forward.runner === "npm";
-        const enabled = forward.lifecycle ?? (isNpm ? lifecycleEnvironment(words, program) : undefined) ?? lifecycle;
+        const enabled = forward.lifecycle ?? (isNpm ? lifecycleEnvironment(assignments) : undefined) ?? lifecycle;
         return names.sequence(forward.target, !isNpm || enabled !== false).some(target => names.canGenerate(target, seen, writing, target === forward.target ? forward.args : [], enabled))
             || (!writing && forward.args.some(mentionsGenerator));
     }
@@ -388,10 +389,11 @@ function shellContextChange(words) {
 /** Find context changes made for a single invocation. */
 function commandContextChanges(words) {
     const context = [];
-    const invocation = releaseHookCommand(words, context);
+    const assignments = [];
+    const invocation = releaseHookCommand(words, context, assignments);
     // The npm forward resolver models this assignment, including dynamic values.
     if (invocation && basename(invocation[0].value) === "npm" && scriptForward("npm", invocation.slice(1))) {
-        const known = lifecycleEnvironment(words, invocation[0]);
+        const known = lifecycleEnvironment(assignments);
         if (known !== undefined) {
             const setting = /^(?:env )?npm_config_ignore_scripts assignment$/i;
             for (let i = context.length - 1; i >= 0; i--)
@@ -609,7 +611,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
         if (!forward)
             return undefined;
         return { ...forward, bindings: assignments.map(word => word.value.split(/[+=]/, 1)[0]),
-            lifecycle: forward.lifecycle ?? (forward.runner === "npm" ? lifecycleEnvironment(words, program) : undefined) };
+            lifecycle: forward.lifecycle ?? (forward.runner === "npm" ? lifecycleEnvironment(assignments) : undefined) };
     }
     // Workflow invocations supply their own lifecycle even when a hook must
     // also be checked as a standalone entry with no forwarded arguments.
