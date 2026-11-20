@@ -1,0 +1,18 @@
+id: ops-release-indirect-generator
+title: Check release dates for generators selected through npm script environment bindings
+description: "Greptile reports that an environment binding on an npm script forward can resolve to the changelog generator in the child script while remaining invisible to release preparation and heading verification. The finding was originally reported on cee030b and was the remaining finding on f0597ee. Review evidence is available in https://github.com/unbraind/pm-ops/pull/295#discussion_r4636163506."
+type: Issue
+status: open
+priority: 1
+tags[2]: "area:release",follow-up
+created_at: "2026-11-20T00:46:48.767Z"
+updated_at: "2026-11-20T00:46:48.767Z"
+author: codex-sol
+acceptance_criteria: Exercise the binding with real npm and preserve accepted forwarding scripts for unrelated CLIs in the fleet scan.
+severity: high
+repro_steps: Review a synthetic npm script forward whose child command obtains its Node entry point from an environment assignment on the parent invocation. Compare preparation and heading verification with the invoked child command.
+expected_result: "Pin and check the generator used by the child, or refuse an unresolved generator before preparing the release."
+actual_result: Greptile reports that both paths accept the child invocation without checking the release date policy.
+files[1]{path,scope}:
+  release-changelog-options.ts,project
+body: ""
