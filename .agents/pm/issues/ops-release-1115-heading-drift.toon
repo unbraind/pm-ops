@@ -3,14 +3,16 @@ title: Release 2026.11.15 changelog heading drifts after rollover publication
 description: "Baseline origin/main fails npm run changelog:check. CHANGELOG.md says 2026.11.15 - 2026-11-15, while tag v2026.11.15 points at the November 16 release commit. The pinned generator derives the tagged heading from commit time, regenerating 2026-11-16. Confirmed on unchanged origin/main while fixing #290."
 type: Issue
 pm_format_version: 2
-status: open
+status: in_progress
 priority: 2
 tags[3]: "area:release","gh:unbraind/pm-ops#292","gh:unbraind/pm-ops#295"
 created_at: "2026-11-16T19:17:51.165Z"
-updated_at: "2026-11-20T09:31:06.708Z"
+updated_at: "2026-11-20T12:34:34.602Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: "Resolve the existing tagged release-heading date policy mismatch; npm run changelog:check and release date checks agree before and after rollover without changing historical tags."
-comments[132]{created_at,author,text}:
+comments[134]{created_at,author,text}:
   "2026-11-16T19:18:50.836Z",codex-sol,"Verified npm run changelog:check fails on untouched origin/main c29fe88 as well as the fix branch. Tag v2026.11.15 targets c29fe88 with commit time 2026-11-16T17:43:01Z. Regeneration changes only the first heading date from 2026-11-15 to 2026-11-16. No historical tags or changelog content were changed for #290."
   "2026-11-16T19:24:41.440Z","harness:claude-code","2026-11-16 20:0xZ (orchestrator): root cause filed as unbraind/pm-ops#292. v2026.11.15 was prepared and tagged on 11-16, prepare rendered the heading from the version (2026-11-15), and after tagging pm-changelog uses the real tag date (2026-11-16, by design per pm-changelog#120). Regenerated CHANGELOG.md in PR #291 so 'npm run changelog:check' passes on this branch (exit 0); main stays red until #291 or another regeneration merges."
   "2026-11-16T22:58:09.756Z",pi-ops-292,"Root cause (issue #292): prepare renders the pending version's heading with --date-from-version, so a resumed candidate (version day before today) is stamped with its version day. The release step then tags it today; pm-changelog by design derives a tagged window's heading from the tag commit date (pm-changelog#120), so post-tag regeneration on unchanged main renders a different day and changelog:check is red on main. The release PR's own CI passes (candidate still untagged), so the failure only appears after the merge.\n\nDesign: use the generator's existing --date-fallback flag (applies only while no release tag exists; ignored once the tag exists, so it matches post-tag invocations byte-for-byte). decideDailyRelease now outputs heading_date: today in RELEASE_TIMEZONE, padded ISO, when the version's calendar day is before today; empty for a same-day release, which is therefore unchanged. The 'Generate changelog and release notes' step, in the same in-place package.json policy rewrite that already appends --include-empty, swaps --date-from-version for --date-fallback <heading_date> in the three changelog scripts when resumed, refreshes a stale pin when a candidate is re-prepared on a later day, and restores --date-from-version when the pending version is current again. The release commit carries the pinned spelling, so the release PR's CI (untagged candidate), prepare's nested release:check and post-tag checks on main all regenerate the same bytes with no follow-up regeneration. The date verifier accepts a pinned --date-fallback day (explicit ISO day only) as an equally clock-free alternative to --date-from-version. Rust/justfile releases (CHANGELOG_DATE derived from the tag name) keep their own spelling and are not touched."
@@ -143,8 +145,11 @@ comments[132]{created_at,author,text}:
   "2026-11-20T09:09:31.234Z",codex-sol,"Focused verification passed 1,228 tests across 18 files, including every unit test file referring to the changed modules. The linked direct suite passed 130 tests. Historical Bash proofs, isolated signing and invalid UTF-8 fixtures, and npm and Bun packed consumers passed. The workflow attestation inventory matched the baseline. The full coverage and rewritten release gate are still running."
   "2026-11-20T09:15:28.978Z",codex-sol,The first standalone coverage attempt hit ENOSPC while writing its counters. A fresh checkout on temporary storage is running the same npm coverage command at the same source revision with the original thresholds. The independent rewritten release gate continues.
   "2026-11-20T09:31:04.731Z",codex-sol,"Round ET local gates passed. The standalone npm run coverage and node test/release-heading-full-gate.acceptance.ts each reported 100% statements, branches, functions and lines across 53 source files, with 2,131 passing tests and two opt-in skips. Both passed in temporary storage after the host filesystem filled. Changelog regeneration after fetching tags made no diff, and ops-b2bs remains under Unreleased. Main is already an ancestor. The tracker item is ready for orchestrator review."
-files[34]{path,scope}:
+  "2026-11-20T12:19:38.505Z",codex-sol,"Round EX begins at bd592c4. Pair each finding with an acceptance control, run prior heading fixtures and the fleet corpus, then verify the release gates."
+  "2026-11-20T12:29:53.246Z",codex-sol,"All eight EX findings have paired fixtures. At bd592c4 the seven behavioral cases failed and the shell-independent npm fixture lacked a callable CLI resolver. The original five suites passed 167 tests. The pinned fleet accepted 142 hooks and 144 reachable bodies from 39 manifests. Existing inherited binding controls cover quoted titles, entry points, and date options."
+files[35]{path,scope}:
   .github/workflows/daily-release.yml,project
+  attestation.ts,project
   CHANGELOG.md,project
   daily-release.ts,project
   dist/daily-release.d.ts,project
@@ -162,6 +167,7 @@ files[34]{path,scope}:
   scripts/pm-changelog.ts,project
   scripts/prepare-release-changelog.ts,project
   scripts/release-continuation.ts,project
+  scripts/release-runtime.ts,project
   scripts/verify-release-changelog-date.ts,project
   shell-scan.ts,project
   test/changelog-sections.test.ts,project
@@ -177,8 +183,7 @@ files[34]{path,scope}:
   test/release-workflow.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-  attestation.ts,project
-tests[52]:
+tests[53]:
   - command: npm run typecheck
     scope: project
     provenance:
@@ -547,6 +552,13 @@ tests[52]:
     provenance:
       author: codex-sol
       created_at: "2026-11-20T08:58:45.877Z"
+      source_kind: local_mutation
+      source_ref: fix/release-hook-wrapper-options-bm
+  - command: node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/compose-attestation.test.ts test/continuation-selection.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/multiline-quote.test.ts test/ops.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-caller-attestation.test.ts test/release-continuation-adapter.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-provenance.test.ts test/release-recovery-signer.test.ts test/release-repair.test.ts test/release-runtime-windows.test.ts test/release-runtime.test.ts test/shell-command-scan.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-20T12:34:29.619Z"
       source_kind: local_mutation
       source_ref: fix/release-hook-wrapper-options-bm
 docs[3]{path,scope}:

@@ -10,7 +10,7 @@ import { execFileSync } from "../subprocess.ts";
 export const workflowToolsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Locate an npm CLI without executing a shell or switching the selected Node. */
-function npmCli(): string {
+export function npmCli(): string {
   const adjacent = join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js");
   if (existsSync(adjacent)) return adjacent;
   for (const directory of (process.env.PATH ?? "").split(delimiter).filter(Boolean)) {

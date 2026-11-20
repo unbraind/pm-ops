@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { stringify } from "yaml";
+import { executableShellBodies } from "../attestation.ts";
+import { npmCli } from "../scripts/release-runtime.ts";
 import { execFileSync } from "../subprocess.ts";
 import {
   assertReleaseHeadingDate, assertReleaseHookHeadingDate, includeEmptyCustomHook, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHeadingDate, rewriteReleaseHookDates, visitChangelogScriptCommands,
@@ -49,7 +51,7 @@ test("npm runs the prepared pre/main/post hooks with separate argument lists", t
   const hook = "changelog:full";
   const env = { ...process.env, CHANGELOG_SCRIPT: hook, CHANGELOG_CHECK_SCRIPT: hook, NOTES_SCRIPT: hook, RELEASE_HEADING_DATE: day };
   execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env });
-  execFileSync("npm", ["run", "--ignore-scripts=false", hook], { cwd: root, env: { ...env, npm_config_ignore_scripts: "false" } });
+  execFileSync(process.execPath, [npmCli(), "run", "--ignore-scripts=false", hook], { cwd: root, env: { ...env, npm_config_ignore_scripts: "false" } });
   const calls: string[][] = readFileSync(join(root, "calls"), "utf8").trim().split("\n").map(line => JSON.parse(line));
   assert.deepEqual(calls.map(args => args.includes("--title") ? args[args.indexOf("--title") + 1] : "writer"),
     ["writer", "pre", "main", "post", "relay"]);
@@ -89,7 +91,7 @@ test("preparation and npm agree when the project disables lifecycle hooks", t =>
     const prepared = JSON.parse(readFileSync(manifest, "utf8")).scripts;
     if (override) assert.match(prepared.prehook, /--date-fallback 2026-11-17/);
     else assert.equal(prepared.prehook, scripts.prehook);
-    execFileSync("npm", ["run", "hook"], { cwd: root, env: runEnv });
+    execFileSync(process.execPath, [npmCli(), "run", "hook"], { cwd: root, env: runEnv });
     assert.equal(existsSync(join(root, "CHANGELOG.md")), override);
   }
 });
@@ -986,4 +988,109 @@ test("generator text piped to an opaque executable is refused while ordinary out
   assert.equal(includeEmptyReleaseSections("echo pm-changelog | grep pm-changelog"), "echo pm-changelog | grep pm-changelog");
   const scripts = { writer: generator, hook: "sh <<'END'\nnpm run writer\nEND" };
   assert.throws(() => resolveChangelogHooks(scripts, ["hook"]), /Here-document.*Use a direct/);
+});
+
+test("GITHUB_ENV lifecycle writes apply to later steps within their job", () => {
+  const entry = "changelog:full";
+  const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
+    [entry]: "pm-changelog " + standing, ["pre" + entry]: "printf heading > CHANGELOG.md",
+  } }) };
+  const consume = { run: "npm run " + entry };
+  const write = { run: 'echo "npm_config_ignore_scripts=true" >> "$GITHUB_ENV"' };
+  const audit = (steps: object[], jobs = {}) => auditInvocations([manifest, {
+    file: ".github/workflows/release.yml", text: stringify({ jobs: { release: { "runs-on": "ubuntu-latest", steps }, ...jobs } }, { aliasDuplicateObjects: false }),
+  }]).failures;
+  const observed = (steps: object[], job: object = {}, defaults = {}) => executableShellBodies({ file: ".github/workflows/release.yml",
+    text: stringify({ defaults, env: { NPM_CONFIG_IGNORE_SCRIPTS: "false" }, jobs: { release: { "runs-on": "ubuntu-latest", ...job, steps } } }, { aliasDuplicateObjects: false }),
+  }).map(body => npmLifecycle(undefined, body.environment));
+  const reset = { run: "printf 'npm_config_ignore_scripts=%s\\n' false >> $GITHUB_ENV" };
+  assert.deepEqual(observed([write, consume, reset, consume]), [true, false, false, true]);
+  assert.deepEqual(observed([write, { ...consume, env: { NPM_CONFIG_IGNORE_SCRIPTS: "false" } }, consume]), [true, true, false]);
+  assert.deepEqual(observed([write, { run: 'cat settings >> "$GITHUB_ENV"' }, consume]), [true, false, "unknown"]);
+  assert.deepEqual(observed([write, { run: 'echo npm_config_ignore_scripts=false | tee -a "$GITHUB_ENV"' }, consume]), [true, false, "unknown"]);
+  assert.deepEqual(observed([write, { run: 'cat "$GITHUB_ENV"' }, consume]), [true, false, false]);
+  assert.deepEqual(observed([write, { run: 'echo "EXAMPLE=1" >> "$GITHUB_ENV"' }, consume]), [true, false, false]);
+  assert.deepEqual(observed([write, { run: "printf 'OTHER=yes\\nnpm_config_ignore_scripts=false\\n' >> $GITHUB_ENV" }, consume]), [true, false, "unknown"]);
+  assert.deepEqual(observed([{ run: "# lifecycle\n\nset -euo pipefail\necho ready\n" + write.run + " # next step" }, consume]), [true, false]);
+  assert.deepEqual(observed([{ run: "printf 'npm_config_ignore_scripts=true\\n' >> $GITHUB_ENV" }, consume]), [true, false]);
+  assert.deepEqual(observed([write, { ...reset, if: false }, consume]), [true, false, false]);
+  assert.deepEqual(observed([{ ...write, shell: "python" }, consume]), [true, "unknown"]);
+  assert.deepEqual(observed([write, consume], { "runs-on": "windows-latest" }), [true, "unknown"]);
+  assert.deepEqual(observed([write, consume], { "runs-on": ["self-hosted", "Linux"] }), [true, false]);
+  assert.deepEqual(observed([write, consume], { "runs-on": "windows-latest", defaults: { run: { shell: "bash" } } }), [true, false]);
+  assert.deepEqual(observed([write, consume], {}, { run: { shell: "pwsh" } }), [true, "unknown"]);
+  assert.deepEqual(observed([{ run: 'echo "npm_config_ignore_scripts=true" > "$GITHUB_ENV"' }, consume]), [true, false]);
+  assert.deepEqual(observed([{ run: write.run + '\necho OTHER=yes > "$GITHUB_ENV"' }, consume]), [true, true]);
+  assert.deepEqual(audit([write, consume]), []);
+  assert.deepEqual(audit([{ run: 'printf \'%s\\n\' npm_config_ignore_scripts=true >> "${GITHUB_ENV}"' }, consume]), []);
+  assert.deepEqual(audit([write, { run: 'echo npm_config_ignore_scripts=false >> $GITHUB_ENV' }, consume]), []);
+  assert.deepEqual(audit([write, { ...consume, env: { npm_config_ignore_scripts: "false" } }]), []);
+  assert.match(audit([write, consume], { separate: { steps: [consume] } })[0], /Cannot determine npm ignore-scripts/);
+  assert.match(audit([{ run: write.run + "\n" + consume.run }])[0], /Cannot determine npm ignore-scripts/);
+  for (const uncertain of [
+    { run: 'echo "npm_config_ignore_scripts=$SETTING" >> "$GITHUB_ENV"' },
+    { ...write, if: "${{ inputs.skip }}" },
+    { run: "if test -f optional; then\n" + write.run + "\nfi" },
+    { run: "cat <<'TEXT'\n" + write.run + "\nTEXT" },
+  ]) {
+    assert.match(audit([uncertain, consume])[0], /Cannot determine npm ignore-scripts.*consuming step.*npm --/);
+    assert.deepEqual(audit([uncertain, { ...consume, env: { npm_config_ignore_scripts: "true" } }]), []);
+    assert.deepEqual(audit([uncertain, { run: "npm --ignore-scripts run " + entry }]), []);
+  }
+});
+
+test("Bun shorthand cannot bypass a local generator's heading policy", () => {
+  const hooks = ["hook"];
+  const scripts = { hook: "bun changes", changes: "pm-changelog " + standing };
+  assert.throws(() => resolveChangelogHooks(scripts, hooks), /bun run changes/);
+  assert.throws(() => resolveChangelogHooks({ ...scripts, hook: "bun relay", relay: "bun --silent changes" }, hooks), /bun run relay/);
+  assert.throws(() => resolveChangelogHooks({ ...scripts, hook: "wrapper bun changes" }, hooks), /Unrecognized wrapper/);
+  assert.doesNotThrow(() => resolveChangelogHooks({ ...scripts, hook: "bun helper", helper: "echo ready" }, hooks));
+  for (const builtin of ["build", "test", "install"]) {
+    assert.doesNotThrow(() => resolveChangelogHooks({ hook: "bun " + builtin, [builtin]: scripts.changes }, hooks));
+  }
+  assert.throws(() => resolveChangelogHooks({ hook: "bun explain", explain: scripts.changes }, hooks), /bun run explain/);
+  const explicit = resolveChangelogHooks({ ...scripts, hook: "bun run changes" }, hooks);
+  const prepared = rewriteReleaseHookDates(explicit, hooks, day);
+  assert.match(prepared.get("changes")!, /--date-fallback 2026-11-17/);
+  assertReleaseHookHeadingDate(prepared, hooks, day);
+});
+
+test("release hooks retain the pending heading while published-history commands may omit it", () => {
+  const version = "2026.11.17";
+  const roots = ["changelog:full", "changelog:check"];
+  const generator = "pm-changelog --all-release-tags " + standing;
+  const configured = (options: string) => new Map(roots.map(name => [name, generator + options]));
+  for (const action of [
+    (scripts: Map<string, string>) => rewriteReleaseHookDates(scripts, roots, day, true, version),
+    (scripts: Map<string, string>) => assertReleaseHookHeadingDate(scripts, roots, day, version),
+  ]) {
+    assert.throws(() => action(configured(" --no-pending-release")), /--no-pending-release/);
+    const pinned = new Map(roots.map(name => [name, generator.replace("--date-from-version", "--date-fallback " + day) + " --no-pending-release"]));
+    assert.throws(() => action(pinned), /--no-pending-release/);
+    action(configured(" --pm-arg --no-pending-release"));
+    action(new Map(roots.map(name => [name, "pm-changelog --all-release-tags --no-pending-release"])));
+  }
+  const scripts = { ...Object.fromEntries(configured("")), history: generator + " --no-pending-release" };
+  assert.deepEqual(auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts }) }]).failures, []);
+});
+
+test("shell here-document input is refused even when its text only names a helper", () => {
+  const data = "\nnpm --silent run changes\nEND\n";
+  const audit = (opener: string) => auditInvocations([workflow(opener + data + "pm-changelog " + standing)]).failures;
+  for (const opener of ["sh <<'END'", "sh<<END", "if sh <<END; then", "env bash <<END", "cat <<END | sh", "cat <<END | cat | /bin/sh;"]) {
+    assert.match(audit(opener)[0] ?? "", /Here-document/, opener);
+  }
+  assert.match(audit("sh <<FIRST; cat <<END\nhelper\nFIRST")[0] ?? "", /Here-document/);
+  for (const opener of ["cat <<'END'", "cat <<END | head", "echo sh; cat <<END", "<<'END'"]) assert.deepEqual(audit(opener), [], opener);
+});
+
+test("release fixtures can invoke npm without a platform launcher on PATH", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-npm-launcher-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(join(root, "package.json"), JSON.stringify({ name: "fixture", scripts: { ready: "echo ready" } }));
+  const options = { cwd: root, encoding: "utf8" as const, env: { ...process.env, PATH: "", npm_config_script_shell: process.env.ComSpec || "/bin/sh", npm_config_cache: join(root, "cache") } };
+  const cli = npmCli();
+  assert.match(execFileSync(process.execPath, [cli, "run", "ready"], options), /ready/);
+  assert.throws(() => execFileSync(process.execPath, [cli, "run", "absent"], options), /Missing script/);
 });

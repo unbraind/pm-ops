@@ -42,6 +42,13 @@ export function hasVersionInput(args: readonly ShellToken[]): boolean {
 }
 const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun"]);
 const SCRIPT_RUNNERS = new Set(["npm", "pnpm", "bun"]);
+/** Bun dispatches its own subcommands before package scripts with the same name. */
+const BUN_SUBCOMMANDS = new Set([
+  "a", "add", "audit", "auth", "build", "bun", "c", "ci", "cloud", "completions", "config", "create", "deploy",
+  "discord", "exec", "getcompletes", "help", "i", "info", "init", "install", "link", "list", "login", "logout",
+  "outdated", "patch", "patch-commit", "pm", "prune", "publish", "r", "remove", "repl", "rm", "run", "test",
+  "uninstall", "unlink", "update", "upgrade", "use", "whoami", "why", "x",
+]);
 const BUN_SOURCE_FILE = /^(?:\.\/|\/)|\.(?:[cm]?[jt]s|[jt]sx)$/;
 const BUN_LOCAL_RUN_SWITCHES = new Set([
   "-b", "--bun", "--silent", "--watch", "--hot", "--no-clear-screen",
@@ -222,7 +229,8 @@ function isPackageAdmin(program: ShellToken, parameters: ShellCommand): boolean 
   const name = basename(program.value);
   if (program.unresolved || !PACKAGE_MANAGERS.has(name)) return false;
   const subcommand = parameters[afterRunOptions(name, parameters, 0).index];
-  return subcommand !== undefined && !subcommand.unresolved && PACKAGE_ADMIN_COMMANDS.has(subcommand.value);
+  return subcommand !== undefined && !subcommand.unresolved && PACKAGE_ADMIN_COMMANDS.has(subcommand.value)
+    && (name !== "bun" || BUN_SUBCOMMANDS.has(subcommand.value));
 }
 
 /** Detect a literal script runner and generator-writing target inside an opaque command. */
@@ -245,11 +253,18 @@ function candidateScriptRunners(words: ShellCommand): ShellCommand[] {
     !word.unresolved && SCRIPT_RUNNERS.has(basename(word.value)) ? [command.slice(index)] : []));
 }
 
+/** A Bun subcommand can name a local script without an explicit run keyword. */
+function bunShorthand(program: ShellToken, args: ShellCommand): string | undefined {
+  if (basename(program.value) !== "bun") return undefined;
+  const target = literalScriptName(args[afterRunOptions("bun", args, 0).index]);
+  return target && !BUN_SUBCOMMANDS.has(target) ? target : undefined;
+}
+
 /** Follow script references even in a chain that contains opaque commands. */
 function referencesWriter(words: ShellCommand, scriptNames?: ReadonlySet<string>, seen?: Set<string>): boolean {
   if (!(scriptNames instanceof HookScriptNames)) return false;
   return candidateScriptRunners(words).some(([program, ...args]) => {
-    const target = scriptForward(basename(program.value), args, scriptNames)?.target;
+    const target = scriptForward(basename(program.value), args, scriptNames)?.target ?? bunShorthand(program, args);
     return target !== undefined && scriptNames.mayInvoke(target, seen);
   }) || scriptReferenceWords(words).some(word => scriptNames.mayInvoke(word, seen));
 }
@@ -453,6 +468,10 @@ function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<stri
   }
   const [program, ...parameters] = invocation;
   const name = basename(program.value);
+  const shorthand = bunShorthand(program, parameters);
+  if (shorthand && scriptNames instanceof HookScriptNames && scriptNames.mayInvoke(shorthand)) {
+    refuseHook(`Ambiguous Bun shorthand for local release script. Use bun run ${shorthand}`);
+  }
   const forward = scriptForward(name, parameters, scriptNames);
   if (forward?.runner === "pnpm" && forward.target && scriptNames instanceof HookScriptNames
     && ["pre", "post"].some(prefix => scriptNames.canGenerate(prefix + forward.target))) {
@@ -684,7 +703,7 @@ export function visitChangelogScriptCommands(
     visited.add(name);
     const invocationNames = checkContext ? names : knownWriters;
     if (implicitNpm && lifecycle === "unknown" && knownWriters.canGenerate(name, undefined, true)) {
-      const lifecycleProblem = `Cannot determine npm ignore-scripts for lifecycle hook ${JSON.stringify(name)} that may write CHANGELOG.md. Set a literal workflow env or project .npmrc value; user/global npm config and external env are uncertain`;
+      const lifecycleProblem = `Cannot determine npm ignore-scripts for lifecycle hook ${JSON.stringify(name)} that may write CHANGELOG.md. Set npm_config_ignore_scripts on the consuming step or use an explicit npm --ignore-scripts=true/false option. A project .npmrc applies when no environment override is present; user/global npm config and external env are uncertain`;
       const contextProblem = commands.some(words => redirectsChangelog(words, true)) ? lifecycleProblem + ". " + CHANGELOG_TRAVERSAL : lifecycleProblem;
       if (hooks) refuseHook(contextProblem);
       const words = commands[0];
@@ -699,16 +718,15 @@ export function visitChangelogScriptCommands(
       // pnpm passes its delimiter through verbatim. A nested runner can consume
       // it, but the generator only accepts named options.
       const separators = effective.filter(token => forwardedSeparators.has(token));
-      const argv = forward ? effective : effective.filter(token => !forwardedSeparators.has(token));
-      const contextProblem = forwardedBindingProblem(argv, bindings)
-        ?? (checkContext ? releaseContextProblem(argv, names, preceding) : undefined);
+      const contextProblem = forwardedBindingProblem(effective, bindings)
+        ?? (checkContext ? releaseContextProblem(effective, names, preceding) : undefined);
       if (checkContext) preceding = nextShellContext(words, preceding, effective);
       if (contextProblem) {
         if (hooks) refuseHook(contextProblem);
-        inspect({ name, names, text, words, effective: argv, spans, forwardedSeparators: separators, contextProblem });
+        inspect({ name, names, text, words, effective, spans, forwardedSeparators: separators, contextProblem });
         return;
       }
-      inspect({ name, names: invocationNames, text, words, effective: argv, spans, forwardedSeparators: separators });
+      inspect({ name, names: invocationNames, text, words, effective, spans, forwardedSeparators: separators });
       if (forward) {
         if (forward.target === undefined) {
           if (hooks) refuseHook(`Cannot resolve changelog script forward in ${JSON.stringify(name)}: expected a literal package.json script name`);
@@ -797,7 +815,8 @@ export function changelogOutputTarget(args: readonly Pick<ShellToken, "value" | 
   let check = false;
   let stdout = false;
   const consumed = new Set<number>();
-  for (const index of optionPositions(args)) {
+  const positions = optionPositions(args);
+  for (const index of positions) {
     const word = args[index];
     if (word.value === "--check" || word.value === "--stdout") {
       check ||= word.value === "--check";
@@ -816,7 +835,7 @@ export function changelogOutputTarget(args: readonly Pick<ShellToken, "value" | 
     consumed.add(index);
     if (match[2] === undefined) consumed.add(index + 1);
   }
-  return { output, invalidOption, check, stdout, consumed };
+  return { output, invalidOption, check, stdout, consumed, positions };
 }
 
 /** Decode literal date options and retain their shell words for edits. */
@@ -825,6 +844,7 @@ export function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[
   for (const index of optionPositions(args)) {
     const token = args[index];
     const flag = token.value.split("=", 1)[0];
+    if (flag === "--") refuseHook("Unexpected delimiter -- in generator arguments");
     if (flag === OVERRIDE_DATE_FLAG) refuseHook("Explicit --date overrides the release heading. Remove --date and use a single release date policy");
     if ((flag === "--version" || flag === "--release-version") && (token.unresolved || (token.value === flag && args[index + 1]?.unresolved))) {
       refuseHook(`Unresolved ${flag} operand. Use --release-version-from-package or supply a literal release version`);
@@ -931,6 +951,9 @@ function assertAllTagsCutoff(
   for (const i of positions) {
     const token = args[i];
     const [flag] = token.value.split("=", 1);
+    if (flag === "--no-pending-release") {
+      throw new Error(`--no-pending-release suppresses the candidate heading. Remove it from the versioned --all-release-tags release hook.${advice}`);
+    }
     if (flag !== UNTIL_FLAG) continue;
     const day = headingDate || calendarRelease(literalReleaseVersion(args, positions) ?? packageVersion).day;
     const cutoff = token.value === flag ? args[i + 1]?.value : token.value.slice(flag.length + 1);
@@ -1097,14 +1120,18 @@ export function rewriteReleaseHookDates(
       sources.set(name, source);
     }
     for (const token of words) owners.set(token, source);
-    const args = changelogInvocation(effective, names)?.slice(1) ?? [];
+    const received = changelogInvocation(effective, names)?.slice(1) ?? [];
+    // Preparation can repair a delimiter from an older pnpm hook at its source.
+    // A separator consumed as --pm-arg data must remain in the command.
+    const separators = optionPositions(received).map(i => received[i]).filter(token => forwardedSeparators.includes(token));
+    const args = received.filter(token => !separators.includes(token));
     const options = hookDateOptions(args);
     const positions = optionPositions(args);
     if (options.length) assertReleaseCoordinate(literalReleaseVersion(args, positions), packageVersion);
     assertAllTagsCutoff(args, positions, headingDate, packageVersion);
     rewriteDateOptions(options, headingDate, token => owners.get(token)!);
     if (options.length > 0) {
-      for (const separator of forwardedSeparators) {
+      for (const separator of separators) {
         const owner = owners.get(separator)!;
         const span = owner.spans.get(separator)!;
         const space = /^[ \t]*/.exec(owner.text.slice(span.end))![0];

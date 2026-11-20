@@ -16,21 +16,25 @@ export function describeEmptyReleases(markdown: string): string {
 
 /** Generate once, then use identical normalized bytes for writes, checks and notes. */
 export function runChangelog(args: readonly string[], cwd = process.cwd(), env = process.env): number {
-  const { output: { value: output }, invalidOption, check, stdout, consumed } = changelogOutputTarget(args.map(value => ({ value })));
+  const { output: { value: output }, invalidOption, check, stdout, consumed, positions } = changelogOutputTarget(args.map(value => ({ value })));
   if (invalidOption) throw new Error(`${invalidOption} requires a value`);
-  const forwarded: string[] = [];
   let mode = "replace";
   let summary = false;
-  for (let index = 0; index < args.length; index++) {
-    if (consumed.has(index)) continue;
+  for (const index of positions) {
     const arg = args[index]!;
-    if (arg === "--mode") {
-      const value = args[++index];
+    if (arg === "--mode" || arg.startsWith("--mode=")) {
+      const separate = arg === "--mode";
+      const value = separate ? args[index + 1] : arg.slice("--mode=".length);
       if (!value || value.startsWith("--")) throw new Error("--mode requires a value");
       mode = value;
-    } else if (arg === "--github-step-summary") summary = true;
-    else forwarded.push(arg);
+      consumed.add(index);
+      if (separate) consumed.add(index + 1);
+    } else if (arg === "--github-step-summary") {
+      summary = true;
+      consumed.add(index);
+    }
   }
+  const forwarded = args.filter((_, index) => !consumed.has(index));
   if (mode !== "replace" && mode !== "prepend") throw new Error("--mode must be replace or prepend");
   if (forwarded.some(arg => ["--all-release-tags", "--since-previous-tag", "--until-release-tag"].includes(arg))
     && spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, env, encoding: "utf8" }).status !== 0) {

@@ -4,9 +4,9 @@
  * construct retained on its command. Source spans always refer to the input.
  */
 import { basename } from "node:path";
-import { heredocBodyLines, heredocExpansionLines, isRedirectionSuffix, recordShellRedirection, releaseHookCommand, shellRedirection, } from "./shell-scan.js";
+import { commandName, heredocBodyLines, heredocExpansionLines, isRedirectionSuffix, isShellEvaluator, recordShellRedirection, releaseHookCommand, shellRedirection, } from "./shell-scan.js";
 const problems = new WeakMap();
-const indirectTargets = new WeakSet();
+const possibleGeneratorTargets = new WeakSet();
 const variableReferences = new WeakMap();
 const optionNames = new WeakMap();
 const isolatedCommands = new WeakSet();
@@ -40,9 +40,9 @@ export function hasBraceExpansion(word) {
 export function hookSyntaxProblem(words) {
     return words.map(word => problems.get(word)).find(problem => problem !== undefined);
 }
-/** Literal generator references and shell words referencing a local generator binding. */
+/** Literal or indirect generator references, including opaque shell input. */
 export function mentionsGenerator(word) {
-    return word.value.includes("pm-changelog") || word.value.includes("dist/cli.js") || indirectTargets.has(word);
+    return word.value.includes("pm-changelog") || word.value.includes("dist/cli.js") || possibleGeneratorTargets.has(word);
 }
 /** Return the variable expanded by this word that is inherited from a script runner. */
 export function inheritedVariable(word, bindings) {
@@ -79,6 +79,7 @@ export function parseReleaseHook(text) {
     let inSubshell = false;
     let heredoc = -1;
     let heredocComment = -1;
+    const heredocCommands = new Set();
     /** Retain unsupported subshell commands for inspection without propagating their edits. */
     function finishCommand() {
         if (words.length > 0) {
@@ -138,6 +139,16 @@ export function parseReleaseHook(text) {
                 end = Math.min(text.length, end);
                 const body = { value: text.slice(start, end), quoted: true, startsQuoted: true };
                 const standalone = !text.slice(heredoc, spans.get(opener[0])?.start ?? i).trim();
+                for (const first of heredocCommands) {
+                    for (let index = first; index < commands.length; index++) {
+                        const stage = commands[index];
+                        if (isShellEvaluator(commandName(stage) ?? ""))
+                            possibleGeneratorTargets.add(body);
+                        if (!piped.has(stage))
+                            break;
+                    }
+                }
+                heredocCommands.clear();
                 if ((mentionsGenerator(body) || /\b(?:npm|pnpm|bun)\s+run\b/.test(body.value)) && (evaluates || !standalone || !isCatHeredoc(opener))) {
                     problems.set(body, "Here-document with a possible generator command");
                     spans.set(body, { start, end });
@@ -187,6 +198,8 @@ export function parseReleaseHook(text) {
                 && !(i === start && text.startsWith("&>", i))
                 && !isRedirectionSuffix(text, start, i))
                 break;
+            if (!quote && text.startsWith("<<", i) && !/^[0-9<]*$/.test(value))
+                break;
             // A new operator ends an attached or separate destination. Keep the
             // characters of >>, <>, << and <<< together until the operand starts.
             if (!quote && i > start && (char === ">" || char === "<")
@@ -231,8 +244,6 @@ export function parseReleaseHook(text) {
             }
             if (quote !== "'" && char === "$" && /^\{[^}]*\[@\]/.test(text.slice(i)))
                 problem = "Shell array expansion";
-            if (!quote && char === "<" && text[i] === "<")
-                heredoc = text.lastIndexOf("\n", i - 1) + 1;
             if (!quote && /[<>]/.test(char) && !/^\d*$/.test(value) && !/^(?:\d*[<>]|&(?:>|$))/.test(value))
                 problem = "Attached shell redirection";
             if (!quote && "*?[".includes(char)) {
@@ -255,6 +266,11 @@ export function parseReleaseHook(text) {
             problem = "malformed shell arguments (unterminated quote)";
         const token = { value, startsQuoted, quoted, unresolved };
         recordShellRedirection(token, text, start, i);
+        const redirect = shellRedirection(token);
+        if (redirect && /^\d*<<-?$/.test(redirect.operator)) {
+            heredoc = text.lastIndexOf("\n", start - 1) + 1;
+            heredocCommands.add(commands.length);
+        }
         if (shellRedirection(token)?.operator.endsWith("&") && text.slice(start, i).includes("\\\n"))
             continuedDescriptors.add(token);
         if (BRACE_EXPANSION.test(unquoted))
@@ -262,7 +278,7 @@ export function parseReleaseHook(text) {
         if (references.length)
             variableReferences.set(token, references);
         if (inheritedVariable(token, bindings))
-            indirectTargets.add(token);
+            possibleGeneratorTargets.add(token);
         if (!startsQuoted && mentionsGenerator(token)) {
             const binding = /^([A-Za-z_][A-Za-z_0-9]*)=/.exec(value);
             if (binding)

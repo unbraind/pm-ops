@@ -212,7 +212,13 @@ test("configured release hooks are audited when called without another script's 
     "    with:",
     "      changelog-script: render",
   ].join("\n") };
-  assert.match(auditInvocations([source("render"), caller]).failures[0], /neither --date-from-version/);
+  for (const project of [undefined, ".", "././"]) {
+    const text = project === undefined ? caller.text : caller.text + "\n      npm-project-dir: " + project;
+    assert.match(auditInvocations([source("render"), { ...caller, text }]).failures[0], /neither --date-from-version/);
+  }
+  for (const project of ["docs", "${{ inputs.project }}"]) {
+    assert.deepEqual(auditInvocations([source("render"), { ...caller, text: caller.text + "\n      npm-project-dir: " + project }]).failures, []);
+  }
 });
 
 test("directory changes are refused on release hook paths and ignored in unrelated scripts", () => {
@@ -550,13 +556,26 @@ test("the date verifier uses the generator arguments supplied by package script 
     const source = (options: string) => ({
       file: "package.json",
       text: JSON.stringify({ scripts: {
-        check: `${runner} run changes -- ${options}`,
+        check: `${runner} run changes ${runner === "pnpm" ? "" : "-- "}${options}`,
         changes: "echo ready && pm-changelog --release-version-from-package",
       } }),
     });
     assert.deepEqual(auditInvocations([source(DATE_FLAG)]).failures, [], runner);
+    if (runner === "pnpm") assert.match(auditInvocations([source("-- " + DATE_FLAG)]).failures[0] ?? "", /delimiter --/);
     assert.match(auditInvocations([source("--date-fallback 2026-02-30")]).failures[0], /does not exist on the calendar/);
   }
+});
+
+test("a nested npm runner consumes pnpm's delimiter before the generator receives its options", () => {
+  const scripts = {
+    hook: "pnpm run relay -- --date-from-version",
+    relay: "npm run changes",
+    changes: "pm-changelog --release-version-from-package",
+  };
+  const audit = () => auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts }) }]).failures;
+  assert.deepEqual(audit(), []);
+  scripts.relay += " --";
+  assert.match(audit()[0], /delimiter --/);
 });
 
 test("a forwarded policy only covers the command that receives the new arguments", () => {

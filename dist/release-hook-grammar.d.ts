@@ -11,7 +11,7 @@ export declare function isContinuedDescriptor(word: ShellToken): boolean;
 export declare function hasBraceExpansion(word: ShellToken): boolean;
 /** Return the first unsupported construct in the command. */
 export declare function hookSyntaxProblem(words: ShellCommand): string | undefined;
-/** Literal generator references and shell words referencing a local generator binding. */
+/** Literal or indirect generator references, including opaque shell input. */
 export declare function mentionsGenerator(word: ShellToken): boolean;
 /** Return the variable expanded by this word that is inherited from a script runner. */
 export declare function inheritedVariable(word: ShellToken, bindings: ReadonlySet<string>): string | undefined;

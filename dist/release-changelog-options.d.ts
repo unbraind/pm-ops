@@ -77,6 +77,7 @@ export declare function changelogOutputTarget(args: readonly Pick<ShellToken, "v
     check: boolean;
     stdout: boolean;
     consumed: Set<number>;
+    positions: number[];
 };
 /** Decode literal date options and retain their shell words for edits. */
 export declare function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[];
