@@ -949,10 +949,12 @@ test("literal here-document data is never rewritten and opaque executable bodies
 test("punctuation in a literal cat here-document delimiter preserves data and the next command", () => {
   const body = "$(pm-changelog --version v2026.11.16)";
   const next = "pm-changelog " + standing;
-  for (const delimiter of ["'END-LOG'", '"END-LOG"', "END\\-LOG"]) {
-    const data = "cat <<" + delimiter + "\n" + body + "\nEND-LOG\n";
-    assert.deepEqual(auditInvocations([workflow(data + next)]).failures, [], delimiter);
-    assert.equal(includeEmptyReleaseSections(data + next), data + next + " --include-empty", delimiter);
+  for (const [redirect, indent] of [
+    ["<<'END-LOG'", ""], ['<<"END-LOG"', ""], ["<<END\\-LOG", ""], ["<<- 'END-LOG'", "\t"],
+  ]) {
+    const data = "cat " + redirect + "\n" + indent + body + "\n" + indent + "END-LOG\n";
+    assert.deepEqual(auditInvocations([workflow(data + next)]).failures, [], redirect);
+    assert.equal(includeEmptyReleaseSections(data + next), data + next + " --include-empty", redirect);
   }
 });
 
@@ -961,6 +963,7 @@ test("punctuation in a here-document delimiter does not hide executable generato
   for (const [opener, data] of [
     ["sh <<'END-LOG'", body],
     ["cat <<'END-LOG' | sh", body],
+    ["cat <<'END-LOG' | sh;", body],
     ["cat <<END-LOG", "$(" + body + ")"],
   ]) {
     const script = opener + "\n" + data + "\nEND-LOG";

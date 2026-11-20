@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-20T08:59:12.065Z"
+updated_at: "2026-11-20T09:01:49.830Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -16,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[100]:
+comments[101]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -318,6 +318,9 @@ comments[100]:
   - created_at: "2026-11-20T08:59:12.064Z"
     author: codex-sol
     text: "All four paired fixtures reproduced their reported failure on 9f967b0 and pass with the fixes. The inherited TITLE option control still passes. The pinned scan accepts 142 configured hooks and 144 reached bodies across 39 packages, with no refusals. Typecheck, builds, lint, zero duplication, docstrings, and changelog:check passed. Full unit coverage and rewritten-candidate acceptance are running."
+  - created_at: "2026-11-20T09:01:49.824Z"
+    author: codex-sol
+    text: "Added parser controls for a separated, tab-stripping punctuation delimiter and an opaque pipeline followed by a command separator. The cases check that delimiter quoting remains data and a shell sink remains refused."
 files[23]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
