@@ -13,7 +13,7 @@ import {
   type ReleaseContextChange, type ShellCommand, type ShellToken, type ShellTokenSpan,
 } from "./shell-scan.ts";
 import {
-  describeReleaseContextChange, hasBraceExpansion, hookSyntaxProblem, isContinuedDescriptor, isIsolatedReleaseCommand,
+  describeReleaseContextChange, hasBraceExpansion, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand,
   isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook,
 } from "./release-hook-grammar.ts";
 
@@ -28,9 +28,9 @@ const UNTIL_FLAG = "--until";
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 /** Match executables and registry package specifiers left by package runner prefixes. */
 const GENERATOR_TARGET = /^pm-changelog@[^/]+$|(?:^|\/)(?:pm-changelog(?:\.ts)?|dist\/cli\.js)$/;
-const GENERATOR_BINDING = /^pm-changelog@[^/]+$|(?:^|\/)pm-changelog(?:\.ts|\/dist\/cli\.js)?$/;
 /** The three generator inputs that bind a heading to a release. */
 export const VERSION_INPUTS = ["--release-version-from-package", "--release-version", "--version"] as const;
+const INDIRECT_RELEASE_OPTIONS = new Set([VERSION_INPUTS[0], DATE_FLAG, FALLBACK_DATE_FLAG]);
 
 /** True when a command supplies an explicit release version. */
 export function hasVersionInput(args: readonly ShellToken[]): boolean {
@@ -433,8 +433,7 @@ function releaseContextProblem(
 
 /** Return the generator word and arguments, or refuse a possible hook behind an unknown wrapper. */
 function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<string>, audit = false): ShellCommand | undefined {
-  const assignments: ShellToken[] = [];
-  const invocation = releaseHookCommand(words, undefined, assignments);
+  const invocation = releaseHookCommand(words);
   const mentions = words.some(mentionsGenerator);
   const problem = hookSyntaxProblem(words);
   if (problem && (mentions || referencesWriter(words, scriptNames))) {
@@ -450,11 +449,6 @@ function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<stri
   const [program, ...parameters] = invocation;
   const name = basename(program.value);
   const forward = scriptForward(name, parameters, scriptNames);
-  if (forward?.runner === "npm") {
-    const binding = assignments.map(word => /^([A-Za-z_]\w*)\+?=(.+)$/.exec(word.value))
-      .find(match => match && GENERATOR_BINDING.test(match[2]));
-    if (binding) refuseHook("Generator binding through variable assignment " + binding[1] + " crosses an npm run forward" + SCRIPT_FILE_ADVICE);
-  }
   if (forward?.runner === "pnpm" && forward.target && scriptNames instanceof HookScriptNames
     && ["pre", "post"].some(prefix => scriptNames.canGenerate(prefix + forward.target))) {
     refuseHook("Configuration-dependent pnpm lifecycle writer for " + JSON.stringify(forward.target));
@@ -594,6 +588,18 @@ interface NpmLifecycleInputs {
   workflowSteps?: ReadonlyMap<string, NpmLifecycle>;
 }
 
+/** Find versioned generator options on a command that expands an inherited assignment. */
+function forwardedBindingProblem(words: ShellCommand, bindings: ReadonlySet<string>): string | undefined {
+  if (!bindings.size) return undefined;
+  const invocation = releaseHookCommand(words);
+  if (!invocation) return undefined;
+  const [program, ...args] = invocation;
+  if (DATA_CONSUMERS.has(basename(program.value))) return undefined;
+  if (!optionPositions(args).some(index => INDIRECT_RELEASE_OPTIONS.has(args[index].value.split("=", 1)[0]))) return undefined;
+  const binding = invocation.map(word => inheritedVariable(word, bindings)).find(Boolean);
+  return binding && ("Generator binding through variable assignment " + binding + " crosses an npm run forward" + SCRIPT_FILE_ADVICE);
+}
+
 /** Scan local scripts in invocation order and join forwarded argv at its actual destination. */
 export function visitChangelogScriptCommands(
   scripts: ReadonlyMap<string, string>, inspect: (entry: ChangelogScriptCommand) => void, hooks?: readonly string[],
@@ -607,14 +613,16 @@ export function visitChangelogScriptCommands(
     return [name, { text, commands, spans }];
   }));
 
-  /** Return a forward only when its script has a body in this manifest. */
+  /** Read the local script target, arguments, and command-prefix assignments. */
   function forwardToScript(words: ShellCommand) {
-    const command = releaseHookCommand(words);
+    const assignments: ShellToken[] = [];
+    const command = releaseHookCommand(words, undefined, assignments);
     if (!command) return undefined;
     const [program, ...parameters] = command;
     const forward = scriptForward(basename(program.value), parameters, names);
-    if (forward?.runner !== "npm" || forward.lifecycle !== undefined) return forward;
-    return { ...forward, lifecycle: lifecycleEnvironment(words, program) };
+    if (!forward) return undefined;
+    return { ...forward, bindings: assignments.map(word => word.value.split(/[+=]/, 1)[0]),
+      lifecycle: forward.lifecycle ?? (forward.runner === "npm" ? lifecycleEnvironment(words, program) : undefined) };
   }
 
   const visited = new Set<string>();
@@ -625,6 +633,7 @@ export function visitChangelogScriptCommands(
   /** Walk one invocation, preserving token identity back to each supplying script. */
   function visit(
     name: string, args: readonly ShellToken[], parents: readonly string[], lifecycle: NpmLifecycle, releasePath: boolean, implicitNpm = false,
+    bindings: ReadonlySet<string> = new Set(),
   ): void {
     const chain = [...parents, name].join(" -> ");
     if (parents.includes(name)) {
@@ -647,7 +656,7 @@ export function visitChangelogScriptCommands(
     const checkContext = releasePath || knownWriters.canGenerate(name)
       || (recipient !== undefined && canReachGenerator([...recipient, ...args], knownWriters));
     if (args.length === 0) {
-      const key = Number(checkContext) + ":" + lifecycle + ":" + Number(implicitNpm) + ":" + name;
+      const key = JSON.stringify([checkContext, lifecycle, implicitNpm, name, [...bindings].sort()]);
       const depth = hooks ? parents.length : 0;
       if ((withoutArgs.get(key) ?? -1) >= depth) return;
       withoutArgs.set(key, depth);
@@ -671,7 +680,8 @@ export function visitChangelogScriptCommands(
       // it, but the generator only accepts named options.
       const separators = effective.filter(token => forwardedSeparators.has(token));
       const argv = forward ? effective : effective.filter(token => !forwardedSeparators.has(token));
-      const contextProblem = checkContext ? releaseContextProblem(argv, names, preceding) : undefined;
+      const contextProblem = forwardedBindingProblem(argv, bindings)
+        ?? (checkContext ? releaseContextProblem(argv, names, preceding) : undefined);
       if (checkContext) preceding = nextShellContext(words, preceding, effective);
       if (contextProblem) {
         if (hooks) refuseHook(contextProblem);
@@ -688,10 +698,11 @@ export function visitChangelogScriptCommands(
         if (forward.forwardedSeparator) forwardedSeparators.add(forward.forwardedSeparator);
         const enabled = forward.lifecycle ?? lifecycle;
         const isNpm = forward.runner === "npm";
+        const inherited = isNpm && forward.bindings.length ? new Set([...bindings, ...forward.bindings]) : bindings;
         const sequence = names.sequence(forward.target, !npm.mainOnly && (!isNpm || enabled !== false));
         for (const target of sequence) {
           const main = target === forward.target;
-          visit(target, main ? forward.args : [], [...parents, name], enabled, checkContext, isNpm && !main);
+          visit(target, main ? forward.args : [], [...parents, name], enabled, checkContext, isNpm && !main, inherited);
         }
       }
     }

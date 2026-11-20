@@ -9,7 +9,7 @@
  */
 import { basename, posix } from "node:path";
 import { RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand, shellRedirection, withoutRedirections, } from "./shell-scan.js";
-import { describeReleaseContextChange, hasBraceExpansion, hookSyntaxProblem, isContinuedDescriptor, isIsolatedReleaseCommand, isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, } from "./release-hook-grammar.js";
+import { describeReleaseContextChange, hasBraceExpansion, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand, isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, } from "./release-hook-grammar.js";
 /** The flag that makes an untagged heading version-derived. */
 export const DATE_FLAG = "--date-from-version";
 /** The option that pins the heading day of a resumed release. */
@@ -19,9 +19,9 @@ const UNTIL_FLAG = "--until";
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 /** Match executables and registry package specifiers left by package runner prefixes. */
 const GENERATOR_TARGET = /^pm-changelog@[^/]+$|(?:^|\/)(?:pm-changelog(?:\.ts)?|dist\/cli\.js)$/;
-const GENERATOR_BINDING = /^pm-changelog@[^/]+$|(?:^|\/)pm-changelog(?:\.ts|\/dist\/cli\.js)?$/;
 /** The three generator inputs that bind a heading to a release. */
 export const VERSION_INPUTS = ["--release-version-from-package", "--release-version", "--version"];
+const INDIRECT_RELEASE_OPTIONS = new Set([VERSION_INPUTS[0], DATE_FLAG, FALLBACK_DATE_FLAG]);
 /** True when a command supplies an explicit release version. */
 export function hasVersionInput(args) {
     return optionPositions(args).some(index => {
@@ -435,8 +435,7 @@ function releaseContextProblem(words, names, preceding, hookPath = true) {
 }
 /** Return the generator word and arguments, or refuse a possible hook behind an unknown wrapper. */
 function changelogInvocation(words, scriptNames, audit = false) {
-    const assignments = [];
-    const invocation = releaseHookCommand(words, undefined, assignments);
+    const invocation = releaseHookCommand(words);
     const mentions = words.some(mentionsGenerator);
     const problem = hookSyntaxProblem(words);
     if (problem && (mentions || referencesWriter(words, scriptNames))) {
@@ -454,12 +453,6 @@ function changelogInvocation(words, scriptNames, audit = false) {
     const [program, ...parameters] = invocation;
     const name = basename(program.value);
     const forward = scriptForward(name, parameters, scriptNames);
-    if (forward?.runner === "npm") {
-        const binding = assignments.map(word => /^([A-Za-z_]\w*)\+?=(.+)$/.exec(word.value))
-            .find(match => match && GENERATOR_BINDING.test(match[2]));
-        if (binding)
-            refuseHook("Generator binding through variable assignment " + binding[1] + " crosses an npm run forward" + SCRIPT_FILE_ADVICE);
-    }
     if (forward?.runner === "pnpm" && forward.target && scriptNames instanceof HookScriptNames
         && ["pre", "post"].some(prefix => scriptNames.canGenerate(prefix + forward.target))) {
         refuseHook("Configuration-dependent pnpm lifecycle writer for " + JSON.stringify(forward.target));
@@ -569,6 +562,21 @@ function commandReceivingArguments(text, commands, spans) {
     const start = appended.spans.get(recipient[0]).start;
     return commands.find(words => spans.get(words[0])?.start === start);
 }
+/** Find versioned generator options on a command that expands an inherited assignment. */
+function forwardedBindingProblem(words, bindings) {
+    if (!bindings.size)
+        return undefined;
+    const invocation = releaseHookCommand(words);
+    if (!invocation)
+        return undefined;
+    const [program, ...args] = invocation;
+    if (DATA_CONSUMERS.has(basename(program.value)))
+        return undefined;
+    if (!optionPositions(args).some(index => INDIRECT_RELEASE_OPTIONS.has(args[index].value.split("=", 1)[0])))
+        return undefined;
+    const binding = invocation.map(word => inheritedVariable(word, bindings)).find(Boolean);
+    return binding && ("Generator binding through variable assignment " + binding + " crosses an npm run forward" + SCRIPT_FILE_ADVICE);
+}
 /** Scan local scripts in invocation order and join forwarded argv at its actual destination. */
 export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, entryPoints = new Set(), npm = { lifecycle: "unknown" }) {
     const names = new HookScriptNames(scripts);
@@ -578,23 +586,25 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
         const { commands, spans } = parseReleaseHook(text);
         return [name, { text, commands, spans }];
     }));
-    /** Return a forward only when its script has a body in this manifest. */
+    /** Read the local script target, arguments, and command-prefix assignments. */
     function forwardToScript(words) {
-        const command = releaseHookCommand(words);
+        const assignments = [];
+        const command = releaseHookCommand(words, undefined, assignments);
         if (!command)
             return undefined;
         const [program, ...parameters] = command;
         const forward = scriptForward(basename(program.value), parameters, names);
-        if (forward?.runner !== "npm" || forward.lifecycle !== undefined)
-            return forward;
-        return { ...forward, lifecycle: lifecycleEnvironment(words, program) };
+        if (!forward)
+            return undefined;
+        return { ...forward, bindings: assignments.map(word => word.value.split(/[+=]/, 1)[0]),
+            lifecycle: forward.lifecycle ?? (forward.runner === "npm" ? lifecycleEnvironment(words, program) : undefined) };
     }
     const visited = new Set();
     const withoutArgs = new Map();
     const recipients = new Map();
     const forwardedSeparators = new WeakSet();
     /** Walk one invocation, preserving token identity back to each supplying script. */
-    function visit(name, args, parents, lifecycle, releasePath, implicitNpm = false) {
+    function visit(name, args, parents, lifecycle, releasePath, implicitNpm = false, bindings = new Set()) {
         const chain = [...parents, name].join(" -> ");
         if (parents.includes(name)) {
             if (hooks)
@@ -620,7 +630,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
         const checkContext = releasePath || knownWriters.canGenerate(name)
             || (recipient !== undefined && canReachGenerator([...recipient, ...args], knownWriters));
         if (args.length === 0) {
-            const key = Number(checkContext) + ":" + lifecycle + ":" + Number(implicitNpm) + ":" + name;
+            const key = JSON.stringify([checkContext, lifecycle, implicitNpm, name, [...bindings].sort()]);
             const depth = hooks ? parents.length : 0;
             if ((withoutArgs.get(key) ?? -1) >= depth)
                 return;
@@ -646,7 +656,8 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
             // it, but the generator only accepts named options.
             const separators = effective.filter(token => forwardedSeparators.has(token));
             const argv = forward ? effective : effective.filter(token => !forwardedSeparators.has(token));
-            const contextProblem = checkContext ? releaseContextProblem(argv, names, preceding) : undefined;
+            const contextProblem = forwardedBindingProblem(argv, bindings)
+                ?? (checkContext ? releaseContextProblem(argv, names, preceding) : undefined);
             if (checkContext)
                 preceding = nextShellContext(words, preceding, effective);
             if (contextProblem) {
@@ -668,10 +679,11 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
                     forwardedSeparators.add(forward.forwardedSeparator);
                 const enabled = forward.lifecycle ?? lifecycle;
                 const isNpm = forward.runner === "npm";
+                const inherited = isNpm && forward.bindings.length ? new Set([...bindings, ...forward.bindings]) : bindings;
                 const sequence = names.sequence(forward.target, !npm.mainOnly && (!isNpm || enabled !== false));
                 for (const target of sequence) {
                     const main = target === forward.target;
-                    visit(target, main ? forward.args : [], [...parents, name], enabled, checkContext, isNpm && !main);
+                    visit(target, main ? forward.args : [], [...parents, name], enabled, checkContext, isNpm && !main, inherited);
                 }
             }
         }

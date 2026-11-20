@@ -11,6 +11,8 @@ export declare function hasBraceExpansion(word: ShellToken): boolean;
 export declare function hookSyntaxProblem(words: ShellCommand): string | undefined;
 /** Literal generator references and shell words referencing a local generator binding. */
 export declare function mentionsGenerator(word: ShellToken): boolean;
+/** Return the variable expanded by this word that is inherited from a script runner. */
+export declare function inheritedVariable(word: ShellToken, bindings: ReadonlySet<string>): string | undefined;
 /** A fixed option name with a quoted, single-word dynamic value. */
 export declare function literalOptionName(word: ShellToken): string | undefined;
 /** One actionable diagnostic across verification, preparation and continuation. */

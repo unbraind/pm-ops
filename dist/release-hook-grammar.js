@@ -7,12 +7,14 @@ import { basename } from "node:path";
 import { heredocBodyLines, heredocExpansionLines, isRedirectionSuffix, recordShellRedirection, releaseHookCommand, shellRedirection, } from "./shell-scan.js";
 const problems = new WeakMap();
 const indirectTargets = new WeakSet();
+const variableReferences = new WeakMap();
 const optionNames = new WeakMap();
 const isolatedCommands = new WeakSet();
 const loopConditions = new WeakSet();
 const continuedDescriptors = new WeakSet();
 const braceExpansions = new WeakSet();
 const BRACE_EXPANSION = /(?<!\$)\{(?:[^{}]*,[^{}]*|(?:-?\d+\.\.-?\d+|[A-Za-z]\.\.[A-Za-z])(?:\.\.-?\d+)?)\}/;
+const VARIABLE_REFERENCE = /^(?:\\\n)*(?:\{(?:\\\n)*[!#]?(?:\\\n)*)?([A-Za-z_](?:\w|\\\n)*)/;
 /** Whether shell edits in this command are local to a pipeline stage or subshell. */
 export function isIsolatedReleaseCommand(words) {
     return isolatedCommands.has(words[0]);
@@ -36,6 +38,10 @@ export function hookSyntaxProblem(words) {
 /** Literal generator references and shell words referencing a local generator binding. */
 export function mentionsGenerator(word) {
     return word.value.includes("pm-changelog") || word.value.includes("dist/cli.js") || indirectTargets.has(word);
+}
+/** Return the variable expanded by this word that is inherited from a script runner. */
+export function inheritedVariable(word, bindings) {
+    return variableReferences.get(word)?.find(name => bindings.has(name));
 }
 /** A fixed option name with a quoted, single-word dynamic value. */
 export function literalOptionName(word) {
@@ -157,6 +163,7 @@ export function parseReleaseHook(text) {
         let unresolved = false;
         let splits = false;
         let fixedName;
+        const references = [];
         while (i < text.length) {
             const char = text[i];
             // Redirection operators can contain characters that otherwise end a command.
@@ -189,6 +196,9 @@ export function parseReleaseHook(text) {
                 continue;
             }
             if (quote !== "'" && (char === "$" || char === "`")) {
+                const reference = char === "$" && VARIABLE_REFERENCE.exec(text.slice(i));
+                if (reference)
+                    references.push(reference[1].replaceAll("\\\n", ""));
                 if (!unresolved)
                     fixedName = /^(-[\w-]+)=/.exec(value)?.[1];
                 unresolved = true;
@@ -227,7 +237,9 @@ export function parseReleaseHook(text) {
             continuedDescriptors.add(token);
         if (BRACE_EXPANSION.test(unquoted))
             braceExpansions.add(token);
-        if (unresolved && [...value.matchAll(/\$\{?([A-Za-z_][A-Za-z_0-9]*)/g)].some(match => bindings.has(match[1])))
+        if (references.length)
+            variableReferences.set(token, references);
+        if (inheritedVariable(token, bindings))
             indirectTargets.add(token);
         if (!startsQuoted && mentionsGenerator(token)) {
             const binding = /^([A-Za-z_][A-Za-z_0-9]*)=/.exec(value);

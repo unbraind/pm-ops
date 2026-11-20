@@ -456,9 +456,13 @@ test("versioned generator options refuse unquoted brace expansion", () => {
 test("a generator assignment cannot cross an npm run forward", () => {
   const scripts = { "changelog:full": 'GEN="pm-changelog" npm run writer', writer: '"$GEN" ' + standing };
   const reason = /generator binding through variable assignment GEN.*npm run forward.*script file/i;
-  assert.throws(() => resolveChangelogHooks(scripts, ["changelog:full"]), reason);
-  assert.throws(() => assertReleaseHookHeadingDate(new Map(Object.entries(scripts)), ["changelog:full"], day), reason);
-  assert.match(auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts }) }]).failures[0], reason);
+  for (const candidate of [scripts, { "changelog:full": "GEN=dist/cli.js npm run writer", writer: 'node "$GEN" ' + standing }]) {
+    const entries = new Map(Object.entries(candidate));
+    assert.throws(() => resolveChangelogHooks(candidate, ["changelog:full"]), reason);
+    assert.throws(() => rewriteReleaseHookDates(entries, ["changelog:full"], day), reason);
+    assert.throws(() => assertReleaseHookHeadingDate(entries, ["changelog:full"], day), reason);
+    assert.match(auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts: candidate }) }]).failures[0], reason);
+  }
   assert.throws(() => resolveChangelogHooks({ ...scripts, "changelog:full": "env 'GEN=pm-changelog' npm run writer" },
     ["changelog:full"]), reason);
   assert.throws(() => resolveChangelogHooks({ ...scripts, "changelog:full": "GEN=./node_modules/pm-changelog/dist/cli.js npm run writer" },
@@ -467,7 +471,38 @@ test("a generator assignment cannot cross an npm run forward", () => {
     assert.doesNotThrow(() => resolveChangelogHooks({ hook, writer: "pm-changelog " + standing }, ["hook"]));
   }
   const unrelated = { "changelog:full": "pm-changelog " + standing, smoke: "BIN=dist/cli.js npm run test:cli", "test:cli": "node scripts/smoke.mjs" };
+  assert.doesNotThrow(() => resolveChangelogHooks(unrelated, ["smoke"]));
   assert.deepEqual(auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts: unrelated }) }]).failures, []);
+});
+
+test("the forwarded generator check uses the child's argv and actual variable expansions", () => {
+  const hook = "GEN=entrypoint npm run delegate";
+  const reason = /generator binding through variable assignment GEN.*npm run forward/i;
+  for (const flag of ["--release-version-from-package", "--date-from-version", "--date-fallback=2026-11-17"]) {
+    const scripts = { hook, delegate: "npm run writer -- " + flag, writer: 'node "${GEN}"' };
+    assert.throws(() => resolveChangelogHooks(scripts, ["hook"]), reason);
+  }
+  for (const entry of ['"$G\\\nEN"', '"${!GEN}"']) {
+    assert.throws(() => resolveChangelogHooks({ hook, delegate: "node " + entry + " " + standing }, ["hook"]), reason);
+  }
+  for (const writer of [
+    "LOCAL=only",
+    'echo "$GEN" ' + standing,
+    'node "$GEN_SUFFIX" ' + standing,
+    'node "\\$GEN$OTHER" ' + standing,
+    "node '$GEN' " + standing,
+    'node "$GEN" --pm-arg --date-from-version',
+    'node "$GEN"; node other.mjs ' + standing,
+  ]) {
+    assert.doesNotThrow(() => resolveChangelogHooks({ hook, delegate: "npm run writer", writer }, ["hook"]));
+  }
+
+  const scripts = { hook, delegate: "node smoke.mjs", predelegate: 'node "$GEN" ' + standing };
+  assert.doesNotThrow(() => resolveChangelogHooks(scripts, ["hook"], false));
+  assert.throws(() => resolveChangelogHooks(scripts, ["hook"], true), reason);
+
+  const shared = { hook: "OTHER=entrypoint npm run writer; " + hook, delegate: "npm run writer", writer: '"$GEN" ' + standing };
+  assert.match(auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts: shared }) }]).failures[0], reason);
 });
 
 test("opaque argv expansion cannot conceal a versioned generator", () => {

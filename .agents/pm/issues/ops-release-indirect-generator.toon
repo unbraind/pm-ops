@@ -2,17 +2,30 @@ id: ops-release-indirect-generator
 title: Check release dates for generators selected through npm script environment bindings
 description: "Greptile reports that an environment binding on an npm script forward can resolve to the changelog generator in the child script while remaining invisible to release preparation and heading verification. The finding was originally reported on cee030b and was the remaining finding on f0597ee. Review evidence is available in https://github.com/unbraind/pm-ops/pull/295#discussion_r4636163506."
 type: Issue
-status: open
+status: in_progress
 priority: 1
-tags[2]: "area:release",follow-up
+tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-20T00:46:48.767Z"
-updated_at: "2026-11-20T00:46:48.767Z"
+updated_at: "2026-11-20T00:54:36.567Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Exercise the binding with real npm and preserve accepted forwarding scripts for unrelated CLIs in the fleet scan.
 severity: high
 repro_steps: Review a synthetic npm script forward whose child command obtains its Node entry point from an environment assignment on the parent invocation. Compare preparation and heading verification with the invoked child command.
 expected_result: "Pin and check the generator used by the child, or refuse an unresolved generator before preparing the release."
 actual_result: Greptile reports that both paths accept the child invocation without checking the release date policy.
-files[1]{path,scope}:
+comments[2]{created_at,author,text}:
+  "2026-11-20T00:50:39.173Z",codex-sol,Round EK is tracing inherited npm script assignments against forwarded release option usage for Greptile thread PRRT_kwDOTOTl1M65wN_0.
+  "2026-11-20T00:54:22.476Z",codex-sol,The dist/cli.js fixture reproduced the missed refusal before the change. Real npm passed both generator entry points and the unrelated smoke script in a scratch package. The guard refuses both generator forwards. The pinned and current fleet inventories both accepted 142 hooks and 144 script bodies across 39 repositories.
+files[3]{path,scope}:
   release-changelog-options.ts,project
+  release-hook-grammar.ts,project
+  test/release-hook-grammar.test.ts,project
+tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/changelog-sections.test.ts test/daily-release-workflow.test.ts test/release-continuation-adapter.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-runtime.test.ts test/verify-release-changelog-date.test.ts,project,codex-sol,"2026-11-20T00:54:24.685Z",local_mutation,fix/release-hook-wrapper-options-bm
+  npm run coverage,project,codex-sol,"2026-11-20T00:54:33.499Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node test/release-heading-full-gate.acceptance.ts,project,codex-sol,"2026-11-20T00:54:36.480Z",local_mutation,fix/release-hook-wrapper-options-bm
+docs[1]{path,scope,note}:
+  README.md,project,Canonical release hook grammar
 body: ""

@@ -11,12 +11,14 @@ import {
 
 const problems = new WeakMap<ShellToken, string>();
 const indirectTargets = new WeakSet<ShellToken>();
+const variableReferences = new WeakMap<ShellToken, string[]>();
 const optionNames = new WeakMap<ShellToken, string>();
 const isolatedCommands = new WeakSet<ShellToken>();
 const loopConditions = new WeakSet<ShellToken>();
 const continuedDescriptors = new WeakSet<ShellToken>();
 const braceExpansions = new WeakSet<ShellToken>();
 const BRACE_EXPANSION = /(?<!\$)\{(?:[^{}]*,[^{}]*|(?:-?\d+\.\.-?\d+|[A-Za-z]\.\.[A-Za-z])(?:\.\.-?\d+)?)\}/;
+const VARIABLE_REFERENCE = /^(?:\\\n)*(?:\{(?:\\\n)*[!#]?(?:\\\n)*)?([A-Za-z_](?:\w|\\\n)*)/;
 
 /** Whether shell edits in this command are local to a pipeline stage or subshell. */
 export function isIsolatedReleaseCommand(words: ShellCommand): boolean {
@@ -46,6 +48,11 @@ export function hookSyntaxProblem(words: ShellCommand): string | undefined {
 /** Literal generator references and shell words referencing a local generator binding. */
 export function mentionsGenerator(word: ShellToken): boolean {
   return word.value.includes("pm-changelog") || word.value.includes("dist/cli.js") || indirectTargets.has(word);
+}
+
+/** Return the variable expanded by this word that is inherited from a script runner. */
+export function inheritedVariable(word: ShellToken, bindings: ReadonlySet<string>): string | undefined {
+  return variableReferences.get(word)?.find(name => bindings.has(name));
 }
 
 /** A fixed option name with a quoted, single-word dynamic value. */
@@ -155,6 +162,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
     let unresolved = false;
     let splits = false;
     let fixedName: string | undefined;
+    const references: string[] = [];
     while (i < text.length) {
       const char = text[i];
       // Redirection operators can contain characters that otherwise end a command.
@@ -174,6 +182,8 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
         continue;
       }
       if (quote !== "'" && (char === "$" || char === "`")) {
+        const reference = char === "$" && VARIABLE_REFERENCE.exec(text.slice(i));
+        if (reference) references.push(reference[1].replaceAll("\\\n", ""));
         if (!unresolved) fixedName = /^(-[\w-]+)=/.exec(value)?.[1];
         unresolved = true;
         if (!quote || text[i] === "@" || text.startsWith("{@", i)) splits = true;
@@ -199,7 +209,8 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
     recordShellRedirection(token, text, start, i);
     if (shellRedirection(token)?.operator.endsWith("&") && text.slice(start, i).includes("\\\n")) continuedDescriptors.add(token);
     if (BRACE_EXPANSION.test(unquoted)) braceExpansions.add(token);
-    if (unresolved && [...value.matchAll(/\$\{?([A-Za-z_][A-Za-z_0-9]*)/g)].some(match => bindings.has(match[1]))) indirectTargets.add(token);
+    if (references.length) variableReferences.set(token, references);
+    if (inheritedVariable(token, bindings)) indirectTargets.add(token);
     if (!startsQuoted && mentionsGenerator(token)) {
       const binding = /^([A-Za-z_][A-Za-z_0-9]*)=/.exec(value);
       if (binding) bindings.add(binding[1]);
