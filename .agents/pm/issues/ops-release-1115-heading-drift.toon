@@ -7,10 +7,10 @@ status: open
 priority: 2
 tags[3]: "area:release","gh:unbraind/pm-ops#292","gh:unbraind/pm-ops#295"
 created_at: "2026-11-16T19:17:51.165Z"
-updated_at: "2026-11-20T22:30:17.402Z"
+updated_at: "2026-11-20T22:49:07.990Z"
 author: codex-sol
 acceptance_criteria: "Resolve the existing tagged release-heading date policy mismatch; npm run changelog:check and release date checks agree before and after rollover without changing historical tags."
-comments[146]{created_at,author,text}:
+comments[149]{created_at,author,text}:
   "2026-11-16T19:18:50.836Z",codex-sol,"Verified npm run changelog:check fails on untouched origin/main c29fe88 as well as the fix branch. Tag v2026.11.15 targets c29fe88 with commit time 2026-11-16T17:43:01Z. Regeneration changes only the first heading date from 2026-11-15 to 2026-11-16. No historical tags or changelog content were changed for #290."
   "2026-11-16T19:24:41.440Z","harness:claude-code","2026-11-16 20:0xZ (orchestrator): root cause filed as unbraind/pm-ops#292. v2026.11.15 was prepared and tagged on 11-16, prepare rendered the heading from the version (2026-11-15), and after tagging pm-changelog uses the real tag date (2026-11-16, by design per pm-changelog#120). Regenerated CHANGELOG.md in PR #291 so 'npm run changelog:check' passes on this branch (exit 0); main stays red until #291 or another regeneration merges."
   "2026-11-16T22:58:09.756Z",pi-ops-292,"Root cause (issue #292): prepare renders the pending version's heading with --date-from-version, so a resumed candidate (version day before today) is stamped with its version day. The release step then tags it today; pm-changelog by design derives a tagged window's heading from the tag commit date (pm-changelog#120), so post-tag regeneration on unchanged main renders a different day and changelog:check is red on main. The release PR's own CI passes (candidate still untagged), so the failure only appears after the merge.\n\nDesign: use the generator's existing --date-fallback flag (applies only while no release tag exists; ignored once the tag exists, so it matches post-tag invocations byte-for-byte). decideDailyRelease now outputs heading_date: today in RELEASE_TIMEZONE, padded ISO, when the version's calendar day is before today; empty for a same-day release, which is therefore unchanged. The 'Generate changelog and release notes' step, in the same in-place package.json policy rewrite that already appends --include-empty, swaps --date-from-version for --date-fallback <heading_date> in the three changelog scripts when resumed, refreshes a stale pin when a candidate is re-prepared on a later day, and restores --date-from-version when the pending version is current again. The release commit carries the pinned spelling, so the release PR's CI (untagged candidate), prepare's nested release:check and post-tag checks on main all regenerate the same bytes with no follow-up regeneration. The date verifier accepts a pinned --date-fallback day (explicit ISO day only) as an equally clock-free alternative to --date-from-version. Rust/justfile releases (CHANGELOG_DATE derived from the tag name) keep their own spelling and are not touched."
@@ -157,6 +157,9 @@ comments[146]{created_at,author,text}:
   "2026-11-20T21:22:21.857Z",codex-sol,Round FE thread map for commit 3173fdb. Prefix PRRT_kwDOTOTl1M66. GCjw and GZVa replace the polynomial environment-file regex with an operator scan and anchored destination match. GICs follows an inline conditional writer. GIC4 preserves the notes closing keyword. GZVM binds both continuation checks to immutable preparation policy. GZVt invalidates on environment file replacement. GZV4 invalidates on unmodeled actions or commands. GZWE retains distinct POSIX keys. GZWR distinguishes direct summary output from adapter writes. GZWb checks each version operand. GZWk preserves the shared writer argv contract and refuses an incompatible restoration. GZWp refuses executable substitution in expandable here-documents. GZW2 joins combined redirections in both scanners.
   "2026-11-20T21:52:24.100Z",codex-sol,"At 3173fdb the 34 focused and referring test files recorded 1502 passes and two opt-in skips. Typecheck, lint, duplication, docstrings and tag-backed changelog verification passed. Packed npm and native Bun consumers verified artifact 657bc725662a28c680c53fc9ca856515dda1c8c488a1a33822a20cb3d5f98820. A temporary directory name matched the duplication exclusion in an initial coverage invocation. The same fixture passed in a neutral directory and the full measurement was restarted there."
   "2026-11-20T22:30:14.580Z",codex-sol,"Round FE verification on 3173fdb99da9064ef053a223e2b121070e19c1d1 passed npm run coverage and node test/release-heading-full-gate.acceptance.ts. The original and rewritten candidates each measured 100% statements, branches, functions and lines across all 53 required sources, with 2149 passing tests, two opt-in skips and zero failures. The final pinned fleet scan accepted all 142 hooks and 144 bodies in 39 manifests. The regenerated changelog retains ops-b2bs under Unreleased. Hosted CodeQL is checked separately against the pushed head."
+  "2026-11-20T22:40:44.720Z",codex-sol,"The exact-head CodeQL alert check passed with zero annotations at f8485bf. Greptile discussion r4648492860 identifies a missing inverse for GZWk. A synthetic three-way check confirms restoration accepts unrelated help text, incorrectly refuses a printed npm run example and correctly refuses an actual caller. Add acceptance and refusal controls before correcting the shared-caller classification."
+  "2026-11-20T22:45:44.405Z",codex-sol,"Follow-up to GZWk, Greptile discussion r4648492860. The shared-date caller scan now skips literal data arguments of recognized commands after resolving wrappers. Shell substitution and real forwards remain subject to the shared argument contract. The new fixture failed on f8485bf and passes with the fix. Preparation integration covers an actual preview caller. The final fleet scan passed 142 hooks and 144 bodies. Build, typecheck, lint, duplication and docstrings passed. The changed decision is covered in both directions. Full original and rewritten coverage runs are in progress."
+  "2026-11-20T22:48:50.610Z",codex-sol,"The six priority suites passed all 304 tests with zero skips, including ordinary inherited arguments, executable and policy binding refusals, heredoc substitutions and redirections. Both shared-writer tests passed. The full focused, source and rewritten suites are running separately."
 files[35]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
@@ -193,7 +196,7 @@ files[35]{path,scope}:
   test/release-workflow.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[55]:
+tests[56]:
   - command: npm run typecheck
     scope: project
     provenance:
@@ -583,6 +586,13 @@ tests[55]:
     provenance:
       author: codex-sol
       created_at: "2026-11-20T21:21:29.144Z"
+      source_kind: local_mutation
+      source_ref: fix/release-hook-wrapper-options-bm
+  - command: "node --test --test-name-pattern=\"shared (date restoration|writers keep preview)\" test/changelog-sections.test.ts"
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-20T22:43:50.348Z"
       source_kind: local_mutation
       source_ref: fix/release-hook-wrapper-options-bm
 docs[3]{path,scope}:

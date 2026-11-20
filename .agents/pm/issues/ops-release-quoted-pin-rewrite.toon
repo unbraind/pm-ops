@@ -6,7 +6,7 @@ status: open
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-20T22:30:22.280Z"
+updated_at: "2026-11-20T22:49:33.865Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -14,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[118]:
+comments[121]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -370,6 +370,15 @@ comments[118]:
   - created_at: "2026-11-20T22:30:18.835Z"
     author: codex-sol
     text: "Round FE verification on 3173fdb99da9064ef053a223e2b121070e19c1d1 passed npm run coverage and node test/release-heading-full-gate.acceptance.ts. The original and rewritten candidates each measured 100% statements, branches, functions and lines across all 53 required sources, with 2149 passing tests, two opt-in skips and zero failures. The final pinned fleet scan accepted all 142 hooks and 144 bodies in 39 manifests. The regenerated changelog retains ops-b2bs under Unreleased. Hosted CodeQL is checked separately against the pushed head."
+  - created_at: "2026-11-20T22:40:51.284Z"
+    author: codex-sol
+    text: "The exact-head CodeQL alert check passed with zero annotations at f8485bf. Greptile discussion r4648492860 identifies a missing inverse for GZWk. A synthetic three-way check confirms restoration accepts unrelated help text, incorrectly refuses a printed npm run example and correctly refuses an actual caller. Add acceptance and refusal controls before correcting the shared-caller classification."
+  - created_at: "2026-11-20T22:45:53.170Z"
+    author: codex-sol
+    text: "Follow-up to GZWk, Greptile discussion r4648492860. The shared-date caller scan now skips literal data arguments of recognized commands after resolving wrappers. Shell substitution and real forwards remain subject to the shared argument contract. The new fixture failed on f8485bf and passes with the fix. Preparation integration covers an actual preview caller. The final fleet scan passed 142 hooks and 144 bodies. Build, typecheck, lint, duplication and docstrings passed. The changed decision is covered in both directions. Full original and rewritten coverage runs are in progress."
+  - created_at: "2026-11-20T22:49:19.048Z"
+    author: codex-sol
+    text: "The six priority suites passed all 304 tests with zero skips, including ordinary inherited arguments, executable and policy binding refusals, heredoc substitutions and redirections. Both shared-writer tests passed. The full focused, source and rewritten suites are running separately."
 files[24]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
@@ -395,7 +404,7 @@ files[24]{path,scope}:
   test/release-runtime.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[56]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[57]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -452,6 +461,7 @@ tests[56]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/compose-attestation.test.ts test/continuation-selection.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/multiline-quote.test.ts test/ops.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-caller-attestation.test.ts test/release-continuation-adapter.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-provenance.test.ts test/release-recovery-signer.test.ts test/release-repair.test.ts test/release-runtime-windows.test.ts test/release-runtime.test.ts test/shell-command-scan.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts,project,codex-sol,"2026-11-20T12:34:43.051Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-concurrency=2 test/regular-input.test.ts test/release-runtime.test.ts test/release-runtime-windows.test.ts,project,codex-sol,"2026-11-20T15:15:13.494Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/compatibility-floor.test.ts test/compose-attestation.test.ts test/continuation-runtime.test.ts test/continuation-selection.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/dependency-contract.test.ts test/multiline-quote.test.ts test/ops.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-caller-attestation.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-permissions-docs.test.ts test/release-prepare-restart.test.ts test/release-provenance.test.ts test/release-recovery-signer.test.ts test/release-repair.test.ts test/release-review.test.ts test/release-runtime.test.ts test/release-workflow.test.ts test/shell-command-scan.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts,project,codex-sol,"2026-11-20T21:22:59.962Z",local_mutation,fix/release-hook-wrapper-options-bm
+  "node --test --test-name-pattern=\"shared (date restoration|writers keep preview)\" test/changelog-sections.test.ts",project,codex-sol,"2026-11-20T22:44:00.548Z",local_mutation,fix/release-hook-wrapper-options-bm
 docs[3]{path,scope}:
   CHANGELOG.md,project
   docs/reusable-release.md,project

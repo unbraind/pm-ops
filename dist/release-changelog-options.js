@@ -1143,6 +1143,9 @@ export function rewriteReleaseHookDates(scripts, hooks, headingDate, lifecycle =
             if (sources.has(name))
                 continue;
             for (const words of parseReleaseHook(text).commands) {
+                const invocation = releaseHookCommand(words);
+                if (invocation && DATA_CONSUMERS.has(basename(invocation[0].value)) && !hookSyntaxProblem(words))
+                    continue;
                 const callers = candidateScriptRunners(words);
                 if (callers.some(([runner, ...args]) => {
                     const forward = scriptForward(basename(runner.value), args);

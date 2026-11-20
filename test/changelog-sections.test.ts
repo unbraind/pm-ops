@@ -890,6 +890,17 @@ test("preparation preserves a quoted expansion in a non-date option value", () =
     `${prefix} --date-fallback 2026-11-17`);
 });
 
+test("shared date restoration distinguishes printed forwards from executable callers", () => {
+  const base = { release: "npm run changes -- 2026-11-16", changes: "pm-changelog --date-fallback" };
+  const restore = (help: string) => rewriteReleaseHookDates(new Map(Object.entries({ ...base, help })), ["release"], "");
+  for (const help of ["echo npm run changes", 'env TITLE=x printf "%s" "npm run changes"', "command -v npm run changes", "TITLE=example"]) {
+    assert.equal(restore(help).get("changes"), "pm-changelog --date-from-version");
+  }
+  for (const caller of ["command npm run changes", "echo npm run changes; npm run changes", 'echo "$(npm run changes)"']) {
+    assert.throws(() => restore(caller), /argument contract/);
+  }
+});
+
 test("shared writers keep preview date operands and refuse an incompatible restore before writing", () => {
   const root = mkdtempSync(join(tmpdir(), "shared-heading-"));
   try {
