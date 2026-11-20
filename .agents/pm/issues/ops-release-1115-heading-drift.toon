@@ -7,10 +7,10 @@ status: open
 priority: 2
 tags[3]: "area:release","gh:unbraind/pm-ops#292","gh:unbraind/pm-ops#295"
 created_at: "2026-11-16T19:17:51.165Z"
-updated_at: "2026-11-20T13:18:46.045Z"
+updated_at: "2026-11-20T15:30:42.371Z"
 author: codex-sol
 acceptance_criteria: "Resolve the existing tagged release-heading date policy mismatch; npm run changelog:check and release date checks agree before and after rollover without changing historical tags."
-comments[137]{created_at,author,text}:
+comments[141]{created_at,author,text}:
   "2026-11-16T19:18:50.836Z",codex-sol,"Verified npm run changelog:check fails on untouched origin/main c29fe88 as well as the fix branch. Tag v2026.11.15 targets c29fe88 with commit time 2026-11-16T17:43:01Z. Regeneration changes only the first heading date from 2026-11-15 to 2026-11-16. No historical tags or changelog content were changed for #290."
   "2026-11-16T19:24:41.440Z","harness:claude-code","2026-11-16 20:0xZ (orchestrator): root cause filed as unbraind/pm-ops#292. v2026.11.15 was prepared and tagged on 11-16, prepare rendered the heading from the version (2026-11-15), and after tagging pm-changelog uses the real tag date (2026-11-16, by design per pm-changelog#120). Regenerated CHANGELOG.md in PR #291 so 'npm run changelog:check' passes on this branch (exit 0); main stays red until #291 or another regeneration merges."
   "2026-11-16T22:58:09.756Z",pi-ops-292,"Root cause (issue #292): prepare renders the pending version's heading with --date-from-version, so a resumed candidate (version day before today) is stamped with its version day. The release step then tags it today; pm-changelog by design derives a tagged window's heading from the tag commit date (pm-changelog#120), so post-tag regeneration on unchanged main renders a different day and changelog:check is red on main. The release PR's own CI passes (candidate still untagged), so the failure only appears after the merge.\n\nDesign: use the generator's existing --date-fallback flag (applies only while no release tag exists; ignored once the tag exists, so it matches post-tag invocations byte-for-byte). decideDailyRelease now outputs heading_date: today in RELEASE_TIMEZONE, padded ISO, when the version's calendar day is before today; empty for a same-day release, which is therefore unchanged. The 'Generate changelog and release notes' step, in the same in-place package.json policy rewrite that already appends --include-empty, swaps --date-from-version for --date-fallback <heading_date> in the three changelog scripts when resumed, refreshes a stale pin when a candidate is re-prepared on a later day, and restores --date-from-version when the pending version is current again. The release commit carries the pinned spelling, so the release PR's CI (untagged candidate), prepare's nested release:check and post-tag checks on main all regenerate the same bytes with no follow-up regeneration. The date verifier accepts a pinned --date-fallback day (explicit ISO day only) as an equally clock-free alternative to --date-from-version. Rust/justfile releases (CHANGELOG_DATE derived from the tag name) keep their own spelling and are not touched."
@@ -148,6 +148,10 @@ comments[137]{created_at,author,text}:
   "2026-11-20T12:36:39.755Z",codex-sol,Round EX fixes for pm-ops#295 are in bdcb59a. PRRT_kwDOTOTl1M658IVR carries literal npm lifecycle settings across job steps. PRRT_kwDOTOTl1M658IVV requires an explicit Bun run for generator shorthand. PRRT_kwDOTOTl1M658IVZ refuses a suppressed versioned pending window. PRRT_kwDOTOTl1M658IVd refuses shell-fed here-documents. PRRT_kwDOTOTl1M658IVk merges both prepend spellings against the selected output. PRRT_kwDOTOTl1M658IVr limits root hook overrides to root callers. PRRT_kwDOTOTl1M658IVy invokes the npm JavaScript CLI with Node. PRRT_kwDOTOTl1M658IV7 preserves pnpm delimiters for the receiving command. The pinned fleet accepted 142 hooks and 144 bodies in 39 manifests. Tag-fetched regeneration kept ops-b2bs under Unreleased.
   "2026-11-20T13:05:42.555Z",codex-sol,"Verification at bdcb59a: the rewritten-candidate release gate passed with 2138 passing tests, two opt-in skips and 100 percent statements, branches, functions and lines across all 53 sources. The 25-file focused run had no failures. All four historical shell controls, npm and Bun packed consumers, and the signed-tag and invalid UTF-8 index fixtures passed. The first standalone coverage run hit the documented artifact-reader timeout while fixtures were being refined. Its percentages do not certify this commit. The standalone retry uses the committed source and original thresholds."
   "2026-11-20T13:18:44.408Z",codex-sol,"The standalone npm run coverage retry at bdcb59a passed all four 100 percent thresholds across 53 sources with 2138 passing and two opt-in skips. No test or timeout was relaxed. Typecheck, build:test, lint, duplication, docstring and changelog:check passed. Corepack pnpm 10.28.2 preserved the generator-bound delimiter and a nested npm runner consumed its delimiter. Native Bun produced identical argv for the explicit and shorthand changes script, and the pinned generator suppressed only the synthetic pending heading in the all-tags control."
+  "2026-11-20T13:20:38.750Z",codex-sol,"The pre-push fetch found main release f0ba1cf. Merge 274262b preserves the new release section and the branch-only ops-b2bs Unreleased entry. Before the v2026.11.20 tag exists, tag-fetched regeneration treats that version as pending and moves ops-b2bs into its section. Recheck the canonical tag and compare generated bytes before pushing. All eight changes still map to bdcb59a."
+  "2026-11-20T13:36:23.316Z",codex-sol,"The merged 2026.11.20 source at 274262b passed the 25-file focused run and standalone npm run coverage. Coverage measured 100 percent across 53 sources with 2138 passing and two opt-in skips. Typecheck, lint, duplication, docstrings and all 142 configured fleet hooks passed. The canonical release tag remains the prerequisite for final changelog regeneration with ops-b2bs under Unreleased."
+  "2026-11-20T15:05:13.081Z",codex-sol,"Round EX merged main ba5a49b in 28c678d. Main and the branch independently created the same Windows issue ID. The main item stays byte-identical. The prior Node 26 investigation retains all ten original history records, all timestamps and a single appended ID change under ops-windows-runtime-cleanup-node26. The shared artifact reader item retained both branches' evidence. Rechecking the merged code. The official v2026.11.20 tag is still pending."
+  "2026-11-20T15:30:11.228Z",codex-sol,"Round EX verification on merged source 28c678d. The 26 focused files passed 1403 tests with two opt-in skips. The reader and runtime subset passed 14 of 14. Typecheck, test build, lint, duplication, docstring and all four historical refusal controls passed. The fleet accepted 142 hooks and 144 bodies across 39 manifests. npm and native Bun validated the same packed artifact. Full coverage passed 2138 tests with two opt-in skips and 100 percent statements, branches, functions and lines across 53 files. With the official release tag v2026.11.20 still absent, the pinned generator moves ops-b2bs from Unreleased into the pending release. The standalone changelog check and the candidate acceptance gate both reproduced this drift. The checked-in changelog retains the requested Unreleased entry. The PR branch remains at bd592c4."
 files[35]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
@@ -184,7 +188,7 @@ files[35]{path,scope}:
   test/release-workflow.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[53]:
+tests[54]:
   - command: npm run typecheck
     scope: project
     provenance:
@@ -560,6 +564,13 @@ tests[53]:
     provenance:
       author: codex-sol
       created_at: "2026-11-20T12:34:29.619Z"
+      source_kind: local_mutation
+      source_ref: fix/release-hook-wrapper-options-bm
+  - command: node --test --test-concurrency=2 test/regular-input.test.ts test/release-runtime.test.ts test/release-runtime-windows.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-20T15:15:11.201Z"
       source_kind: local_mutation
       source_ref: fix/release-hook-wrapper-options-bm
 docs[3]{path,scope}:
