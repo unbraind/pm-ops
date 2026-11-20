@@ -9,7 +9,7 @@ import { execFileSync } from "../subprocess.ts";
 import {
   assertReleaseHeadingDate, assertReleaseHookHeadingDate, includeEmptyCustomHook, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHeadingDate, rewriteReleaseHookDates, visitChangelogScriptCommands,
 } from "../release-changelog-options.ts";
-import { fixedOptionName, tokenizeCommands, tokenizeCommandsWithSpans, commandName, packageScriptCommand, releaseHookCommand } from "../shell-scan.ts";
+import { fixedOptionName, tokenizeCommands, tokenizeCommandsWithSpans, commandName, packageScriptCommand, releaseHookCommand, shellRedirection } from "../shell-scan.ts";
 import { parseReleaseHook } from "../release-hook-grammar.ts";
 import { auditInvocations } from "../scripts/verify-release-changelog-date.ts";
 
@@ -183,6 +183,18 @@ test("custom notes delimiters follow explicit forwards and refuse unreachable ar
   const scripts = new Map([["render", "node notes.js"], ["cycle", "npm run cycle"], ["comment", "node notes.js # no argv"],
     ["bun-render", "bun run render"]]);
   assert.equal(includeEmptyCustomHook("npm run --if-present missing", scripts), "npm run --if-present missing -- --include-empty");
+  for (const tail of ["true --stdout", "false", ":", "git add CHANGELOG.md", "git diff --exit-code"]) {
+    const script = "pm-changelog --stdout && " + tail;
+    assert.equal(includeEmptyCustomHook(script, scripts, true), script);
+  }
+  for (const text of ["# no command", ">"]) {
+    scripts.set("empty", text);
+    assert.throws(() => includeEmptyCustomHook("npm run empty", scripts), /cannot receive forwarded arguments/);
+  }
+  assert.equal(includeEmptyCustomHook("npm run --if-present missing", scripts, true), "npm run --if-present missing");
+  scripts.set("generate", "pm-changelog --stdout; # done");
+  assert.equal(includeEmptyCustomHook("npm run generate", scripts, true), "npm run generate");
+  assert.throws(() => includeEmptyCustomHook("npm run comment", scripts, true), /cannot receive forwarded arguments/);
   assert.equal(includeEmptyCustomHook("npm run bun-render", scripts), "npm run bun-render -- --include-empty");
   assert.equal(includeEmptyCustomHook(">", scripts), ">");
   assert.throws(() => includeEmptyCustomHook("npm run comment", scripts), /cannot receive forwarded arguments/);
@@ -340,6 +352,47 @@ test("the date verifier uses workflow, job and step npm environment precedence",
   assert.match(result.failures[0], /ignore-scripts.*pretarget.*external env/);
 });
 
+test("default hook lifecycle follows each workflow invocation that actually reaches it", () => {
+  const entry = "changelog:full";
+  const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
+    [entry]: "pm-changelog " + standing, ["pre" + entry]: "printf heading >CHANGELOG.md", relay: "npm run " + entry,
+  } }) };
+  const source = (run: string, setting: string) => ({ file: ".github/workflows/release.yml", text: stringify({
+    env: { npm_config_ignore_scripts: setting }, jobs: { release: { steps: [{ run }] } },
+  }) });
+  for (const setting of ["false", "true"]) {
+    assert.deepEqual(auditInvocations([manifest, source("npm run relay", setting)]).failures, []);
+  }
+  for (const step of [source("npm run relay", "${{ vars.CONFIG }}"), source("echo unrelated", "false")]) {
+    assert.match(auditInvocations([manifest, step]).failures.join("\n"), /ignore-scripts.*prechangelog:full/);
+  }
+  const conflicting = source("npm run relay", "${{ vars.CONFIG }}");
+  assert.match(auditInvocations([manifest, source("npm run relay", "false"), conflicting]).failures.join("\n"), /ignore-scripts.*prechangelog:full/);
+});
+
+test("consecutive redirections retain their separate destinations", () => {
+  const hooks = (redirect: string) => ({ hook: "echo main", prehook: "printf heading " + redirect });
+  for (const redirect of [">preview.md>CHANGELOG.md", ">preview.md<in>>CHANGELOG.md", '>"pre>view">CHANGELOG.md', "> preview.md>CHANGELOG.md"]) {
+    assert.throws(() => resolveChangelogHooks(hooks(redirect), ["hook"]), /ignore-scripts.*prehook/, redirect);
+    assert.doesNotThrow(() => resolveChangelogHooks(hooks(redirect), ["hook"], true));
+  }
+  for (const redirect of [">preview.md", "2>>preview.md", '>"pre>view.md"', ">a>b"]) {
+    assert.doesNotThrow(() => resolveChangelogHooks(hooks(redirect), ["hook"]));
+  }
+});
+
+test("combined output redirections stay on their shared scanner command", () => {
+  for (const op of ["&>", "&>>"]) {
+    for (const gap of ["", " "]) {
+      const [command, ...rest] = tokenizeCommands("printf hi " + op + gap + "out");
+      assert.deepEqual(rest, []);
+      assert.deepEqual(shellRedirection(command[2]), { operator: op, joined: !gap });
+      assert.deepEqual(releaseHookCommand(command)?.map(word => word.value), ["printf", "hi"]);
+    }
+  }
+  assert.deepEqual(tokenizeCommands("printf hi & echo done").map(words => words[0].value), ["printf", "echo"]);
+});
+
 test("release hooks preserve date options after joined and split redirections", () => {
   for (const redirect of ["&>out", "&>>out", "&> out", "&>> out", "2>1", "2>>1", "2> 1", ">| release.log", ">|release.log", "2>| release.log"]) {
     const hook = `pm-changelog ${redirect} ${standing}`;
@@ -473,6 +526,29 @@ test("a generator assignment cannot cross an npm run forward", () => {
   const unrelated = { "changelog:full": "pm-changelog " + standing, smoke: "BIN=dist/cli.js npm run test:cli", "test:cli": "node scripts/smoke.mjs" };
   assert.doesNotThrow(() => resolveChangelogHooks(unrelated, ["smoke"]));
   assert.deepEqual(auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts: unrelated }) }]).failures, []);
+});
+
+test("inherited npm bindings distinguish ordinary data from executable and policy positions", () => {
+  const hook = "TITLE=Release npm run writer";
+  const entry = "changelog:full";
+  const inspect = (writer: string) => {
+    const scripts = { [entry]: hook, writer };
+    const resolved = resolveChangelogHooks(scripts, [entry]);
+    const prepared = rewriteReleaseHookDates(resolved, [entry], day);
+    assertReleaseHookHeadingDate(prepared, [entry], day, "2026.11.17");
+    assert.deepEqual(auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts }) }]).failures, []);
+  };
+  for (const value of ['--title "$TITLE"', '--title="$TITLE"', '--pm-arg "${TITLE}"', '--output "$TITLE"']) {
+    inspect("pm-changelog " + standing + " " + value);
+  }
+  for (const writer of [
+    '"$TITLE" --until 2026-11-17', 'bun --silent run --smol "$TITLE" ' + standing,
+    'pm-changelog --release-version-from-package --date-fallback "$TITLE"',
+    'node dist/cli.js --date-fallback="$TITLE" --release-version-from-package',
+    'pm-changelog ' + standing + ' --until "$TITLE"', 'pm-changelog ' + standing + ' --until="$TITLE"',
+    'pm-changelog --release-version-from-package "$TITLE"',
+  ]) assert.throws(() => inspect(writer), /binding through variable assignment TITLE/i, writer);
+  inspect('node helper.mjs --date-fallback "$TITLE"; pm-changelog ' + standing);
 });
 
 test("the forwarded generator check uses the child's argv and actual variable expansions", () => {

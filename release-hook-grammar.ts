@@ -152,6 +152,8 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
       continue;
     }
     const start = i;
+    const previous = words.at(-1);
+    const destination = previous && shellRedirection(previous)?.joined === false;
     const startsQuoted = ch === "'" || ch === '"';
     let value = "";
     // Keep the position of quoted or escaped data without interpreting its braces.
@@ -169,6 +171,11 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
       if (!quote && /[\s;&|]/.test(char)
         && !(i === start && text.startsWith("&>", i))
         && !isRedirectionSuffix(text, start, i)) break;
+      // A new operator ends an attached or separate destination. Keep the
+      // characters of >>, <>, << and <<< together until the operand starts.
+      if (!quote && i > start && (char === ">" || char === "<")
+        && (destination || /^(?:\d*[<>]|&>)/.test(unquoted))
+        && !(char === ">" ? /^(?:\d*[<>]|&>)$/.test(unquoted) : /^\d*<{1,2}$/.test(unquoted))) break;
       i++;
       if (char === quote) { quote = ""; continue; }
       if (!quote && (char === "'" || char === '"')) { quoted = true; quote = char; unquoted += "\0"; continue; }

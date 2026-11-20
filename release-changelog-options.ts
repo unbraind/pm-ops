@@ -30,7 +30,7 @@ const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const GENERATOR_TARGET = /^pm-changelog@[^/]+$|(?:^|\/)(?:pm-changelog(?:\.ts)?|dist\/cli\.js)$/;
 /** The three generator inputs that bind a heading to a release. */
 export const VERSION_INPUTS = ["--release-version-from-package", "--release-version", "--version"] as const;
-const INDIRECT_RELEASE_OPTIONS = new Set([VERSION_INPUTS[0], DATE_FLAG, FALLBACK_DATE_FLAG]);
+const INDIRECT_RELEASE_OPTIONS = new Set<string>([...VERSION_INPUTS, DATE_FLAG, FALLBACK_DATE_FLAG, UNTIL_FLAG]);
 
 /** True when a command supplies an explicit release version. */
 export function hasVersionInput(args: readonly ShellToken[]): boolean {
@@ -254,18 +254,21 @@ function referencesWriter(words: ShellCommand, scriptNames?: ReadonlySet<string>
   }) || scriptReferenceWords(words).some(word => scriptNames.mayInvoke(word, seen));
 }
 
-/** Recognize direct generator invocations and the supported Node/Bun adapters. */
-function generatorCommand(invocation: ShellCommand): ShellCommand | undefined {
-  const [program, ...parameters] = invocation;
-  if (GENERATOR_TARGET.test(program.value)) return invocation;
+/** Locate the executable or the file selected by a supported Node/Bun adapter. */
+function generatorEntryIndex([program, ...parameters]: ShellCommand): number {
   const name = basename(program.value);
-  if (name !== "node" && name !== "bun") return undefined;
+  if (name !== "node" && name !== "bun") return 0;
   let index = name === "bun" ? afterRunOptions(name, parameters, 0).index : 0;
   if (name === "bun" && parameters[index]?.value === "run") index = afterRunOptions(name, parameters, index + 1).index;
   while (parameters[index]?.value === "--enable-source-maps" || BUN_LOCAL_RUN_SWITCHES.has(parameters[index]?.value)) index++;
-  const file = parameters[index];
-  if (file && !file.unresolved && GENERATOR_TARGET.test(file.value)) return parameters.slice(index);
-  return undefined;
+  return index + 1;
+}
+
+/** Recognize direct generator invocations and the supported Node/Bun adapters. */
+function generatorCommand(invocation: ShellCommand): ShellCommand | undefined {
+  const index = generatorEntryIndex(invocation);
+  const file = invocation[index];
+  return file && !file.unresolved && GENERATOR_TARGET.test(file.value) ? invocation.slice(index) : undefined;
 }
 
 /** Look for a reachable generator without interpreting an opaque command as executable argv. */
@@ -593,10 +596,22 @@ function forwardedBindingProblem(words: ShellCommand, bindings: ReadonlySet<stri
   if (!bindings.size) return undefined;
   const invocation = releaseHookCommand(words);
   if (!invocation) return undefined;
-  const [program, ...args] = invocation;
-  if (DATA_CONSUMERS.has(basename(program.value))) return undefined;
-  if (!optionPositions(args).some(index => INDIRECT_RELEASE_OPTIONS.has(args[index].value.split("=", 1)[0]))) return undefined;
-  const binding = invocation.map(word => inheritedVariable(word, bindings)).find(Boolean);
+  const entry = generatorEntryIndex(invocation);
+  const args = invocation.slice(entry + 1);
+  const positions = optionPositions(args);
+  const selectors: ShellToken[] = [];
+  if (positions.some(index => INDIRECT_RELEASE_OPTIONS.has(args[index].value.split("=", 1)[0]))) {
+    selectors.push(...invocation.slice(0, 1), ...invocation.slice(entry, entry + 1));
+  }
+  if (generatorCommand(invocation)) {
+    for (const index of positions) {
+      const word = args[index];
+      const policy = INDIRECT_RELEASE_OPTIONS.has(word.value.split("=", 1)[0]);
+      if (policy || (word.unresolved && !literalOptionName(word))) selectors.push(word);
+      if (policy && VALUE_OPTIONS.has(word.value) && args[index + 1]) selectors.push(args[index + 1]);
+    }
+  }
+  const binding = selectors.map(word => inheritedVariable(word, bindings)).find(Boolean);
   return binding && ("Generator binding through variable assignment " + binding + " crosses an npm run forward" + SCRIPT_FILE_ADVICE);
 }
 
@@ -625,6 +640,9 @@ export function visitChangelogScriptCommands(
       lifecycle: forward.lifecycle ?? (forward.runner === "npm" ? lifecycleEnvironment(words, program) : undefined) };
   }
 
+  // Workflow invocations supply their own lifecycle even when a hook must
+  // also be checked as a standalone entry with no forwarded arguments.
+  const entryLifecycles = new Map<string, Set<NpmLifecycle>>();
   const visited = new Set<string>();
   const withoutArgs = new Map<string, number>();
   const recipients = new Map<string, ShellCommand | undefined>();
@@ -698,6 +716,11 @@ export function visitChangelogScriptCommands(
         if (forward.forwardedSeparator) forwardedSeparators.add(forward.forwardedSeparator);
         const enabled = forward.lifecycle ?? lifecycle;
         const isNpm = forward.runner === "npm";
+        if (isNpm && entryPoints.has(forward.target) && collectingWorkflowEntries) {
+          const settings = entryLifecycles.get(forward.target) ?? new Set<NpmLifecycle>();
+          settings.add(enabled);
+          entryLifecycles.set(forward.target, settings);
+        }
         const inherited = isNpm && forward.bindings.length ? new Set([...bindings, ...forward.bindings]) : bindings;
         const sequence = names.sequence(forward.target, !npm.mainOnly && (!isNpm || enabled !== false));
         for (const target of sequence) {
@@ -709,9 +732,14 @@ export function visitChangelogScriptCommands(
   }
 
   const { lifecycle, workflowSteps } = npm;
+  let collectingWorkflowEntries = true;
+  for (const [step, setting] of workflowSteps ?? []) visit(step, [], [], setting, false);
+  collectingWorkflowEntries = false;
   for (const hook of hooks ?? entryPoints) {
     if (!hooks && !names.has(hook)) continue;
-    for (const name of names.sequence(hook, !npm.mainOnly && lifecycle !== false)) visit(name, [], [], lifecycle, true, name !== hook);
+    for (const setting of entryLifecycles.get(hook) ?? [lifecycle]) {
+      for (const name of names.sequence(hook, !npm.mainOnly && setting !== false)) visit(name, [], [], setting, true, name !== hook);
+    }
   }
   if (hooks) return;
   for (const { commands } of parsed.values()) {
@@ -957,18 +985,27 @@ export function includeEmptyReleaseSections(script: string, scriptNames?: Readon
 }
 
 /** Count npm option boundaries between a configured custom hook and its final executable. */
-function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<string, string>): number {
+function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<string, string>, hasGenerator: boolean): number | undefined {
   const names = new Set(scripts.keys());
   let count = 0;
+  let blockedTarget: string | undefined;
   for (let depth = 0; depth <= MAX_SCRIPT_FORWARDS; depth++) {
-    const forward = scriptForward(basename(invocation[0].value), invocation.slice(1), names);
-    if (!forward) return count;
+    const program = basename(invocation[0].value);
+    const forward = scriptForward(program, invocation.slice(1), names);
+    if (!forward) {
+      // Preserve a generator's trailing status checks, logging and Git steps.
+      if (hasGenerator && (generatorCommand(invocation) || DATA_CONSUMERS.has(program)
+        || [":", "true", "false", "git"].includes(program))) return undefined;
+      if (blockedTarget) refuseHook("Custom script " + JSON.stringify(blockedTarget) + " cannot receive forwarded arguments. Move the logic into a script file");
+      return count;
+    }
     if (forward.runner === "npm" && !forward.npmSeparator) count++;
     const text = scripts.get(forward.target!);
-    if (!text) return count; // An optional missing target runs no command.
+    if (!text) return hasGenerator ? undefined : count; // An optional missing target runs no command.
     const { commands, spans } = parseReleaseHook(text);
     const recipient = commandReceivingArguments(text, commands, spans);
-    const next = recipient && releaseHookCommand([...recipient, ...forward.args]);
+    if (!recipient) blockedTarget = forward.target;
+    const next = releaseHookCommand(recipient ? [...recipient, ...forward.args] : commands.at(-1) ?? []);
     if (!next) refuseHook("Custom script " + JSON.stringify(forward.target) + " cannot receive forwarded arguments. Move the logic into a script file");
     invocation = next;
   }
@@ -976,7 +1013,7 @@ function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<
 }
 
 /** Save the flag and any npm delimiters on the root caller, preserving shared target scripts. */
-export function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<string, string>): string {
+export function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<string, string>, hasGenerator = false): string {
   const { commands, spans } = parseReleaseHook(script);
   const invocation = releaseHookCommand(commands.at(-1) ?? []);
   if (!invocation) return script;
@@ -991,7 +1028,8 @@ export function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<stri
     const padding = /^[ \t]*/.exec(script.slice(end))![0].length;
     edits.push({ start, end: end + padding, text: "" });
   }
-  const count = customForwardDelimiters(invocation, scripts);
+  const count = customForwardDelimiters(invocation, scripts, hasGenerator);
+  if (count === undefined) return script; // The generator receives the flag in its own script.
   if (!flag || count > 0) {
     const offset = flag ? spans.get(flag)!.start : spans.get(invocation.at(-1)!)!.end;
     const text = flag ? "-- ".repeat(count) : " " + "-- ".repeat(count) + INCLUDE_EMPTY_FLAG;

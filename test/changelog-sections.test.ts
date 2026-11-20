@@ -1,6 +1,6 @@
 /** Release-window cardinality properties and real CLI policy integration. */
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -343,8 +343,13 @@ test("custom notes receive the saved argument through npm independently of pre/p
   const env = { ...releaseStepEnv(root, process.env), npm_config_ignore_scripts: "false" };
   const prepare = [resolve("scripts/prepare-release-changelog.ts")];
   writeFileSync(join(root, "notes.mjs"), 'console.log(JSON.stringify(process.argv.slice(2)));');
-  writeFileSync(join(root, "pm-changelog.ts"), 'require("node:fs").writeFileSync("preview.md", JSON.stringify(process.argv.slice(2)));');
+  writeFileSync(join(root, "pm-changelog.ts"), 'const args = process.argv.slice(2); require("node:fs").writeFileSync(args[args.indexOf("--output") + 1], JSON.stringify(args));');
+  const preview = "node pm-changelog.ts --version=2026.11.17 --date-from-version --output preview.md";
   for (const [main, expected, argv] of [
+    [preview + "; node notes.mjs", preview + " --include-empty; node notes.mjs --include-empty", ["--include-empty"]],
+    [preview.replace("preview.md", "CHANGELOG.md") + "; node notes.mjs",
+      preview.replace("preview.md", "CHANGELOG.md") + " --include-empty; node notes.mjs --include-empty", ["--include-empty"]],
+    ["npm run mixed", "npm run mixed -- --include-empty", ["--include-empty"]],
     ["node notes.mjs", "node notes.mjs --include-empty", ["--include-empty"]],
     ["npm run render", "npm run render -- --include-empty", ["--include-empty"]],
     ["npm run relay", "npm run relay -- -- --include-empty", ["--include-empty"]],
@@ -356,17 +361,24 @@ test("custom notes receive the saved argument through npm independently of pre/p
     ['npm run render "--include-empty" -- --include-empty', "npm run render -- --include-empty", ["--include-empty"]],
     ["npm run relay --include-empty -- --include-empty", "npm run relay -- -- --include-empty", ["--include-empty"]],
   ] as const) {
-    const preview = "node pm-changelog.ts --version=2026.11.17 --date-from-version --output preview.md";
     const lifecycleHook = main.startsWith("npm") ? "prerender" : "prerelease:notes";
-    const scripts = { "changelog:full": "# skip", "changelog:check": "# skip", [lifecycleHook]: preview,
-      "release:notes": main, relay: "npm run render", ready: "npm run render --", render: "node notes.mjs" };
+    const embedded = main.startsWith("node pm-changelog.ts") || main === "npm run mixed";
+    const previewFile = join(root, main.includes("--output CHANGELOG.md") ? "CHANGELOG.md" : "preview.md");
+    const scripts = { "changelog:full": "# skip", "changelog:check": "# skip", ...(embedded ? {} : { [lifecycleHook]: preview }),
+      "release:notes": main, mixed: preview + "; node notes.mjs", relay: "npm run render", ready: "npm run render --", render: "node notes.mjs" };
     writeFileSync(manifest, JSON.stringify({ scripts }));
     execFileSync(process.execPath, prepare, { cwd: root, env });
     const prepared = readFileSync(manifest, "utf8");
     assert.equal(JSON.parse(prepared).scripts["release:notes"], expected);
+    rmSync(previewFile, { force: true });
     const output = execFileSync("npm", ["run", "--silent", "release:notes"], { cwd: root, env, encoding: "utf8" });
     assert.deepEqual(JSON.parse(output.trim().split("\n").at(-1)!), argv);
-    assert.ok(JSON.parse(readFileSync(join(root, "preview.md"), "utf8")).includes("--include-empty"));
+    assert.ok(JSON.parse(readFileSync(previewFile, "utf8")).includes("--include-empty"));
+    if (main === "node notes.mjs") {
+      rmSync(join(root, "preview.md"));
+      execFileSync("npm", ["run", "--silent", "--ignore-scripts", "release:notes"], { cwd: root, env });
+      assert.equal(existsSync(join(root, "preview.md")), false);
+    }
     execFileSync(process.execPath, prepare, { cwd: root, env });
     assert.equal(readFileSync(manifest, "utf8"), prepared);
   }

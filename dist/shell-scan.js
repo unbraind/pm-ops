@@ -649,7 +649,7 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
             }
             // Keep descriptor duplication and clobber redirections in the same
             // command. A quoted or escaped operator prefix cannot introduce them.
-            if (isRedirectionSuffix(text, wordStart, index)) {
+            if ((!started && text.startsWith("&>", index)) || isRedirectionSuffix(text, wordStart, index)) {
                 value += character;
                 started = true;
                 continue;

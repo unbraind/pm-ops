@@ -34,8 +34,10 @@ try {
       console.log(`::notice::Release commit adds --include-empty to generator invocations in package.json script "${name}" so later changelog checks agree with this dependency-only release.`);
     }
     // Preserve the released workflow's saved argument for configured custom hooks.
-    if (hooks.includes(name) && !usesMainGenerator(resolved, name, lifecycle)) {
-      const custom = includeEmptyCustomHook(prepared, resolved);
+    if (hooks.includes(name)) {
+      const hasGenerator = usesMainGenerator(resolved, name, lifecycle);
+      const custom = !hasGenerator || name === process.env.NOTES_SCRIPT
+        ? includeEmptyCustomHook(prepared, resolved, hasGenerator) : prepared;
       if (custom !== prepared) {
         console.log(`::notice::Release commit adds --include-empty to custom package.json script "${name}".`);
       }
