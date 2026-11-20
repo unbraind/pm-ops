@@ -2,13 +2,11 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: in_progress
+status: open
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-20T05:33:46.161Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-20T05:48:08.854Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[95]:
+comments[97]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -303,6 +301,12 @@ comments[95]:
   - created_at: "2026-11-20T05:33:46.161Z"
     author: codex-sol
     text: "Paired pipeline fixtures failed on a838d35. The release grammar now records the producer upstream of each supported filter. Direct and forwarded generators keep their empty-section flag, and a custom renderer after a preview receives the flag before its pipeline. Three focused regressions passed, including actual Bash output and all eleven supported filter names. The pinned fleet accepted all 142 hooks and 144 bodies."
+  - created_at: "2026-11-20T05:34:26.823Z"
+    author: codex-sol
+    text: "Round EO mapping supplement: PRRT_kwDOTOTl1M650SdM is addressed by 24d844c and 0bc2732. The latter also corrects PRRT_kwDOTOTl1M652X2z, the pipeline-filter regression reported against a838d35. All other thread mappings remain as recorded. The new full coverage and rewritten-candidate checks are running."
+  - created_at: "2026-11-20T05:47:56.610Z"
+    author: codex-sol
+    text: "The pipeline correction in 0bc2732 passed the paired Bash and option-routing cases, all four historical scanner controls, the 142-hook/144-body fleet scan, typecheck, test compilation, lint, zero duplication, docstrings and changelog:check. Its broader focused suite, standalone coverage and full rewritten-candidate acceptance were still running during the observation window for pushed head a838d35. Results on that earlier head are recorded separately."
 files[23]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
