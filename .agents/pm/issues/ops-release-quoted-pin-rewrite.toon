@@ -2,13 +2,11 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: in_progress
+status: open
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-20T00:54:30.585Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-20T02:41:28.194Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[83]:
+comments[85]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -267,6 +265,12 @@ comments[83]:
   - created_at: "2026-11-20T00:50:45.734Z"
     author: codex-sol
     text: Round EK is tracing inherited npm script assignments against forwarded release option usage for Greptile thread PRRT_kwDOTOTl1M65wN_0.
+  - created_at: "2026-11-20T00:56:20.497Z"
+    author: codex-sol
+    text: Round EK maps Greptile thread PRRT_kwDOTOTl1M65wN_0 to implementation 55b76ad. The release hook walker follows names assigned on npm script forwards and refuses a child command that expands one of those names alongside versioned generator options. The assignment value can be either generator entry point.
+  - created_at: "2026-11-20T02:41:21.499Z"
+    author: codex-sol
+    text: "Round EK focused tests passed 275 of 275. Standalone coverage passed at 100% on retry. Full release-heading acceptance is blocked by the known artifact-reader subprocess timeout on both attempts, tracked in ops-input-startup-timeout. The implementation is local."
 files[22]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
