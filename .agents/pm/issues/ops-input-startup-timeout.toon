@@ -6,10 +6,10 @@ status: open
 priority: 3
 tags: []
 created_at: "2026-10-27T03:42:57.531Z"
-updated_at: "2026-11-17T15:45:42.178Z"
+updated_at: "2026-11-20T13:16:00.423Z"
 author: codex-agent
 acceptance_criteria: "Measure child readiness and input-refusal execution separately with bounded deadlines; Preserve real writerless FIFO, socket, device, directory and oversized-file assertions without weakening coverage thresholds; Demonstrate stable cold-start behavior under bounded test concurrency"
-comments[16]{created_at,author,text}:
+comments[21]{created_at,author,text}:
   "2026-10-27T03:44:19.100Z",codex-agent,"Control evidence from the unchanged test: unrestricted one-worker execution passed 6/6, and a subsequent one-worker run on another CPU pair also passed 6/6. A separate real FIFO diagnostic recorded preload-to-import readiness of about 1.5 seconds and all eight typed refusals within roughly 20 milliseconds after readiness; total child wall time was about 1.8 seconds. A prior diagnostic measured about 3.5 seconds of import time. These observations support a startup/load timing risk, while not identifying the exact phase of the killed child. All existing five-second limits and assertions remain unchanged."
   "2026-10-27T04:00:35.244Z",codex-agent,"The complete one-worker Bun release gate passed unchanged: 1468 passed, 0 failed, 2 opt-in skips, with 100% coverage in every dimension across 39 measured sources. The special-input case passed in that full run. The initial two-worker timeout and isolated timeout remain valid observations; successful retries do not establish load-independent timing. Leave this follow-up open."
   "2026-10-27T10:05:25.444Z",codex-agent,"Closure audit of PR #216 (eac1589d0fd598ae0c5375b4d83806418b86c5e4): passing unchanged release gates do not satisfy this item. Separate child-readiness and refusal deadlines, retained special-input assertions, and cold-start stability still need implementation and measurement. Keep open and unclaimed."
@@ -26,8 +26,16 @@ comments[16]{created_at,author,text}:
   "2026-11-17T15:25:44.764Z",codex-sol,"Round AX reproduced the existing five-second cold-start coupling in both unchanged full coverage and rewritten release-gate acceptance. Each ran 1711 tests with 1708 passed, 1 failed and 2 skipped; the sole failure was the oversized-file refusal child exceeding its external startup-inclusive timeout. All four coverage dimensions measured 100%. No bounded-input source or timeout was changed. An isolated rerun and a less contended gate retry are being collected."
   "2026-11-17T15:36:44.297Z",codex-sol,"Round AX retry evidence: node --test test/regular-input.test.ts passed all 6 cases in isolation. A sequential full npm run coverage retry using a RAM-backed temporary root then passed 1709 tests with 0 failures and 2 optional real-data skips, including the original five-second input-reader subprocess regression. All 50 measured sources retained 100/100/100/100 coverage with unchanged thresholds. This confirms an execution-context-sensitive startup failure; the underlying readiness/refusal deadline design remains open."
   "2026-11-17T15:45:42.175Z",codex-sol,"Round AX rewritten full release-heading acceptance also passed after the sequential retry: 1711 tests, 1709 passed, 0 failed, 2 optional real-data skips, all 50 measured source files at 100/100/100/100. The existing five-second special-input regression passed inside this second full run as well. Startup/refusal deadline separation remains a follow-up; no input reader or timeout was modified."
+  "2026-11-20T12:46:03.247Z",codex-sol,"Separate Node boot and imports from the existing five-second input assertion limit. A child readiness handshake will gate the assertions, and the parent will enforce both deadlines and reap a timed-out child. Keep the real special-input cases and run twenty times with four test workers and a CPU-burning sibling."
+  "2026-11-20T12:52:03.972Z",codex-sol,"The child now waits for a read instruction after signaling readiness. The parent starts the unchanged 5000 ms refusal watchdog before sending that instruction, kills a timed-out child, and waits for it to close. Startup and shutdown have separate 60 s watchdogs. A scratch probe delaying readiness by 5500 ms passed. A scratch probe that blocks on the writerless FIFO after readiness failed with the 5000 ms refusal diagnostic. The focused Node 22 Linux run passed all 14 reader and runtime tests."
+  "2026-11-20T12:57:56.014Z",codex-sol,"A baseline control copied from main reproduced the original external subprocess timeout under node --test --test-concurrency=4 with CPU-burning sibling workers. The same writerless FIFO, socket, devices, directory and oversized file remain covered by the revised test."
+  "2026-11-20T13:06:54.887Z",codex-sol,"Stability gate passed 20/20 consecutive Node 24.19.0 runs on a four-core Linux host. Each run used node --test --test-concurrency=4 with the reader test file and three CPU-burning sibling test files. A separate CPU burner ran continuously throughout the loop. Reader tests passed 120/120, including 20/20 full special-input scenarios, with zero failures."
+  "2026-11-20T13:15:58.305Z",codex-sol,"The full npm run coverage gate passed on Node 24.19.0 with 1998 passed, zero failed and two opt-in real-data skips. All 50 measured source files met 100% statements, branches, functions and lines. Typecheck, test typecheck, lint, duplication and docstring gates passed."
 files[1]{path,scope}:
   test/regular-input.test.ts,project
-tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/regular-input.test.ts,project,codex-sol,"2026-11-17T03:12:41.312Z",local_mutation,fix/resumed-release-heading-date
+  node --test --test-concurrency=4 test/regular-input.test.ts,project,codex-sol,"2026-11-20T12:49:27.469Z",merge_union,fix/test-startup-and-windows-cleanup
+docs[1]{path,scope,note}:
+  docs/dependency-contract.md,project,Shared-runner timing assumptions for real subprocess fixtures.
 body: ""
