@@ -1011,6 +1011,74 @@ test("literal cat file redirects preserve here-document data without allowing ex
   }
 });
 
+test("release hooks refuse to execute a file written by an earlier redirect", () => {
+  const body = "pm-changelog " + standing;
+  const heredoc = `cat <<'END' >generate.sh\n${body}\nEND\n`;
+  const refuse = /generated release hook file .*commit the script to the repository/i;
+  for (const [write, execute] of [
+    [heredoc, "sh generate.sh"],
+    [heredoc, "/fixture/bin/sh generate.sh"],
+    [heredoc, "bash -e ./generate.sh"],
+    [heredoc, "bash -o errexit ./generate.sh"],
+    [heredoc, "sh <generate.sh"],
+    [heredoc, "bash -s ignored 0<generate.sh"],
+    [heredoc, "./generate.sh"],
+    [heredoc, "source generate.sh"],
+    [heredoc, "source -- generate.sh"],
+    [heredoc, ". ./generate.sh"],
+    ["printf script >> 'generate script.js' && ", "node -- './generate script.js'"],
+    ["printf script &>scripts/generate.js; ", "env node --enable-source-maps ./scripts/generate.js"],
+    ["printf script>generate.sh; ", "sh generate.sh"],
+    ["printf script >preview.txt>>generated.sh; ", "bash generated.sh"],
+    ["printf script >&generate.sh; ", "sh generate.sh"],
+    ["printf script 3<>generate.sh; ", "sh generate.sh"],
+    ["printf script >generate.js; ", "node --import ./setup.js generate.js"],
+    ["printf script >generate.js; ", "node - <generate.js"],
+    ["printf script >node; ", "./node ignored.js"],
+    ["printf script >/fixture/bin/node; ", "/fixture/bin/node ignored.js"],
+    ['printf script >"$TARGET"; ', 'sh "${TARGET}"'],
+  ]) {
+    const hook = write + execute;
+    const scripts = new Map([["changelog:full", hook]]);
+    assert.throws(() => rewriteReleaseHookDates(scripts, ["changelog:full"], day), refuse, hook);
+    assert.throws(() => assertReleaseHookHeadingDate(scripts, ["changelog:full"], day), refuse, hook);
+    assert.throws(() => rewriteReleaseHeadingDate(hook, day), refuse, hook);
+    assert.match(auditInvocations([workflow(hook)]).failures[0] ?? "", refuse, hook);
+  }
+});
+
+test("redirected release data and committed script invocations remain usable", () => {
+  const writer = "pm-changelog " + standing;
+  const heredoc = `cat <<'END' >preview.txt\n${writer}\nEND\n`;
+  for (const prefix of [
+    heredoc + "cat ./preview.txt; ",
+    heredoc + "sh scripts/committed.sh ./preview.txt; ",
+    heredoc + "bash -c 'echo example' ./preview.txt; ",
+    heredoc + "bash -n ./preview.txt; ",
+    heredoc + "sh 0<preview.txt <scripts/committed.sh; ",
+    heredoc + "sh <&0; ",
+    heredoc + "sh; ",
+    heredoc + "node --eval 'console.log(1)' ./preview.txt; ",
+    heredoc + "node --check ./preview.txt; ",
+    heredoc + "node - <scripts/committed.js; ",
+    heredoc + "./scripts/committed.sh ./preview.txt; ",
+    heredoc + "./node preview.txt; ",
+    "sh generate.sh; printf data >generate.sh; ",
+    "printf data >preview.txt; sh scripts/committed.sh; ",
+    "cat <generate.sh; sh generate.sh; ",
+    "printf data >&2; sh 2; ",
+    "printf data >preview.txt; >other.txt; sh scripts/committed.sh; ",
+  ]) {
+    const hook = prefix + writer;
+    const scripts = new Map([["changelog:full", hook]]);
+    const prepared = prefix + "pm-changelog --release-version-from-package --date-fallback " + day;
+    assert.equal(rewriteReleaseHookDates(scripts, ["changelog:full"], day).get("changelog:full"), prepared, hook);
+    assert.doesNotThrow(() => assertReleaseHookHeadingDate(new Map([["changelog:full", prepared]]), ["changelog:full"], day), hook);
+    assert.equal(rewriteReleaseHeadingDate(hook, day), prepared, hook);
+    assert.deepEqual(auditInvocations([workflow(hook)]).failures, [], hook);
+  }
+});
+
 test("continued list operators preserve synchronous release commands", () => {
   const generator = "pm-changelog " + standing;
   const continuation = "\\\n";

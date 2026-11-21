@@ -9,7 +9,7 @@
  */
 import { basename, posix } from "node:path";
 import {
-  RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand, shellRedirection, withoutRedirections,
+  isShellEvaluator, RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand, shellRedirection, withoutRedirections,
   type ReleaseContextChange, type ShellCommand, type ShellToken, type ShellTokenSpan,
 } from "./shell-scan.ts";
 import {
@@ -75,6 +75,7 @@ const MAX_SCRIPT_FORWARDS = 8;
 const RETIRE_UNPUBLISHED = "Refusing to publish. Manually dispatch the workflow with retire-unpublished set to retire the unpublished candidate.";
 const SCRIPT_FILE_ADVICE = ". Move the logic into a script file";
 const CHANGELOG_TRAVERSAL = "Path traversal in a redirection destination writes CHANGELOG.md" + SCRIPT_FILE_ADVICE;
+const NODE_OPTION_OPERANDS = new Set(["-r", "--require", "--import", "--loader", "--experimental-loader"]);
 
 /** Whether a YYYY-MM-DD string names an existing day, including years 0–99. */
 export function isRealCalendarDay(day: string): boolean {
@@ -321,6 +322,80 @@ function redirectsChangelog(words: ShellCommand, traversalOnly = false): boolean
     return posix.normalize(destination) === "CHANGELOG.md"
       && (!traversalOnly || destination.split("/").includes(".."));
   });
+}
+
+/** Read file redirects without confusing their operands with executable argv. */
+function* hookRedirects(words: ShellCommand): Generator<{ operator: string; path: string }> {
+  for (let index = 0; index < words.length; index++) {
+    const word = words[index];
+    const redirect = shellRedirection(word);
+    if (!redirect) continue;
+    const target = redirect.joined ? word : words[index + 1];
+    if (!target || (!redirect.joined && shellRedirection(target))) continue;
+    const path = redirect.joined ? target.value.slice(redirect.operator.length) : target.value;
+    if (!redirect.joined) index++;
+    if (path) yield { operator: redirect.operator, path: hookFilePath(path, target.unresolved) };
+  }
+}
+
+/** Give relative path aliases and the two simple variable spellings the same identity. */
+function hookFilePath(path: string, unresolved?: boolean): string {
+  return posix.normalize(unresolved ? path.replace(/\$\{([A-Za-z_]\w*)\}/g, "$$$1") : path);
+}
+
+/** Locate the script file an interpreter reads before any of the script's own arguments. */
+function interpretedHookFile(name: string, args: ShellCommand, words: ShellCommand): string | undefined {
+  const shell = name !== "eval" && isShellEvaluator(name);
+  let index = 0;
+  for (; args[index]?.value.startsWith("-"); index++) {
+    const flag = args[index].value;
+    if (flag === "--") { index++; break; }
+    if (flag === "-") break;
+    if (shell) {
+      if (/^-[^-]*[cn]/.test(flag)) return undefined;
+      if (/^-[^-]*s/.test(flag)) { index = args.length; break; }
+      if (/^-[^-]*[oO]$/.test(flag)) index++;
+    } else {
+      if (/^(?:-[cep]|--(?:check|eval|print)(?:=|$))/.test(flag)) return undefined;
+      if (NODE_OPTION_OPERANDS.has(flag)) index++;
+    }
+  }
+  const file = args[index];
+  if (file && file.value !== "-") return hookFilePath(file.value, file.unresolved);
+  const input = [...hookRedirects(words)].reverse().find(({ operator }) => /^(?:0)?</.test(operator));
+  return input && /^(?:0)?(?:<|<>)$/.test(input.operator) ? input.path : undefined;
+}
+
+/** Detect file execution while allowing a committed helper to read paths as ordinary arguments. */
+function executedHookFile(words: ShellCommand, written: ReadonlySet<string>): string | undefined {
+  const invocation = releaseHookCommand(words);
+  if (!invocation) return undefined;
+  const [program, ...args] = invocation;
+  if (program.value.includes("/")) {
+    const file = hookFilePath(program.value, program.unresolved);
+    if (!posix.isAbsolute(file) || written.has(file)) return file;
+  }
+  const name = basename(program.value);
+  if (program.value === "source" || program.value === ".") {
+    const file = args[args[0]?.value === "--" ? 1 : 0];
+    return file && hookFilePath(file.value, file.unresolved);
+  }
+  if (name === "node" || (name !== "eval" && isShellEvaluator(name))) return interpretedHookFile(name, args, words);
+  return undefined;
+}
+
+/** Refuse a redirect-to-execution path within one hook, regardless of the written text. */
+function generatedHookProblem(words: ShellCommand, written: Set<string>): string | undefined {
+  if (written.size) {
+    const file = executedHookFile(words, written);
+    if (file !== undefined && written.has(file)) {
+      return "Cannot execute generated release hook file " + JSON.stringify(file) + ". Commit the script to the repository instead";
+    }
+  }
+  for (const { operator, path } of hookRedirects(words)) {
+    if (/^(?:\d*(?:>>?|>\||<>)|&>>?)$/.test(operator) || (operator === ">&" && !/^(?:\d+|-)$/.test(path))) written.add(path);
+  }
+  return undefined;
 }
 
 /** Classify only the generator outputs that may write the changelog. */
@@ -716,13 +791,14 @@ export function visitChangelogScriptCommands(
     }
     resolved?.set(name, text);
     let preceding: ReleaseContextChange | undefined;
+    const written = new Set<string>();
     for (const words of commands) {
       const effective = words === recipient ? [...words, ...args] : words;
       const forward = forwardToScript(effective);
       // pnpm passes its delimiter through verbatim. A nested runner can consume
       // it, but the generator only accepts named options.
       const separators = effective.filter(token => forwardedSeparators.has(token));
-      const contextProblem = forwardedBindingProblem(effective, bindings)
+      const contextProblem = generatedHookProblem(effective, written) ?? forwardedBindingProblem(effective, bindings)
         ?? (checkContext ? releaseContextProblem(effective, names, preceding) : undefined);
       if (checkContext) preceding = nextShellContext(words, preceding, effective);
       if (contextProblem) {
@@ -785,8 +861,9 @@ export function visitChangelogScriptCommands(
 function* standaloneHookCommands(commands: ShellCommand[], names?: ReadonlySet<string>): Generator<ShellCommand> {
   const hookPath = commands.some(words => needsReleaseProject(words, names));
   let preceding: ReleaseContextChange | undefined;
+  const written = new Set<string>();
   for (const words of commands) {
-    const problem = releaseContextProblem(words, names, preceding, hookPath);
+    const problem = generatedHookProblem(words, written) ?? releaseContextProblem(words, names, preceding, hookPath);
     if (problem) refuseHook(problem);
     yield words;
     preceding = nextShellContext(words, preceding);

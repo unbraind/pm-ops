@@ -222,6 +222,10 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
       if (!quote && i > start && (char === ">" || char === "<")
         && (destination || /^(?:\d*[<>]|&>)/.test(unquoted))
         && !(char === ">" ? /^(?:\d*[<>]|&>)$/.test(unquoted) : /^\d*<{1,2}$/.test(unquoted))) break;
+      if (!quote && /[<>]/.test(char) && !/^\d*$/.test(value) && !/^(?:\d*[<>]|&(?:>|$))/.test(value)) {
+        problem = "Attached shell redirection";
+        break;
+      }
       i++;
       if (char === quote) { quote = ""; continue; }
       if (!quote && (char === "'" || char === '"')) { quoted = true; quote = char; unquoted += "\0"; continue; }
@@ -243,7 +247,6 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
         if (char === "`" || text[i] === "(") problem = "Shell command substitution";
       }
       if (quote !== "'" && char === "$" && /^\{[^}]*\[@\]/.test(text.slice(i))) problem = "Shell array expansion";
-      if (!quote && /[<>]/.test(char) && !/^\d*$/.test(value) && !/^(?:\d*[<>]|&(?:>|$))/.test(value)) problem = "Attached shell redirection";
       if (!quote && "*?[".includes(char)) { unresolved = true; splits = true; }
       if (!quote && /[()]/.test(char)) {
         problem ??= "Shell grouping or substitution";

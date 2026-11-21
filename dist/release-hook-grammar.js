@@ -234,6 +234,10 @@ export function parseReleaseHook(text) {
                 && (destination || /^(?:\d*[<>]|&>)/.test(unquoted))
                 && !(char === ">" ? /^(?:\d*[<>]|&>)$/.test(unquoted) : /^\d*<{1,2}$/.test(unquoted)))
                 break;
+            if (!quote && /[<>]/.test(char) && !/^\d*$/.test(value) && !/^(?:\d*[<>]|&(?:>|$))/.test(value)) {
+                problem = "Attached shell redirection";
+                break;
+            }
             i++;
             if (char === quote) {
                 quote = "";
@@ -272,8 +276,6 @@ export function parseReleaseHook(text) {
             }
             if (quote !== "'" && char === "$" && /^\{[^}]*\[@\]/.test(text.slice(i)))
                 problem = "Shell array expansion";
-            if (!quote && /[<>]/.test(char) && !/^\d*$/.test(value) && !/^(?:\d*[<>]|&(?:>|$))/.test(value))
-                problem = "Attached shell redirection";
             if (!quote && "*?[".includes(char)) {
                 unresolved = true;
                 splits = true;
