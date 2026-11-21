@@ -1243,6 +1243,12 @@ test("a real manifest is still read as a manifest", () => {
   assert.equal(result.recognition.kind, "recognized");
 });
 
+test("the publish scanner discovers the release workflow while launcher specimens stay data", () => {
+  const sources = trackedPublishSources(resolve(import.meta.dirname, ".."));
+  assert.ok(sources.includes(".github/workflows/daily-release.yml"));
+  assert.deepEqual(sources.filter(file => file.startsWith("test/fixtures/launchers/npm-11.21.0/")), []);
+});
+
 test("a binding made before a case block survives an opener that shares its first arm", () => {
   // The opener both opens the block and starts an arm. Resetting arm identity
   // before the scope is pushed would clear the OUTER scope and refuse a publish

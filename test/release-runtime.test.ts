@@ -356,10 +356,10 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
     mkdirSync(dirname(cli), { recursive: true });
     writeFileSync(cli, "");
   }
-  for (const launcher of ["npm", "npm.cmd"]) {
-    const template = new URL(`fixtures/launchers/npm-11.21.0/${launcher}.txt`, import.meta.url);
-    copyFileSync(template, join(dirname(local), launcher));
-    copyFileSync(template, join(bin, launcher));
+  const launchers = JSON.parse(readFileSync(new URL("fixtures/launchers/npm-11.21.0/templates.json", import.meta.url), "utf8")) as Record<"npm" | "npm.cmd", string>;
+  for (const launcher of ["npm", "npm.cmd"] as const) {
+    writeFileSync(join(dirname(local), launcher), launchers[launcher]);
+    writeFileSync(join(bin, launcher), launchers[launcher]);
   }
   const prefixScript = join(dirname(local), "npm-prefix.js");
   const setPrefix = (value: string) => writeFileSync(prefixScript, "console.log(" + JSON.stringify(value) + ")");

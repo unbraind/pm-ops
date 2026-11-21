@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T17:37:31.052Z"
+updated_at: "2026-11-21T18:18:46.963Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -16,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[166]:
+comments[168]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -516,6 +516,12 @@ comments[166]:
   - created_at: "2026-11-21T17:37:31.048Z"
     author: codex-sol
     text: "The focused suite found that inline boolean validation changed the refusal for a dynamic date flag. The paired fixtures preserve the unresolved-option diagnostic for dynamic date and package selectors. Literal inline booleans are refused, while inline version values and dynamic title data are still accepted."
+  - created_at: "2026-11-21T18:11:50.207Z"
+    author: codex-sol
+    text: Round FT review map. PRRT_kwDOTOTl1M66Ynw1 uses 8b436fe and 585c24c to refuse inline package-version selector values and retain the unresolved-option diagnostic. PRRT_kwDOTOTl1M66Ynw5 uses 8b436fe to preserve alternative renderers in OR lists and script forwards. PRRT_kwDOTOTl1M66YnxA uses 8b436fe to pass the adapter's resolved output path to the generator. PRRT_kwDOTOTl1M66YnxE uses 8b436fe and fdf945a to require a verified Node for stock Windows launchers. PRRT_kwDOTOTl1M66YnxG uses 8b436fe and fdf945a to honor empty POSIX PATH entries in the lifecycle probe. PRRT_kwDOTOTl1M66YnxI uses 8b436fe to clear both npm lifecycle environment spellings in the fixture. PRRT_kwDOTOTl1M66YnxL uses 8b436fe to use a known npm launcher in the heading-date fixture. PRRT_kwDOTOTl1M66YnxO uses 8b436fe to refuse sparse snapshot omissions and preserve genuine deletions. PRRT_kwDOTOTl1M66YnxQ uses 8b436fe and fdf945a to use pinned fixture-owned Windows launcher templates and retain shim refusal. PRRT_kwDOTOTl1M650IRm and PRRT_kwDOTOTl1M650SdF uses 24d844c to accept quoted ordinary title data and refuse inherited generator or policy selection. PRRT_kwDOTOTl1M650SdV uses 24d844c to require a fresh preview in each lifecycle row. PRRT_kwDOTOTl1M650Sda uses accb464 to disable tag signing locally in both disposable repositories. PRRT_kwDOTOTl1M650Sdd uses accb464 to inject invalid UTF-8 into Git indexes without using an invalid filesystem name.
+  - created_at: "2026-11-21T18:18:46.961Z"
+    author: codex-sol
+    text: Standalone coverage reached 2200 passing tests and 100% in all four dimensions over 54 source files. The rewritten candidate matched that coverage but the publish audit correctly classified the verbatim shell shebang in the launcher fixture as executable source. The paired fixture preserves the real workflow in the tracked source scan and stores the exact launcher bytes as test data. The publish audit's source rules are unchanged.
 files[25]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
