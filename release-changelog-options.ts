@@ -1062,7 +1062,8 @@ export function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[
     const token = args[index];
     const flag = token.value.split("=", 1)[0];
     if (token.value === "--pm-arg") {
-      const operand = args[index + 1]?.value ?? "";
+      const operand = args[index + 1]?.value;
+      if (!operand) refuseHook("--pm-arg requires a value");
       const equals = operand.indexOf("=");
       if (equals > 0 && VALUE_OPTIONS.has(operand.slice(0, equals))) {
         refuseHook("--pm-arg splits this separate option operand. Use the --pm-arg=<value> form");

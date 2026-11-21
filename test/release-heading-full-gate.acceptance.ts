@@ -37,7 +37,7 @@ try {
     GITHUB_STEP_SUMMARY: join(root, "summary.md"), CONTINUATION_SCRIPT: join(candidate, "scripts/release-continuation.ts"),
     // Reserve a fixture coordinate beyond the real tag history and stamp it
     // through the same workflow step used for the manifest and extension.
-    NPM_VERSION: "2099.11.30", VERSION_POLICY: "daily", PREPARE_SCRIPT: "", BUILD_SCRIPT: "", PM_OPS_MODULE: join(candidate, "dist/index.js"),
+    NPM_VERSION: "2099.11.30", VERSION_POLICY: "daily", PREPARE_SCRIPT: "", BUILD_SCRIPT: "", PM_OPS_MODULE: join(candidate, "dist/daily-release.js"),
   };
   const outputs = join(root, "prepare.out");
   for (const name of ["Update release version", "Prepare npm changelog hooks", "Generate changelog and release notes"]) {

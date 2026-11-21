@@ -2210,6 +2210,18 @@ test("the pinned changelog CLI splits a separate equal-sign option passed as pm-
   }
 });
 
+test("pm-arg requires a value but a caller can forward an option-shaped value", () => {
+  const writer = "pm-changelog " + standing + " --pm-arg";
+  const hook = "npm run writer -- --title";
+  for (const script of [writer, writer + " ''"]) {
+    assert.match(auditInvocations([workflow(script)]).failures[0] ?? "", /--pm-arg requires a value/);
+    assert.throws(() => rewriteReleaseHeadingDate(script, day), /--pm-arg requires a value/);
+  }
+  const rewritten = rewriteReleaseHookDates(new Map([["hook", hook], ["writer", writer]]), ["hook"], day);
+  assert.equal(rewritten.get("hook"), hook);
+  assert.equal(rewritten.get("writer"), writer.replace("--date-from-version", "--date-fallback " + day));
+});
+
 test("a final AND-list status check keeps the terminal notes renderer", () => {
   for (const suffix of ["test -s notes.txt", "test -s notes.txt && true", "git diff --quiet", "test -s notes.txt || true"]) {
     const hook = "node setup.mjs; node notes.mjs && " + suffix;

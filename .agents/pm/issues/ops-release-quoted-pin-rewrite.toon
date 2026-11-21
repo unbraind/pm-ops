@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T23:42:03.185Z"
+updated_at: "2026-11-21T23:51:10.557Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -16,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[186]:
+comments[187]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -576,6 +576,9 @@ comments[186]:
   - created_at: "2026-11-21T23:40:18.748Z"
     author: codex-sol
     text: "Round FY reproduced the workflow environment, npm ordering, pinned parser, renderer, workspace and shell cases. Baseline and updated fleet scans each accepted 142 release hooks and 144 script bodies across 39 manifests. The old full-gate fixture resolved an existing tag. The updated fixture checks a different untagged release coordinate."
+  - created_at: "2026-11-21T23:51:01.982Z"
+    author: codex-sol
+    text: Verified that a separate pm-arg with an empty or absent value must fail and an npm caller can still forward an option-shaped value. The full-gate fixture uses the same daily-release module as the workflow to stamp package metadata. Rechecking the final revision with npm 11.21.0.
 files[29]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
@@ -606,7 +609,7 @@ files[29]{path,scope}:
   test/verify-release-changelog-date.test.ts,project
   dist/attestation.js,project
   dist/shell-scan.js,project
-tests[71]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[72]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -678,6 +681,7 @@ tests[71]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-name-pattern='copy backup suffixes|uncertain npm lifecycle refuses copies|inherited npm bindings|npm forwards inherited title' test/release-hook-grammar.test.ts,project,codex-sol,"2026-11-21T20:36:29.282Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-concurrency=2 test/release-hook-grammar.test.ts test/shell-command-scan.test.ts test/verify-release-changelog-date.test.ts test/release-continuation-adapter.test.ts,project,codex-sol,"2026-11-21T21:43:09.510Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/compose-attestation.test.ts test/continuation-selection.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/multiline-quote.test.ts test/ops.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-caller-attestation.test.ts test/release-continuation-adapter.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-provenance.test.ts test/release-recovery-signer.test.ts test/release-repair.test.ts test/release-runtime.test.ts test/shell-command-scan.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts,project,codex-sol,"2026-11-21T23:42:02.799Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-name-pattern='pm-arg requires a value|pinned changelog CLI splits' test/release-hook-grammar.test.ts,project,codex-sol,"2026-11-21T23:51:09.803Z",local_mutation,fix/release-hook-wrapper-options-bm
 docs[4]{path,scope}:
   CHANGELOG.md,project
   docs/reusable-release.md,project
