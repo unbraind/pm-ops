@@ -42,11 +42,21 @@ export function projectNpmLifecyclePolicy(cwd: string): { active: NpmLifecycle; 
   return { active: parseNpmLifecycle(active), configured: parseNpmLifecycle(configured) };
 }
 
+/** Model clearing npm's canonical key before a nested invocation reloads configuration. */
+export function npmLifecycleFallbackEnvironment(env: NodeJS.ProcessEnv, platform = process.platform): NodeJS.ProcessEnv {
+  const key = "npm_config_ignore_scripts";
+  const fallback = platform === "win32"
+    ? Object.fromEntries(Object.entries(env).filter(([name]) => name.toLowerCase() !== key))
+    : { ...env };
+  fallback[key] = "";
+  return fallback;
+}
+
 if (isMainInvocation(process.argv, import.meta.url)) {
   const active = await readLifecycle(process.env).catch(() => "unknown");
   if (process.argv[2] === "--policy") {
     const configured = process.env.npm_config_ignore_scripts
-      ? await readLifecycle({ ...process.env, npm_config_ignore_scripts: "" }).catch(() => "unknown")
+      ? await readLifecycle(npmLifecycleFallbackEnvironment(process.env)).catch(() => "unknown")
       : active;
     process.stdout.write(active + ":" + configured);
   } else process.stdout.write(String(active));

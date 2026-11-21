@@ -1053,7 +1053,7 @@ const RELEASE_WRAPPERS: Readonly<Record<string, RegExp>> = {
 export const RELEASE_PROJECT_OPTION = /^(?:-[Cw]|--(?:prefix|cwd|dir|chdir|filter|workspace|(?:no-)?workspaces|(?:no-)?include-workspace-root)(?:=|$))/;
 
 /** Environment names whose values can change npm or the generator's behavior. */
-export const RELEASE_CONTEXT_VARIABLE = /^(?:npm_config_|pm_)[\w]+(?=\+?=|$)/i;
+export const RELEASE_CONTEXT_VARIABLE = /^(?:npm_config_[\w-]+|pm_\w+)(?=\+?=|$)/i;
 
 /** A context change discovered at a wrapper, runner, or shell boundary. */
 export interface ReleaseContextChange {
@@ -1098,7 +1098,7 @@ export function releaseHookCommand(input: ShellCommand, context?: ReleaseContext
       else if (!options?.has(flag.split("=")[0]) && !RELEASE_WRAPPERS[wrapper].test(flag)) return words.slice(start);
     }
     if (wrapper === "env") {
-      while (/^[A-Za-z_][A-Za-z_0-9]*=/.test(words[i]?.value ?? "")) {
+      while (/^[A-Za-z_][\w-]*=/.test(words[i]?.value ?? "")) {
         const assignment = words[i++];
         assignments?.push(assignment);
         const variable = RELEASE_CONTEXT_VARIABLE.exec(assignment.value)?.[0];

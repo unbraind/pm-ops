@@ -919,10 +919,10 @@ const ENV_PATH = /^(?:"\$(?:GITHUB_ENV|\{GITHUB_ENV\})"|\$(?:GITHUB_ENV|\{GITHUB
 const READ_ENV_FILE = /^cat\s+(?:"\$(?:GITHUB_ENV|\{GITHUB_ENV\})"|\$(?:GITHUB_ENV|\{GITHUB_ENV\}))$/;
 
 /** Decode one literal NAME=value record emitted by echo or printf. */
-function literalEnvironmentRecord(print: string, stepEnv: Record<string, unknown> | undefined): string | undefined {
+function literalEnvironmentRecord(print: string, environment: Record<string, unknown> | undefined): string | undefined {
   const variable = /^echo "([A-Za-z_]\w*)=\$(\w+)"$/.exec(print);
   if (variable) {
-    const value = stepEnv?.[variable[2]];
+    const value = environment?.[variable[2]];
     return typeof value === "string" && /^[\w.-]*$/.test(value) ? variable[1] + "=" + value : undefined;
   }
   const echo = /^(?:echo\s+|printf\s+(['"])%s\\n\1\s+)(['"]?)([A-Za-z_]\w*=[\w.-]*)\2$/.exec(print);
@@ -935,9 +935,9 @@ function literalEnvironmentRecord(print: string, stepEnv: Record<string, unknown
 
 /** Model one runner environment file, which starts empty for each step. */
 function writtenIgnoreScripts(
-  text: string, conditionalStep: boolean, stepEnv: Record<string, unknown> | undefined, errexit: boolean,
-): { records: Record<string, string>; mayStopBeforeOverwrite: boolean } | undefined {
-  let records: Record<string, string> | undefined = {};
+  text: string, conditionalStep: boolean, environment: Record<string, unknown> | undefined, errexit: boolean,
+): { records: Record<string, string | undefined>; mayStopBeforeOverwrite: boolean } | undefined {
+  let records: Record<string, string | undefined> | undefined = Object.create(null);
   let mayStopBeforeOverwrite = false;
   let nounset = false;
   let depth = 0;
@@ -966,13 +966,13 @@ function writtenIgnoreScripts(
     const destination = line.slice(redirect + (append ? 2 : 1)).trimStart();
     if (!ENV_PATH.test(destination)) return undefined;
     const print = line.slice(0, redirect).trimEnd();
-    const record = literalEnvironmentRecord(print, stepEnv);
+    const record = literalEnvironmentRecord(print, environment);
     if (record === undefined) {
       const read = /^cat [\w./-]+$/.test(print);
       const echo = /^echo "\$(\w+)"$/.exec(print);
       if (!read && !echo) return undefined;
       // A failed read or an unset expansion can leave the earlier contents in place.
-      const operand = echo && stepEnv?.[echo[1]];
+      const operand = echo && environment?.[echo[1]];
       const mayBeUnset = typeof operand !== "string" || operand.includes("${{");
       if (read ? errexit : nounset && mayBeUnset) mayStopBeforeOverwrite = true;
       records = undefined;
@@ -981,13 +981,18 @@ function writtenIgnoreScripts(
     const conditional = conditionalStep || depth > 0;
     if (!append) {
       if (conditional) {
-        if (records) for (const key of Object.keys(records)) records[key] = "unknown";
-      } else records = {};
+        if (records) for (const key of Object.keys(records)) records[key] = uncertainEnvironmentRecord(key);
+      } else records = Object.create(null);
     }
     const [name, value] = record.split("=");
-    if (records && name.toLowerCase() === IGNORE_SCRIPTS_ENV) records[name] = conditional ? "unknown" : value;
+    if (records && !/^(?:GITHUB_|RUNNER_|NODE_OPTIONS$)/i.test(name)) records[name] = conditional ? uncertainEnvironmentRecord(name) : value;
   }
   return records && { records, mayStopBeforeOverwrite };
+}
+
+/** Preserve uncertainty without treating a possibly unset expansion as a literal. */
+function uncertainEnvironmentRecord(name: string): string | undefined {
+  return /^npm_config_ignore[-_]scripts$/i.test(name) ? "unknown" : undefined;
 }
 
 /** Check whether the runner's implicit success condition can be overridden. */
@@ -1028,7 +1033,7 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
     const runner = job!["runs-on"];
     const posixRunner = [runner].flat().some(label => typeof label === "string" && /^(?:ubuntu-|macos-|linux$|macos$)/i.test(label));
     const defaultShell = defaultRunSetting(job, "shell") ?? defaultRunSetting(data, "shell");
-    const inherited: Record<string, string> = {};
+    const inherited: Record<string, string | undefined> = Object.create(null);
     let unknownNames = false;
     let uncertainOnFailure = false;
     for (const [index, value] of (steps as unknown[]).entries()) {
@@ -1042,10 +1047,12 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
       if (directory !== undefined) body.workingDirectory = directory;
       const stepEnv = mapping(step.env);
       const environment = { ...mapping(data?.env), ...mapping(job!.env), ...inherited, ...stepEnv };
+      const priorUncertain = unknownNames || (uncertainOnFailure && canRunAfterFailure(step.if))
+        || [data?.env, job!.env, step.env].some(layer => typeof layer === "string");
       const stepLifecycle = Object.entries(stepEnv ?? {}).some(([key, value]) =>
         /^npm_config_ignore[-_]scripts$/i.test(key) && [true, false, "true", "false"].includes(value as string | boolean));
-      if (!stepLifecycle && (unknownNames || (uncertainOnFailure && canRunAfterFailure(step.if))
-        || [data?.env, job!.env, step.env].some(layer => typeof layer === "string"))) environment[IGNORE_SCRIPTS_ENV] = "unknown";
+      const producerEnvironment = priorUncertain ? stepEnv : environment;
+      if (!stepLifecycle && priorUncertain) environment[IGNORE_SCRIPTS_ENV] = "unknown";
       body.environment = environment;
       if (job!.if === false || step.if === false) body.disabled = true;
       else {
@@ -1053,7 +1060,7 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
         const shellKnown = shell === undefined ? posixRunner : typeof shell === "string" && /^(?:bash|sh|(?:bash|sh) (?:-e )?\{0\}|bash --noprofile --norc -eo pipefail \{0\})$/.test(shell);
         const conditional = (step.if !== undefined && step.if !== true) || Boolean(step["continue-on-error"]);
         const errexit = shell !== "bash {0}" && shell !== "sh {0}";
-        const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, stepEnv, errexit) : undefined;
+        const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, producerEnvironment, errexit) : undefined;
         if (writes === undefined) unknownNames = true;
         else {
           Object.assign(inherited, writes.records);

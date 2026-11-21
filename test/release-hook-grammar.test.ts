@@ -1936,6 +1936,107 @@ test("an uncertain npm lifecycle refuses copies into CHANGELOG.md and permits co
   }
 });
 
+test("directory-form copies audit the source basename at the effective destination", () => {
+  const audit = (copy: string) => resolveChangelogHooks({ hook: "pm-changelog " + standing, posthook: copy }, ["hook"]);
+  for (const copy of ["cp -t . generated/CHANGELOG.md", "cp --target-directory ./ generated/CHANGELOG.md",
+    "cp --target-directory=generated/.. generated/preview.md generated/CHANGELOG.md", "cp -ft. -- generated/CHANGELOG.md",
+    'cp -t "$TARGET" generated/CHANGELOG.md', 'cp -t . "generated/$FILE"', "cp -t . generated/CHANGE{LOG,X}.md",
+    "cp generated/CHANGELOG.md ."]) {
+    assert.throws(() => audit(copy), /ignore-scripts.*posthook/, copy);
+  }
+  for (const copy of ["cp -t . generated/preview.md", "cp --target-directory=previews generated/CHANGELOG.md",
+    'cp -t previews "generated/$FILE"', "cp generated/CHANGELOG.md previews", "cp -S-t. generated/CHANGELOG.md preview.md",
+    "cp -T generated/CHANGELOG.md .", "cp --no-target-directory generated/CHANGELOG.md .", "cp --target-directory= generated/CHANGELOG.md",
+    "cp -t", "cp -t . --suffix backup.txt generated/preview.md"]) {
+    assert.doesNotThrow(() => audit(copy), copy);
+  }
+});
+
+test("an AND-list status check retains either possible notes renderer", () => {
+  const preferred = "node preferred.mjs && test -s notes.txt";
+  const alternative = preferred + " || node fallback.mjs";
+  assert.throws(() => includeEmptyCustomHook(alternative, new Map()), /alternative renderers/);
+  assert.throws(() => includeEmptyCustomHook("npm run render", new Map([["render", alternative]])), /alternative renderers/);
+  assert.equal(includeEmptyCustomHook(preferred + " || true", new Map()), "node preferred.mjs --include-empty && test -s notes.txt || true");
+  assert.equal(includeEmptyCustomHook(alternative + " && node notes.mjs", new Map()), alternative + " && node notes.mjs --include-empty");
+  const generators = `pm-changelog ${standing} --stdout && test -s notes.txt || node dist/cli.js ${standing} --stdout`;
+  assert.equal(includeEmptyCustomHook(generators, new Map(), true), generators);
+});
+
+test("env passes hyphenated npm lifecycle keys but shell prefixes require identifiers", () => {
+  const scripts = { hook: "", prewriter: "pm-changelog " + standing + " --title before", writer: "pm-changelog " + standing };
+  const audit = (command: string) => resolveChangelogHooks({ ...scripts, hook: command }, ["hook"], true);
+  for (const prefix of ["env npm_config_ignore-scripts=true", "env 'NPM_CONFIG_IGNORE-SCRIPTS=true'", "env -- npm_config_ignore-scripts=true"]) {
+    assert.equal(audit(prefix + " npm run writer").get("writer"), scripts.writer);
+    assert.equal(audit(prefix + " npm run writer").has("prewriter"), false);
+    assert.equal(audit(prefix + " npm --ignore-scripts=false run writer").get("prewriter"), scripts.prewriter);
+  }
+  assert.equal(audit("env npm_config_ignore-scripts=false npm run writer").get("prewriter"), scripts.prewriter);
+  assert.equal(audit("env 'note-label=available' npm run writer").get("prewriter"), scripts.prewriter);
+  assert.equal(releaseHookCommand(parseReleaseHook("npm_config_ignore-scripts=true npm run writer").commands[0])?.[0].value,
+    "npm_config_ignore-scripts=true");
+  assert.throws(() => audit('env "npm_config_ignore-scripts=$MODE" npm run writer'), /ignore-scripts.*prewriter/);
+});
+
+test("the selected npm honors a hyphenated lifecycle environment key", t => {
+  const root = mkdtempSync(join(tmpdir(), "hyphenated-npm-lifecycle-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(join(root, "package.json"), JSON.stringify({ name: "fixture", scripts: { prewriter: "echo before", writer: "echo main" } }));
+  writeFileSync(join(root, ".npmrc"), "ignore-scripts=false\n");
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^npm_config_/i.test(name)));
+  Object.assign(env, { NPM_CONFIG_USERCONFIG: join(root, "user.npmrc"), NPM_CONFIG_GLOBALCONFIG: devNull });
+  const run = (setting: string) => execFileSync(process.execPath, [npmCli(true), "run", "--silent", "writer"], {
+    cwd: root, env: { ...env, "npm_config_ignore-scripts": setting }, encoding: "utf8",
+  }).trim().split(/\r?\n/);
+  assert.deepEqual(run("true"), ["main"]);
+  assert.deepEqual(run("false"), ["before", "main"]);
+});
+
+test("the date audit requires a definite nested lifecycle after an earlier command", () => {
+  const scripts = { "release:notes": "npm --ignore-scripts=false run relay", writer: "pm-changelog " + standing,
+    prewriter: "pm-changelog " + standing, prerelay: "node refresh.mjs", relay: "npm run writer" };
+  const inspect = (relay: string, prerelay = scripts.prerelay) => auditInvocations([
+    { file: "package.json", text: JSON.stringify({ scripts: { ...scripts, relay, prerelay } }) },
+    { file: ".npmrc", text: "ignore-scripts=true" },
+  ]).failures;
+  assert.match(inspect(scripts.relay)[0], /Cannot verify.*nested npm lifecycle.*writer/);
+  assert.deepEqual(inspect("npm --ignore-scripts=true run writer"), []);
+  assert.deepEqual(inspect(scripts.relay, ""), []);
+});
+
+test("GITHUB_ENV writes expand the producer's effective literal environment", () => {
+  const use = { run: "npm run changelog:full" };
+  const write = { run: 'echo "npm_config_ignore_scripts=$SETTING" >> "$GITHUB_ENV"' };
+  const inspect = (job: object, steps: object[], env = {}) => {
+    const workflow = { file: ".github/workflows/release.yml", text: stringify({ env, jobs: {
+      release: { "runs-on": "ubuntu-latest", ...job, steps: [...steps, use] },
+    } }) };
+    const pkg = { file: "package.json", text: JSON.stringify({ scripts: {
+      "changelog:full": "pm-changelog " + standing, "prechangelog:full": "echo preview > CHANGELOG.md",
+    } }) };
+    return { policy: npmLifecycle(undefined, executableShellBodies(workflow).at(-1)?.environment), failures: auditInvocations([pkg, workflow]).failures };
+  };
+  assert.deepEqual(inspect({ env: { SETTING: "true" } }, [write]), { policy: false, failures: [] });
+  assert.deepEqual(inspect({}, [write], { SETTING: "true" }), { policy: false, failures: [] });
+  assert.deepEqual(inspect({ env: { SETTING: "false" } }, [{ ...write, env: { SETTING: "true" } }]), { policy: false, failures: [] });
+  assert.deepEqual(inspect({ env: { SETTING: "false" } }, [{ run: 'echo "SETTING=true" >> "$GITHUB_ENV"' }, write]), { policy: false, failures: [] });
+  for (const [job, steps] of [
+    [{ env: { SETTING: "${{ inputs.setting }}" } }, [write]],
+    [{ env: { SETTING: "true" } }, [{ uses: "./action" }, write]],
+    [{ env: { SETTING: "true" } }, [{ if: "inputs.change", run: 'echo "SETTING=false" >> "$GITHUB_ENV"' }, write]],
+  ] as const) {
+    const result = inspect(job, [...steps]);
+    assert.equal(result.policy, "unknown");
+    assert.match(result.failures[0], /Cannot determine npm ignore-scripts/);
+  }
+  for (const name of ["GITHUB_SETTING", "RUNNER_SETTING", "NODE_OPTIONS"]) {
+    const store = { run: `echo "${name}=true" >> "$GITHUB_ENV"` };
+    const expand = { run: write.run.replace("$SETTING", "$" + name) };
+    assert.equal(inspect({}, [store, expand]).policy, "unknown");
+  }
+  assert.equal(inspect({ env: { SETTING: "false" } }, [write]).policy, true);
+});
+
 test("copy backup suffixes are consumed before identifying the last file operand", () => {
   const target = "changelog:full";
   for (const options of ['--suffix "$BACKUP_SUFFIX"', '-S "$BACKUP_SUFFIX"', '-fS "$BACKUP_SUFFIX"',

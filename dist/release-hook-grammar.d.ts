@@ -1,8 +1,8 @@
 import { type ShellCommand, type ShellToken, type ShellTokenSpan } from "./shell-scan.ts";
 /** Return the producing command upstream of a supported output filter. */
 export declare function releaseOutputProducer(command: ShellCommand): ShellCommand;
-/** Return the separator when the next command is a fallback or pipeline stage. */
-export declare function followingReleaseOperator(command: ShellCommand): "or" | "pipe" | undefined;
+/** Return the separator for an AND-list, fallback, or pipeline stage. */
+export declare function followingReleaseOperator(command: ShellCommand): "and" | "or" | "pipe" | undefined;
 /** Whether shell edits in this command are local to a pipeline stage or subshell. */
 export declare function isIsolatedReleaseCommand(words: ShellCommand): boolean;
 /** Whether the command belongs to the condition list of a while or until loop. */

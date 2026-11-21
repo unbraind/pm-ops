@@ -878,10 +878,10 @@ const IGNORE_SCRIPTS_ENV = "npm_config_ignore_scripts";
 const ENV_PATH = /^(?:"\$(?:GITHUB_ENV|\{GITHUB_ENV\})"|\$(?:GITHUB_ENV|\{GITHUB_ENV\}))(?:\s+#.*)?$/;
 const READ_ENV_FILE = /^cat\s+(?:"\$(?:GITHUB_ENV|\{GITHUB_ENV\})"|\$(?:GITHUB_ENV|\{GITHUB_ENV\}))$/;
 /** Decode one literal NAME=value record emitted by echo or printf. */
-function literalEnvironmentRecord(print, stepEnv) {
+function literalEnvironmentRecord(print, environment) {
     const variable = /^echo "([A-Za-z_]\w*)=\$(\w+)"$/.exec(print);
     if (variable) {
-        const value = stepEnv?.[variable[2]];
+        const value = environment?.[variable[2]];
         return typeof value === "string" && /^[\w.-]*$/.test(value) ? variable[1] + "=" + value : undefined;
     }
     const echo = /^(?:echo\s+|printf\s+(['"])%s\\n\1\s+)(['"]?)([A-Za-z_]\w*=[\w.-]*)\2$/.exec(print);
@@ -894,8 +894,8 @@ function literalEnvironmentRecord(print, stepEnv) {
     return format ? format[2] + format[4] : undefined;
 }
 /** Model one runner environment file, which starts empty for each step. */
-function writtenIgnoreScripts(text, conditionalStep, stepEnv, errexit) {
-    let records = {};
+function writtenIgnoreScripts(text, conditionalStep, environment, errexit) {
+    let records = Object.create(null);
     let mayStopBeforeOverwrite = false;
     let nounset = false;
     let depth = 0;
@@ -931,14 +931,14 @@ function writtenIgnoreScripts(text, conditionalStep, stepEnv, errexit) {
         if (!ENV_PATH.test(destination))
             return undefined;
         const print = line.slice(0, redirect).trimEnd();
-        const record = literalEnvironmentRecord(print, stepEnv);
+        const record = literalEnvironmentRecord(print, environment);
         if (record === undefined) {
             const read = /^cat [\w./-]+$/.test(print);
             const echo = /^echo "\$(\w+)"$/.exec(print);
             if (!read && !echo)
                 return undefined;
             // A failed read or an unset expansion can leave the earlier contents in place.
-            const operand = echo && stepEnv?.[echo[1]];
+            const operand = echo && environment?.[echo[1]];
             const mayBeUnset = typeof operand !== "string" || operand.includes("${{");
             if (read ? errexit : nounset && mayBeUnset)
                 mayStopBeforeOverwrite = true;
@@ -950,16 +950,20 @@ function writtenIgnoreScripts(text, conditionalStep, stepEnv, errexit) {
             if (conditional) {
                 if (records)
                     for (const key of Object.keys(records))
-                        records[key] = "unknown";
+                        records[key] = uncertainEnvironmentRecord(key);
             }
             else
-                records = {};
+                records = Object.create(null);
         }
         const [name, value] = record.split("=");
-        if (records && name.toLowerCase() === IGNORE_SCRIPTS_ENV)
-            records[name] = conditional ? "unknown" : value;
+        if (records && !/^(?:GITHUB_|RUNNER_|NODE_OPTIONS$)/i.test(name))
+            records[name] = conditional ? uncertainEnvironmentRecord(name) : value;
     }
     return records && { records, mayStopBeforeOverwrite };
+}
+/** Preserve uncertainty without treating a possibly unset expansion as a literal. */
+function uncertainEnvironmentRecord(name) {
+    return /^npm_config_ignore[-_]scripts$/i.test(name) ? "unknown" : undefined;
 }
 /** Check whether the runner's implicit success condition can be overridden. */
 function canRunAfterFailure(condition) {
@@ -1002,7 +1006,7 @@ export function executableShellBodies(source) {
         const runner = job["runs-on"];
         const posixRunner = [runner].flat().some(label => typeof label === "string" && /^(?:ubuntu-|macos-|linux$|macos$)/i.test(label));
         const defaultShell = defaultRunSetting(job, "shell") ?? defaultRunSetting(data, "shell");
-        const inherited = {};
+        const inherited = Object.create(null);
         let unknownNames = false;
         let uncertainOnFailure = false;
         for (const [index, value] of steps.entries()) {
@@ -1018,9 +1022,11 @@ export function executableShellBodies(source) {
                 body.workingDirectory = directory;
             const stepEnv = mapping(step.env);
             const environment = { ...mapping(data?.env), ...mapping(job.env), ...inherited, ...stepEnv };
+            const priorUncertain = unknownNames || (uncertainOnFailure && canRunAfterFailure(step.if))
+                || [data?.env, job.env, step.env].some(layer => typeof layer === "string");
             const stepLifecycle = Object.entries(stepEnv ?? {}).some(([key, value]) => /^npm_config_ignore[-_]scripts$/i.test(key) && [true, false, "true", "false"].includes(value));
-            if (!stepLifecycle && (unknownNames || (uncertainOnFailure && canRunAfterFailure(step.if))
-                || [data?.env, job.env, step.env].some(layer => typeof layer === "string")))
+            const producerEnvironment = priorUncertain ? stepEnv : environment;
+            if (!stepLifecycle && priorUncertain)
                 environment[IGNORE_SCRIPTS_ENV] = "unknown";
             body.environment = environment;
             if (job.if === false || step.if === false)
@@ -1030,7 +1036,7 @@ export function executableShellBodies(source) {
                 const shellKnown = shell === undefined ? posixRunner : typeof shell === "string" && /^(?:bash|sh|(?:bash|sh) (?:-e )?\{0\}|bash --noprofile --norc -eo pipefail \{0\})$/.test(shell);
                 const conditional = (step.if !== undefined && step.if !== true) || Boolean(step["continue-on-error"]);
                 const errexit = shell !== "bash {0}" && shell !== "sh {0}";
-                const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, stepEnv, errexit) : undefined;
+                const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, producerEnvironment, errexit) : undefined;
                 if (writes === undefined)
                     unknownNames = true;
                 else {

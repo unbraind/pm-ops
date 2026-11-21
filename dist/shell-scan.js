@@ -1012,7 +1012,7 @@ const RELEASE_WRAPPERS = {
 /** Options that can select a project other than the release hook's own manifest. */
 export const RELEASE_PROJECT_OPTION = /^(?:-[Cw]|--(?:prefix|cwd|dir|chdir|filter|workspace|(?:no-)?workspaces|(?:no-)?include-workspace-root)(?:=|$))/;
 /** Environment names whose values can change npm or the generator's behavior. */
-export const RELEASE_CONTEXT_VARIABLE = /^(?:npm_config_|pm_)[\w]+(?=\+?=|$)/i;
+export const RELEASE_CONTEXT_VARIABLE = /^(?:npm_config_[\w-]+|pm_\w+)(?=\+?=|$)/i;
 /** Locate a release command using only wrappers with explicit argv boundaries. */
 export function releaseHookCommand(input, context, assignments) {
     const words = withoutRedirections(input);
@@ -1054,7 +1054,7 @@ export function releaseHookCommand(input, context, assignments) {
                 return words.slice(start);
         }
         if (wrapper === "env") {
-            while (/^[A-Za-z_][A-Za-z_0-9]*=/.test(words[i]?.value ?? "")) {
+            while (/^[A-Za-z_][\w-]*=/.test(words[i]?.value ?? "")) {
                 const assignment = words[i++];
                 assignments?.push(assignment);
                 const variable = RELEASE_CONTEXT_VARIABLE.exec(assignment.value)?.[0];

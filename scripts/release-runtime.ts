@@ -69,15 +69,24 @@ function windowsLauncherText(file: string): string {
   return readFileSync(file, "utf8").replaceAll("\r\n", "\n");
 }
 
+/** Search native Windows launcher extensions in PATHEXT order. */
+function windowsNpmLauncherNames(): string[] {
+  return (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").toLowerCase().split(";").map(extension => extension.trim())
+    .filter(extension => /^\.[a-z0-9]+$/.test(extension)).map(extension => "npm" + extension);
+}
+
 /** Locate an npm CLI without executing a shell or switching the selected Node. */
 export function npmCli(pathOnly = false): string {
   const adjacent = join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js");
   if (!pathOnly && existsSync(adjacent)) return adjacent;
   const win = process.platform === "win32";
-  for (const directory of process.env.PATH?.split(delimiter) ?? []) {
+  const native = win && !process.env.MSYSTEM;
+  const directories = (process.env.PATH?.split(delimiter) ?? []).map(directory => win ? directory.replace(/^"(.*)"$/, "$1") : directory);
+  if (pathOnly && native && process.env.NoDefaultCurrentDirectoryInExePath === undefined) directories.unshift(process.cwd());
+  const names = win ? [...(native ? [] : ["npm"]), ...windowsNpmLauncherNames()] : ["npm"];
+  for (const directory of directories) {
     if (!directory && (!pathOnly || win)) continue;
     if (pathOnly) {
-      const names = win ? ["npm", "npm.com", "npm.exe", "npm.bat", "npm.cmd"] : ["npm"];
       const launcher = names.map(name => join(directory, name)).find(file => isExecutableFile(file, process.platform));
       if (!launcher) continue;
       const target = realpathSync(launcher);

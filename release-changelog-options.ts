@@ -231,7 +231,7 @@ export function npmLifecycle(
 function lifecycleEnvironment(assignments: readonly ShellToken[]): NpmLifecycle | undefined {
   let setting: NpmLifecycle | undefined;
   for (const token of assignments) {
-    const match = /^npm_config_ignore_scripts=(.*)$/i.exec(token.value);
+    const match = /^npm_config_ignore[-_]scripts=(.*)$/i.exec(token.value);
     if (match && match[1] !== "") setting = lifecycleSetting(match[1]);
   }
   return setting;
@@ -320,23 +320,40 @@ function generatorCommand(invocation: ShellCommand): ShellCommand | undefined {
   return file && !file.unresolved && GENERATOR_TARGET.test(file.value) ? invocation.slice(index) : undefined;
 }
 
-/** Identify the destination operand of a copy in file-to-file form. */
+/** Check whether a copy can resolve to the root changelog, including directory targets. */
 function copyWritesChangelog(args: ShellCommand): boolean {
   const operands: ShellToken[] = [];
   let options = true;
+  let directory: ShellToken | undefined;
+  let directoryValue = "";
+  let noTargetDirectory = false;
   for (let index = 0; index < args.length; index++) {
     const word = args[index];
     if (options && /^-.+/.test(word.value)) {
       if (word.value === "--") options = false;
       // The first short option that takes a value consumes the rest of its word.
       const operandOption = /^-[^-St]*[St]/.exec(word.value)?.[0];
-      if (operandOption?.endsWith("t") || /^--target-directory(?:=|$)/.test(word.value)) return false;
-      if (word.value === "--suffix" || operandOption === word.value) index++;
+      const directoryOption = /^--target-directory(?:=|$)/.exec(word.value)?.[0] ?? (operandOption?.endsWith("t") ? operandOption : undefined);
+      if (directoryOption) {
+        const inline = directoryOption.endsWith("=") || directoryOption.length < word.value.length;
+        directory = inline ? word : args[++index];
+        if (!directory) return false;
+        directoryValue = inline ? word.value.slice(directoryOption.length) : directory.value;
+      } else if (word.value === "--suffix" || operandOption === word.value) index++;
+      if (word.value === "--no-target-directory" || /^-[^-St]*T/.test(operandOption ?? word.value)) noTargetDirectory = true;
     } else operands.push(word);
   }
+  if (directory) return copyDirectoryWritesChangelog(directory, directoryValue, operands);
   const destination = operands.at(-1);
   return operands.length >= 2 && (destination!.unresolved || hasBraceExpansion(destination!)
-    || posix.normalize(destination!.value) === "CHANGELOG.md");
+    || posix.normalize(destination!.value) === "CHANGELOG.md"
+    || (!noTargetDirectory && copyDirectoryWritesChangelog(destination!, destination!.value, operands.slice(0, -1))));
+}
+
+/** A directory copy uses each source basename under its target directory. */
+function copyDirectoryWritesChangelog(directory: ShellToken, value: string, sources: ShellCommand): boolean {
+  return (directory.unresolved || hasBraceExpansion(directory) || (value !== "" && posix.join(value, "CHANGELOG.md") === "CHANGELOG.md"))
+    && sources.some(source => source.unresolved || hasBraceExpansion(source) || posix.basename(source.value) === "CHANGELOG.md");
 }
 
 /** Look for a reachable generator without interpreting an opaque command as executable argv. */
@@ -558,7 +575,7 @@ function commandContextChanges(words: ShellCommand): ReleaseContextChange[] {
   if (invocation && basename(invocation[0].value) === "npm" && scriptForward("npm", invocation.slice(1))) {
     const known = lifecycleEnvironment(assignments);
     if (known !== undefined) {
-      const setting = /^(?:env )?npm_config_ignore_scripts assignment$/i;
+      const setting = /^(?:env )?npm_config_ignore[-_]scripts assignment$/i;
       for (let i = context.length - 1; i >= 0; i--) if (setting.test(context[i].construct)) context.splice(i, 1);
     }
   }
@@ -761,6 +778,14 @@ interface NpmLifecycleInputs {
   workflowSteps?: ReadonlyMap<string, NpmLifecyclePolicy>;
 }
 
+/** A nested npm call can reload configuration after earlier script code ran. */
+interface NpmConfigState {
+  /** The environment may leave npm to read its configured fallback. */
+  reloadable: boolean;
+  /** An earlier command or lifecycle body may have changed that fallback. */
+  mayHaveChanged: boolean;
+}
+
 /** Find versioned generator options on a command that expands an inherited assignment. */
 function forwardedBindingProblem(words: ShellCommand, bindings: ReadonlySet<string>): string | undefined {
   if (!bindings.size) return undefined;
@@ -823,6 +848,7 @@ export function visitChangelogScriptCommands(
   function visit(
     name: string, args: readonly ShellToken[], parents: readonly string[], policy: NpmLifecyclePolicy, releasePath: boolean,
     bindings: ReadonlySet<string> = new Set(), uncertainLifecycle = false,
+    config: NpmConfigState = { reloadable: activeNpmLifecycle(policy) !== false, mayHaveChanged: false },
   ): void {
     const lifecycle = activeNpmLifecycle(policy);
     const configured = configuredNpmLifecycle(policy);
@@ -847,7 +873,7 @@ export function visitChangelogScriptCommands(
     const checkContext = releasePath || knownWriters.canGenerate(name)
       || (recipient !== undefined && canReachGenerator([...recipient, ...args], knownWriters));
     if (args.length === 0) {
-      const key = JSON.stringify([checkContext, lifecycle, configured, uncertainLifecycle, name, [...bindings].sort()]);
+      const key = JSON.stringify([checkContext, lifecycle, configured, uncertainLifecycle, config, name, [...bindings].sort()]);
       const depth = hooks ? parents.length : 0;
       if ((withoutArgs.get(key) ?? -1) >= depth) return;
       withoutArgs.set(key, depth);
@@ -864,8 +890,11 @@ export function visitChangelogScriptCommands(
     }
     resolved?.set(name, text);
     let preceding: ReleaseContextChange | undefined;
+    let mayHaveChanged = config.mayHaveChanged;
     const written = new Set<string>();
     for (const words of commands) {
+      const previouslyRan = mayHaveChanged;
+      mayHaveChanged = true;
       const effective = words === recipient ? [...words, ...args] : words;
       const forward = forwardToScript(effective);
       // pnpm passes its delimiter through verbatim. A nested runner can consume
@@ -888,15 +917,25 @@ export function visitChangelogScriptCommands(
         }
         if (!names.has(forward.target) && (forward.optional || !hooks)) continue;
         if (forward.forwardedSeparator) forwardedSeparators.add(forward.forwardedSeparator);
-        const policy = { ...forwardedLifecycle(forward.lifecycle, forward.environment ?? lifecycle, configured), configured };
         const isNpm = forward.runner === "npm";
+        const ambient = forward.environment ?? lifecycle;
+        const policy = { ...forwardedLifecycle(forward.lifecycle, ambient, configured), configured };
+        const inheritsSetting = forward.lifecycle === undefined && forward.environment === undefined;
+        if (isNpm && checkContext && !npm.mainOnly && config.reloadable && previouslyRan && inheritsSetting
+          && lifecycle !== "unknown" && names.sequence(forward.target, true).length > 1) {
+          const problem = `Cannot verify nested npm lifecycle for ${JSON.stringify(forward.target)} after an earlier command may have changed npm configuration. Use an explicit npm --ignore-scripts=true/false option`;
+          if (hooks) refuseHook(problem);
+          inspect({ parents, name, names, text, words, effective, spans, forwardedSeparators: separators, contextProblem: problem });
+          return;
+        }
         if (isNpm && entryPoints.has(forward.target) && collectingWorkflowEntries) {
           const settings = entryLifecycles.get(forward.target) ?? [];
           settings.push(policy);
           entryLifecycles.set(forward.target, settings);
         }
+        const reloadable = isNpm ? (forward.lifecycle === true && ambient !== true) || (inheritsSetting && config.reloadable) : config.reloadable;
         visitSequence(forward.target, [...parents, name], policy, checkContext, isNpm, forward.args,
-          isNpm && forward.bindings.length ? new Set([...bindings, ...forward.bindings]) : bindings);
+          isNpm && forward.bindings.length ? new Set([...bindings, ...forward.bindings]) : bindings, { reloadable, mayHaveChanged: previouslyRan });
       }
     }
   }
@@ -905,11 +944,13 @@ export function visitChangelogScriptCommands(
   function visitSequence(
     target: string, parents: readonly string[], policy: InvocationLifecycle,
     releasePath: boolean, isNpm: boolean, args: readonly ShellToken[] = [], bindings?: ReadonlySet<string>,
+    config: NpmConfigState = { reloadable: policy.nested !== false, mayHaveChanged: false },
   ): void {
     for (const name of names.sequence(target, !npm.mainOnly && (!isNpm || policy.enabled !== false))) {
       const main = name === target;
       visit(name, main ? args : [], parents, { active: policy.nested, configured: policy.configured }, releasePath, bindings,
-        isNpm && !main && policy.enabled === "unknown");
+        isNpm && !main && policy.enabled === "unknown", config);
+      config = { ...config, mayHaveChanged: true };
     }
   }
 
@@ -1198,6 +1239,7 @@ function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
   const alternatives: Array<{ before: ShellCommand[]; branches: ShellCommand[]; hasElse: boolean }> = [];
   let last: ShellCommand[] = [];
   let afterOr = false;
+  let afterAnd = false;
   for (const words of commands) {
     for (const word of words) {
       if (!word.releaseKeyword) break;
@@ -1217,11 +1259,12 @@ function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
     if (following === "pipe") continue;
     if ((!words[0].releaseKeyword || words.length > 1)
       && !literalRedirectOnly(words)
-      && !((alternatives.length > 0 || afterOr) && rendererStatusCommand(releaseOutputProducer(words)))) {
+      && !((alternatives.length > 0 || afterOr || afterAnd) && rendererStatusCommand(releaseOutputProducer(words)))) {
       const prior = afterOr ? last.filter(command => !rendererStatusCommand(releaseOutputProducer(command))) : [];
       last = [...prior, words];
     }
     afterOr = following === "or";
+    afterAnd = following === "and";
   }
   return last;
 }

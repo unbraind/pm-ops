@@ -99,6 +99,13 @@ function releaseStepEnv(root: string, env: NodeJS.ProcessEnv, headingDate = ""):
   return { ...env, IS_RUST: "false", GITHUB_OUTPUT: join(root, "step-outputs"), CONTINUATION_SCRIPT: resolve("scripts/release-continuation.ts"), CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check", NOTES_SCRIPT: "release:notes", RELEASE_HEADING_DATE: headingDate, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: join(root, "summary.md"), NPM_CONFIG_USERCONFIG: devNull, npm_config_script_shell: fixtureScriptShell() };
 }
 
+/** Override the active policy and isolate the config that a nested npm call reloads. */
+function isolatedNpmReleaseEnv(root: string, env: NodeJS.ProcessEnv, headingDate = ""): NodeJS.ProcessEnv {
+  const clean = Object.fromEntries(Object.entries(env).filter(([key]) => !/^npm_config_/i.test(key)));
+  return { ...releaseStepEnv(root, clean, headingDate), NPM_CONFIG_USERCONFIG: join(root, "user.npmrc"),
+    NPM_CONFIG_GLOBALCONFIG: devNull, npm_config_ignore_scripts: "true" };
+}
+
 /** Use the same POSIX script shell for workflow steps and direct npm calls. */
 function fixtureScriptShell(): string {
   return process.platform === "win32"
@@ -580,7 +587,7 @@ test("a resumed release passes preparation, continuation and post-tag checks acr
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "sample-changelog", version: plan.npm_version, scripts: {
       ...releaseCommands(), "prerelease:notes": "pm-changelog --release-version-from-package --date-fallback 2026-10-23",
     } }));
-    const releaseEnv: NodeJS.ProcessEnv = { ...releaseStepEnv(root, env, plan.heading_date), NPM_PROJECT_PATH: root, RELEASE_TIMEZONE: timezone, npm_config_ignore_scripts: "true" };
+    const releaseEnv: NodeJS.ProcessEnv = { ...isolatedNpmReleaseEnv(root, env, plan.heading_date), NPM_PROJECT_PATH: root, RELEASE_TIMEZONE: timezone };
     if (process.platform !== "win32") {
       const selectedNpm = npmCli();
       const [active, shadow] = ["active-npm", "shadow-npm"].map(dir => join(root, dir));
@@ -1078,9 +1085,8 @@ test("generation refuses lifecycle drift and preserves nested npm behavior under
 test("generation detects drift in the nested npm fallback with the active setting held fixed", t => {
   const root = mkdtempSync(join(tmpdir(), "prepared-npm-fallback-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const env = releaseStepEnv(root, Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_config_/i.test(key))));
-  const config = join(root, "fixture.npmrc");
-  Object.assign(env, { NPM_CONFIG_USERCONFIG: config, NPM_CONFIG_GLOBALCONFIG: devNull, npm_config_ignore_scripts: "true" });
+  const env = isolatedNpmReleaseEnv(root, process.env);
+  const config = env.NPM_CONFIG_USERCONFIG!;
   if (process.platform !== "win32") {
     const bin = join(root, "bin");
     mkdirSync(bin);
@@ -1110,5 +1116,43 @@ test("generation detects drift in the nested npm fallback with the active settin
       assert.equal(result.status, 0, result.stdout + result.stderr);
       assert.equal(readFileSync(notes, "utf8").trim(), "ready");
     }
+  }
+});
+
+test("notes preparation requires a definite nested lifecycle after a helper runs", t => {
+  const root = mkdtempSync(join(tmpdir(), "prepared-notes-nested-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const env = isolatedNpmReleaseEnv(root, process.env);
+  writeFileSync(join(root, ".npmrc"), "ignore-scripts=true\n");
+  writeFileSync(join(root, "check.mjs"), "");
+  writeFileSync(join(root, "refresh.mjs"), "");
+  writeFileSync(join(root, "notes.mjs"), 'if (process.argv.includes("--include-empty")) console.log("ready")');
+  writeFileSync(join(root, "before.mjs"), 'console.log("before")');
+  const scripts = {
+    "changelog:full": "node check.mjs", "changelog:check": "node check.mjs",
+    "release:notes": "npm --ignore-scripts=false --silent run bridge",
+    writer: "node notes.mjs", prewriter: "node before.mjs",
+  };
+  const manifest = join(root, "package.json");
+  const prepare = (bridge: string) => {
+    const original = JSON.stringify({ name: "fixture", scripts: { ...scripts, bridge } });
+    writeFileSync(manifest, original);
+    const result = runBashFixture(changelogStepScript(), { cwd: root, env, encoding: "utf8" });
+    return { result, original };
+  };
+  const refused = prepare("node refresh.mjs; npm --silent run writer");
+  assert.notEqual(refused.result.status, 0);
+  assert.match(refused.result.stdout + refused.result.stderr, /Cannot verify.*npm lifecycle.*writer/);
+  assert.equal(readFileSync(manifest, "utf8"), refused.original);
+  const notes = join(root, "RELEASE_NOTES.md");
+  assert.equal(existsSync(notes), false);
+  for (const [bridge, output] of [
+    ["npm --silent run writer", "ready"],
+    ["node refresh.mjs; npm --ignore-scripts=true --silent run writer", "ready"],
+    ["node refresh.mjs; npm --ignore-scripts=false --silent run writer", "before\nready"],
+  ]) {
+    const { result } = prepare(bridge);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(readFileSync(notes, "utf8").trim(), output);
   }
 });

@@ -212,7 +212,7 @@ export function npmLifecycle(projectConfig, environment = {}) {
 function lifecycleEnvironment(assignments) {
     let setting;
     for (const token of assignments) {
-        const match = /^npm_config_ignore_scripts=(.*)$/i.exec(token.value);
+        const match = /^npm_config_ignore[-_]scripts=(.*)$/i.exec(token.value);
         if (match && match[1] !== "")
             setting = lifecycleSetting(match[1]);
     }
@@ -294,10 +294,13 @@ function generatorCommand(invocation) {
     const file = invocation[index];
     return file && !file.unresolved && GENERATOR_TARGET.test(file.value) ? invocation.slice(index) : undefined;
 }
-/** Identify the destination operand of a copy in file-to-file form. */
+/** Check whether a copy can resolve to the root changelog, including directory targets. */
 function copyWritesChangelog(args) {
     const operands = [];
     let options = true;
+    let directory;
+    let directoryValue = "";
+    let noTargetDirectory = false;
     for (let index = 0; index < args.length; index++) {
         const word = args[index];
         if (options && /^-.+/.test(word.value)) {
@@ -305,17 +308,33 @@ function copyWritesChangelog(args) {
                 options = false;
             // The first short option that takes a value consumes the rest of its word.
             const operandOption = /^-[^-St]*[St]/.exec(word.value)?.[0];
-            if (operandOption?.endsWith("t") || /^--target-directory(?:=|$)/.test(word.value))
-                return false;
-            if (word.value === "--suffix" || operandOption === word.value)
+            const directoryOption = /^--target-directory(?:=|$)/.exec(word.value)?.[0] ?? (operandOption?.endsWith("t") ? operandOption : undefined);
+            if (directoryOption) {
+                const inline = directoryOption.endsWith("=") || directoryOption.length < word.value.length;
+                directory = inline ? word : args[++index];
+                if (!directory)
+                    return false;
+                directoryValue = inline ? word.value.slice(directoryOption.length) : directory.value;
+            }
+            else if (word.value === "--suffix" || operandOption === word.value)
                 index++;
+            if (word.value === "--no-target-directory" || /^-[^-St]*T/.test(operandOption ?? word.value))
+                noTargetDirectory = true;
         }
         else
             operands.push(word);
     }
+    if (directory)
+        return copyDirectoryWritesChangelog(directory, directoryValue, operands);
     const destination = operands.at(-1);
     return operands.length >= 2 && (destination.unresolved || hasBraceExpansion(destination)
-        || posix.normalize(destination.value) === "CHANGELOG.md");
+        || posix.normalize(destination.value) === "CHANGELOG.md"
+        || (!noTargetDirectory && copyDirectoryWritesChangelog(destination, destination.value, operands.slice(0, -1))));
+}
+/** A directory copy uses each source basename under its target directory. */
+function copyDirectoryWritesChangelog(directory, value, sources) {
+    return (directory.unresolved || hasBraceExpansion(directory) || (value !== "" && posix.join(value, "CHANGELOG.md") === "CHANGELOG.md"))
+        && sources.some(source => source.unresolved || hasBraceExpansion(source) || posix.basename(source.value) === "CHANGELOG.md");
 }
 /** Look for a reachable generator without interpreting an opaque command as executable argv. */
 function canReachGenerator(words, names, seen, writing = false, lifecycle = "unknown", configured = lifecycle) {
@@ -560,7 +579,7 @@ function commandContextChanges(words) {
     if (invocation && basename(invocation[0].value) === "npm" && scriptForward("npm", invocation.slice(1))) {
         const known = lifecycleEnvironment(assignments);
         if (known !== undefined) {
-            const setting = /^(?:env )?npm_config_ignore_scripts assignment$/i;
+            const setting = /^(?:env )?npm_config_ignore[-_]scripts assignment$/i;
             for (let i = context.length - 1; i >= 0; i--)
                 if (setting.test(context[i].construct))
                     context.splice(i, 1);
@@ -790,7 +809,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
     const recipients = new Map();
     const forwardedSeparators = new WeakSet();
     /** Walk one invocation, preserving token identity back to each supplying script. */
-    function visit(name, args, parents, policy, releasePath, bindings = new Set(), uncertainLifecycle = false) {
+    function visit(name, args, parents, policy, releasePath, bindings = new Set(), uncertainLifecycle = false, config = { reloadable: activeNpmLifecycle(policy) !== false, mayHaveChanged: false }) {
         const lifecycle = activeNpmLifecycle(policy);
         const configured = configuredNpmLifecycle(policy);
         const chain = [...parents, name].join(" -> ");
@@ -818,7 +837,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
         const checkContext = releasePath || knownWriters.canGenerate(name)
             || (recipient !== undefined && canReachGenerator([...recipient, ...args], knownWriters));
         if (args.length === 0) {
-            const key = JSON.stringify([checkContext, lifecycle, configured, uncertainLifecycle, name, [...bindings].sort()]);
+            const key = JSON.stringify([checkContext, lifecycle, configured, uncertainLifecycle, config, name, [...bindings].sort()]);
             const depth = hooks ? parents.length : 0;
             if ((withoutArgs.get(key) ?? -1) >= depth)
                 return;
@@ -837,8 +856,11 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
         }
         resolved?.set(name, text);
         let preceding;
+        let mayHaveChanged = config.mayHaveChanged;
         const written = new Set();
         for (const words of commands) {
+            const previouslyRan = mayHaveChanged;
+            mayHaveChanged = true;
             const effective = words === recipient ? [...words, ...args] : words;
             const forward = forwardToScript(effective);
             // pnpm passes its delimiter through verbatim. A nested runner can consume
@@ -866,22 +888,34 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
                     continue;
                 if (forward.forwardedSeparator)
                     forwardedSeparators.add(forward.forwardedSeparator);
-                const policy = { ...forwardedLifecycle(forward.lifecycle, forward.environment ?? lifecycle, configured), configured };
                 const isNpm = forward.runner === "npm";
+                const ambient = forward.environment ?? lifecycle;
+                const policy = { ...forwardedLifecycle(forward.lifecycle, ambient, configured), configured };
+                const inheritsSetting = forward.lifecycle === undefined && forward.environment === undefined;
+                if (isNpm && checkContext && !npm.mainOnly && config.reloadable && previouslyRan && inheritsSetting
+                    && lifecycle !== "unknown" && names.sequence(forward.target, true).length > 1) {
+                    const problem = `Cannot verify nested npm lifecycle for ${JSON.stringify(forward.target)} after an earlier command may have changed npm configuration. Use an explicit npm --ignore-scripts=true/false option`;
+                    if (hooks)
+                        refuseHook(problem);
+                    inspect({ parents, name, names, text, words, effective, spans, forwardedSeparators: separators, contextProblem: problem });
+                    return;
+                }
                 if (isNpm && entryPoints.has(forward.target) && collectingWorkflowEntries) {
                     const settings = entryLifecycles.get(forward.target) ?? [];
                     settings.push(policy);
                     entryLifecycles.set(forward.target, settings);
                 }
-                visitSequence(forward.target, [...parents, name], policy, checkContext, isNpm, forward.args, isNpm && forward.bindings.length ? new Set([...bindings, ...forward.bindings]) : bindings);
+                const reloadable = isNpm ? (forward.lifecycle === true && ambient !== true) || (inheritsSetting && config.reloadable) : config.reloadable;
+                visitSequence(forward.target, [...parents, name], policy, checkContext, isNpm, forward.args, isNpm && forward.bindings.length ? new Set([...bindings, ...forward.bindings]) : bindings, { reloadable, mayHaveChanged: previouslyRan });
             }
         }
     }
     /** Take the implicit siblings from this invocation, and pass its exported policy into their bodies. */
-    function visitSequence(target, parents, policy, releasePath, isNpm, args = [], bindings) {
+    function visitSequence(target, parents, policy, releasePath, isNpm, args = [], bindings, config = { reloadable: policy.nested !== false, mayHaveChanged: false }) {
         for (const name of names.sequence(target, !npm.mainOnly && (!isNpm || policy.enabled !== false))) {
             const main = name === target;
-            visit(name, main ? args : [], parents, { active: policy.nested, configured: policy.configured }, releasePath, bindings, isNpm && !main && policy.enabled === "unknown");
+            visit(name, main ? args : [], parents, { active: policy.nested, configured: policy.configured }, releasePath, bindings, isNpm && !main && policy.enabled === "unknown", config);
+            config = { ...config, mayHaveChanged: true };
         }
     }
     const { lifecycle, workflowSteps } = npm;
@@ -1165,6 +1199,7 @@ function finalHookCommands(commands) {
     const alternatives = [];
     let last = [];
     let afterOr = false;
+    let afterAnd = false;
     for (const words of commands) {
         for (const word of words) {
             if (!word.releaseKeyword)
@@ -1187,11 +1222,12 @@ function finalHookCommands(commands) {
             continue;
         if ((!words[0].releaseKeyword || words.length > 1)
             && !literalRedirectOnly(words)
-            && !((alternatives.length > 0 || afterOr) && rendererStatusCommand(releaseOutputProducer(words)))) {
+            && !((alternatives.length > 0 || afterOr || afterAnd) && rendererStatusCommand(releaseOutputProducer(words)))) {
             const prior = afterOr ? last.filter(command => !rendererStatusCommand(releaseOutputProducer(command))) : [];
             last = [...prior, words];
         }
         afterOr = following === "or";
+        afterAnd = following === "and";
     }
     return last;
 }

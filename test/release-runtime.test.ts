@@ -6,6 +6,7 @@ import { spawnSync } from "../subprocess.ts";
 import { devNull, tmpdir } from "node:os";
 import { delimiter, dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
+import { npmLifecycleFallbackEnvironment } from "../scripts/project-npm-lifecycle.ts";
 import { ensureReleaseRuntime, installReleaseTools, npmCli, workflowToolsRoot } from "../scripts/release-runtime.ts";
 import { interceptRuntimeNpm } from "./runtime-npm-fixture.ts";
 import { runReleaseContinuation } from "../scripts/release-continuation.ts";
@@ -341,12 +342,21 @@ const windowsDirectNpm = [
   "",
 ].join("\n");
 
+test("the fallback probe clears the same environment key as npm on each platform", () => {
+  const upper = { NPM_CONFIG_IGNORE_SCRIPTS: "true", "npm_config_ignore-scripts": "true", PATH: "fixture" };
+  assert.deepEqual(npmLifecycleFallbackEnvironment(upper, "win32"), { "npm_config_ignore-scripts": "true", PATH: "fixture", npm_config_ignore_scripts: "" });
+  assert.deepEqual(npmLifecycleFallbackEnvironment(upper, "linux"), { ...upper, npm_config_ignore_scripts: "" });
+  assert.deepEqual(npmLifecycleFallbackEnvironment({ npm_config_ignore_scripts: "true", PATH: "fixture" }, "linux"), { PATH: "fixture", npm_config_ignore_scripts: "" });
+  assert.equal(upper.NPM_CONFIG_IGNORE_SCRIPTS, "true");
+});
+
 test("Windows lifecycle discovery follows the stock launcher prefix and refuses an unverified shim", t => {
   const root = mkdtempSync(join(tmpdir(), "release-win-npm-discovery-"));
   t.after(() => removeRuntimeFixture(root));
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
   const executable = Object.getOwnPropertyDescriptor(process, "execPath")!;
   const path = process.env.PATH!;
+  const { MSYSTEM, PATHEXT } = process.env;
   const bin = join(root, "bin");
   const jobLocal = join(root, "job-local/node_modules/.bin");
   const direct = join(root, "job-local/node_modules/npm/bin/npm-cli.js");
@@ -371,12 +381,25 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
   setPrefix(prefix);
   try {
     Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+    delete process.env.MSYSTEM;
+    process.env.PATHEXT = ".CMD;.EXE";
     process.env.PATH = bin;
     const node = join(bin, "node.exe");
     try { linkSync(process.execPath, node); } catch { cpSync(process.execPath, node); chmodSync(node, 0o755); }
     assert.throws(() => npmCli(true), /needs an npm CLI/, "a launcher with another Node path cannot select the probe runtime");
     Object.defineProperty(process, "execPath", { ...executable, value: node });
     process.env.PATH = ["", bin].join(delimiter);
+    assert.equal(npmCli(true), selected);
+    const bashLauncher = join(bin, "npm");
+    writeFileSync(bashLauncher, "opaque Bash launcher");
+    writeFileSync(join(bin, "npm.exe"), "opaque native launcher");
+    assert.equal(npmCli(true), selected, "native lookup ignores the Bash launcher and uses PATHEXT order");
+    process.env.PATHEXT = ".EXE;.CMD";
+    assert.throws(() => npmCli(true), /needs an npm CLI/, "an opaque executable earlier in PATHEXT blocks discovery");
+    rmSync(join(bin, "npm.exe"));
+    process.env.MSYSTEM = "MINGW64";
+    assert.throws(() => npmCli(true), /needs an npm CLI/, "Git Bash uses the extensionless launcher");
+    writeFileSync(bashLauncher, launchers.npm);
     assert.equal(npmCli(true), selected);
     rmSync(join(bin, "npm"));
     assert.equal(npmCli(true), selected);
@@ -431,5 +454,9 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
     Object.defineProperty(process, "execPath", executable);
     Object.defineProperty(process, "platform", platform);
     process.env.PATH = path;
+    if (MSYSTEM === undefined) delete process.env.MSYSTEM;
+    else process.env.MSYSTEM = MSYSTEM;
+    if (PATHEXT === undefined) delete process.env.PATHEXT;
+    else process.env.PATHEXT = PATHEXT;
   }
 });

@@ -25,7 +25,7 @@ export function releaseOutputProducer(command) {
         refuseHook(OPAQUE_PIPELINE);
     return producer ?? command;
 }
-/** Return the separator when the next command is a fallback or pipeline stage. */
+/** Return the separator for an AND-list, fallback, or pipeline stage. */
 export function followingReleaseOperator(command) {
     return followingOperators.get(command);
 }
@@ -146,6 +146,8 @@ export function parseReleaseHook(text) {
             if (words.length) {
                 if (ch === "&" && operator !== "&&")
                     problems.set(words[0], "Shell background or descriptor operator &");
+                if (operator === "&&")
+                    followingOperators.set(words, "and");
                 if (ch === "|") {
                     followingOperators.set(words, operator === "||" ? "or" : "pipe");
                     if (operator !== "||")
