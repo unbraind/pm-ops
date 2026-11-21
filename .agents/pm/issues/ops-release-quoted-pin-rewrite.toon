@@ -2,13 +2,11 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: in_progress
+status: open
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T09:37:52.285Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-21T10:40:15.286Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[151]:
+comments[154]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -471,6 +469,15 @@ comments[151]:
   - created_at: "2026-11-21T09:37:52.282Z"
     author: codex-sol
     text: "The reference sweep caught the repository's credential guard rejecting the lifecycle environment export. A real nested npm run also showed that a false CLI override alone does not survive a conflicting user configuration. SzHX now compares the live policy against the recorded value before each npm hook and after notes. Drift refuses before the stamp. Stable true, false and unknown configurations preserve nested pre-hooks exactly as npm runs them. All 19 credential workflow tests passed."
+  - created_at: "2026-11-21T09:38:56.314Z"
+    author: codex-sol
+    text: "Final Round FP mapping for PRRT_kwDOTOTl1M66 thread suffixes. f7caf9f covers RAPT, RIc9, RIdF, RIdL, RIdS, RIdb, SzHc, SzHf, SzHl and SzHq. f7caf9f and 27fc46f cover RIdB and SzHi. f7caf9f and fa7d170 cover SzHX. The final SzHX design compares live policy before each hook and after notes generation. The focused workflow and nested npm tests passed under stable and changed values. Both tracker items stay open at handoff."
+  - created_at: "2026-11-21T10:37:51.072Z"
+    author: codex-sol
+    text: "Round FP verification on fa7d170. The 32 reference suites passed 1520 tests with two opt-in skips. The ten earlier-round suites passed all 397 cases on the isolated starting revision. The final fleet scan accepted 142 hooks and 144 reachable bodies across 39 pinned manifests. Typecheck, test build, lint, zero duplication, docstring, changelog regeneration and changelog:check passed. ops-b2bs is under Unreleased. Standalone and rewritten coverage each passed 2186 tests with two opt-in skips and reached 100 percent statements, branches, functions and lines across 54 sources. Both artifact-reader fixtures passed."
+  - created_at: "2026-11-21T10:40:11.349Z"
+    author: codex-sol
+    text: "The rewritten full candidate acceptance on fa7d170 passed, including both dependency audits, the package dry run, release section and heading checks, publication attestation, and installed lifecycle policy checks. With standalone and rewritten coverage both at 100% across all four dimensions, Round FP verification is complete."
 files[25]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
