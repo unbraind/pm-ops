@@ -1573,9 +1573,9 @@ test("occupied-coordinate retirement refuses ambiguous history, registry errors 
 test("heading-date continuation mirrors the generator at the committer offset despite publication after midnight", async t => {
   t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-08T04:00:00Z") });
   const root = mkdtempSync(join(tmpdir(), "continuation-heading-"));
-  const env = { NPM_PROJECT_PATH: root, RELEASE_TIMEZONE: "Europe/Vienna", CHANGELOG_SCRIPT: "generate", CHANGELOG_CHECK_SCRIPT: "check", NOTES_SCRIPT: "notes" };
+  const env = { npm_config_userconfig: join(root, "user.npmrc"), npm_config_globalconfig: join(root, "global.npmrc"), NPM_PROJECT_PATH: root, RELEASE_TIMEZONE: "Europe/Vienna", CHANGELOG_SCRIPT: "generate", CHANGELOG_CHECK_SCRIPT: "check", NOTES_SCRIPT: "notes" };
   const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
-  const lifecycle = Object.entries(process.env).filter(([key]) => /^npm_config_ignore_scripts$/i.test(key));
+  const lifecycle = Object.entries(process.env).filter(([key]) => /^npm_config_/i.test(key));
   const savedPolicy = process.env.PREPARED_NPM_LIFECYCLE;
   delete process.env.PREPARED_NPM_LIFECYCLE;
   for (const [key] of lifecycle) delete process.env[key];
@@ -1594,6 +1594,7 @@ test("heading-date continuation mirrors the generator at the committer offset de
       });
       execFileSync("git", ["tag", "-f", "v2026.11.5"], { cwd: root });
       assert.equal(resolveReleaseContext({ cwd: root, version: "2026.11.5", dateFallback: "2026-11-07" }).date, expectedDay);
+      writeFileSync(join(root, "CHANGELOG.md"), "## 2026.11.5 - 1999-12-31\n");
       const pin = `pm-changelog --date-fallback '${expectedDay}'`;
       write({ generate: `npm --if-present run before-changelog && ${pin}`, check: pin, notes: pin });
       for (const timezone of ["Europe/Vienna", "UTC"]) {
@@ -1620,7 +1621,12 @@ test("heading-date continuation mirrors the generator at the committer offset de
     writeFileSync(npmrc, "ignore-scripts=true\n");
     process.env.PREPARED_NPM_LIFECYCLE = "true";
     await assert.rejects(runReleaseContinuation("heading-date"), /retire-unpublished/);
-    for (const value of ["unknown", "", "invalid"]) {
+    process.env.PREPARED_NPM_LIFECYCLE = "";
+    await runReleaseContinuation("heading-date");
+    writeFileSync(npmrc, "ignore-scripts=false\n");
+    await assert.rejects(runReleaseContinuation("heading-date"), /retire-unpublished/);
+    writeFileSync(npmrc, "ignore-scripts=true\n");
+    for (const value of ["unknown", "invalid"]) {
       process.env.PREPARED_NPM_LIFECYCLE = value;
       await assert.rejects(runReleaseContinuation("heading-date"), /ignore-scripts.*pregenerate/);
     }

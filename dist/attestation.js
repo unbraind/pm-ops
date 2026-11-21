@@ -984,14 +984,14 @@ export function executableShellBodies(source) {
             if (directory !== undefined)
                 body.workingDirectory = directory;
             const environment = { ...mapping(data?.env), ...mapping(job.env), ...inherited, ...mapping(step.env) };
-            if (unknownNames)
+            if (unknownNames || [data?.env, job.env, step.env].some(layer => typeof layer === "string"))
                 environment[IGNORE_SCRIPTS_ENV] = "unknown";
             body.environment = environment;
             if (step.if === false)
                 body.disabled = true;
             else {
                 const shell = step.shell ?? defaultShell;
-                const shellKnown = shell === undefined ? posixRunner : typeof shell === "string" && /^(?:bash|sh)(?:\s|$)/.test(shell);
+                const shellKnown = shell === undefined ? posixRunner : typeof shell === "string" && /^(?:bash|sh|(?:bash|sh) (?:-e )?\{0\}|bash --noprofile --norc -eo pipefail \{0\})$/.test(shell);
                 const conditional = (step.if !== undefined && step.if !== true) || Boolean(step["continue-on-error"]);
                 const records = shellKnown ? writtenIgnoreScripts(body.text, conditional, mapping(step.env)) : undefined;
                 if (records === undefined)

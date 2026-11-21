@@ -189,7 +189,7 @@ export function npmLifecycle(
   projectConfig: string | undefined, environment: Readonly<Record<string, unknown>> = {},
 ): NpmLifecycle {
   const settings = Object.entries(environment)
-    .filter(([name, value]) => /^npm_config_ignore_scripts$/i.test(name) && value !== "")
+    .filter(([name, value]) => /^npm_config_ignore[-_]scripts$/i.test(name) && value !== "")
     .map(([, value]) => lifecycleSetting(value));
   if (settings.length > 0) return settings.every(setting => setting === settings[0]) ? settings[0] : "unknown";
 
@@ -273,7 +273,7 @@ function referencesWriter(words: ShellCommand, scriptNames?: ReadonlySet<string>
 /** Locate the executable or the file selected by a supported Node/Bun adapter. */
 function generatorEntryIndex([program, ...parameters]: ShellCommand): number {
   const name = basename(program.value);
-  if (name !== "node" && name !== "bun") return 0;
+  if (name !== "node" && name !== "node.exe" && name !== "bun") return 0;
   let index = name === "bun" ? afterRunOptions(name, parameters, 0).index : 0;
   if (name === "bun" && parameters[index]?.value === "run") index = afterRunOptions(name, parameters, index + 1).index;
   while (parameters[index]?.value === "--enable-source-maps" || BUN_LOCAL_RUN_SWITCHES.has(parameters[index]?.value)) index++;
@@ -297,6 +297,9 @@ function canReachGenerator(
   if (!invocation) return hookSyntaxProblem(words) !== undefined && words.some(mentionsGenerator);
   const [program, ...parameters] = invocation;
   const name = basename(program.value);
+  if (writing && name === "tee") {
+    return parameters.some(word => word.unresolved || hasBraceExpansion(word) || posix.normalize(word.value) === "CHANGELOG.md");
+  }
   if (DATA_CONSUMERS.has(name) || isPackageAdmin(program, parameters)) return false;
   const forward = scriptForward(name, parameters, names);
   if (forward?.target && names instanceof HookScriptNames) {
@@ -380,7 +383,7 @@ function executedHookFile(words: ShellCommand, written: ReadonlySet<string>): st
     const file = args[args[0]?.value === "--" ? 1 : 0];
     return file && hookFilePath(file.value, file.unresolved);
   }
-  if (name === "node" || (name !== "eval" && isShellEvaluator(name))) return interpretedHookFile(name, args, words);
+  if (name === "node" || name === "node.exe" || (name !== "eval" && isShellEvaluator(name))) return interpretedHookFile(name, args, words);
   return undefined;
 }
 
@@ -1095,9 +1098,24 @@ export function includeEmptyReleaseSections(script: string, scriptNames?: Readon
   return applyHookEdits(script, edits.values());
 }
 
-/** Closing shell keywords cannot receive arguments intended for a notes renderer. */
-function finalHookCommand(commands: ShellCommand[]): ShellCommand {
-  return commands.filter(words => !words[0].releaseKeyword || words.length > 1).at(-1) ?? [];
+/** Find the last renderer on each if/elif/else path before selecting an argument recipient. */
+function finalHookCommand(commands: ShellCommand[], hasGenerator: boolean): ShellCommand {
+  const alternatives: ShellCommand[][] = [[]];
+  let last: ShellCommand[] = [];
+  for (const words of commands) {
+    for (const word of words) {
+      if (!word.releaseKeyword) break;
+      if (word.value === "if") alternatives.push([]);
+      if (word.value === "elif" || word.value === "else") alternatives.at(-1)!.push(...last);
+      if (word.value === "fi" && alternatives.length > 1) last = [...alternatives.pop()!, ...last];
+    }
+    if (!words[0].releaseKeyword || words.length > 1) last = [words];
+  }
+  if (last.length > 1 && !(hasGenerator && last.every(words => {
+    const command = releaseHookCommand(releaseOutputProducer(words));
+    return command && generatorCommand(command);
+  }))) refuseHook("Custom hook has alternative renderers. Use a single script entry point");
+  return last.at(-1) ?? [];
 }
 
 /** Count npm option boundaries between a configured custom hook and its final executable. */
@@ -1120,7 +1138,7 @@ function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<
     if (!text) return hasGenerator ? undefined : count; // An optional missing target runs no command.
     const { commands, spans } = parseReleaseHook(text);
     const recipient = commandReceivingArguments(text, commands, spans);
-    const producer = releaseOutputProducer(recipient ?? finalHookCommand(commands));
+    const producer = releaseOutputProducer(recipient ?? finalHookCommand(commands, hasGenerator));
     if (producer !== recipient) blockedTarget = forward.target;
     const next = releaseHookCommand(producer === recipient ? [...producer, ...forward.args] : producer);
     if (!next) refuseHook("Custom script " + JSON.stringify(forward.target) + " cannot receive forwarded arguments. Move the logic into a script file");
@@ -1132,7 +1150,7 @@ function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<
 /** Save the flag and any npm delimiters on the root caller, preserving shared target scripts. */
 export function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<string, string>, hasGenerator = false): string {
   const { commands, spans } = parseReleaseHook(script);
-  const invocation = releaseHookCommand(releaseOutputProducer(finalHookCommand(commands)));
+  const invocation = releaseHookCommand(releaseOutputProducer(finalHookCommand(commands, hasGenerator)));
   if (!invocation) return script;
   const [program, ...args] = invocation;
   const separator = scriptForward(basename(program.value), args)?.npmSeparator;

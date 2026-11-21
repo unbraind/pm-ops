@@ -5,7 +5,7 @@
  */
 import { basename } from "node:path";
 import {
-  commandName, heredocBodyLines, heredocExpansionLines, isCombinedOutputRedirect, isRedirectionSuffix, isShellEvaluator, recordShellRedirection, releaseHookCommand, shellRedirection,
+  commandName, isCombinedOutputRedirect, isRedirectionSuffix, isShellEvaluator, recordShellRedirection, releaseHookCommand, shellRedirection,
   type ShellCommand, type ShellToken, type ShellTokenSpan,
 } from "./shell-scan.ts";
 
@@ -107,7 +107,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
   let subshellDepth = 0;
   let inSubshell = false;
   let heredoc = -1;
-  let heredocComment = -1;
+  const delimiters: Array<{ value: string; stripTabs: boolean; expand: boolean }> = [];
   const heredocCommands = new Set<number>();
 
   /** Retain unsupported subshell commands for inspection without propagating their edits. */
@@ -149,18 +149,20 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
       if (ch === "\n" && heredoc >= 0) {
         // Only an unquoted opener seen by this lexer can introduce data. A
         // line resembling an opener inside a multiline title stays literal.
-        const lines = text.slice(heredoc).split("\n");
-        if (heredocComment >= 0) lines[0] = lines[0].slice(0, heredocComment - heredoc);
-        const bodies = heredocBodyLines(lines);
-        const expansions = heredocExpansionLines(lines);
         const start = i + 1;
         let end = start;
         const expandable: string[] = [];
-        for (let line = 1; line < lines.length && bodies[line]; line++) {
-          expandable.push(expansions[line] ? lines[line] : "");
-          end += lines[line].length + 1;
+        for (const delimiter of delimiters) {
+          while (end < text.length) {
+            const newline = text.indexOf("\n", end);
+            const lineEnd = newline < 0 ? text.length : newline;
+            const line = text.slice(end, lineEnd).replace(/\r$/, "");
+            end = Math.min(text.length, lineEnd + 1);
+            if ((delimiter.stripTabs ? line.replace(/^\t+/, "") : line) === delimiter.value) break;
+            if (delimiter.expand) expandable.push(line);
+          }
         }
-        end = Math.min(text.length, end);
+        delimiters.length = 0;
         const body: ShellToken = { value: text.slice(start, end), quoted: true, startsQuoted: true };
         const standalone = !text.slice(heredoc, spans.get(opener[0])?.start ?? i).trim();
         for (const first of heredocCommands) {
@@ -182,7 +184,6 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
         }
         i = end;
         heredoc = -1;
-        heredocComment = -1;
         continue;
       }
       i = /^(?:&&|\|[|&])$/.test(operator) ? next + 1 : i + 1;
@@ -191,7 +192,6 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
     if (/\s/.test(ch)) { i++; continue; }
     if (text.startsWith("\\\n", i)) { i += 2; continue; }
     if (ch === "#") {
-      if (heredoc >= 0) heredocComment = i;
       const newline = text.indexOf("\n", i);
       i = newline < 0 ? text.length : newline;
       continue;
@@ -208,6 +208,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
     let quoted = false;
     let unresolved = false;
     let splits = false;
+    let escapedDelimiter = false;
     let fixedName: string | undefined;
     const references: string[] = [];
     while (i < text.length) {
@@ -233,6 +234,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
         if (i === text.length) { problem = "Incomplete shell escape"; break; }
         const escaped = text[i++];
         if (escaped !== "\n") {
+          escapedDelimiter = true;
           value += escaped;
           if (!quote) unquoted += "\0";
         }
@@ -264,8 +266,13 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
     recordShellRedirection(token, text, start, i);
     const redirect = shellRedirection(token);
     if (redirect && /^\d*<<-?$/.test(redirect.operator)) {
-      heredoc = text.lastIndexOf("\n", start - 1) + 1;
+      if (heredoc < 0) heredoc = text.lastIndexOf("\n", start - 1) + 1;
       heredocCommands.add(commands.length);
+    }
+    const input = redirect?.joined ? redirect : previous && shellRedirection(previous);
+    if (input && /^\d*<<-?$/.test(input.operator) && (redirect?.joined || !input.joined && !redirect)) {
+      delimiters.push({ value: redirect ? value.slice(input.operator.length) : value,
+        stripTabs: input.operator.endsWith("-"), expand: !quoted && !escapedDelimiter });
     }
     if (shellRedirection(token)?.operator.endsWith("&") && text.slice(start, i).includes("\\\n")) continuedDescriptors.add(token);
     if (BRACE_EXPANSION.test(unquoted)) braceExpansions.add(token);

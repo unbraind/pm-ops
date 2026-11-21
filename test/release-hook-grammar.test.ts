@@ -1,11 +1,12 @@
 /** Exercise the release hook language at the same boundaries as npm and GitHub Actions. */
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { devNull, tmpdir } from "node:os";
+import { delimiter, join, resolve } from "node:path";
 import test from "node:test";
 import { stringify } from "yaml";
 import { executableShellBodies } from "../attestation.ts";
+import { projectNpmLifecycle } from "../scripts/project-npm-lifecycle.ts";
 import { npmCli } from "../scripts/release-runtime.ts";
 import { execFileSync } from "../subprocess.ts";
 import {
@@ -63,8 +64,10 @@ test("npm runs the prepared pre/main/post hooks with separate argument lists", t
   ].join("\n"));
   const hook = "changelog:full";
   const env = { ...process.env, CHANGELOG_SCRIPT: hook, CHANGELOG_CHECK_SCRIPT: hook, NOTES_SCRIPT: hook, RELEASE_HEADING_DATE: day };
+  for (const name of Object.keys(env).filter(key => /^npm_config_ignore_scripts$/i.test(key))) delete (env as NodeJS.ProcessEnv)[name];
+  Object.assign(env, { npm_config_ignore_scripts: "false" });
   execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env });
-  execFileSync(process.execPath, [npmCli(), "run", "--ignore-scripts=false", hook], { cwd: root, env: { ...env, npm_config_ignore_scripts: "false" } });
+  execFileSync(process.execPath, [npmCli(), "run", "--ignore-scripts=false", hook], { cwd: root, env });
   const calls: string[][] = readFileSync(join(root, "calls"), "utf8").trim().split("\n").map(line => JSON.parse(line));
   assert.deepEqual(calls.map(args => args.includes("--title") ? args[args.indexOf("--title") + 1] : "writer"),
     ["writer", "pre", "main", "post", "relay"]);
@@ -1371,4 +1374,110 @@ test("joined combined redirects belong to their command in both scanners", () =>
       }
     }
   }
+});
+
+test("workflow env maps and shell templates carry only definite lifecycle settings", () => {
+  const policy = (workflowEnv: unknown, jobEnv: unknown, stepEnv: unknown, shell = "bash") => {
+    const source = { file: ".github/workflows/env.yml", text: stringify({ env: workflowEnv, jobs: { release: {
+      env: jobEnv, steps: [{ shell, run: 'echo npm_config_ignore_scripts=true >> "$GITHUB_ENV"' }, { env: stepEnv, run: "true" }],
+    } } }) };
+    return npmLifecycle("ignore-scripts=true", executableShellBodies(source)[1].environment);
+  };
+  const expression = "${{ fromJSON(vars.RELEASE_ENV) }}";
+  for (const layers of [[expression, {}, {}], [{}, expression, {}], [{}, {}, expression]] as const) {
+    assert.equal(policy(layers[0], layers[1], layers[2]), "unknown");
+  }
+  assert.equal(policy({}, {}, { npm_config_ignore_scripts: "false" }), true);
+  for (const shell of ["bash -n {0}", "bash -c {0}", "sh -nv {0}"]) assert.equal(policy({}, {}, {}, shell), "unknown");
+  for (const shell of ["bash", "sh", "bash --noprofile --norc -eo pipefail {0}", "sh -e {0}"]) assert.equal(policy({}, {}, {}, shell), false);
+});
+
+test("tee file operands distinguish possible changelog writes from preview output", () => {
+  const inspect = (args: string) => resolveChangelogHooks({ hook: "echo ready", posthook: "printf preview | tee " + args }, ["hook"]);
+  for (const args of ["CHANGELOG.md", "-a preview.md ./CHANGELOG.md", '-- "$OUTPUT"', "CHANGE{LOG,X}.md"]) {
+    assert.throws(() => inspect(args), /ignore-scripts/);
+  }
+  for (const args of ["-- preview.md", "-a other.md preview.md", "CHANGELOG.md.bak", ""]) assert.doesNotThrow(() => inspect(args));
+});
+
+test("custom notes choose one renderer across conditional branches", () => {
+  const branches = "if test -f notes.json; then node notes.mjs; else node fallback.mjs; fi";
+  for (const body of [branches, branches.replace("else", "elif true; then"), branches.replace("node fallback.mjs", "pm-changelog --stdout --include-empty")]) {
+    assert.throws(() => includeEmptyCustomHook(body, new Map(), body.includes("pm-changelog")), /single script entry point/);
+    assert.throws(() => includeEmptyCustomHook("npm run render", new Map([["render", body]])), /single script entry point/);
+  }
+  const generated = branches.replace("node notes.mjs", "pm-changelog --stdout --include-empty")
+    .replace("node fallback.mjs", "node scripts/pm-changelog.ts --stdout --include-empty");
+  assert.equal(includeEmptyCustomHook(generated, new Map(), true), generated);
+  assert.equal(includeEmptyCustomHook("npm run render", new Map([["render", generated]]), true), "npm run render");
+  const tail = branches + "; node final.mjs";
+  assert.equal(includeEmptyCustomHook(tail, new Map()), tail + " --include-empty");
+  assert.equal(includeEmptyCustomHook("node notes.mjs 'else'", new Map()), "node notes.mjs 'else' --include-empty");
+});
+
+test("continued heredoc delimiters preserve body bytes and the command after the terminator", () => {
+  const writer = "pm-changelog " + standing;
+  for (const opener of ["cat <<'EO'\\\n'F'", "cat <<- 'EO'\\\n'F'", "cat <<E\\\nOF", "cat <<EOF"]) {
+    const prefix = opener + "\n" + writer + "\nEOF\n";
+    assert.equal(rewriteReleaseHeadingDate(prefix + writer, day), prefix + writer.replace("--date-from-version", "--date-fallback " + day));
+    assert.throws(() => assertReleaseHeadingDate([prefix + writer], day, "2026.11.16"), /retire-unpublished/);
+  }
+});
+
+test("timeout preserve-status aliases take a duration and leave generator policy intact", () => {
+  for (const option of ["-p", "--preserve-status"]) {
+    const script = "timeout " + option + " 60 pm-changelog " + standing;
+    assert.equal(rewriteReleaseHeadingDate(script, day), script.replace("--date-from-version", "--date-fallback " + day));
+    assert.throws(() => rewriteReleaseHeadingDate(script.replace(option, "-Z"), day), /wrapper/);
+  }
+});
+
+test("workspace preparation records only a resolved npm lifecycle setting", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-hook-workspace-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const member = join(root, "member");
+  mkdirSync(member);
+  writeFileSync(join(root, "package.json"), JSON.stringify({ name: "fixture", workspaces: ["member"] }));
+  const manifest = join(member, "package.json");
+  const scripts = { hook: "node ./pm-changelog.ts " + standing, prehook: "node ./pm-changelog.ts " + standing };
+  const user = join(root, "user.npmrc");
+  const env: NodeJS.ProcessEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_config_/i.test(key)));
+  Object.assign(env, { npm_config_userconfig: user, npm_config_globalconfig: devNull,
+    CHANGELOG_SCRIPT: "hook", CHANGELOG_CHECK_SCRIPT: "hook", NOTES_SCRIPT: "hook", RELEASE_HEADING_DATE: day });
+  const prepare = (project: string, userSetting: string, overrides = {}) => {
+    writeFileSync(manifest, JSON.stringify({ name: "member", scripts }));
+    writeFileSync(join(member, ".npmrc"), "ignore-scripts=true\n");
+    writeFileSync(join(root, ".npmrc"), project);
+    writeFileSync(user, userSetting);
+    const output = join(root, "outputs");
+    writeFileSync(output, "");
+    execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts"), output], { cwd: member, env: { ...env, ...overrides } });
+    return [readFileSync(output, "utf8").trim(), JSON.parse(readFileSync(manifest, "utf8")).scripts.prehook];
+  };
+  const enabled = ["npm_lifecycle=true", scripts.prehook.replace("--date-from-version", "--date-fallback " + day) + " --include-empty"];
+  const disabled = ["npm_lifecycle=false", scripts.prehook];
+  assert.deepEqual(prepare("ignore-scripts=false", "ignore-scripts=true"), enabled);
+  assert.deepEqual(prepare("ignore-scripts=true", "ignore-scripts=false"), disabled);
+  assert.deepEqual(prepare("", "ignore-scripts=false"), enabled);
+  assert.deepEqual(prepare("", "", { NPM_CONFIG_IGNORE_SCRIPTS: "true" }), disabled);
+  for (const config of ["", "ignore-scripts=${UNRESOLVED_RELEASE_SETTING}", "ignore-scripts[]=false"]) {
+    assert.throws(() => prepare(config, ""), /ignore-scripts.*prehook/);
+  }
+  assert.equal(projectNpmLifecycle(join(root, "absent")), "unknown");
+  assert.throws(() => prepare("", "", { npm_config_ignore_scripts: "true", "npm_config_ignore-scripts": "false" }), /ignore-scripts.*prehook/);
+  assert.throws(() => prepare("", "", { npm_config_userconfig: root }), /ignore-scripts.*prehook/);
+  assert.throws(() => prepare("ignore-scripts=true", "", { PATH: member }), /ignore-scripts.*prehook/);
+  writeFileSync(join(member, "npm"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  assert.throws(() => prepare("ignore-scripts=true", "", { PATH: member + delimiter + process.env.PATH }), /ignore-scripts.*prehook/);
+});
+
+test("a copied Node executable in a spaced path keeps its generator and script entry point", () => {
+  const node = "'/fixture/node bin/node.exe'";
+  const generator = node + " scripts/pm-changelog.ts " + standing;
+  assert.equal(rewriteReleaseHeadingDate(generator, day), generator.replace("--date-from-version", "--date-fallback " + day));
+  assert.throws(() => rewriteReleaseHeadingDate(generator.replace("node.exe", "other.exe"), day), /Unrecognized wrapper/);
+  const before = "printf data > helper.js; " + node;
+  const check = (command: string) => resolveChangelogHooks({ hook: command + "; pm-changelog " + standing }, ["hook"]);
+  assert.throws(() => check(before + " helper.js"), /generated release hook file/);
+  assert.doesNotThrow(() => check(before + " committed.js helper.js"));
 });

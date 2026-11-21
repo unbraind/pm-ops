@@ -1,8 +1,8 @@
 /** Release-window cardinality properties and real CLI policy integration. */
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { devNull, tmpdir } from "node:os";
+import { delimiter, dirname, join, resolve, sep } from "node:path";
 import test from "node:test";
 import { createChangelog, resolveReleaseTagWindows, type PmItem } from "pm-changelog";
 import { execFileSync, spawnSync } from "../subprocess.ts";
@@ -71,7 +71,7 @@ function restoreFixtureDatePolicy(command: string[]): string[] {
 
 /** Encode one argument for the fixture's shell, including literal apostrophes. */
 function quoteFixtureArgument(argument: string): string {
-  return "'" + argument.replaceAll("'", "'\\''") + "'";
+  return "'" + argument.split(sep).join("/").replaceAll("'", "'\\''") + "'";
 }
 
 /** The workflow step this suite executes, read straight from the YAML so reverting its policy breaks the proof. */
@@ -95,15 +95,19 @@ function releaseCommands(generator = resolve("scripts/pm-changelog.ts"), node = 
 
 /** Release-step environment over one fixture tracker, with the resumed heading date when given. */
 function releaseStepEnv(root: string, env: NodeJS.ProcessEnv, headingDate = ""): NodeJS.ProcessEnv {
-  return { ...env, IS_RUST: "false", GITHUB_OUTPUT: join(root, "step-outputs"), CONTINUATION_SCRIPT: resolve("scripts/release-continuation.ts"), CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check", NOTES_SCRIPT: "release:notes", RELEASE_HEADING_DATE: headingDate, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: join(root, "summary.md"), NPM_CONFIG_USERCONFIG: "/dev/null" };
+  return { ...env, IS_RUST: "false", GITHUB_OUTPUT: join(root, "step-outputs"), CONTINUATION_SCRIPT: resolve("scripts/release-continuation.ts"), CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check", NOTES_SCRIPT: "release:notes", RELEASE_HEADING_DATE: headingDate, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: join(root, "summary.md"), NPM_CONFIG_USERCONFIG: devNull, npm_config_script_shell: fixtureScriptShell() };
 }
 
-/** Invoke npm through Node while retaining POSIX hook syntax on Git for Windows. */
-function npmRunArgs(hook: string, ...flags: string[]): string[] {
-  const shell = process.platform === "win32"
+/** Use the same POSIX script shell for workflow steps and direct npm calls. */
+function fixtureScriptShell(): string {
+  return process.platform === "win32"
     ? resolve(execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim(), "../../../bin/bash.exe")
     : "/bin/sh";
-  return [npmCli(), "run", "--script-shell=" + shell, ...flags, hook];
+}
+
+/** Invoke npm through Node while retaining the fixture shell through nested scripts. */
+function npmRunArgs(hook: string, ...flags: string[]): string[] {
+  return [npmCli(), "run", "--script-shell=" + fixtureScriptShell(), ...flags, hook];
 }
 
 /** Commit the prepared release files with a controlled committer timestamp. */
@@ -193,6 +197,23 @@ test("the adapter writes short and long output options to the same targets used 
       assert.equal(readFileSync(changelog, "utf8"), "original");
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("stdout JSON and step reports identify the selected file without changing it", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const step = join(root, "outputs");
+  for (const [file, options] of [["preview.md", ["-o", "preview.md"]], ["CHANGELOG.md", []]] as const) {
+    const path = join(root, file);
+    writeFileSync(path, "previous contents");
+    writeFileSync(step, "");
+    const report = execFileSync(process.execPath, [resolve("scripts/pm-changelog.ts"), "--pm-root", ".agents/pm",
+      "--pm-bin", pm, "--include-empty", "--version", "2026.10.22", ...options, "--stdout", "--json", "--github-output"],
+    { cwd: root, env: { ...env, GITHUB_OUTPUT: step }, encoding: "utf8" });
+    assert.equal(JSON.parse(report).output, path);
+    assert.ok(readFileSync(step, "utf8").split("\n").includes("output=" + path));
+    assert.equal(readFileSync(path, "utf8"), "previous contents");
+  }
 });
 
 test("inline and separate prepend mode preserve the selected output history", () => {
@@ -476,10 +497,11 @@ test("prepare commits the heading its tag produces, for same-day and resumed rel
     try {
       const checkout = join(root, "generator's checkout");
       const bin = join(root, "node bin");
-      const node = join(bin, "node");
+      const node = join(bin, "node.exe");
       symlinkSync(resolve("."), checkout, "junction");
       mkdirSync(bin);
-      symlinkSync(process.execPath, node);
+      copyFileSync(process.execPath, node);
+      assert.equal(lstatSync(node).isFile(), true);
       const commands = releaseCommands(join(checkout, "scripts", "pm-changelog.ts"), node);
       releaseTags(root, env);
       writeFileSync(join(root, "package.json"), JSON.stringify({ name: "sample-changelog", version, scripts: commands }));
@@ -520,12 +542,17 @@ test("prepare commits the heading its tag produces, for same-day and resumed rel
       if (headingDate) {
         // A later same-day release restores the standing policy, so a stale
         // pin never survives the next release commit.
+        const nextVersion = "2026.10.27";
+        assert.equal(execFileSync("git", ["tag", "--list", "v" + nextVersion], { cwd: root, env, encoding: "utf8" }), "");
+        const manifest = join(root, "package.json");
+        writeFileSync(manifest, JSON.stringify({ ...JSON.parse(readFileSync(manifest, "utf8")), version: nextVersion }));
         const restored = runBashFixture(script, { cwd: root, env: { ...releaseEnv, RELEASE_HEADING_DATE: "" }, encoding: "utf8" });
         assert.equal(restored.status, 0, restored.stdout + restored.stderr);
-        const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { scripts: Record<string, string> };
+        assert.ok(readFileSync(join(root, "CHANGELOG.md"), "utf8").split("\n").includes("## " + nextVersion + " - 2026-10-27"));
+        const restoredScripts: Record<string, string> = JSON.parse(readFileSync(manifest, "utf8")).scripts;
         for (const name of ["changelog:full", "changelog:check", "release:notes"]) {
-          assert.ok(pkg.scripts[name]!.includes("--date-from-version"), `${name} must be restored to the standing policy`);
-          assert.ok(!pkg.scripts[name]!.includes("--date-fallback"), `${name} must not keep a stale pin`);
+          assert.ok(restoredScripts[name]!.includes("--date-from-version"), `${name} must be restored to the standing policy`);
+          assert.ok(!restoredScripts[name]!.includes("--date-fallback"), `${name} must not keep a stale pin`);
         }
       }
     } finally { rmSync(root, { recursive: true, force: true }); }

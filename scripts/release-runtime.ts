@@ -10,9 +10,9 @@ import { execFileSync } from "../subprocess.ts";
 export const workflowToolsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Locate an npm CLI without executing a shell or switching the selected Node. */
-export function npmCli(): string {
+export function npmCli(pathOnly = false): string {
   const adjacent = join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js");
-  if (existsSync(adjacent)) return adjacent;
+  if (!pathOnly && existsSync(adjacent)) return adjacent;
   for (const directory of (process.env.PATH ?? "").split(delimiter).filter(Boolean)) {
     for (const candidate of [join(directory, "node_modules/npm/bin/npm-cli.js"), join(directory, "../lib/node_modules/npm/bin/npm-cli.js")]) {
       if (existsSync(candidate)) return resolve(candidate);
@@ -21,6 +21,8 @@ export function npmCli(): string {
     if (existsSync(launcher)) {
       const target = realpathSync(launcher);
       if (target.endsWith("npm-cli.js")) return target;
+      // A shim ahead of npm may select a different installation or configuration.
+      if (pathOnly) break;
     }
   }
   throw new Error("Release runtime needs an npm CLI beside Node or in a PATH npm installation; install npm before retrying");

@@ -3,7 +3,8 @@ import { execFileSync } from "../subprocess.ts";
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { assertReleaseHookHeadingDate, npmLifecycle, releaseCommitDay, resolveChangelogHooks } from "../release-changelog-options.ts";
+import { assertReleaseHookHeadingDate, releaseCommitDay, resolveChangelogHooks } from "../release-changelog-options.ts";
+import { projectNpmLifecycle } from "./project-npm-lifecycle.ts";
 import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "./release-runtime.ts";
 import { originalPublicationSigner, verifyRegistryProvenance, type ProvenanceIdentity, type verifySigstoreBundle } from "../release-provenance.ts";
 import { pathToFileURL } from "node:url";
@@ -472,10 +473,8 @@ function preparedLifecycle(value: string | undefined): boolean | "unknown" {
 export async function runReleaseContinuation(mode: string | undefined, verifyProvenance?: typeof verifySigstoreBundle): Promise<void> {
   if (mode === "heading-date") {
     const project = required("NPM_PROJECT_PATH");
-    const npmrc = join(project, ".npmrc");
-    const lifecycle = process.env.PREPARED_NPM_LIFECYCLE === undefined
-      ? npmLifecycle(existsSync(npmrc) ? readFileSync(npmrc, "utf8") : undefined, process.env)
-      : preparedLifecycle(process.env.PREPARED_NPM_LIFECYCLE);
+    const recorded = process.env.PREPARED_NPM_LIFECYCLE;
+    const lifecycle = recorded ? preparedLifecycle(recorded) : projectNpmLifecycle(project);
     const pkg = JSON.parse(readFileSync(join(project, "package.json"), "utf8")) as { version?: string; scripts: Record<string, string> };
     const hooks = ["CHANGELOG_SCRIPT", "CHANGELOG_CHECK_SCRIPT", "NOTES_SCRIPT"].map(required);
     const scripts = resolveChangelogHooks(pkg.scripts, hooks, lifecycle);

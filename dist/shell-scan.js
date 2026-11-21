@@ -986,7 +986,7 @@ export function packageScriptCommand(input) {
 }
 /** Canonical release wrappers and the option spellings that take no separate operand. */
 const RELEASE_WRAPPERS = {
-    timeout: /^(?:--(?:foreground|preserve-status|verbose)|-v)$/,
+    timeout: /^(?:--(?:foreground|preserve-status|verbose)|-[pv])$/,
     nice: /^-\d+$/,
     env: /^(?:-i|--ignore-environment)$/,
     command: /^-p$/,

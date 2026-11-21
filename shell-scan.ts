@@ -1024,7 +1024,7 @@ export function packageScriptCommand(input: ShellCommand): ShellCommand | undefi
 
 /** Canonical release wrappers and the option spellings that take no separate operand. */
 const RELEASE_WRAPPERS: Readonly<Record<string, RegExp>> = {
-  timeout: /^(?:--(?:foreground|preserve-status|verbose)|-v)$/,
+  timeout: /^(?:--(?:foreground|preserve-status|verbose)|-[pv])$/,
   nice: /^-\d+$/,
   env: /^(?:-i|--ignore-environment)$/,
   command: /^-p$/,

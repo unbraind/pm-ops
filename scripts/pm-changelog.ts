@@ -42,7 +42,7 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
   }
   if (summary && !env.GITHUB_STEP_SUMMARY) throw new Error("--github-step-summary requires GITHUB_STEP_SUMMARY");
   const generator = createRequire(import.meta.url).resolve("pm-changelog/cli");
-  const markdown = describeEmptyReleases(execFileSync(process.execPath, [generator, ...forwarded, "--stdout"], { cwd, env, encoding: "utf8" }));
+  const markdown = describeEmptyReleases(execFileSync(process.execPath, [generator, ...forwarded, "--output", output, "--stdout"], { cwd, env, encoding: "utf8" }));
   const destination = resolve(cwd, output);
   const existing = existsSync(destination) ? readFileSync(destination, "utf8") : "";
   const result = mode === "prepend" ? mergeChangelog(existing, markdown).markdown : markdown;

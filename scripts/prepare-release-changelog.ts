@@ -1,12 +1,13 @@
 /** Persist the date and empty-section policies used by release changelog hooks. */
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import {
-  changelogArguments, includeEmptyCustomHook, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHookDates,
+  changelogArguments, includeEmptyCustomHook, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHookDates,
   visitChangelogScriptCommands,
 } from "../release-changelog-options.ts";
+import { projectNpmLifecycle } from "./project-npm-lifecycle.ts";
 
 /** Test the main invocation and its explicit forwards independently of their lifecycle siblings. */
-function usesMainGenerator(scripts: ReadonlyMap<string, string>, hook: string, lifecycle: ReturnType<typeof npmLifecycle>): boolean {
+function usesMainGenerator(scripts: ReadonlyMap<string, string>, hook: string, lifecycle: ReturnType<typeof projectNpmLifecycle>): boolean {
   let found = false;
   visitChangelogScriptCommands(scripts, ({ effective, names }) => {
     if (changelogArguments(effective, names)) found = true;
@@ -19,7 +20,7 @@ try {
   const headingDate = (process.env.RELEASE_HEADING_DATE || "").trim();
   let changed = false;
   const hooks = [process.env.CHANGELOG_SCRIPT!, process.env.CHANGELOG_CHECK_SCRIPT!, process.env.NOTES_SCRIPT!];
-  const lifecycle = npmLifecycle(existsSync(".npmrc") ? readFileSync(".npmrc", "utf8") : undefined, process.env);
+  const lifecycle = projectNpmLifecycle(".");
   const resolved = resolveChangelogHooks(pkg.scripts, hooks, lifecycle);
   const scriptNames = new Set(resolved.keys());
   const allScripts = new Map(Object.entries(pkg.scripts).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
