@@ -2,11 +2,13 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: open
+status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T15:11:06.595Z"
+updated_at: "2026-11-21T17:16:48.453Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -14,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[162]:
+comments[164]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -502,6 +504,12 @@ comments[162]:
   - created_at: "2026-11-21T15:11:00.623Z"
     author: codex-sol
     text: Round FR follow-up mapping. Commit 7b18e03 covers PRRT_kwDOTOTl1M66YLU3 and supplements VuXV by keeping the renderer through status-only conditional branches. The same commit covers PRRT_kwDOTOTl1M66YLU8 and supplements VuXQ by independently loading the npm fallback when continuation has a recorded active setting. Both regressions reproduced and pass with their inverse fixtures. The pinned fleet scan still accepts 142 hooks and 144 bodies. CodeQL alert 27 remains open. Static triage found that the supplied trace combines mutually exclusive lookup modes and reaches a wrapper that forces shell false.
+  - created_at: "2026-11-21T17:06:12.468Z"
+    author: codex-sol
+    text: "Round FT on 56a4f84 starts with paired regression and acceptance fixtures for the release hook reader, npm launcher policy, adapter output, and snapshot coverage."
+  - created_at: "2026-11-21T17:16:26.941Z"
+    author: codex-sol
+    text: "Round FT paired checks reproduced the hook reader, adapter output, sparse snapshot, lifecycle discovery, and fixture-environment failures at 56a4f84. A synthetic npm installation without the Windows launchers also reproduced the host-dependent copy failure. The pinned fleet scan before and after the fixes accepted 142 hook roots and reached 144 script bodies across 39 manifests."
 files[25]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
@@ -528,7 +536,7 @@ files[25]{path,scope}:
   test/release-runtime.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[64]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[65]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -593,8 +601,10 @@ tests[64]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/compose-attestation.test.ts test/continuation-selection.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/multiline-quote.test.ts test/ops.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-caller-attestation.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-hook-grammar.test.ts test/release-permissions-docs.test.ts test/release-prepare-restart.test.ts test/release-provenance.test.ts test/release-recovery-signer.test.ts test/release-repair.test.ts test/release-review.test.ts test/release-runtime-windows.test.ts test/release-runtime.test.ts test/shell-command-scan.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts,project,codex-sol,"2026-11-21T05:21:21.071Z",local_mutation,fix/release-hook-wrapper-options-bm
   "node --test --test-name-pattern=\"conditional notes accept prepared script|custom notes choose one renderer\" test/release-hook-grammar.test.ts",project,codex-sol,"2026-11-21T05:32:05.196Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test test/release-hook-grammar.test.ts test/shell-command-scan.test.ts test/release-runtime.test.ts test/changelog-sections.test.ts,project,codex-sol,"2026-11-21T14:01:46.991Z",local_mutation,fix/release-hook-wrapper-options-bm
-docs[3]{path,scope}:
+  node --test --test-concurrency=2 test/changelog-sections.test.ts test/daily-release-workflow.test.ts test/release-continuation-adapter.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-provenance.test.ts test/release-runtime-windows.test.ts test/release-runtime.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts,project,codex-sol,"2026-11-21T17:16:47.902Z",local_mutation,fix/release-hook-wrapper-options-bm
+docs[4]{path,scope}:
   CHANGELOG.md,project
   docs/reusable-release.md,project
   README.md,project
+  test/fixtures/README.md,project
 body: ""

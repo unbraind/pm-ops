@@ -4,7 +4,6 @@ import test from "node:test";
 import { cpSync, chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "../subprocess.ts";
 import { devNull, tmpdir } from "node:os";
-import { createRequire } from "node:module";
 import { delimiter, dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ensureReleaseRuntime, installReleaseTools, npmCli, workflowToolsRoot } from "../scripts/release-runtime.ts";
@@ -304,28 +303,52 @@ test("lifecycle discovery skips a non-executable npm and stops at an executable 
   writeFileSync(join(root, ".npmrc"), "ignore-scripts=true\n");
   const launcher = join(root, "npm");
   writeFileSync(launcher, "#!/bin/sh\nexit 9\n", { mode: 0o644 });
-  for (const [mode, expected] of [[0o644, "false"], [0o755, "unknown"]] as const) {
-    chmodSync(launcher, mode);
-    const result = spawnSync(process.execPath, [probe], { cwd: root, env, encoding: "utf8" });
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, expected);
+  for (const first of [root, ""]) {
+    env.PATH = [first, fallback].join(delimiter);
+    for (const [mode, expected] of [[0o644, "false"], [0o755, "unknown"]] as const) {
+      chmodSync(launcher, mode);
+      const result = spawnSync(process.execPath, [probe], { cwd: root, env, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, expected, JSON.stringify(env.PATH));
+    }
   }
 });
 
 
-test("Windows lifecycle discovery follows the stock launcher prefix and refuses an unverified shim", async t => {
+// A generated Bash shim for a project-local npm package.
+const windowsDirectNpm = [
+  "#!/bin/sh",
+  String.raw`basedir=$(dirname "$(echo "$0" | sed -e 's,\\,/,g')")`,
+  "",
+  "case `uname` in",
+  "    *CYGWIN*|*MINGW*|*MSYS*)",
+  "        if command -v cygpath > /dev/null 2>&1; then",
+  '            basedir=`cygpath -w "$basedir"`',
+  "        fi",
+  "    ;;",
+  "esac",
+  "",
+  'if [ -x "$basedir/node" ]; then',
+  '  exec "$basedir/node"  "$basedir/../npm/bin/npm-cli.js" "$@"',
+  "else",
+  '  exec node  "$basedir/../npm/bin/npm-cli.js" "$@"',
+  "fi",
+  "",
+].join("\n");
+
+test("Windows lifecycle discovery follows the stock launcher prefix and refuses an unverified shim", t => {
   const root = mkdtempSync(join(tmpdir(), "release-win-npm-discovery-"));
   t.after(() => removeRuntimeFixture(root));
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
   const executable = Object.getOwnPropertyDescriptor(process, "execPath")!;
   const path = process.env.PATH!;
-  const npm = npmCli();
   const bin = join(root, "bin");
   const jobLocal = join(root, "job-local/node_modules/.bin");
   const direct = join(root, "job-local/node_modules/npm/bin/npm-cli.js");
   mkdirSync(dirname(direct), { recursive: true });
+  mkdirSync(jobLocal);
   writeFileSync(direct, "#!/usr/bin/env node\n");
-  await createRequire(npm)("cmd-shim")(direct, join(jobLocal, "npm"));
+  writeFileSync(join(jobLocal, "npm"), windowsDirectNpm);
   const local = join(bin, "node_modules/npm/bin/npm-cli.js");
   const prefix = join(root, "prefix with spaces");
   const selected = join(prefix, "node_modules/npm/bin/npm-cli.js");
@@ -334,8 +357,9 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
     writeFileSync(cli, "");
   }
   for (const launcher of ["npm", "npm.cmd"]) {
-    copyFileSync(join(dirname(npm), launcher), join(dirname(local), launcher));
-    copyFileSync(join(dirname(npm), launcher), join(bin, launcher));
+    const template = new URL(`fixtures/launchers/npm-11.21.0/${launcher}.txt`, import.meta.url);
+    copyFileSync(template, join(dirname(local), launcher));
+    copyFileSync(template, join(bin, launcher));
   }
   const prefixScript = join(dirname(local), "npm-prefix.js");
   const setPrefix = (value: string) => writeFileSync(prefixScript, "console.log(" + JSON.stringify(value) + ")");
@@ -355,6 +379,18 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
     copyFileSync(join(bin, "npm.cmd"), join(displaced, "npm.cmd"));
     process.env.PATH = displaced;
     assert.throws(() => npmCli(true), /needs an npm CLI/, "a relocated batch launcher cannot select another bundled prefix script");
+    copyFileSync(join(dirname(local), "npm"), join(displaced, "npm"));
+    const otherNode = join(root, "other-node");
+    mkdirSync(otherNode);
+    writeFileSync(join(otherNode, "node.exe"), "other installation");
+    process.env.PATH = [displaced, otherNode, bin].join(delimiter);
+    assert.throws(() => npmCli(true), /needs an npm CLI/, "an unverified Bash PATH fallback cannot select the probe runtime");
+    process.env.PATH = displaced;
+    assert.throws(() => npmCli(true), /needs an npm CLI/, "a stock launcher needs an identifiable Node");
+    if (platform.value !== "win32") {
+      symlinkSync(node, join(displaced, "node.exe"));
+      assert.equal(npmCli(true), selected, "a relocated Bash launcher can use a verified adjacent Node");
+    }
     process.env.PATH = bin;
     for (const invalidPrefix of ["", prefix + "\nrelative"]) {
       setPrefix(invalidPrefix);

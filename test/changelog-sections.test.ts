@@ -183,6 +183,7 @@ test("the adapter writes short and long output options to the same targets used 
     writeFileSync(changelog, "original");
     for (const [filename, options] of [
       ["preview.md", ["-o", "preview.md"]],
+      ["-o=preview.md", ["--output", "-o=preview.md"]],
       ["inline.md", ["-o=inline.md"]],
       ["last.md", ["--output=unused.md", "--output", "other.md", "-o", "last.md"]],
     ] as const) {
@@ -203,7 +204,7 @@ test("stdout JSON and step reports identify the selected file without changing i
   const { root, env } = tracker();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const step = join(root, "outputs");
-  for (const [file, options] of [["preview.md", ["-o", "preview.md"]], ["CHANGELOG.md", []]] as const) {
+  for (const [file, options] of [["preview.md", ["-o", "preview.md"]], ["-o=preview.md", ["--output", "-o=preview.md"]], ["CHANGELOG.md", []]] as const) {
     const path = join(root, file);
     writeFileSync(path, "previous contents");
     writeFileSync(step, "");
@@ -1039,8 +1040,8 @@ test("generation refuses lifecycle drift and preserves nested npm behavior under
   const root = mkdtempSync(join(tmpdir(), "prepared-notes-policy-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const config = join(root, "user.npmrc");
-  const env = releaseStepEnv(root, process.env);
-  for (const name of Object.keys(env)) if (/^npm_config_(?:ignore_scripts|userconfig)$/i.test(name)) delete env[name];
+  const env = releaseStepEnv(root, { ...process.env, "NpM_cOnFiG_Ignore-Scripts": "true", NPM_CONFIG_IGNORE_SCRIPTS: "true" });
+  for (const name of Object.keys(env)) if (/^npm_config_(?:ignore[-_]scripts|userconfig)$/i.test(name)) delete env[name];
   env.NPM_CONFIG_USERCONFIG = config;
   env.NPM_CONFIG_GLOBALCONFIG = devNull;
   writeFileSync(join(root, "flip.mjs"), 'import fs from "node:fs"; const p = process.env.NPM_CONFIG_USERCONFIG; fs.writeFileSync(p, fs.readFileSync(p, "utf8").includes("true") ? "ignore-scripts=false\\n" : "ignore-scripts=true\\n");');

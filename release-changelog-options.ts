@@ -13,7 +13,7 @@ import {
   type ReleaseContextChange, type ShellCommand, type ShellToken, type ShellTokenSpan,
 } from "./shell-scan.ts";
 import {
-  describeReleaseContextChange, hasBraceExpansion, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand,
+  describeReleaseContextChange, followingReleaseOperator, hasBraceExpansion, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand,
   isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, releaseOutputProducer,
 } from "./release-hook-grammar.ts";
 
@@ -25,11 +25,12 @@ export const FALLBACK_DATE_FLAG = "--date-fallback";
 
 const OVERRIDE_DATE_FLAG = "--date";
 const UNTIL_FLAG = "--until";
+const PACKAGE_VERSION_FLAG = "--release-version-from-package";
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 /** Match executables and registry package specifiers left by package runner prefixes. */
 const GENERATOR_TARGET = /^pm-changelog@[^/]+$|(?:^|\/)(?:pm-changelog(?:\.ts)?|dist\/cli\.js)$/;
 /** The three generator inputs that bind a heading to a release. */
-export const VERSION_INPUTS = ["--release-version-from-package", "--release-version", "--version"] as const;
+export const VERSION_INPUTS = [PACKAGE_VERSION_FLAG, "--release-version", "--version"] as const;
 const INDIRECT_RELEASE_OPTIONS = new Set<string>([...VERSION_INPUTS, DATE_FLAG, FALLBACK_DATE_FLAG, UNTIL_FLAG]);
 
 /** True when a command supplies an explicit release version. */
@@ -999,12 +1000,14 @@ export function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[
     if (VALUE_OPTIONS.has(token.value) && args[index + 1]?.multipleWords) {
       refuseHook(`Unquoted or multiword expansion in the operand of ${token.value}`);
     }
+    if ((flag === DATE_FLAG || flag === PACKAGE_VERSION_FLAG) && token.value !== flag) {
+      refuseHook("Unexpected value on the boolean " + flag);
+    }
     if (token.unresolved) {
       const name = literalOptionName(token);
       if (name !== undefined && name !== DATE_FLAG && name !== FALLBACK_DATE_FLAG) continue;
       refuseHook(`Unresolved option word in pm-changelog hook: ${JSON.stringify(token.value)}`);
     }
-    if (token.value.startsWith(DATE_FLAG + "=")) refuseHook("Unexpected value on the boolean " + DATE_FLAG);
     if (token.value === DATE_FLAG) {
       options.push({ kind: "version", first: token, last: token });
       continue;
@@ -1156,10 +1159,11 @@ export function includeEmptyReleaseSections(script: string, scriptNames?: Readon
   return applyHookEdits(script, edits.values());
 }
 
-/** Find the possible final commands on each if/elif/else path. */
+/** Find the possible final renderers on conditional and OR-list paths. */
 function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
   const alternatives: Array<{ before: ShellCommand[]; branches: ShellCommand[]; hasElse: boolean }> = [];
   let last: ShellCommand[] = [];
+  let afterOr = false;
   for (const words of commands) {
     for (const word of words) {
       if (!word.releaseKeyword) break;
@@ -1175,8 +1179,14 @@ function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
         last = [...new Set([...branch.branches, ...last, ...(branch.hasElse ? [] : branch.before)])];
       }
     }
+    const following = followingReleaseOperator(words);
+    if (following === "pipe") continue;
     if ((!words[0].releaseKeyword || words.length > 1)
-      && !(alternatives.length > 0 && rendererStatusCommand(releaseOutputProducer(words)))) last = [words];
+      && !((alternatives.length > 0 || afterOr) && rendererStatusCommand(releaseOutputProducer(words)))) {
+      const prior = afterOr ? last.filter(command => !rendererStatusCommand(releaseOutputProducer(command))) : [];
+      last = [...prior, words];
+    }
+    afterOr = following === "or";
   }
   return last;
 }
@@ -1237,7 +1247,8 @@ function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<
     if (!text) return hasGenerator ? undefined : { count }; // An optional missing target runs no command.
     const { commands, spans } = parseReleaseHook(text);
     const recipient = commandReceivingArguments(text, commands, spans);
-    const producer = releaseOutputProducer(recipient && !rendererStatusCommand(recipient) ? recipient : finalHookCommand(commands, hasGenerator, scripts));
+    const terminal = finalHookCommand(commands, hasGenerator, scripts);
+    const producer = releaseOutputProducer(recipient && !rendererStatusCommand(recipient) ? recipient : terminal);
     if (producer !== recipient) blockedTarget = forward.target;
     const next = releaseHookCommand(producer === recipient ? [...producer, ...forward.args] : producer);
     if (!next) refuseHook("Custom script " + JSON.stringify(forward.target) + " cannot receive forwarded arguments. Move the logic into a script file");

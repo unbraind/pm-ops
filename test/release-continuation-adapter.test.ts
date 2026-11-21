@@ -2,15 +2,16 @@
 import "./provenance-trust-fixture.ts";
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync, spawnSync } from "../subprocess.ts";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { createHash } from "node:crypto";
 import { parse } from "yaml";
 import { resolveReleaseContext } from "pm-changelog";
 import { assertNoNpmInstalls } from "./npm-bootstrap-contract.ts";
 import { candidateFixture, evidenceFixture } from "./release-continuation-fixture.ts";
+import { npmCli } from "../scripts/release-runtime.ts";
 import { publicationSettleMs, releaseConfigDigest, releaseDigest } from "../release-continuation.ts";
 import { candidateBody, publishingSignerWorkflow, releaseWaitReason, retiredCandidateBody, discoverCandidatePrs, parseCandidateReceipt, inspectCandidate as inspectProductionCandidate, closeSuperseded, requiredProtection, approveRequiredWorkflowRuns, githubApi, registryJson, runReleaseContinuation as runProductionContinuation, normalizeWorkflowPath, type ReleaseApi } from "../scripts/release-continuation.ts";
 
@@ -1573,7 +1574,7 @@ test("occupied-coordinate retirement refuses ambiguous history, registry errors 
 test("heading-date continuation mirrors the generator at the committer offset despite publication after midnight", async t => {
   t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-08T04:00:00Z") });
   const root = mkdtempSync(join(tmpdir(), "continuation-heading-"));
-  const env = { npm_config_userconfig: join(root, "user.npmrc"), npm_config_globalconfig: join(root, "global.npmrc"), NPM_PROJECT_PATH: root, RELEASE_TIMEZONE: "Europe/Vienna", CHANGELOG_SCRIPT: "generate", CHANGELOG_CHECK_SCRIPT: "check", NOTES_SCRIPT: "notes" };
+  const env = { npm_config_userconfig: join(root, "user.npmrc"), npm_config_globalconfig: join(root, "global.npmrc"), NPM_PROJECT_PATH: root, RELEASE_TIMEZONE: "Europe/Vienna", CHANGELOG_SCRIPT: "generate", CHANGELOG_CHECK_SCRIPT: "check", NOTES_SCRIPT: "notes", PATH: process.env.PATH };
   const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
   const lifecycle = Object.entries(process.env).filter(([key]) => /^npm_config_/i.test(key));
   const savedPolicy = process.env.PREPARED_NPM_LIFECYCLE;
@@ -1611,6 +1612,18 @@ test("heading-date continuation mirrors the generator at the committer offset de
     }
     const npmrc = join(root, ".npmrc");
     write({ generate: script, check: script, notes: script, pregenerate: "pm-changelog --date-fallback 2026-11-06" });
+    if (process.platform !== "win32") {
+      const cli = npmCli();
+      const [active, shim] = [join(root, "active-npm"), join(root, "shim")];
+      for (const dir of [active, shim]) mkdirSync(dir);
+      writeFileSync(join(shim, "npm"), "#!/bin/sh\nexit 91\n", { mode: 0o755 });
+      process.env.PATH = [shim, env.PATH].join(delimiter);
+      writeFileSync(npmrc, "ignore-scripts=true\n");
+      await assert.rejects(runReleaseContinuation("heading-date"), /ignore-scripts.*pregenerate/);
+      rmSync(npmrc);
+      symlinkSync(cli, join(active, "npm"));
+      process.env.PATH = [active, process.env.PATH].join(delimiter);
+    }
     await assert.rejects(runReleaseContinuation("heading-date"), /ignore-scripts.*pregenerate/);
     writeFileSync(npmrc, "ignore-scripts=true\n");
     await runReleaseContinuation("heading-date");

@@ -175,6 +175,16 @@ test("option-shaped pm arguments stay data and trailing operands retain their po
   assert.match(auditInvocations([workflow("pm-changelog --version 2026.11.16 --pm-arg --date-from-version")]).failures[0], /neither/);
 });
 
+test("package version selection uses a bare boolean and explicit versions accept inline values", () => {
+  const verify = (selector: string) => auditInvocations([workflow(`pm-changelog ${selector} --date-from-version`)]).failures;
+  for (const selector of ["--release-version-from-package", "--version=2026.11.17", "--release-version=2026.11.17"]) {
+    assert.deepEqual(verify(selector), [], selector);
+  }
+  for (const selector of ["--release-version-from-package=true", "--release-version-from-package=false", "--release-version-from-package="]) {
+    assert.match(verify(selector).join("\n"), /Unexpected value on the boolean --release-version-from-package/, selector);
+  }
+});
+
 test("the shared shell scanner decodes quoted timeout switches and records fixed option names", () => {
   const commands = tokenizeCommands('timeout "--signal" TERM 60 pm-changelog --title="$TITLE"');
   assert.equal(commandName(commands[0]), "pm-changelog");
@@ -1837,6 +1847,24 @@ test("conditional status checks preserve the previous notes renderer", () => {
   assert.equal(includeEmptyCustomHook(custom, new Map()), "node notes.mjs --include-empty; " + status);
   const alternative = "node fallback.mjs; if test -f notes.txt; then node render.mjs; test -s notes.txt; fi";
   assert.throws(() => includeEmptyCustomHook(alternative, new Map()), /alternative renderers/);
+});
+
+test("an OR list preserves alternative custom notes renderers, including through script forwards", () => {
+  const ambiguous = ["node preferred.mjs || node fallback.mjs", "node preferred.mjs | cat | sed -n p ||\n node fallback.mjs | cat",
+    "true && node preferred.mjs || node fallback.mjs", "if test -f input; then node preferred.mjs || node fallback.mjs; else node last.mjs; fi"];
+  for (const hook of ambiguous) {
+    assert.throws(() => includeEmptyCustomHook(hook, new Map()), /alternative renderers/, hook);
+    assert.throws(() => includeEmptyCustomHook("npm run render", new Map([["render", hook]])), /alternative renderers/, hook);
+  }
+  for (const [hook, expected] of [
+    ["node notes.mjs", "node notes.mjs --include-empty"],
+    ["node notes.mjs || true", "node notes.mjs --include-empty || true"],
+    ["true || node notes.mjs | cat", "true || node notes.mjs --include-empty | cat"],
+    ["node one.mjs || node two.mjs && node notes.mjs", "node one.mjs || node two.mjs && node notes.mjs --include-empty"],
+    ['node notes.mjs --title "a || b"', 'node notes.mjs --title "a || b" --include-empty'],
+  ]) assert.equal(includeEmptyCustomHook(hook, new Map()), expected);
+  const generators = `pm-changelog ${standing} --stdout || node dist/cli.js ${standing} --stdout`;
+  assert.equal(includeEmptyCustomHook(generators, new Map(), true), generators);
 });
 
 test("continuation independently reloads the npm fallback with only a recorded active setting", t => {

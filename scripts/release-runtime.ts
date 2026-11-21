@@ -38,13 +38,17 @@ function windowsNpmCli(launcher: string): string | undefined {
   const launcherName = basename(launcher);
   if (!["npm", "npm.cmd"].includes(launcherName)) return undefined;
   const localNode = join(directory, "node.exe");
-  if (isExecutableFile(localNode, "win32") && realpathSync(localNode) !== realpathSync(process.execPath)) return undefined;
+  const hasLocalNode = isExecutableFile(localNode, "win32");
+  if (hasLocalNode && realpathSync(localNode) !== realpathSync(process.execPath)) return undefined;
   const source = windowsLauncherText(launcher);
   const direct = DIRECT_WINDOWS_NPM.exec(source)?.[1];
   if (direct) {
     const cli = resolve(directory, direct);
     return isExecutableFile(cli, "win32") ? realpathSync(cli) : undefined;
   }
+  // The stock Bash launcher can derive its npm installation from a Node on
+  // Bash's PATH. Native Node cannot establish which executable Bash will use.
+  if (!hasLocalNode) return undefined;
   const bundledNode = dirname(process.execPath);
   // A batch launcher uses its own directory. Only the running Node's
   // installation supplies the bundled helper that the probe may execute.
@@ -69,9 +73,10 @@ function windowsLauncherText(file: string): string {
 export function npmCli(pathOnly = false): string {
   const adjacent = join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js");
   if (!pathOnly && existsSync(adjacent)) return adjacent;
-  for (const directory of (process.env.PATH ?? "").split(delimiter).filter(Boolean)) {
+  const win = process.platform === "win32";
+  for (const directory of process.env.PATH?.split(delimiter) ?? []) {
+    if (!directory && (!pathOnly || win)) continue;
     if (pathOnly) {
-      const win = process.platform === "win32";
       const names = win ? ["npm", "npm.com", "npm.exe", "npm.bat", "npm.cmd"] : ["npm"];
       const launcher = names.map(name => join(directory, name)).find(file => isExecutableFile(file, process.platform));
       if (!launcher) continue;

@@ -16,8 +16,14 @@ function snapshotEntry(path: string) {
 /** Remove obsolete clone files before copying the source's existing tracked files. */
 export function mirrorTrackedSnapshot(source: string, candidate: string, env: NodeJS.ProcessEnv): void {
   const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
-  const tracked = (cwd: string) => decoder.decode(execFileSync("git", ["ls-files", "-z"], { cwd, env })).split("\0").filter(Boolean);
-  const files = new Set(tracked(source).filter(file => {
+  const tracked = (cwd: string, ...flags: string[]) =>
+    decoder.decode(execFileSync("git", ["ls-files", "-z", ...flags], { cwd, env })).split("\0").filter(Boolean);
+  const sourceFiles = tracked(source, "-t").map(record => {
+    const file = record.slice(2);
+    if (record.startsWith("S ")) throw new Error("Cannot mirror SKIP_WORKTREE path: " + file);
+    return file;
+  });
+  const files = new Set(sourceFiles.filter(file => {
     let path = "";
     let entry;
     for (const component of file.split("/")) {

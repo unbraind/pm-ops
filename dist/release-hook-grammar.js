@@ -11,6 +11,7 @@ const variableReferences = new WeakMap();
 const optionNames = new WeakMap();
 const isolatedCommands = new WeakSet();
 const pipelineProducers = new WeakMap();
+const followingOperators = new WeakMap();
 const loopConditions = new WeakSet();
 const continuedDescriptors = new WeakSet();
 const braceExpansions = new WeakSet();
@@ -23,6 +24,10 @@ export function releaseOutputProducer(command) {
     if (producer && problems.get(producer[0]) === OPAQUE_PIPELINE)
         refuseHook(OPAQUE_PIPELINE);
     return producer ?? command;
+}
+/** Return the separator when the next command is a fallback or pipeline stage. */
+export function followingReleaseOperator(command) {
+    return followingOperators.get(command);
 }
 /** Whether shell edits in this command are local to a pipeline stage or subshell. */
 export function isIsolatedReleaseCommand(words) {
@@ -141,8 +146,11 @@ export function parseReleaseHook(text) {
             if (words.length) {
                 if (ch === "&" && operator !== "&&")
                     problems.set(words[0], "Shell background or descriptor operator &");
-                if (ch === "|" && operator !== "||")
-                    piped.add(words);
+                if (ch === "|") {
+                    followingOperators.set(words, operator === "||" ? "or" : "pipe");
+                    if (operator !== "||")
+                        piped.add(words);
+                }
             }
             finishCommand();
             if (ch === "\n" && heredoc >= 0) {

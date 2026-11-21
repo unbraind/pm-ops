@@ -9,18 +9,19 @@
  */
 import { basename, posix } from "node:path";
 import { isShellEvaluator, RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand, shellRedirection, withoutRedirections, } from "./shell-scan.js";
-import { describeReleaseContextChange, hasBraceExpansion, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand, isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, releaseOutputProducer, } from "./release-hook-grammar.js";
+import { describeReleaseContextChange, followingReleaseOperator, hasBraceExpansion, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand, isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, releaseOutputProducer, } from "./release-hook-grammar.js";
 /** The flag that makes an untagged heading version-derived. */
 export const DATE_FLAG = "--date-from-version";
 /** The option that pins the heading day of a resumed release. */
 export const FALLBACK_DATE_FLAG = "--date-fallback";
 const OVERRIDE_DATE_FLAG = "--date";
 const UNTIL_FLAG = "--until";
+const PACKAGE_VERSION_FLAG = "--release-version-from-package";
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 /** Match executables and registry package specifiers left by package runner prefixes. */
 const GENERATOR_TARGET = /^pm-changelog@[^/]+$|(?:^|\/)(?:pm-changelog(?:\.ts)?|dist\/cli\.js)$/;
 /** The three generator inputs that bind a heading to a release. */
-export const VERSION_INPUTS = ["--release-version-from-package", "--release-version", "--version"];
+export const VERSION_INPUTS = [PACKAGE_VERSION_FLAG, "--release-version", "--version"];
 const INDIRECT_RELEASE_OPTIONS = new Set([...VERSION_INPUTS, DATE_FLAG, FALLBACK_DATE_FLAG, UNTIL_FLAG]);
 /** True when a command supplies an explicit release version. */
 export function hasVersionInput(args) {
@@ -966,14 +967,15 @@ export function readReleaseDateOptions(args) {
         if (VALUE_OPTIONS.has(token.value) && args[index + 1]?.multipleWords) {
             refuseHook(`Unquoted or multiword expansion in the operand of ${token.value}`);
         }
+        if ((flag === DATE_FLAG || flag === PACKAGE_VERSION_FLAG) && token.value !== flag) {
+            refuseHook("Unexpected value on the boolean " + flag);
+        }
         if (token.unresolved) {
             const name = literalOptionName(token);
             if (name !== undefined && name !== DATE_FLAG && name !== FALLBACK_DATE_FLAG)
                 continue;
             refuseHook(`Unresolved option word in pm-changelog hook: ${JSON.stringify(token.value)}`);
         }
-        if (token.value.startsWith(DATE_FLAG + "="))
-            refuseHook("Unexpected value on the boolean " + DATE_FLAG);
         if (token.value === DATE_FLAG) {
             options.push({ kind: "version", first: token, last: token });
             continue;
@@ -1117,10 +1119,11 @@ export function includeEmptyReleaseSections(script, scriptNames) {
     }
     return applyHookEdits(script, edits.values());
 }
-/** Find the possible final commands on each if/elif/else path. */
+/** Find the possible final renderers on conditional and OR-list paths. */
 function finalHookCommands(commands) {
     const alternatives = [];
     let last = [];
+    let afterOr = false;
     for (const words of commands) {
         for (const word of words) {
             if (!word.releaseKeyword)
@@ -1138,9 +1141,15 @@ function finalHookCommands(commands) {
                 last = [...new Set([...branch.branches, ...last, ...(branch.hasElse ? [] : branch.before)])];
             }
         }
+        const following = followingReleaseOperator(words);
+        if (following === "pipe")
+            continue;
         if ((!words[0].releaseKeyword || words.length > 1)
-            && !(alternatives.length > 0 && rendererStatusCommand(releaseOutputProducer(words))))
-            last = [words];
+            && !((alternatives.length > 0 || afterOr) && rendererStatusCommand(releaseOutputProducer(words)))) {
+            const prior = afterOr ? last.filter(command => !rendererStatusCommand(releaseOutputProducer(command))) : [];
+            last = [...prior, words];
+        }
+        afterOr = following === "or";
     }
     return last;
 }
@@ -1205,7 +1214,8 @@ function customForwardDelimiters(invocation, scripts, hasGenerator) {
             return hasGenerator ? undefined : { count }; // An optional missing target runs no command.
         const { commands, spans } = parseReleaseHook(text);
         const recipient = commandReceivingArguments(text, commands, spans);
-        const producer = releaseOutputProducer(recipient && !rendererStatusCommand(recipient) ? recipient : finalHookCommand(commands, hasGenerator, scripts));
+        const terminal = finalHookCommand(commands, hasGenerator, scripts);
+        const producer = releaseOutputProducer(recipient && !rendererStatusCommand(recipient) ? recipient : terminal);
         if (producer !== recipient)
             blockedTarget = forward.target;
         const next = releaseHookCommand(producer === recipient ? [...producer, ...forward.args] : producer);

@@ -122,3 +122,21 @@ test("invalid UTF-8 in either index aborts before the candidate changes", t => {
     assert.equal(readFileSync(join(fixture.candidate, "keep.txt"), "utf8"), "committed\n");
   }
 });
+
+test("a sparse source snapshot does not delete omitted workflows from the candidate", t => {
+  const workflow = ".github/workflows/release.yml";
+  const { source, candidate, env, git } = snapshotFixture(t, [workflow, "src/main.txt"]);
+  writeFileSync(join(source, "src/main.txt"), "working edit\n");
+  git(source, "sparse-checkout", "set", "--cone", "src");
+  assert.equal(git(source, "ls-files", "-t", workflow).toString().trim(), "S " + workflow);
+  assert.equal(existsSync(join(source, workflow)), false);
+  assert.throws(() => mirrorTrackedSnapshot(source, candidate, env), /skip.worktree.*release\.yml/i);
+  assert.equal(readFileSync(join(candidate, workflow), "utf8"), "committed\n");
+  assert.equal(readFileSync(join(candidate, "src/main.txt"), "utf8"), "committed\n");
+  assert.equal(git(candidate, "status", "--porcelain").length, 0);
+  git(source, "sparse-checkout", "disable");
+  rmSync(join(source, workflow));
+  mirrorTrackedSnapshot(source, candidate, env);
+  assert.equal(existsSync(join(candidate, workflow)), false);
+  assert.equal(readFileSync(join(candidate, "src/main.txt"), "utf8"), "working edit\n");
+});
