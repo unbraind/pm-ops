@@ -1831,6 +1831,11 @@ test("npm restores the configured setting after a parent overrides ignore-script
   assert.deepEqual([...resolveChangelogHooks(plain, [hook], false).keys()], [hook, "prerelay", "relay", "writer"]);
   assert.doesNotThrow(() => assertReleaseHookHeadingDate(new Map(Object.entries(plain)), [hook], day, "2026.11.17", false));
   assert.equal(rewriteReleaseHookDates(new Map(Object.entries(plain)), [hook], day, false).has("prewriter"), false);
+  const pinned = { ...plain, prerelay: `pm-changelog --release-version-from-package --date-fallback=${day} --include-empty` };
+  assert.equal(resolveChangelogHooks(pinned, [hook], false).has("prewriter"), false);
+  assert.equal(resolveChangelogHooks({ ...plain, relay: "true; npm run writer" }, [hook], false).has("prewriter"), false);
+  assert.throws(() => resolveChangelogHooks({ ...plain, prerelay: plain.prerelay + " --output custom-config" }, [hook], false),
+    /Cannot verify nested npm lifecycle.*writer/);
   const enabled = source("npm --ignore-scripts=false run writer");
   assert.equal(resolveChangelogHooks(enabled, [hook], false).has("prewriter"), true);
   assert.throws(() => rewriteReleaseHookDates(new Map(Object.entries(enabled)), [hook], day, false), /without a date policy/);
@@ -1957,7 +1962,9 @@ test("an AND-list status check retains either possible notes renderer", () => {
   const alternative = preferred + " || node fallback.mjs";
   assert.throws(() => includeEmptyCustomHook(alternative, new Map()), /alternative renderers/);
   assert.throws(() => includeEmptyCustomHook("npm run render", new Map([["render", alternative]])), /alternative renderers/);
+  assert.throws(() => includeEmptyCustomHook(preferred + " && test -r notes.txt || node fallback.mjs", new Map()), /alternative renderers/);
   assert.equal(includeEmptyCustomHook(preferred + " || true", new Map()), "node preferred.mjs --include-empty && test -s notes.txt || true");
+  assert.throws(() => includeEmptyCustomHook("node one.mjs && node two.mjs && test -s notes.txt", new Map()), /single script entry point/);
   assert.equal(includeEmptyCustomHook(alternative + " && node notes.mjs", new Map()), alternative + " && node notes.mjs --include-empty");
   const generators = `pm-changelog ${standing} --stdout && test -s notes.txt || node dist/cli.js ${standing} --stdout`;
   assert.equal(includeEmptyCustomHook(generators, new Map(), true), generators);

@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T22:10:00.409Z"
+updated_at: "2026-11-21T22:11:50.709Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -16,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[180]:
+comments[181]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -558,6 +558,9 @@ comments[180]:
   - created_at: "2026-11-21T22:10:00.409Z"
     author: codex-sol
     text: Added the inverse for an already enabled nested lifecycle. The earlier stable and changed-policy fixtures also cover this behavior through the real release preparation and notes steps.
+  - created_at: "2026-11-21T22:11:50.708Z"
+    author: codex-sol
+    text: "Round FX follow-up. PRRT_kwDOTOTl1M66chXF maps to 8ba589e and 5418890. The guard refuses a mutable fallback when it could enable a skipped hook. The stable enabled case still audits both siblings. The paired preparation, date audit and policy drift tests passed with npm 11.21.0."
 files[27]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project

@@ -786,6 +786,14 @@ interface NpmConfigState {
   mayHaveChanged: boolean;
 }
 
+const HEADING_ONLY_ARGUMENT = /^(?:--release-version-from-package|--date-from-version|--date-fallback(?:=\d{4}-\d{2}-\d{2})?|--include-empty|--stdout|\d{4}-\d{2}-\d{2})$/;
+
+/** A standard generator with default paths and arguments leaves npm configuration alone. */
+function mayChangeNpmConfig([program, ...args]: ShellCommand): boolean {
+  if (args.length === 0 && /^(?::|true|false)$/.test(program.value)) return false;
+  return program.value !== "pm-changelog" || args.some(arg => !HEADING_ONLY_ARGUMENT.test(arg.value));
+}
+
 /** Find versioned generator options on a command that expands an inherited assignment. */
 function forwardedBindingProblem(words: ShellCommand, bindings: ReadonlySet<string>): string | undefined {
   if (!bindings.size) return undefined;
@@ -894,8 +902,8 @@ export function visitChangelogScriptCommands(
     const written = new Set<string>();
     for (const words of commands) {
       const previouslyRan = mayHaveChanged;
-      mayHaveChanged = true;
       const effective = words === recipient ? [...words, ...args] : words;
+      mayHaveChanged ||= mayChangeNpmConfig(effective);
       const forward = forwardToScript(effective);
       // pnpm passes its delimiter through verbatim. A nested runner can consume
       // it, but the generator only accepts named options.
@@ -951,7 +959,7 @@ export function visitChangelogScriptCommands(
       const main = name === target;
       visit(name, main ? args : [], parents, { active: policy.nested, configured: policy.configured }, releasePath, bindings,
         isNpm && !main && policy.enabled === "unknown", config);
-      config = { ...config, mayHaveChanged: true };
+      if ((main && args.length > 0) || parsed.get(name)!.commands.some(mayChangeNpmConfig)) config = { ...config, mayHaveChanged: true };
     }
   }
 
@@ -1260,7 +1268,7 @@ function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
     if (following === "pipe") continue;
     if ((!words[0].releaseKeyword || words.length > 1)
       && !literalRedirectOnly(words)
-      && !((alternatives.length > 0 || afterOr || afterAnd) && rendererStatusCommand(releaseOutputProducer(words)))) {
+      && !((alternatives.length > 0 || afterOr || (afterAnd && following !== undefined)) && rendererStatusCommand(releaseOutputProducer(words)))) {
       const prior = afterOr ? last.filter(command => !rendererStatusCommand(releaseOutputProducer(command))) : [];
       last = [...prior, words];
     }
