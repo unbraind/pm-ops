@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T04:09:31.407Z"
+updated_at: "2026-11-21T04:38:20.939Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -16,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[135]:
+comments[137]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -423,6 +423,12 @@ comments[135]:
   - created_at: "2026-11-21T04:09:17.463Z"
     author: codex-sol
     text: "Round FM red fixtures failed on the original review head for nine targeted cases. The current branch already contains the scoped inherited-binding checks. The workspace fixture checks opposing member, root, user and environment settings. A copied Node executable exercises a spaced path on POSIX too. The prototype corpus accepted all 142 configured hooks and 144 reached bodies."
+  - created_at: "2026-11-21T04:16:46.563Z"
+    author: codex-sol
+    text: "Round FM thread map for PR #295, verified against starting head 22f8352. Commit 6446306 addresses all thirteen PRRT_kwDOTOTl1M66P- threads. 56 preserves expression-valued environment uncertainty. 59 limits definite environment writes to recognized executing shell templates. 6D documents the hook-options check. 6F classifies tee destinations. 6K refuses alternate custom notes renderers while accepting an unconditional final renderer or prepared generator branches. 6N consumes the lexer-decoded here-document delimiters with physical edit offsets. 6P preserves the selected JSON and step-output path. 6W uses the active npm configuration loader and records unknown when unresolved. 6X re-detects the verified project for empty and absent legacy receipt values. 6f accepts timeout -p. 6l copies Node to a spaced executable path and exercises the .exe entry point. 6o verifies the next untagged version heading. 6r sets one explicit lifecycle environment for preparation and real npm execution. Prior binding threads 650IRm and 650SdF are covered by 24d844c and rechecked with the current code."
+  - created_at: "2026-11-21T04:38:20.938Z"
+    author: codex-sol
+    text: "The direct reference suite identified one fixture integration failure among 1355 tests. The isolated empty-probe checkout omitted the lifecycle helper imported by continuation. Include that source in the fixture closure, retaining the no-node_modules and no-npm-invocation assertions."
 files[25]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project

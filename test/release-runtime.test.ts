@@ -105,7 +105,7 @@ test("an empty native probe works with no installed runtime dependencies and nev
     mkdirSync(join(root, "scripts"));
     for (const path of [
       "release-continuation.ts", "release-changelog-options.ts", "release-hook-grammar.ts", "shell-scan.ts", "release-provenance.ts", "subprocess.ts",
-      "scripts/release-continuation.ts", "scripts/release-runtime.ts", "scripts/main-invocation.ts",
+      "scripts/release-continuation.ts", "scripts/release-runtime.ts", "scripts/project-npm-lifecycle.ts", "scripts/main-invocation.ts",
     ]) {
       cpSync(new URL("../" + path, import.meta.url), join(root, path));
     }
