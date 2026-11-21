@@ -97,7 +97,8 @@ function isCatHeredoc(words: ShellCommand): boolean {
 }
 
 /** Split only on unquoted shell list operators. Never execute or recursively guess a payload. */
-export function parseReleaseHook(text: string): { commands: ShellCommand[]; spans: WeakMap<ShellToken, ShellTokenSpan> } {
+export function parseReleaseHook(text: string) {
+  const heredocBodies = new Map<ShellCommand, ShellToken>();
   const commands: ShellCommand[] = [];
   const spans = new WeakMap<ShellToken, ShellTokenSpan>();
   const bindings = new Set<string>();
@@ -181,7 +182,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
           problems.set(body, "Here-document with a possible generator command");
           spans.set(body, { start, end });
           commands.push([body]);
-        }
+        } else heredocBodies.set(opener, body);
         i = end;
         heredoc = -1;
         continue;
@@ -223,8 +224,7 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
       if (!quote && i > start && (char === ">" || char === "<")
         && (destination || /^(?:\d*[<>]|&>)/.test(unquoted))
         && !(char === ">" ? /^(?:\d*[<>]|&>)$/.test(unquoted) : /^\d*<{1,2}$/.test(unquoted))) break;
-      if (!quote && /[<>]/.test(char) && !/^\d*$/.test(value) && !/^(?:\d*[<>]|&(?:>|$))/.test(value)) {
-        problem = "Attached shell redirection";
+      if (!quote && /[<>]/.test(char) && !/^\d*$/.test(unquoted) && !/^(?:\d*[<>]|&(?:>|$))/.test(unquoted)) {
         break;
       }
       i++;
@@ -306,5 +306,5 @@ export function parseReleaseHook(text: string): { commands: ShellCommand[]; span
     if (piped.has(command)) upstream.push(command);
     else upstream = [];
   }
-  return { commands, spans };
+  return { commands, spans, heredocBodies };
 }

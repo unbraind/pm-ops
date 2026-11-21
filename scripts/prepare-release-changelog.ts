@@ -38,8 +38,7 @@ try {
     // Preserve the released workflow's saved argument for configured custom hooks.
     if (hooks.includes(name)) {
       const hasGenerator = usesMainGenerator(resolved, name, lifecycle);
-      const custom = !hasGenerator || name === process.env.NOTES_SCRIPT
-        ? includeEmptyCustomHook(prepared, resolved, hasGenerator) : prepared;
+      const custom = includeEmptyCustomHook(prepared, resolved, hasGenerator);
       if (custom !== prepared) {
         console.log(`::notice::Release commit adds --include-empty to custom package.json script "${name}".`);
       }

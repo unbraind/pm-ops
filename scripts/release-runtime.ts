@@ -4,6 +4,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { devNull, tmpdir } from "node:os";
 import { createRequire } from "node:module";
+import { isExecutableFile } from "../merge-driver.ts";
 import { execFileSync } from "../subprocess.ts";
 
 /** The source checkout containing this trusted helper, never a release PR checkout. */
@@ -14,10 +15,12 @@ export function npmCli(pathOnly = false): string {
   const adjacent = join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js");
   if (!pathOnly && existsSync(adjacent)) return adjacent;
   for (const directory of (process.env.PATH ?? "").split(delimiter).filter(Boolean)) {
-    for (const candidate of [join(directory, "node_modules/npm/bin/npm-cli.js"), join(directory, "../lib/node_modules/npm/bin/npm-cli.js")]) {
+    const launcher = join(directory, "npm");
+    const requireLauncher = pathOnly && process.platform !== "win32";
+    if (requireLauncher && !isExecutableFile(launcher, process.platform)) continue;
+    if (!requireLauncher) for (const candidate of [join(directory, "node_modules/npm/bin/npm-cli.js"), join(directory, "../lib/node_modules/npm/bin/npm-cli.js")]) {
       if (existsSync(candidate)) return resolve(candidate);
     }
-    const launcher = join(directory, "npm");
     if (existsSync(launcher)) {
       const target = realpathSync(launcher);
       if (target.endsWith("npm-cli.js")) return target;

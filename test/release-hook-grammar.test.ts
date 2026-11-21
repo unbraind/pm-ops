@@ -155,7 +155,7 @@ test("uncertain generator commands name their unsupported construct and a direct
     ['sh -c "pm-changelog ' + standing + '"', /"sh"/],
     ["pm-changelog --release-version-from-package --op$NAME=value", /Unresolved option word/],
     ["pm-changelog " + standing + " \\", /Incomplete shell escape/],
-    ["pm-changelog " + standing + ">out", /Attached shell redirection/],
+    ["pm-changelog " + standing + ">out &", /Shell background/],
     ["out=`pm-changelog " + standing + "`", /substitution/],
     ["timeout pm-changelog", /Incomplete wrapper/],
     ["pm-changelog " + standing + " --date-from-version=true", /Unexpected value on the boolean/],
@@ -1494,5 +1494,161 @@ test("conditional notes accept prepared script forwards only when every branch e
   for (const next of ["node notes.mjs", "npm run next", "npm run --if-present missing", "# no renderer", ">preview.md"]) {
     scripts.set("next", next);
     assert.throws(() => includeEmptyCustomHook(notes, scripts, true), /single script entry point/);
+  }
+});
+
+test("standalone workflows check executed generated changelog scripts and preserve smoke scripts and data", () => {
+  const audit = (body: string, final: string) => auditInvocations([workflow(
+    "cat <<'END' >generate.sh\n" + body + "\nEND\n" + final, "pm-changelog " + standing,
+  )]).failures;
+  assert.deepEqual(audit("printf ready", "sh generate.sh"), []);
+  assert.deepEqual(audit("pm-changelog --release-version-from-package", "cat generate.sh"), []);
+  assert.match(audit("pm-changelog --release-version-from-package", "sh generate.sh")[0] ?? "", /generated release hook file/);
+});
+
+test("only a literal false job disables its steps for the heading audit", () => {
+  for (const condition of [false, true, "${{ inputs.enabled }}"]) {
+    const source = { file: ".github/workflows/release.yml", text: stringify({ jobs: {
+      generate: { if: condition, steps: [{ run: "pm-changelog --release-version-from-package" }] },
+      active: { steps: [{ run: "pm-changelog " + standing }] },
+    } }) };
+    assert.equal(executableShellBodies(source)[0].text, "pm-changelog --release-version-from-package");
+    assert.equal(auditInvocations([source]).failures.length, condition === false ? 0 : 1);
+  }
+});
+
+test("a complete env-file overwrite recovers the policy after branches or opaque data", () => {
+  const policy = (run: string, condition: boolean | string = true) => npmLifecycle(undefined, executableShellBodies({
+    file: ".github/workflows/env.yml", text: stringify({ jobs: { prepare: { "runs-on": "ubuntu-latest", steps: [
+      { if: condition, run }, { run: "npm run hook" },
+    ] } } }),
+  })[1].environment);
+  const overwrite = 'echo npm_config_ignore_scripts=true > "$GITHUB_ENV"';
+  const branch = "if test -f optional; then\n";
+  const opaque = 'cat settings >> "$GITHUB_ENV"';
+  const opposite = 'echo npm_config_ignore_scripts=false >> "$GITHUB_ENV"';
+  for (const first of [branch + opposite + "\nfi", opaque]) {
+    assert.equal(policy(first), "unknown");
+    assert.equal(policy(first + "\n" + overwrite), false);
+    assert.equal(policy(first + "\n" + overwrite, "${{ inputs.enabled }}"), "unknown");
+    assert.equal(policy(first + "\n" + branch + overwrite + "\nfi"), "unknown");
+  }
+  assert.equal(policy(branch + branch + opposite + "\nfi\n" + overwrite + "\nfi"), "unknown");
+  assert.equal(policy(opaque + "\n" + overwrite.replace(" > ", " >> ")), "unknown");
+  assert.equal(policy("exit 0\n" + overwrite), "unknown");
+});
+
+test("attached redirects terminate generator argv while quoted and escaped operators remain data", () => {
+  for (const operator of [">", ">>", ">|", "<"]) {
+    const script = "pm-changelog " + standing + operator + "preview.log";
+    assert.equal(rewriteReleaseHeadingDate(script, day), script.replace("--date-from-version", "--date-fallback " + day));
+  }
+  for (const title of ["'a>b'", "a\\>b"]) {
+    assert.equal(rewriteReleaseHeadingDate("pm-changelog --date-from-version --title " + title, day),
+      "pm-changelog --date-fallback " + day + " --title " + title);
+  }
+});
+
+test("npm start forwards to the package script with its own lifecycle and date policy", () => {
+  const scripts = new Map([["hook", "npm start"], ["start", "pm-changelog " + standing], ["prestart", "pm-changelog --release-version-from-package"]]);
+  const roots = ["hook"];
+  assert.match(rewriteReleaseHookDates(scripts, roots, day, false).get("start") ?? "", /--date-fallback 2026-11-17/);
+  assert.throws(() => assertReleaseHookHeadingDate(scripts, roots, day, undefined, "unknown"), /ignore-scripts/);
+  scripts.set("hook", "npm --ignore-scripts start");
+  assert.doesNotThrow(() => resolveChangelogHooks(Object.fromEntries(scripts), roots));
+  assert.throws(() => resolveChangelogHooks({ hook: "npm start" }, roots), /missing|start/i);
+});
+
+test("custom renderer arguments precede its terminator and trailing Git checks stay intact", () => {
+  const scripts = new Map([["render", "node notes.mjs"]]);
+  for (const tail of ["", " && git diff --cached --quiet"]) {
+    for (const [command, expected] of [
+      ["node notes.mjs -- draft.md", "node notes.mjs --include-empty -- draft.md"],
+      ["npm run render -- -- draft.md", "npm run render -- --include-empty -- draft.md"],
+    ]) {
+      assert.equal(includeEmptyCustomHook(command + tail, scripts), expected + tail);
+      assert.equal(includeEmptyCustomHook(expected + tail, scripts), expected + tail);
+    }
+  }
+  assert.throws(() => includeEmptyCustomHook("git diff --cached --quiet", scripts), /single script entry point/);
+  assert.throws(() => includeEmptyCustomHook("node one.mjs && node two.mjs && git diff --quiet", scripts), /single script entry point/);
+});
+
+test("re-preparation guidance covers an expired all-tags cutoff", () => {
+  const guide = readFileSync(resolve("docs/reusable-release.md"), "utf8");
+  assert.match(guide, /remove `--until` or update it to the new planned heading day/i);
+  for (const cutoff of ["", " --until " + day]) {
+    assert.doesNotThrow(() => assertReleaseHeadingDate(["pm-changelog " + standing + " --all-release-tags" + cutoff], day, "2026.11.17"));
+  }
+});
+
+test("generated-script provenance follows the executed file in nested workflow projects", () => {
+  const inspect = (payload: string, execute: string) => {
+    const steps = [{ "working-directory": "nested", run: "cat <<'END' >render.sh\n" + payload + "\nEND\n" + execute },
+      { run: "pm-changelog " + standing }];
+    return auditInvocations([{ file: ".github/workflows/release.yml", text: stringify({ jobs: { release: { steps } } }) }]).failures;
+  };
+  assert.deepEqual(inspect("echo ready", "sh render.sh"), []);
+  assert.deepEqual(inspect("pm-changelog --release-version-from-package", "cat render.sh"), []);
+  assert.match(inspect("pm-changelog --release-version-from-package", "sh render.sh")[0] ?? "", /working-directory/);
+});
+
+test("custom forwards respect option boundaries in shared renderer scripts", () => {
+  const scripts = new Map([["render", "node notes.mjs -- draft.md"]]);
+  assert.throws(() => includeEmptyCustomHook("npm run render", scripts), /single script entry point/);
+  scripts.set("render", "node notes.mjs && git diff --quiet");
+  assert.throws(() => includeEmptyCustomHook("npm run render", scripts), /cannot receive forwarded arguments/);
+  scripts.set("render", "node notes.mjs --include-empty -- draft.md");
+  assert.equal(includeEmptyCustomHook("npm run render", scripts), "npm run render");
+  assert.equal(includeEmptyCustomHook("node notes.mjs -- --include-empty", scripts),
+    "node notes.mjs --include-empty -- --include-empty");
+});
+
+test("quoted and escaped descriptor-like operands retain their adjacent redirect boundary", () => {
+  for (const word of ["'2'", "'>'", "\\>", "''"]) {
+    const script = "pm-changelog --date-from-version --title " + word + ">preview";
+    const { commands } = parseReleaseHook(script);
+    assert.equal(commands[0].at(-1)?.value, ">preview");
+    assert.equal(releaseHookCommand(commands[0])?.at(-1)?.value, word.replace(/['\\]/g, ""));
+  }
+});
+
+test("a reset after opaque echo data is independent of that record", () => {
+  const observe = (suffix: string) => npmLifecycle(undefined, executableShellBodies({ file: ".github/workflows/env.yml", text: stringify({
+    jobs: { release: { "runs-on": "ubuntu-latest", steps: [{ run: 'echo "$RECORD" >> "$GITHUB_ENV"\n' + suffix }, { run: "true" }] } },
+  }) })[1].environment);
+  assert.equal(observe('echo npm_config_ignore_scripts=true >> "$GITHUB_ENV"'), "unknown");
+  assert.equal(observe('echo npm_config_ignore_scripts=true > "$GITHUB_ENV"'), false);
+});
+
+test("npm start cannot skip its implicit server entry when the manifest has no start script", () => {
+  assert.throws(() => resolveChangelogHooks({ hook: "npm --if-present start" }, ["hook"]), /start/);
+  assert.doesNotThrow(() => resolveChangelogHooks({ hook: "npm --if-present run missing" }, ["hook"]));
+});
+
+test("standalone literal script writes retain local generator forwards until the file is executed", () => {
+  const scripts = { writer: "pm-changelog " + standing, smoke: "echo ready" };
+  const manifest = { file: "package.json", text: JSON.stringify({ scripts }) };
+  const inspect = (write: string, use: string) => auditInvocations([manifest, workflow(write + "\n" + use)]).failures;
+  for (const payload of ["npm run writer", "pm-changelog --release-version-from-package", "npm run smoke"]) {
+    for (const write of ["cat <<'END' >runner.sh\n" + payload + "\nEND", "printf '%s\\n' '" + payload + "' >runner.sh"]) {
+      assert.deepEqual(inspect(write, "cat runner.sh"), []);
+      const result = inspect(write, "sh runner.sh");
+      if (payload === "npm run smoke") assert.deepEqual(result, []);
+      else assert.match(result[0] ?? "", /generated release hook file/);
+    }
+  }
+});
+
+test("status guards and pipeline sinks do not become renderer candidates before Git checks", () => {
+  const tail = " && git diff --quiet";
+  const guard = "test -f package.json && ";
+  const scripts = new Map<string, string>();
+  for (const prefix of ["", guard]) {
+    const renderer = prefix + "node notes.mjs | cat";
+    assert.equal(includeEmptyCustomHook(renderer + tail, scripts), renderer.replace("notes.mjs", "notes.mjs --include-empty") + tail);
+    for (const generator of ["pm-changelog --stdout", "pm-changelog --check && pm-changelog --stdout"]) {
+      assert.equal(includeEmptyCustomHook(prefix + generator + tail, scripts, true), prefix + generator + tail);
+    }
   }
 });

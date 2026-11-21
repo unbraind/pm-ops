@@ -25,5 +25,6 @@ export declare function describeReleaseContextChange(construct: string): string;
 export declare function parseReleaseHook(text: string): {
     commands: ShellCommand[];
     spans: WeakMap<ShellToken, ShellTokenSpan>;
+    heredocBodies: Map<ShellCommand, ShellToken>;
 };
 //# sourceMappingURL=release-hook-grammar.d.ts.map

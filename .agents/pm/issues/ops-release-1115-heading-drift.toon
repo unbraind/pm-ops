@@ -3,14 +3,16 @@ title: Release 2026.11.15 changelog heading drifts after rollover publication
 description: "Baseline origin/main fails npm run changelog:check. CHANGELOG.md says 2026.11.15 - 2026-11-15, while tag v2026.11.15 points at the November 16 release commit. The pinned generator derives the tagged heading from commit time, regenerating 2026-11-16. Confirmed on unchanged origin/main while fixing #290."
 type: Issue
 pm_format_version: 2
-status: open
+status: in_progress
 priority: 2
 tags[3]: "area:release","gh:unbraind/pm-ops#292","gh:unbraind/pm-ops#295"
 created_at: "2026-11-16T19:17:51.165Z"
-updated_at: "2026-11-21T05:50:40.645Z"
+updated_at: "2026-11-21T08:55:35.602Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: "Resolve the existing tagged release-heading date policy mismatch; npm run changelog:check and release date checks agree before and after rollover without changing historical tags."
-comments[172]{created_at,author,text}:
+comments[175]{created_at,author,text}:
   "2026-11-16T19:18:50.836Z",codex-sol,"Verified npm run changelog:check fails on untouched origin/main c29fe88 as well as the fix branch. Tag v2026.11.15 targets c29fe88 with commit time 2026-11-16T17:43:01Z. Regeneration changes only the first heading date from 2026-11-15 to 2026-11-16. No historical tags or changelog content were changed for #290."
   "2026-11-16T19:24:41.440Z","harness:claude-code","2026-11-16 20:0xZ (orchestrator): root cause filed as unbraind/pm-ops#292. v2026.11.15 was prepared and tagged on 11-16, prepare rendered the heading from the version (2026-11-15), and after tagging pm-changelog uses the real tag date (2026-11-16, by design per pm-changelog#120). Regenerated CHANGELOG.md in PR #291 so 'npm run changelog:check' passes on this branch (exit 0); main stays red until #291 or another regeneration merges."
   "2026-11-16T22:58:09.756Z",pi-ops-292,"Root cause (issue #292): prepare renders the pending version's heading with --date-from-version, so a resumed candidate (version day before today) is stamped with its version day. The release step then tags it today; pm-changelog by design derives a tagged window's heading from the tag commit date (pm-changelog#120), so post-tag regeneration on unchanged main renders a different day and changelog:check is red on main. The release PR's own CI passes (candidate still untagged), so the failure only appears after the merge.\n\nDesign: use the generator's existing --date-fallback flag (applies only while no release tag exists; ignored once the tag exists, so it matches post-tag invocations byte-for-byte). decideDailyRelease now outputs heading_date: today in RELEASE_TIMEZONE, padded ISO, when the version's calendar day is before today; empty for a same-day release, which is therefore unchanged. The 'Generate changelog and release notes' step, in the same in-place package.json policy rewrite that already appends --include-empty, swaps --date-from-version for --date-fallback <heading_date> in the three changelog scripts when resumed, refreshes a stale pin when a candidate is re-prepared on a later day, and restores --date-from-version when the pending version is current again. The release commit carries the pinned spelling, so the release PR's CI (untagged candidate), prepare's nested release:check and post-tag checks on main all regenerate the same bytes with no follow-up regeneration. The date verifier accepts a pinned --date-fallback day (explicit ISO day only) as an equally clock-free alternative to --date-from-version. Rust/justfile releases (CHANGELOG_DATE derived from the tag name) keep their own spelling and are not touched."
@@ -183,6 +185,9 @@ comments[172]{created_at,author,text}:
   "2026-11-21T05:32:01.731Z",codex-sol,"Both terminal direct and forwarded generators now pass the P-6K inverse; custom, missing, cyclic, empty and redirection-only targets still refuse. Real npm 11.21.0 also confirmed the P-56 uncertainty: with lowercase ignore_scripts=true and uppercase IGNORE_SCRIPTS=false, reversing environment insertion order changes npm config get ignore-scripts from false to true. An unresolved higher-level map can introduce the other spelling. A literal step value cannot rule that out."
   "2026-11-21T05:48:19.859Z",codex-sol,"Supplemental P-6K maps to 87cffb3. The actual preparation entry point pins and adds --include-empty to both forwarded generators and refuses a mixed target before changing the manifest. All 130 tests in the direct-reference suites for this change passed. The original 142 hooks and 144 bodies, typecheck, test build, lint, zero duplication, docstrings and changelog:check passed on the correction. The original thirteen-thread map remains in 6446306 with the P-6W/P-6X fixtures in f7502f4 and 0bac7cc."
   "2026-11-21T05:50:32.976Z",codex-sol,"Supplemental commit 87cffb3 passes all 130 directly affected tests, static checks and the fleet scan of 142 hooks and 144 bodies. The pushed head 1f5c49a passed standalone and rewritten-candidate coverage. The supplemental full gates have separate runs under the original push cutoff."
+  "2026-11-21T08:36:53.194Z",codex-sol,"Round FP starts at 4ad8742. Verify the thirteen review findings, inherited argument handling and existing environment fixtures. Run paired regressions, fleet compatibility and package gates before publishing the branch update."
+  "2026-11-21T08:45:18.634Z",codex-sol,Eleven paired tests failed on 4ad8742. Separate controls confirmed misplaced custom renderer flags and sticky environment-file uncertainty. The real continuation accepted the preparation receipt and refused the same merge with the changed live policy. The starting and candidate fleet scans each accepted all 142 hooks and 144 bodies in 39 pinned manifests.
+  "2026-11-21T08:55:35.539Z",codex-sol,"Prepared npm executions now pin a resolved lifecycle setting for all three hooks. An unresolved receipt keeps both lifecycle paths audited and detects a changed live setting before the next hook. Real npm fixtures passed both policy directions, stable uncertainty and changed-policy refusal. The candidate fleet scan again accepted 142 hooks and 144 bodies."
 files[36]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
@@ -220,7 +225,7 @@ files[36]{path,scope}:
   test/release-workflow.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[63]:
+tests[64]:
   - command: npm run typecheck
     scope: project
     provenance:
@@ -666,6 +671,13 @@ tests[63]:
     provenance:
       author: codex-sol
       created_at: "2026-11-21T05:31:56.422Z"
+      source_kind: local_mutation
+      source_ref: fix/release-hook-wrapper-options-bm
+  - command: node --test test/release-hook-grammar.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-21T08:45:42.714Z"
       source_kind: local_mutation
       source_ref: fix/release-hook-wrapper-options-bm
 docs[3]{path,scope}:

@@ -81,7 +81,7 @@ function changelogStepScript(): string {
     const script = workflow.jobs.prepare.steps.find(step => step.name === name)?.run;
     assert.ok(script, name);
     return script;
-  }).join("\n");
+  }).join(`\nexport PREPARED_NPM_LIFECYCLE="$(sed -n 's/^npm_lifecycle=//p' "$GITHUB_OUTPUT" | tail -n 1)"\n`);
 }
 
 /** Fixture npm scripts that call this repository's generator with the standing policy. */
@@ -575,13 +575,23 @@ test("a resumed release passes preparation, continuation and post-tag checks acr
       existingPrs: [], hasChanges: true, releaseTags: tags, currentPackageVersion: "2026.10.23",
     });
     assert.equal(plan.heading_date, "2026-10-24");
-    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "sample-changelog", version: plan.npm_version, scripts: releaseCommands() }));
-    const releaseEnv: NodeJS.ProcessEnv = { ...releaseStepEnv(root, env, plan.heading_date), NPM_PROJECT_PATH: root, RELEASE_TIMEZONE: timezone };
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "sample-changelog", version: plan.npm_version, scripts: {
+      ...releaseCommands(), "prerelease:notes": "pm-changelog --release-version-from-package --date-fallback 2026-10-23",
+    } }));
+    const releaseEnv: NodeJS.ProcessEnv = { ...releaseStepEnv(root, env, plan.heading_date), NPM_PROJECT_PATH: root, RELEASE_TIMEZONE: timezone, npm_config_ignore_scripts: "true" };
     const prepared = runBashFixture(changelogStepScript(), { cwd: root, env: releaseEnv, encoding: "utf8" });
     assert.equal(prepared.status, 0, prepared.stdout + prepared.stderr);
     assert.match(readFileSync(join(root, "CHANGELOG.md"), "utf8"), /^## 2026\.10\.23 - 2026-10-24$/m);
     commitPreparedRelease(root, env, merge);
-    execFileSync(process.execPath, [releaseEnv.CONTINUATION_SCRIPT!, "heading-date"], { cwd: root, env: releaseEnv });
+    const receipt = readFileSync(releaseEnv.GITHUB_OUTPUT!, "utf8").trim();
+    assert.equal(receipt, "npm_lifecycle=false");
+    const live: NodeJS.ProcessEnv = { ...releaseEnv, npm_config_ignore_scripts: "false" };
+    delete live.PREPARED_NPM_LIFECYCLE;
+    const verify = [releaseEnv.CONTINUATION_SCRIPT!, "heading-date"];
+    execFileSync(process.execPath, verify, { cwd: root, env: { ...live, PREPARED_NPM_LIFECYCLE: receipt.split("=")[1] } });
+    const refused = spawnSync(process.execPath, verify, { cwd: root, env: live, encoding: "utf8" });
+    assert.notEqual(refused.status, 0);
+    assert.match(refused.stderr, /2026-10-23 differs from verified merge commit day 2026-10-24/);
     execFileSync("git", ["tag", "--no-sign", plan.tag], { cwd: root, env });
     execFileSync(process.execPath, npmRunArgs("changelog:check"), { cwd: root, env: releaseEnv });
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -997,4 +1007,54 @@ test("shared writers keep preview date operands and refuse an incompatible resto
     execFileSync(process.execPath, prepare, { cwd: root, env: { ...env, RELEASE_HEADING_DATE: "" } });
     assert.match(JSON.parse(readFileSync(manifest, "utf8")).scripts.changes, /--date-from-version$/);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("mixed generation and check hooks deliver the saved option to their finishing program", t => {
+  const root = mkdtempSync(join(tmpdir(), "mixed-release-hooks-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const env = releaseStepEnv(root, process.env);
+  const generator = "node pm-changelog.ts --release-version-from-package --date-from-version";
+  const scripts = { "changelog:full": generator + " && node finish.mjs", "changelog:check": generator + " && node finish.mjs", "release:notes": generator };
+  writeFileSync(join(root, "package.json"), JSON.stringify({ scripts }));
+  writeFileSync(join(root, "pm-changelog.ts"), "console.log(JSON.stringify(process.argv.slice(2)))");
+  writeFileSync(join(root, "finish.mjs"), "console.log(JSON.stringify(process.argv.slice(2)))");
+  execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env });
+  for (const name of Object.keys(scripts)) {
+    const lines = execFileSync(process.execPath, npmRunArgs(name, "--silent"), { cwd: root, env, encoding: "utf8" }).trim().split("\n");
+    assert.deepEqual(JSON.parse(lines[0]), ["--release-version-from-package", "--date-from-version", "--include-empty"]);
+    if (name !== "release:notes") assert.deepEqual(JSON.parse(lines[1]), ["--include-empty"]);
+    else assert.equal(lines.length, 1);
+  }
+});
+
+test("generation runs notes with the prepared npm lifecycle despite intervening npmrc edits", t => {
+  const root = mkdtempSync(join(tmpdir(), "prepared-notes-policy-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const config = join(root, "user.npmrc");
+  const env = releaseStepEnv(root, process.env);
+  for (const name of Object.keys(env)) if (/^npm_config_(?:ignore_scripts|userconfig)$/i.test(name)) delete env[name];
+  env.NPM_CONFIG_USERCONFIG = config;
+  env.NPM_CONFIG_GLOBALCONFIG = devNull;
+  writeFileSync(join(root, "flip.mjs"), 'import fs from "node:fs"; const p = process.env.NPM_CONFIG_USERCONFIG; fs.writeFileSync(p, fs.readFileSync(p, "utf8").includes("true") ? "ignore-scripts=false\\n" : "ignore-scripts=true\\n");');
+  writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: {
+    "changelog:full": "node flip.mjs", "changelog:check": "node check.mjs", "release:notes": "node notes.mjs",
+    "prerelease:notes": "node before.mjs",
+  } }));
+  writeFileSync(join(root, "check.mjs"), "");
+  writeFileSync(join(root, "notes.mjs"), 'console.log("main")');
+  writeFileSync(join(root, "before.mjs"), 'console.log("before")');
+  for (const skip of [true, false]) {
+    writeFileSync(config, "ignore-scripts=" + skip + "\n");
+    const result = runBashFixture(changelogStepScript(), { cwd: root, env, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(readFileSync(join(root, "RELEASE_NOTES.md"), "utf8").trim(), skip ? "main" : "before\nmain");
+  }
+  writeFileSync(config, "");
+  const changed = runBashFixture(changelogStepScript(), { cwd: root, env, encoding: "utf8" });
+  assert.notEqual(changed.status, 0);
+  assert.match(changed.stdout + changed.stderr, /npm lifecycle policy changed/);
+  writeFileSync(join(root, "flip.mjs"), "");
+  writeFileSync(config, "");
+  const stable = runBashFixture(changelogStepScript(), { cwd: root, env, encoding: "utf8" });
+  assert.equal(stable.status, 0, stable.stdout + stable.stderr);
 });

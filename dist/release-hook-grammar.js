@@ -87,6 +87,7 @@ function isCatHeredoc(words) {
 }
 /** Split only on unquoted shell list operators. Never execute or recursively guess a payload. */
 export function parseReleaseHook(text) {
+    const heredocBodies = new Map();
     const commands = [];
     const spans = new WeakMap();
     const bindings = new Set();
@@ -185,6 +186,8 @@ export function parseReleaseHook(text) {
                     spans.set(body, { start, end });
                     commands.push([body]);
                 }
+                else
+                    heredocBodies.set(opener, body);
                 i = end;
                 heredoc = -1;
                 continue;
@@ -235,8 +238,7 @@ export function parseReleaseHook(text) {
                 && (destination || /^(?:\d*[<>]|&>)/.test(unquoted))
                 && !(char === ">" ? /^(?:\d*[<>]|&>)$/.test(unquoted) : /^\d*<{1,2}$/.test(unquoted)))
                 break;
-            if (!quote && /[<>]/.test(char) && !/^\d*$/.test(value) && !/^(?:\d*[<>]|&(?:>|$))/.test(value)) {
-                problem = "Attached shell redirection";
+            if (!quote && /[<>]/.test(char) && !/^\d*$/.test(unquoted) && !/^(?:\d*[<>]|&(?:>|$))/.test(unquoted)) {
                 break;
             }
             i++;
@@ -353,6 +355,6 @@ export function parseReleaseHook(text) {
         else
             upstream = [];
     }
-    return { commands, spans };
+    return { commands, spans, heredocBodies };
 }
 //# sourceMappingURL=release-hook-grammar.js.map

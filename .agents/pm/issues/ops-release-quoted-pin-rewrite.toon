@@ -2,11 +2,13 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: open
+status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T05:50:49.449Z"
+updated_at: "2026-11-21T08:55:48.835Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -14,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[144]:
+comments[147]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -448,6 +450,15 @@ comments[144]:
   - created_at: "2026-11-21T05:50:43.834Z"
     author: codex-sol
     text: "Supplemental commit 87cffb3 passes all 130 directly affected tests, static checks and the fleet scan of 142 hooks and 144 bodies. The pushed head 1f5c49a passed standalone and rewritten-candidate coverage. The supplemental full gates have separate runs under the original push cutoff."
+  - created_at: "2026-11-21T08:36:59.854Z"
+    author: codex-sol
+    text: "Round FP starts at 4ad8742. Verify the thirteen review findings, inherited argument handling and existing environment fixtures. Run paired regressions, fleet compatibility and package gates before publishing the branch update."
+  - created_at: "2026-11-21T08:45:49.284Z"
+    author: codex-sol
+    text: Eleven paired tests failed on 4ad8742. Separate controls confirmed misplaced custom renderer flags and sticky environment-file uncertainty. The real continuation accepted the preparation receipt and refused the same merge with the changed live policy. The starting and candidate fleet scans each accepted all 142 hooks and 144 bodies in 39 pinned manifests.
+  - created_at: "2026-11-21T08:55:48.823Z"
+    author: codex-sol
+    text: "Prepared npm executions now pin a resolved lifecycle setting for all three hooks. An unresolved receipt keeps both lifecycle paths audited and detects a changed live setting before the next hook. Real npm fixtures passed both policy directions, stable uncertainty and changed-policy refusal. The candidate fleet scan again accepted 142 hooks and 144 bodies."
 files[25]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project

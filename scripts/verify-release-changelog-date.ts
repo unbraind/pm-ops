@@ -40,7 +40,7 @@ import {
 import { isMainInvocation } from "./main-invocation.ts";
 import { tallyFlaggedInvocations } from "../invocation-audit.ts";
 import { executableShellBodies } from "../attestation.ts";
-import { hasVersionInput, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, npmLifecycle, visitChangelogScriptCommands, type NpmLifecycle } from "../release-changelog-options.ts";
+import { hasVersionInput, generatedWriterProblem, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, npmLifecycle, visitChangelogScriptCommands, type NpmLifecycle } from "../release-changelog-options.ts";
 
 import { describeReleaseContextChange, parseReleaseHook, refuseHook } from "../release-hook-grammar.ts";
 
@@ -164,8 +164,9 @@ function addConfiguredHooks(text: string, entries: Set<string>): void {
 
 /** Flag a nested workflow command without following its forwards into the root manifest. */
 function inspectProjectStep(file: string, text: string, line: number, directory: unknown): Invocation[] {
-  const { commands, spans } = parseReleaseHook(text);
-  const words = commands.find(command => needsReleaseProject(command));
+  const { commands, spans, heredocBodies } = parseReleaseHook(text);
+  const written = new Set<string>();
+  const words = commands.find(command => generatedWriterProblem(command, written, heredocBodies.get(command)) || needsReleaseProject(command));
   if (!words) return [];
   return inspectCommand(words, {
     file, line, command: text.slice(spans.get(words[0])!.start, spans.get(words.at(-1)!)!.end),

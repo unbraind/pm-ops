@@ -934,15 +934,20 @@ function literalEnvironmentRecord(print: string, stepEnv: Record<string, unknown
 }
 
 /** Model one runner environment file, which starts empty for each step. */
-function writtenIgnoreScripts(text: string, conditional: boolean, stepEnv: Record<string, unknown> | undefined): Record<string, string> | undefined {
-  let records: Record<string, string> = {};
+function writtenIgnoreScripts(text: string, conditionalStep: boolean, stepEnv: Record<string, unknown> | undefined): Record<string, string> | undefined {
+  let records: Record<string, string> | undefined = {};
+  let depth = 0;
   const lines = text.split(/\r?\n/);
   const bodies = heredocBodyLines(lines);
   for (const [index, part] of lines.entries()) {
     const line = part.trim();
     if (bodies[index] || /^cat <<'[\w.-]+'$/.test(line)) continue;
-    if (/^if test -f [\w.-]+; then$/.test(line) || line === "fi") {
-      conditional = true;
+    if (/^if test -f [\w.-]+; then$/.test(line)) {
+      depth++;
+      continue;
+    }
+    if (depth && line === "fi") {
+      depth--;
       continue;
     }
     if (!line || line.startsWith("#") || /^(?:true|:|set -[eu]+(?:o pipefail)?|echo [\w .-]+)$/.test(line)
@@ -954,14 +959,21 @@ function writtenIgnoreScripts(text: string, conditional: boolean, stepEnv: Recor
     if (!ENV_PATH.test(destination)) return undefined;
     const print = line.slice(0, redirect).trimEnd();
     const record = literalEnvironmentRecord(print, stepEnv);
-    if (record === undefined) return undefined;
+    if (record === undefined) {
+      // The file contents are uncertain, but this simple command cannot
+      // change shell control flow before a subsequent unconditional overwrite.
+      if (!/^(?:cat [\w./-]+|echo "\$\w+")$/.test(print)) return undefined;
+      records = undefined;
+      continue;
+    }
+    const conditional = conditionalStep || depth > 0;
     if (!append) {
       if (conditional) {
-        for (const key of Object.keys(records)) records[key] = "unknown";
+        if (records) for (const key of Object.keys(records)) records[key] = "unknown";
       } else records = {};
     }
     const [name, value] = record.split("=");
-    if (name.toLowerCase() === IGNORE_SCRIPTS_ENV) records[name] = conditional ? "unknown" : value;
+    if (records && name.toLowerCase() === IGNORE_SCRIPTS_ENV) records[name] = conditional ? "unknown" : value;
   }
   return records;
 }
@@ -1012,7 +1024,7 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
       const environment = { ...mapping(data?.env), ...mapping(job!.env), ...inherited, ...mapping(step.env) };
       if (unknownNames || [data?.env, job!.env, step.env].some(layer => typeof layer === "string")) environment[IGNORE_SCRIPTS_ENV] = "unknown";
       body.environment = environment;
-      if (step.if === false) body.disabled = true;
+      if (job!.if === false || step.if === false) body.disabled = true;
       else {
         const shell = step.shell ?? defaultShell;
         const shellKnown = shell === undefined ? posixRunner : typeof shell === "string" && /^(?:bash|sh|(?:bash|sh) (?:-e )?\{0\}|bash --noprofile --norc -eo pipefail \{0\})$/.test(shell);

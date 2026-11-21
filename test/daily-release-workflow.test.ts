@@ -1078,6 +1078,7 @@ test("both heading checks receive the lifecycle value recorded for the verified 
   const policy = step("Prepare npm changelog hooks");
   assert.equal(workflow.jobs.prepare.steps.indexOf(policy) + 1, workflow.jobs.prepare.steps.indexOf(generation));
   assert.doesNotMatch(policy.run, /npm run/);
+  assert.equal(generation.env?.PREPARED_NPM_LIFECYCLE, "${{ steps." + policy.id + ".outputs.npm_lifecycle }}");
   assert.equal(manifest.env?.PREPARED_NPM_LIFECYCLE, "${{ steps." + policy.id + ".outputs.npm_lifecycle }}");
   const checks = workflow.jobs.release.steps.filter(entry => entry.run?.includes('"$CONTINUATION_SCRIPT" heading-date'));
   assert.equal(checks.length, 2);

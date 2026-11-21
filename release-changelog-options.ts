@@ -151,13 +151,15 @@ function scriptForward(program: string, parameters: readonly ShellToken[], scrip
   npmSeparator?: ShellToken;
 } | undefined {
   const command = afterRunOptions(program, parameters, 0);
-  if (!isScriptForward(program, parameters[command.index]?.value)) return undefined;
+  const subcommand = parameters[command.index]?.value;
+  const start = program === "npm" && subcommand === "start";
+  if (!start && !isScriptForward(program, subcommand)) return undefined;
   const entry = afterRunOptions(program, parameters, command.index + 1, command.optional, command.lifecycle);
-  const target = literalScriptName(parameters[entry.index]);
+  const target = start ? "start" : literalScriptName(parameters[entry.index]);
   // Bun also runs source files and local binaries when there is no named script.
   if (program === "bun" && target !== undefined && !scriptNames?.has(target)
     && (BUN_SOURCE_FILE.test(target) || GENERATOR_TARGET.test(target))) return undefined;
-  const tail = parameters.slice(entry.index + 1);
+  const tail = parameters.slice(start ? entry.index : entry.index + 1);
   if (program !== "npm") {
     const separator = tail[0]?.value === "--" ? tail[0] : undefined;
     if (program === "pnpm") return { target, runner: program, optional: entry.optional, args: tail, forwardedSeparator: separator };
@@ -170,7 +172,7 @@ function scriptForward(program: string, parameters: readonly ShellToken[], scrip
   const flags = separator < 0 ? (legacyFlag ? tail.slice(0, -1) : tail)
     : tail.slice(0, separator).filter(token => token.value !== INCLUDE_EMPTY_FLAG);
   const settings = afterNpmRunOptions(flags, 0, entry.optional, entry.lifecycle);
-  return { target, runner: program, lifecycle: settings.lifecycle, optional: settings.optional, unsupported: flags[settings.index]?.value,
+  return { target, runner: program, lifecycle: settings.lifecycle, optional: !start && settings.optional, unsupported: flags[settings.index]?.value,
     args: separator < 0 ? [] : tail.slice(separator + 1), npmSeparator: tail[separator] };
 }
 
@@ -388,17 +390,27 @@ function executedHookFile(words: ShellCommand, written: ReadonlySet<string>): st
 }
 
 /** Refuse a redirect-to-execution path within one hook, regardless of the written text. */
-function generatedHookProblem(words: ShellCommand, written: Set<string>): string | undefined {
+function generatedHookProblem(words: ShellCommand, written: Set<string>, recordWrites = true): string | undefined {
   if (written.size) {
     const file = executedHookFile(words, written);
     if (file !== undefined && written.has(file)) {
       return "Cannot execute generated release hook file " + JSON.stringify(file) + ". Commit the script to the repository instead";
     }
   }
+  if (!recordWrites) return undefined;
   for (const { operator, path } of hookRedirects(words)) {
     if (/^(?:\d*(?:>>?|>\||<>)|&>>?)$/.test(operator) || (operator === ">&" && !/^(?:\d+|-)$/.test(path))) written.add(path);
   }
   return undefined;
+}
+
+/** Outside a release hook, trace only redirects carrying a generator or a known script forward. */
+export function generatedWriterProblem(
+  words: ShellCommand, written: Set<string>, heredoc?: ShellToken, names?: ReadonlySet<string>, seen?: Set<string>,
+): string | undefined {
+  const payload = heredoc ? [heredoc] : ["echo", "printf"].includes(words[0].value) ? words : [];
+  const writer = payload.some(mentionsGenerator) || referencesWriter(payload, names, seen);
+  return generatedHookProblem(words, written, writer);
 }
 
 /** Classify only the generator outputs that may write the changelog. */
@@ -610,12 +622,13 @@ class HookScriptNames extends Set<string> {
     if (!this.has(name) || seen.has(name)) return false;
     const ancestors = new Set(seen).add(name);
     const text = this.scripts.get(name)!;
-    const { commands, spans } = parseReleaseHook(text);
+    const { commands, spans, heredocBodies } = parseReleaseHook(text);
+    const written = new Set<string>();
     const recipient = args.length ? commandReceivingArguments(text, commands, spans) : undefined;
     let preceding: ReleaseContextChange | undefined;
     for (const command of commands) {
       const words = command === recipient ? [...command, ...args] : command;
-      if (canReachGenerator(words, this, ancestors, writing, lifecycle)) return true;
+      if (generatedWriterProblem(words, written, heredocBodies.get(command), this, ancestors) || canReachGenerator(words, this, ancestors, writing, lifecycle)) return true;
       if (!this.allowUnresolvedProjects) continue;
       if ((preceding?.directory || commandContextChanges(words).some(context => context.directory))
         && maySelectUnresolvedScript(words, this)) return true;
@@ -1126,17 +1139,31 @@ function allGeneratorRenderers(last: ShellCommand[], scripts: ReadonlyMap<string
   });
 }
 
+/** Recognize a Git tail whose arguments belong to repository bookkeeping. */
+function gitTail(words: ShellCommand): boolean {
+  const command = releaseHookCommand(words);
+  return Boolean(command && basename(command[0].value) === "git");
+}
+
 /** Alternatives need no custom argument when all of their terminal generators receive the flag directly. */
 function finalHookCommand(commands: ShellCommand[], hasGenerator: boolean, scripts: ReadonlyMap<string, string>): ShellCommand {
   const last = finalHookCommands(commands);
   if (last.length > 1 && !(hasGenerator && allGeneratorRenderers(last, scripts, new Set(scripts.keys()), 0))) {
     refuseHook("Custom hook has alternative renderers. Use a single script entry point");
   }
-  return last.at(-1) ?? [];
+  const terminal = last.at(-1) ?? [];
+  if (!gitTail(terminal)) return terminal;
+  const candidates = [...new Set(commands.map(releaseOutputProducer))].filter(words => {
+    const command = releaseHookCommand(words);
+    return command && !["git", "test", "[", "[[", "true", "false", ":"].includes(basename(command[0].value));
+  });
+  if (candidates.length === 1) return candidates[0];
+  if (hasGenerator && allGeneratorRenderers(candidates, scripts, new Set(scripts.keys()), 0)) return terminal;
+  refuseHook("Cannot identify one renderer before the trailing Git command. Use a single script entry point");
 }
 
 /** Count npm option boundaries between a configured custom hook and its final executable. */
-function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<string, string>, hasGenerator: boolean): number | undefined {
+function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<string, string>, hasGenerator: boolean): { count: number; terminator?: ShellToken; hasOption?: boolean } | undefined {
   const names = new Set(scripts.keys());
   let count = 0;
   let blockedTarget: string | undefined;
@@ -1148,14 +1175,16 @@ function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<
       if (hasGenerator && (generatorCommand(invocation) || DATA_CONSUMERS.has(program)
         || [":", "true", "false", "git"].includes(program))) return undefined;
       if (blockedTarget) refuseHook("Custom script " + JSON.stringify(blockedTarget) + " cannot receive forwarded arguments. Move the logic into a script file");
-      return count;
+      const args = invocation.slice(generatorEntryIndex(invocation) + 1);
+      const boundary = args.findIndex(word => word.value === "--");
+      return { count, terminator: args[boundary], hasOption: args.slice(0, boundary).some(word => word.value === INCLUDE_EMPTY_FLAG) };
     }
     if (forward.runner === "npm" && !forward.npmSeparator) count++;
     const text = scripts.get(forward.target!);
-    if (!text) return hasGenerator ? undefined : count; // An optional missing target runs no command.
+    if (!text) return hasGenerator ? undefined : { count }; // An optional missing target runs no command.
     const { commands, spans } = parseReleaseHook(text);
     const recipient = commandReceivingArguments(text, commands, spans);
-    const producer = releaseOutputProducer(recipient ?? finalHookCommand(commands, hasGenerator, scripts));
+    const producer = releaseOutputProducer(recipient && !gitTail(recipient) ? recipient : finalHookCommand(commands, hasGenerator, scripts));
     if (producer !== recipient) blockedTarget = forward.target;
     const next = releaseHookCommand(producer === recipient ? [...producer, ...forward.args] : producer);
     if (!next) refuseHook("Custom script " + JSON.stringify(forward.target) + " cannot receive forwarded arguments. Move the logic into a script file");
@@ -1172,7 +1201,14 @@ export function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<stri
   const [program, ...args] = invocation;
   const separator = scriptForward(basename(program.value), args)?.npmSeparator;
   const boundary = separator ? args.indexOf(separator) : -1;
-  const flag = args.slice(boundary + 1).find(word => word.value === INCLUDE_EMPTY_FLAG);
+  const route = customForwardDelimiters(invocation, scripts, hasGenerator);
+  if (!route) return script; // The generator receives the flag in its own script.
+  const { count, terminator } = route;
+  if (terminator && !spans.has(terminator)) {
+    if (route.hasOption) return script;
+    refuseHook("Custom renderer ends option parsing in a shared script. Use a single script entry point");
+  }
+  const flag = args.slice(boundary + 1, terminator ? args.indexOf(terminator) : undefined).find(word => word.value === INCLUDE_EMPTY_FLAG);
   const edits: HookEdit[] = [];
   for (const word of args.slice(0, Math.max(0, boundary))) {
     if (word.value !== INCLUDE_EMPTY_FLAG) continue;
@@ -1180,11 +1216,11 @@ export function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<stri
     const padding = /^[ \t]*/.exec(script.slice(end))![0].length;
     edits.push({ start, end: end + padding, text: "" });
   }
-  const count = customForwardDelimiters(invocation, scripts, hasGenerator);
-  if (count === undefined) return script; // The generator receives the flag in its own script.
   if (!flag || count > 0) {
-    const offset = flag ? spans.get(flag)!.start : spans.get(invocation.at(-1)!)!.end;
-    const text = flag ? "-- ".repeat(count) : " " + "-- ".repeat(count) + INCLUDE_EMPTY_FLAG;
+    const before = flag ?? terminator;
+    const offset = before ? spans.get(before)!.start : spans.get(invocation.at(-1)!)!.end;
+    const option = "-- ".repeat(count) + INCLUDE_EMPTY_FLAG;
+    const text = flag ? "-- ".repeat(count) : terminator ? option + " " : " " + option;
     edits.push({ start: offset, end: offset, text });
   }
   return applyHookEdits(script, edits);

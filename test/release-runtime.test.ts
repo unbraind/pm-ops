@@ -104,7 +104,7 @@ test("an empty native probe works with no installed runtime dependencies and nev
   try {
     mkdirSync(join(root, "scripts"));
     for (const path of [
-      "release-continuation.ts", "release-changelog-options.ts", "release-hook-grammar.ts", "shell-scan.ts", "release-provenance.ts", "subprocess.ts",
+      "release-continuation.ts", "release-changelog-options.ts", "release-hook-grammar.ts", "shell-scan.ts", "release-provenance.ts", "subprocess.ts", "merge-driver.ts",
       "scripts/release-continuation.ts", "scripts/release-runtime.ts", "scripts/project-npm-lifecycle.ts", "scripts/main-invocation.ts",
     ]) {
       cpSync(new URL("../" + path, import.meta.url), join(root, path));
@@ -288,4 +288,22 @@ test("POSIX npm symlink discovery does not depend on the host Node layout", { sk
     ensureReleaseRuntime(root);
     assert.equal(readFileSync(join(root, ".github/release-runtime/installed"), "utf8"), "yes");
   } finally { restoreNpm(); removeRuntimeFixture(root); }
+});
+
+test("lifecycle discovery skips a non-executable npm and stops at an executable shim", { skip: process.platform === "win32" }, t => {
+  const root = mkdtempSync(join(tmpdir(), "release-path-policy-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const probe = join(workflowToolsRoot, "scripts/project-npm-lifecycle.ts");
+  const env = { ...process.env, PATH: [root, process.env.PATH].join(delimiter) };
+  for (const key of Object.keys(env)) if (/^npm_config_ignore_scripts$/i.test(key)) delete (env as NodeJS.ProcessEnv)[key];
+  writeFileSync(join(root, "package.json"), "{}");
+  writeFileSync(join(root, ".npmrc"), "ignore-scripts=true\n");
+  const launcher = join(root, "npm");
+  writeFileSync(launcher, "#!/bin/sh\nexit 9\n", { mode: 0o644 });
+  for (const [mode, expected] of [[0o644, "false"], [0o755, "unknown"]] as const) {
+    chmodSync(launcher, mode);
+    const result = spawnSync(process.execPath, [probe], { cwd: root, env, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, expected);
+  }
 });
