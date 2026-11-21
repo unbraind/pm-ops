@@ -2,21 +2,22 @@ id: ops-release-generated-hook-paths
 title: Audit changelog generators written into a script and executed later
 description: Greptile reproduced a redirected here-document flowing into a later script invocation on 9ba9b87. Discussion r4649579841 on pm-ops#295 records the new case.
 type: Issue
-status: in_progress
+status: open
 priority: 1
 tags[2]: "area:release","gh:unbraind/pm-ops#295"
 created_at: "2026-11-21T01:19:43.101Z"
-updated_at: "2026-11-21T01:55:14.292Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-21T02:37:53.864Z"
 author: codex-sol
 repro_steps: "Analyze a hook that uses quoted cat here-document input containing a versioned pm-changelog call, redirects to generate.sh, then runs sh generate.sh."
 expected_result: Refuse a generator-bearing here-document when its output is later executable input. Continue accepting literal preview files and preserve the runner and date-policy refusal fixtures.
 actual_result: The date auditor treats the here-document as data and misses the generator executed by the later shell command.
 regression: true
-comments[2]{created_at,author,text}:
+comments[5]{created_at,author,text}:
   "2026-11-21T01:49:12.655Z",codex-sol,Round FL verifies PRRT_kwDOTOTl1M66PZ3I with paired fixtures for redirect output executed later and redirect output retained as data.
   "2026-11-21T01:55:11.363Z",codex-sol,"The generated script fixture failed on 9ba9b87 while the paired data-only fixture passed. The candidate refuses the redirect-to-execution sequence in preparation, continuation and date audit. Committed helpers and redirected data still pass. The inherited title and policy controls pass. The pinned fleet inventory accepted 142 hooks and 144 bodies across 39 manifests."
+  "2026-11-21T02:02:29.642Z",codex-sol,"Round FL thread map. PRRT_kwDOTOTl1M66PZ3I is fixed by 02ddd0b. Redirect output that becomes a later script entry is refused with guidance to commit the script. The paired fixtures cover file launchers, ordinary data operands, quoting, and continued acceptance of inherited title values. The existing follow-up record was carried forward in 5e71c82."
+  "2026-11-21T02:27:40.435Z",codex-sol,"Round FL local results for 02ddd0b. Nine focused test files passed 348 of 348. Four isolated signing, UTF-8 and fresh-preview controls passed. Typecheck, test build, lint, duplication at zero percent, docstring and changelog checks passed. npm run coverage passed with 2158 tests, two opt-in skips, and 100 percent statements, branches, functions and lines across 53 sources. The artifact-reader fixture passed without a retry. The rewritten candidate gate is still running."
+  "2026-11-21T02:37:51.508Z",codex-sol,"Round FL final local verification for PRRT_kwDOTOTl1M66PZ3I and 02ddd0b. The pinned fleet scan accepted 142 hooks and 144 bodies from 39 manifests on both the starting and candidate versions. The full rewritten release-heading acceptance passed with 2158 tests, two opt-in skips, and 100 percent in all four dimensions across 53 sources. Both npm audits reported zero vulnerabilities. Pack dry run, changelog section and date checks, publication attestation and installed lifecycle policy passed. The regenerated changelog retains ops-b2bs under Unreleased."
 files[3]{path,scope}:
   release-changelog-options.ts,project
   release-hook-grammar.ts,project

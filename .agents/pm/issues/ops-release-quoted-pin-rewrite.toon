@@ -2,13 +2,11 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: in_progress
+status: open
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T01:55:07.362Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-21T02:37:50.545Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[127]:
+comments[130]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -399,6 +397,15 @@ comments[127]:
   - created_at: "2026-11-21T01:55:01.259Z"
     author: codex-sol
     text: "The generated script fixture failed on 9ba9b87 while the paired data-only fixture passed. The candidate refuses the redirect-to-execution sequence in preparation, continuation and date audit. Committed helpers and redirected data still pass. The inherited title and policy controls pass. The pinned fleet inventory accepted 142 hooks and 144 bodies across 39 manifests."
+  - created_at: "2026-11-21T02:02:27.893Z"
+    author: codex-sol
+    text: "Round FL thread map. PRRT_kwDOTOTl1M66PZ3I is fixed by 02ddd0b. Redirect output that becomes a later script entry is refused with guidance to commit the script. The paired fixtures cover file launchers, ordinary data operands, quoting, and continued acceptance of inherited title values. The existing follow-up record was carried forward in 5e71c82."
+  - created_at: "2026-11-21T02:27:38.447Z"
+    author: codex-sol
+    text: "Round FL local results for 02ddd0b. Nine focused test files passed 348 of 348. Four isolated signing, UTF-8 and fresh-preview controls passed. Typecheck, test build, lint, duplication at zero percent, docstring and changelog checks passed. npm run coverage passed with 2158 tests, two opt-in skips, and 100 percent statements, branches, functions and lines across 53 sources. The artifact-reader fixture passed without a retry. The rewritten candidate gate is still running."
+  - created_at: "2026-11-21T02:37:48.564Z"
+    author: codex-sol
+    text: "Round FL final local verification for PRRT_kwDOTOTl1M66PZ3I and 02ddd0b. The pinned fleet scan accepted 142 hooks and 144 bodies from 39 manifests on both the starting and candidate versions. The full rewritten release-heading acceptance passed with 2158 tests, two opt-in skips, and 100 percent in all four dimensions across 53 sources. Both npm audits reported zero vulnerabilities. Pack dry run, changelog section and date checks, publication attestation and installed lifecycle policy passed. The regenerated changelog retains ops-b2bs under Unreleased."
 files[24]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
