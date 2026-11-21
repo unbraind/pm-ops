@@ -14,11 +14,15 @@ const pipelineProducers = new WeakMap();
 const loopConditions = new WeakSet();
 const continuedDescriptors = new WeakSet();
 const braceExpansions = new WeakSet();
+const OPAQUE_PIPELINE = "Pipeline to an opaque executable";
 const BRACE_EXPANSION = /(?<!\$)\{(?:[^{}]*,[^{}]*|(?:-?\d+\.\.-?\d+|[A-Za-z]\.\.[A-Za-z])(?:\.\.-?\d+)?)\}/;
 const VARIABLE_REFERENCE = /^(?:\\\n)*(?:\{(?:\\\n)*[!#]?(?:\\\n)*)?([A-Za-z_](?:\w|\\\n)*)/;
 /** Return the producing command upstream of a supported output filter. */
 export function releaseOutputProducer(command) {
-    return pipelineProducers.get(command) ?? command;
+    const producer = pipelineProducers.get(command);
+    if (producer && problems.get(producer[0]) === OPAQUE_PIPELINE)
+        refuseHook(OPAQUE_PIPELINE);
+    return producer ?? command;
 }
 /** Whether shell edits in this command are local to a pipeline stage or subshell. */
 export function isIsolatedReleaseCommand(words) {
@@ -60,12 +64,26 @@ export function refuseHook(construct) {
 export function describeReleaseContextChange(construct) {
     return "Unsupported release hook context change " + construct + ". Run the generator from the root package directory";
 }
-/** Check the parsed shape of a plain cat command reading one here-document. */
+/** Check that cat reads one here-document and redirects output only to literal files. */
 function isCatHeredoc(words) {
-    if (words[0]?.value !== "cat" || !words[1])
+    if (words[0]?.value !== "cat")
         return false;
-    const input = shellRedirection(words[1]);
-    return (input?.operator === "<<" || input?.operator === "<<-") && words.length === (input.joined ? 2 : 3);
+    let inputs = 0;
+    for (let index = 1; index < words.length; index++) {
+        const redirect = shellRedirection(words[index]);
+        if (!redirect)
+            return false;
+        const target = redirect.joined ? words[index] : words[++index];
+        if (!target || (!redirect.joined && shellRedirection(target)))
+            return false;
+        if (redirect.operator === "<<" || redirect.operator === "<<-") {
+            inputs++;
+        }
+        else if (!/^(?:\d*>[>|]?|&>>?)$/.test(redirect.operator)
+            || target.unresolved || hasBraceExpansion(target) || problems.has(target))
+            return false;
+    }
+    return inputs === 1;
 }
 /** Split only on unquoted shell list operators. Never execute or recursively guess a payload. */
 export function parseReleaseHook(text) {
@@ -114,11 +132,15 @@ export function parseReleaseHook(text) {
     while (i < text.length) {
         const ch = text[i];
         if (/^[;&|\n]$/.test(ch) && !isCombinedOutputRedirect(text, i)) {
+            let next = i + 1;
+            while (text.startsWith("\\\n", next))
+                next += 2;
+            const operator = ch + (text[next] ?? "");
             const opener = words;
             if (words.length) {
-                if (ch === "&" && text[i + 1] !== "&")
+                if (ch === "&" && operator !== "&&")
                     problems.set(words[0], "Shell background or descriptor operator &");
-                if (ch === "|" && text[i + 1] !== "|")
+                if (ch === "|" && operator !== "||")
                     piped.add(words);
             }
             finishCommand();
@@ -165,7 +187,7 @@ export function parseReleaseHook(text) {
                 heredocComment = -1;
                 continue;
             }
-            i += /^(?:&&|\|[|&])/.test(text.slice(i, i + 2)) ? 2 : 1;
+            i = /^(?:&&|\|[|&])$/.test(operator) ? next + 1 : i + 1;
             continue;
         }
         if (/\s/.test(ch)) {
@@ -308,12 +330,13 @@ export function parseReleaseHook(text) {
             isolatedCommands.add(command[0]);
         if (upstream.length) {
             const sink = releaseHookCommand(command)?.[0];
-            if (!sink || sink.unresolved || !/^(?:cat|awk|sed|grep|head|tail|cut|tr|sort|uniq|wc)$/.test(basename(sink.value))) {
+            const name = sink ? basename(sink.value) : "";
+            pipelineProducers.set(command, upstream[0]);
+            if (sink?.unresolved || !/^(?:cat|awk|sed|grep|head|tail|cut|tr|sort|tee|uniq|wc)$/.test(name)
+                || (name === "tee" && hookSyntaxProblem(command))) {
                 for (const source of upstream)
-                    problems.set(source[0], "Pipeline to an opaque executable");
+                    problems.set(source[0], OPAQUE_PIPELINE);
             }
-            else
-                pipelineProducers.set(command, upstream[0]);
         }
         if (piped.has(command))
             upstream.push(command);

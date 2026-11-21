@@ -78,9 +78,18 @@ test("an untracked directory replacing an indexed file is absent from the candid
 
 test("candidate snapshot refuses a staged dangling symlink", t => {
   const { source, candidate, env, git } = snapshotFixture(t, ["keep.txt"]);
-  symlinkSync("missing-target", join(source, "link"), "file");
+  try {
+    symlinkSync("missing-target", join(source, "link"), "file");
+  } catch (error) {
+    if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+    t.skip("Windows denied file symlink creation");
+    return;
+  }
   git(source, "add", "--", "link");
+  assert.match(git(source, "ls-files", "--stage", "--", "link").toString(), /^120000 /);
+  writeFileSync(join(source, "keep.txt"), "reviewed edit\n");
   assert.throws(() => mirrorTrackedSnapshot(source, candidate, env), /Cannot mirror tracked symbolic link: link/);
+  assert.equal(readFileSync(join(candidate, "keep.txt"), "utf8"), "committed\n");
   assert.equal(git(candidate, "status", "--porcelain").toString(), "");
 });
 

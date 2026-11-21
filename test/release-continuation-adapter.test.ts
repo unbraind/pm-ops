@@ -1576,6 +1576,8 @@ test("heading-date continuation mirrors the generator at the committer offset de
   const env = { NPM_PROJECT_PATH: root, RELEASE_TIMEZONE: "Europe/Vienna", CHANGELOG_SCRIPT: "generate", CHANGELOG_CHECK_SCRIPT: "check", NOTES_SCRIPT: "notes" };
   const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
   const lifecycle = Object.entries(process.env).filter(([key]) => /^npm_config_ignore_scripts$/i.test(key));
+  const savedPolicy = process.env.PREPARED_NPM_LIFECYCLE;
+  delete process.env.PREPARED_NPM_LIFECYCLE;
   for (const [key] of lifecycle) delete process.env[key];
   Object.assign(process.env, env);
   try {
@@ -1613,21 +1615,16 @@ test("heading-date continuation mirrors the generator at the committer offset de
     await runReleaseContinuation("heading-date");
     writeFileSync(npmrc, "ignore-scripts=false\n");
     await assert.rejects(runReleaseContinuation("heading-date"), /2026-11-06.*2026-11-07.*retire-unpublished/);
-    const savedPolicy = process.env.PREPARED_NPM_LIFECYCLE;
-    try {
-      process.env.PREPARED_NPM_LIFECYCLE = "false";
-      await runReleaseContinuation("heading-date");
-      writeFileSync(npmrc, "ignore-scripts=true\\n");
-      process.env.PREPARED_NPM_LIFECYCLE = "true";
-      await assert.rejects(runReleaseContinuation("heading-date"), /retire-unpublished/);
-      for (const value of ["unknown", "", "invalid"]) {
-        process.env.PREPARED_NPM_LIFECYCLE = value;
-        await assert.rejects(runReleaseContinuation("heading-date"), /ignore-scripts.*pregenerate/);
-      }
-    } finally {
-      if (savedPolicy === undefined) delete process.env.PREPARED_NPM_LIFECYCLE;
-      else process.env.PREPARED_NPM_LIFECYCLE = savedPolicy;
+    process.env.PREPARED_NPM_LIFECYCLE = "false";
+    await runReleaseContinuation("heading-date");
+    writeFileSync(npmrc, "ignore-scripts=true\n");
+    process.env.PREPARED_NPM_LIFECYCLE = "true";
+    await assert.rejects(runReleaseContinuation("heading-date"), /retire-unpublished/);
+    for (const value of ["unknown", "", "invalid"]) {
+      process.env.PREPARED_NPM_LIFECYCLE = value;
+      await assert.rejects(runReleaseContinuation("heading-date"), /ignore-scripts.*pregenerate/);
     }
+    delete process.env.PREPARED_NPM_LIFECYCLE;
     for (const bad of [undefined, null, 1, "", " "]) {
       write({ generate: script, check: script, notes: bad });
       await assert.rejects(runReleaseContinuation("heading-date"), /Missing changelog hook: notes/);
@@ -1635,6 +1632,8 @@ test("heading-date continuation mirrors the generator at the committer offset de
     write(undefined);
     await assert.rejects(runReleaseContinuation("heading-date"), /Missing changelog hook: generate/);
   } finally {
+    if (savedPolicy === undefined) delete process.env.PREPARED_NPM_LIFECYCLE;
+    else process.env.PREPARED_NPM_LIFECYCLE = savedPolicy;
     Object.assign(process.env, Object.fromEntries(lifecycle));
     Object.keys(env).forEach(key => {
       const saved = previous[key];

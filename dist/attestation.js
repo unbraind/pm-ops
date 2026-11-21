@@ -987,7 +987,9 @@ export function executableShellBodies(source) {
             if (unknownNames)
                 environment[IGNORE_SCRIPTS_ENV] = "unknown";
             body.environment = environment;
-            if (step.if !== false) {
+            if (step.if === false)
+                body.disabled = true;
+            else {
                 const shell = step.shell ?? defaultShell;
                 const shellKnown = shell === undefined ? posixRunner : typeof shell === "string" && /^(?:bash|sh)(?:\s|$)/.test(shell);
                 const conditional = (step.if !== undefined && step.if !== true) || Boolean(step["continue-on-error"]);

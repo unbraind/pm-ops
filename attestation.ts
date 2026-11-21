@@ -741,6 +741,8 @@ interface ExecutableShellBody {
   workingDirectory?: unknown;
   /** Workflow, job and step environment merged in execution precedence. */
   environment?: Readonly<Record<string, unknown>>;
+  /** The workflow step has a literal false condition. */
+  disabled?: true;
 }
 
 /** Split Compose's string command syntax into argv; operators and expansions are not shell. */
@@ -1010,7 +1012,8 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
       const environment = { ...mapping(data?.env), ...mapping(job!.env), ...inherited, ...mapping(step.env) };
       if (unknownNames) environment[IGNORE_SCRIPTS_ENV] = "unknown";
       body.environment = environment;
-      if (step.if !== false) {
+      if (step.if === false) body.disabled = true;
+      else {
         const shell = step.shell ?? defaultShell;
         const shellKnown = shell === undefined ? posixRunner : typeof shell === "string" && /^(?:bash|sh)(?:\s|$)/.test(shell);
         const conditional = (step.if !== undefined && step.if !== true) || Boolean(step["continue-on-error"]);

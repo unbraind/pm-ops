@@ -25,6 +25,19 @@ function workflow(...commands: string[]) {
   } }, { blockQuote: "literal" }) };
 }
 
+test("the date audit skips only a literal false workflow step", () => {
+  const audit = (condition: boolean | string) => auditInvocations([{
+    file: ".github/workflows/release.yml", text: stringify({ jobs: { release: { steps: [
+      { if: condition, run: "pm-changelog --release-version-from-package" },
+      { run: "pm-changelog " + standing },
+    ] } } }),
+  }]).failures;
+  assert.deepEqual(audit(false), []);
+  for (const condition of [true, "${{ inputs.generate }}"]) {
+    assert.match(audit(condition)[0] ?? "", /neither --date-from-version/);
+  }
+});
+
 test("npm runs the prepared pre/main/post hooks with separate argument lists", t => {
   const root = mkdtempSync(join(tmpdir(), "release-hook-npm-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -213,6 +226,18 @@ test("custom notes delimiters follow explicit forwards and refuse unreachable ar
   assert.equal(includeEmptyCustomHook(">", scripts), ">");
   assert.throws(() => includeEmptyCustomHook("npm run comment", scripts), /cannot receive forwarded arguments/);
   assert.throws(() => includeEmptyCustomHook("npm run cycle", scripts), /forward depth exceeds/);
+});
+
+test("notes preparation routes options before tee and refuses an opaque pipeline", () => {
+  const render = "node notes.mjs";
+  for (const suffix of [" | tee /dev/null", " | tee preview.md | head -n 1", " | tee '>(sh)'"]) {
+    assert.equal(includeEmptyCustomHook(render + suffix, new Map()), render + " --include-empty" + suffix);
+  }
+  for (const suffix of [" | node sink.mjs", " | node sink.mjs | tee preview.md", " | tee preview.md | node sink.mjs", " | tee >(sh)"]) {
+    const script = render + suffix;
+    assert.throws(() => includeEmptyCustomHook(script, new Map()), /Pipeline to an opaque executable/);
+    assert.throws(() => includeEmptyCustomHook("npm run render", new Map([["render", script]])), /Pipeline to an opaque executable/);
+  }
 });
 
 test("npm lifecycle controls respect option order and stop at the argument delimiter", () => {
@@ -588,6 +613,18 @@ test("inherited npm bindings distinguish ordinary data from executable and polic
   inspect('node helper.mjs --date-fallback "$TITLE"; pm-changelog ' + standing);
 });
 
+test("npm forwards inherited title data separately from inherited policy selection", () => {
+  const hook = "env TITLE=Release npm run relay";
+  const writer = "pm-changelog " + standing;
+  const inspect = (tail: string) => resolveChangelogHooks({ hook, relay: "npm run writer -- " + tail, writer }, ["hook"]);
+  for (const title of ['--title "$TITLE"', '"--title=${TITLE}"', '--pm-arg "$TITLE"']) {
+    assert.equal(inspect(title).get("writer"), writer);
+  }
+  for (const option of ['"$TITLE"', '--release-version-from-package="$TITLE"', '--date-from-version="$TITLE"', '--date-fallback "$TITLE"', '--until "$TITLE"']) {
+    assert.throws(() => inspect(option), /binding through variable assignment TITLE/i, option);
+  }
+});
+
 test("the forwarded generator check uses the child's argv and actual variable expansions", () => {
   const hook = "GEN=entrypoint npm run delegate";
   const reason = /generator binding through variable assignment GEN.*npm run forward/i;
@@ -950,6 +987,41 @@ test("literal here-document data is never rewritten and opaque executable bodies
   }
   const title = 'pm-changelog --title "first\ncat <<END\n' + body + '\nEND\nlast" ' + standing;
   assert.deepEqual(auditInvocations([workflow(title)]).failures, []);
+});
+
+test("literal cat file redirects preserve here-document data without allowing execution", () => {
+  const body = "pm-changelog --version v2026.11.16";
+  const next = "pm-changelog " + standing;
+  for (const opener of ["cat <<'END' >preview.txt", 'cat > "preview file" <<- \'END\'', "cat <<'END' 2>>preview.err &>preview.txt"]) {
+    const script = opener + "\n$(" + body + ")\nEND\n" + next;
+    assert.deepEqual(auditInvocations([workflow(script)]).failures, [], opener);
+    assert.equal(includeEmptyReleaseSections(script), script + " --include-empty", opener);
+  }
+  for (const [opener, data] of [
+    ["cat <<END >preview.txt", "$(" + body + ")"],
+    ["sh <<'END' >preview.txt", body],
+    ["cat <<'END' >preview.txt | sh", body],
+    ["cat <<'END' >$TARGET", body],
+    ["cat <<'END' >preview{1,2}.txt", body],
+    ["cat <<'END' preview.txt", body],
+    ["cat <<'END' >", body],
+    ["cat <<'END' > >preview.txt", body],
+  ]) {
+    assert.throws(() => includeEmptyReleaseSections(opener + "\n" + data + "\nEND\n" + next), /Here-document/);
+  }
+});
+
+test("continued list operators preserve synchronous release commands", () => {
+  const generator = "pm-changelog " + standing;
+  const continuation = "\\\n";
+  for (const operator of ["&" + continuation + "&", "|" + continuation.repeat(2) + "|"]) {
+    const script = generator + " " + operator + " echo done";
+    assert.deepEqual(auditInvocations([workflow(script)]).failures, []);
+    assert.equal(includeEmptyReleaseSections(script), generator + " --include-empty " + operator + " echo done");
+  }
+  assert.equal(includeEmptyReleaseSections(generator + ";"), generator + " --include-empty;");
+  assert.throws(() => includeEmptyReleaseSections(generator + " &" + continuation + " echo done"), /background/);
+  assert.throws(() => includeEmptyReleaseSections(generator + " |" + continuation + " node sink.mjs"), /opaque executable/);
 });
 
 test("punctuation in a literal cat here-document delimiter preserves data and the next command", () => {

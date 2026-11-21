@@ -26,6 +26,7 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
       const separate = arg === "--mode";
       const value = separate ? args[index + 1] : arg.slice("--mode=".length);
       if (!value || value.startsWith("--")) throw new Error("--mode requires a value");
+      if (value !== "replace" && value !== "prepend") throw new Error("--mode must be replace or prepend");
       mode = value;
       consumed.add(index);
       if (separate) consumed.add(index + 1);
@@ -35,7 +36,6 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
     }
   }
   const forwarded = args.filter((_, index) => !consumed.has(index));
-  if (mode !== "replace" && mode !== "prepend") throw new Error("--mode must be replace or prepend");
   if (forwarded.some(arg => ["--all-release-tags", "--since-previous-tag", "--until-release-tag"].includes(arg))
     && spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, env, encoding: "utf8" }).status !== 0) {
     throw new Error("Changelog release windows need a git repository; the current directory is not inside one. Generate from tracker items without tag flags instead.");

@@ -189,7 +189,8 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
       }
     } else {
       if (/^\.github\/workflows\/.*\.ya?ml$/.test(source.file)) addConfiguredHooks(source.text, entryPoints);
-      for (const { text, line, workingDirectory, environment } of executableShellBodies(source)) {
+      for (const { text, line, workingDirectory, environment, disabled } of executableShellBodies(source)) {
+        if (disabled) continue;
         if (!isRootProject(workingDirectory)) {
           found.push(...inspectProjectStep(source.file, text, line, workingDirectory));
           continue;

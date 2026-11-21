@@ -2,12 +2,13 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { createChangelog, resolveReleaseTagWindows, type PmItem } from "pm-changelog";
 import { execFileSync, spawnSync } from "../subprocess.ts";
 import { committedReleaseNotes } from "../release-repair.ts";
 import { describeEmptyReleases, runChangelog } from "../scripts/pm-changelog.ts";
+import { npmCli } from "../scripts/release-runtime.ts";
 import { verify as verifySections } from "../scripts/verify-release-changelog-sections.ts";
 import { parse } from "yaml";
 import { decideDailyRelease } from "../daily-release.ts";
@@ -95,6 +96,14 @@ function releaseCommands(generator = resolve("scripts/pm-changelog.ts"), node = 
 /** Release-step environment over one fixture tracker, with the resumed heading date when given. */
 function releaseStepEnv(root: string, env: NodeJS.ProcessEnv, headingDate = ""): NodeJS.ProcessEnv {
   return { ...env, IS_RUST: "false", GITHUB_OUTPUT: join(root, "step-outputs"), CONTINUATION_SCRIPT: resolve("scripts/release-continuation.ts"), CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check", NOTES_SCRIPT: "release:notes", RELEASE_HEADING_DATE: headingDate, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: join(root, "summary.md"), NPM_CONFIG_USERCONFIG: "/dev/null" };
+}
+
+/** Invoke npm through Node while retaining POSIX hook syntax on Git for Windows. */
+function npmRunArgs(hook: string, ...flags: string[]): string[] {
+  const shell = process.platform === "win32"
+    ? resolve(execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim(), "../../../bin/bash.exe")
+    : "/bin/sh";
+  return [npmCli(), "run", "--script-shell=" + shell, ...flags, hook];
 }
 
 /** Commit the prepared release files with a controlled committer timestamp. */
@@ -206,6 +215,24 @@ test("inline and separate prepend mode preserve the selected output history", ()
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("each explicit adapter mode must be valid before the last valid mode wins", () => {
+  const { root, env } = tracker();
+  try {
+    const path = join(root, "CHANGELOG.md");
+    const history = "# Changelog\n\n## 2026.1.1 - 2026-01-01\n\nPrevious release.\n";
+    const common = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22"];
+    writeFileSync(path, history);
+    for (const invalid of [["--mode=typo"], ["--mode", "typo"]]) {
+      assert.throws(() => runChangelog([...common, ...invalid, "--mode", "replace"], root, env), /--mode must be replace or prepend/);
+      assert.equal(readFileSync(path, "utf8"), history);
+    }
+    assert.equal(runChangelog([...common, "--mode=replace", "--mode", "prepend"], root, env), 0);
+    assert.match(readFileSync(path, "utf8"), /Previous release/);
+    assert.equal(runChangelog([...common, "--mode", "prepend", "--mode=replace"], root, env), 0);
+    assert.doesNotMatch(readFileSync(path, "utf8"), /Previous release/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("tag generation refuses a plain tracker clearly while item generation works with no Git on PATH", () => {
   const { root, env } = tracker();
   try {
@@ -293,7 +320,7 @@ test("dependency-only release windows support forwarded generators and custom no
     const result = runBashFixture(script, { cwd: root, env: releaseEnv, encoding: "utf8" });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     for (const file of ["CHANGELOG.md", "RELEASE_NOTES.md"]) assert.match(committedReleaseNotes(readFileSync(join(root, file), "utf8"), "2026.10.23"), /^No (?:tracked )?changes\.\n$/);
-    execFileSync("npm", ["run", "release:check"], { cwd: root, env: releaseEnv });
+    execFileSync(process.execPath, npmRunArgs("release:check"), { cwd: root, env: releaseEnv });
     const prepared = readFileSync(join(root, "package.json"), "utf8");
     assert.deepEqual(JSON.parse(prepared).scripts, { ...commands, changes: commands.changes + " --include-empty" });
     const invalidDate = runBashFixture(script, { cwd: root, env: { ...releaseEnv, RELEASE_HEADING_DATE: "tomorrow" }, encoding: "utf8" });
@@ -331,7 +358,7 @@ test("dependency-only release windows support forwarded generators and custom no
     }
     writeFileSync(join(root, "package.json"), prepared);
     commitAndTag(root, env, "v2026.10.23", "2026-10-23T14:00:00Z");
-    execFileSync("npm", ["run", "release:check"], { cwd: root, env: releaseEnv });
+    execFileSync(process.execPath, npmRunArgs("release:check"), { cwd: root, env: releaseEnv });
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -340,6 +367,11 @@ test("custom notes keep the saved option before shell terminators and comments",
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const manifest = join(root, "package.json");
   const env = releaseStepEnv(root, process.env);
+  const blocked = join(root, "no-launcher");
+  mkdirSync(blocked);
+  writeFileSync(join(blocked, "npm"), "#!/bin/sh\nexit 97\n", { mode: 0o755 });
+  writeFileSync(join(blocked, "npm.cmd"), "@exit /b 97\r\n");
+  const launchEnv = { ...env, PATH: [blocked, env.PATH].join(delimiter) };
   const prepare = [resolve("scripts/prepare-release-changelog.ts")];
   writeFileSync(join(root, "notes.mjs"), 'console.log(JSON.stringify(process.argv.slice(2)));\n');
   for (const suffix of [";", "\n", "; # notes end\n"]) {
@@ -352,7 +384,9 @@ test("custom notes keep the saved option before shell terminators and comments",
     execFileSync(process.execPath, prepare, { cwd: root, env });
     const prepared = readFileSync(manifest, "utf8");
     assert.deepEqual(JSON.parse(prepared).scripts, { ...hooks, "release:notes": "node notes.mjs --include-empty" + suffix });
-    assert.equal(execFileSync("npm", ["run", "--silent", "release:notes"], { cwd: root, env, encoding: "utf8" }), '["--include-empty"]\n');
+    for (const npmEnv of [env, launchEnv]) {
+      assert.equal(execFileSync(process.execPath, npmRunArgs("release:notes", "--silent"), { cwd: root, env: npmEnv, encoding: "utf8" }), '["--include-empty"]\n');
+    }
     execFileSync(process.execPath, prepare, { cwd: root, env });
     assert.equal(readFileSync(manifest, "utf8"), prepared);
   }
@@ -393,12 +427,12 @@ test("custom notes receive the saved argument through npm independently of pre/p
     const prepared = readFileSync(manifest, "utf8");
     assert.equal(JSON.parse(prepared).scripts["release:notes"], expected);
     rmSync(previewFile, { force: true });
-    const output = execFileSync("npm", ["run", "--silent", "release:notes"], { cwd: root, env, encoding: "utf8" });
+    const output = execFileSync(process.execPath, npmRunArgs("release:notes", "--silent"), { cwd: root, env, encoding: "utf8" });
     assert.deepEqual(JSON.parse(output.trim().split("\n").at(-1)!), argv);
     assert.ok(JSON.parse(readFileSync(previewFile, "utf8")).includes("--include-empty"));
     if (main === "node notes.mjs") {
       rmSync(join(root, "preview.md"));
-      execFileSync("npm", ["run", "--silent", "--ignore-scripts", "release:notes"], { cwd: root, env });
+      execFileSync(process.execPath, npmRunArgs("release:notes", "--silent", "--ignore-scripts"), { cwd: root, env });
       assert.equal(existsSync(join(root, "preview.md")), false);
     }
     execFileSync(process.execPath, prepare, { cwd: root, env });
@@ -474,14 +508,14 @@ test("prepare commits the heading its tag produces, for same-day and resumed rel
         assert.equal(heading, `## ${version} - ${nextDay}`, "use the committer day across Vienna midnight");
       }
       // The release PR's gate runs while the candidate is untagged.
-      execFileSync("npm", ["run", "release:check"], { cwd: root, env: releaseEnv });
+      execFileSync(process.execPath, npmRunArgs("release:check"), { cwd: root, env: releaseEnv });
       commitAndTag(root, env, `v${version}`, tagDay);
       // Main after tagging: the gate passes with no follow-up regeneration.
-      execFileSync("npm", ["run", "release:check"], { cwd: root, env: releaseEnv });
+      execFileSync(process.execPath, npmRunArgs("release:check"), { cwd: root, env: releaseEnv });
       const committed = readFileSync(join(root, "CHANGELOG.md"), "utf8");
       const timestamp = execFileSync("git", ["show", "-s", "--format=%cI", `v${version}`], { cwd: root, env, encoding: "utf8" });
       assert.ok(committed.split("\n").includes(`## ${version} - ${timestamp.slice(0, 10)}`));
-      execFileSync("npm", ["run", "changelog:full"], { cwd: root, env: releaseEnv });
+      execFileSync(process.execPath, npmRunArgs("changelog:full"), { cwd: root, env: releaseEnv });
       assert.equal(readFileSync(join(root, "CHANGELOG.md"), "utf8"), committed, `${version} ${headingDate}: post-tag regeneration must equal the prepared bytes`);
       if (headingDate) {
         // A later same-day release restores the standing policy, so a stale
@@ -522,7 +556,7 @@ test("a resumed release passes preparation, continuation and post-tag checks acr
     commitPreparedRelease(root, env, merge);
     execFileSync(process.execPath, [releaseEnv.CONTINUATION_SCRIPT!, "heading-date"], { cwd: root, env: releaseEnv });
     execFileSync("git", ["tag", "--no-sign", plan.tag], { cwd: root, env });
-    execFileSync("npm", ["run", "changelog:check"], { cwd: root, env: releaseEnv });
+    execFileSync(process.execPath, npmRunArgs("changelog:check"), { cwd: root, env: releaseEnv });
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -651,8 +685,8 @@ test("preparation refuses a stale all-tags cutoff without writing any hooks", ()
     const compatible = Object.fromEntries(Object.entries(hooks).map(([name, command]) => [name, command.replace(stale, day)]));
     writeFileSync(filename, JSON.stringify({ version, scripts: compatible }));
     execFileSync(process.execPath, prepare, { cwd: root, env: releaseEnv });
-    execFileSync("npm", ["run", "changelog:full"], { cwd: root, env: releaseEnv });
-    execFileSync("npm", ["run", "changelog:check"], { cwd: root, env: releaseEnv });
+    execFileSync(process.execPath, npmRunArgs("changelog:full"), { cwd: root, env: releaseEnv });
+    execFileSync(process.execPath, npmRunArgs("changelog:check"), { cwd: root, env: releaseEnv });
     assert.match(readFileSync(changelog, "utf8"), /^## 2026\.11\.16 - 2026-11-17$/m);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

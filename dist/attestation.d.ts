@@ -104,6 +104,8 @@ interface ExecutableShellBody {
     workingDirectory?: unknown;
     /** Workflow, job and step environment merged in execution precedence. */
     environment?: Readonly<Record<string, unknown>>;
+    /** The workflow step has a literal false condition. */
+    disabled?: true;
 }
 /** Extract structured commands together with their original scalar source ranges. */
 export declare function executableShellBodies(source: SourceFile): ExecutableShellBody[];
