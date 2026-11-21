@@ -3,16 +3,14 @@ title: Release 2026.11.15 changelog heading drifts after rollover publication
 description: "Baseline origin/main fails npm run changelog:check. CHANGELOG.md says 2026.11.15 - 2026-11-15, while tag v2026.11.15 points at the November 16 release commit. The pinned generator derives the tagged heading from commit time, regenerating 2026-11-16. Confirmed on unchanged origin/main while fixing #290."
 type: Issue
 pm_format_version: 2
-status: in_progress
+status: open
 priority: 2
 tags[3]: "area:release","gh:unbraind/pm-ops#292","gh:unbraind/pm-ops#295"
 created_at: "2026-11-16T19:17:51.165Z"
-updated_at: "2026-11-21T18:18:45.303Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-21T18:37:51.958Z"
 author: codex-sol
 acceptance_criteria: "Resolve the existing tagged release-heading date policy mismatch; npm run changelog:check and release date checks agree before and after rollover without changing historical tags."
-comments[196]{created_at,author,text}:
+comments[198]{created_at,author,text}:
   "2026-11-16T19:18:50.836Z",codex-sol,"Verified npm run changelog:check fails on untouched origin/main c29fe88 as well as the fix branch. Tag v2026.11.15 targets c29fe88 with commit time 2026-11-16T17:43:01Z. Regeneration changes only the first heading date from 2026-11-15 to 2026-11-16. No historical tags or changelog content were changed for #290."
   "2026-11-16T19:24:41.440Z","harness:claude-code","2026-11-16 20:0xZ (orchestrator): root cause filed as unbraind/pm-ops#292. v2026.11.15 was prepared and tagged on 11-16, prepare rendered the heading from the version (2026-11-15), and after tagging pm-changelog uses the real tag date (2026-11-16, by design per pm-changelog#120). Regenerated CHANGELOG.md in PR #291 so 'npm run changelog:check' passes on this branch (exit 0); main stays red until #291 or another regeneration merges."
   "2026-11-16T22:58:09.756Z",pi-ops-292,"Root cause (issue #292): prepare renders the pending version's heading with --date-from-version, so a resumed candidate (version day before today) is stamped with its version day. The release step then tags it today; pm-changelog by design derives a tagged window's heading from the tag commit date (pm-changelog#120), so post-tag regeneration on unchanged main renders a different day and changelog:check is red on main. The release PR's own CI passes (candidate still untagged), so the failure only appears after the merge.\n\nDesign: use the generator's existing --date-fallback flag (applies only while no release tag exists; ignored once the tag exists, so it matches post-tag invocations byte-for-byte). decideDailyRelease now outputs heading_date: today in RELEASE_TIMEZONE, padded ISO, when the version's calendar day is before today; empty for a same-day release, which is therefore unchanged. The 'Generate changelog and release notes' step, in the same in-place package.json policy rewrite that already appends --include-empty, swaps --date-from-version for --date-fallback <heading_date> in the three changelog scripts when resumed, refreshes a stale pin when a candidate is re-prepared on a later day, and restores --date-from-version when the pending version is current again. The release commit carries the pinned spelling, so the release PR's CI (untagged candidate), prepare's nested release:check and post-tag checks on main all regenerate the same bytes with no follow-up regeneration. The date verifier accepts a pinned --date-fallback day (explicit ISO day only) as an equally clock-free alternative to --date-from-version. Rust/justfile releases (CHANGELOG_DATE derived from the tag name) keep their own spelling and are not touched."
@@ -209,7 +207,9 @@ comments[196]{created_at,author,text}:
   "2026-11-21T17:37:23.183Z",codex-sol,"The focused suite found that inline boolean validation changed the refusal for a dynamic date flag. The paired fixtures preserve the unresolved-option diagnostic for dynamic date and package selectors. Literal inline booleans are refused, while inline version values and dynamic title data are still accepted."
   "2026-11-21T18:11:45.229Z",codex-sol,Round FT review map. PRRT_kwDOTOTl1M66Ynw1 uses 8b436fe and 585c24c to refuse inline package-version selector values and retain the unresolved-option diagnostic. PRRT_kwDOTOTl1M66Ynw5 uses 8b436fe to preserve alternative renderers in OR lists and script forwards. PRRT_kwDOTOTl1M66YnxA uses 8b436fe to pass the adapter's resolved output path to the generator. PRRT_kwDOTOTl1M66YnxE uses 8b436fe and fdf945a to require a verified Node for stock Windows launchers. PRRT_kwDOTOTl1M66YnxG uses 8b436fe and fdf945a to honor empty POSIX PATH entries in the lifecycle probe. PRRT_kwDOTOTl1M66YnxI uses 8b436fe to clear both npm lifecycle environment spellings in the fixture. PRRT_kwDOTOTl1M66YnxL uses 8b436fe to use a known npm launcher in the heading-date fixture. PRRT_kwDOTOTl1M66YnxO uses 8b436fe to refuse sparse snapshot omissions and preserve genuine deletions. PRRT_kwDOTOTl1M66YnxQ uses 8b436fe and fdf945a to use pinned fixture-owned Windows launcher templates and retain shim refusal. PRRT_kwDOTOTl1M650IRm and PRRT_kwDOTOTl1M650SdF uses 24d844c to accept quoted ordinary title data and refuse inherited generator or policy selection. PRRT_kwDOTOTl1M650SdV uses 24d844c to require a fresh preview in each lifecycle row. PRRT_kwDOTOTl1M650Sda uses accb464 to disable tag signing locally in both disposable repositories. PRRT_kwDOTOTl1M650Sdd uses accb464 to inject invalid UTF-8 into Git indexes without using an invalid filesystem name.
   "2026-11-21T18:18:45.291Z",codex-sol,Standalone coverage reached 2200 passing tests and 100% in all four dimensions over 54 source files. The rewritten candidate matched that coverage but the publish audit correctly classified the verbatim shell shebang in the launcher fixture as executable source. The paired fixture preserves the real workflow in the tracked source scan and stores the exact launcher bytes as test data. The publish audit's source rules are unchanged.
-files[37]{path,scope}:
+  "2026-11-21T18:20:40.765Z",codex-sol,PRRT_kwDOTOTl1M66YnxQ also maps to 8156384 for keeping the pinned fixture as data. Both template hashes matched the upstream npm 11.21.0 templates after decoding. The tracked source regression and the real publish-attestation gate both passed.
+  "2026-11-21T18:37:49.396Z",codex-sol,"Round FT final local verification passed. Standalone npm run coverage on 585c24c passed 2200 tests with 100% statements, branches, functions and lines across 54 sources. The rewritten release acceptance on 8156384 passed its complete release gate with 2201 passing tests, zero failures, two opt-in real-repository skips, and the same four 100% results. Typecheck, lint, zero duplication, docstrings, changelog:check, publisher attestation and lifecycle checks passed. Regeneration after fetching tags was byte-identical with ops-b2bs under Unreleased. The pinned fleet accepted 142 hooks and reached 144 bodies across 39 manifests, with no renderer refusals."
+files[39]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
   CHANGELOG.md,project
@@ -247,7 +247,9 @@ files[37]{path,scope}:
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
   test/release-runtime.test.ts,project
-tests[66]:
+  test/attestation-union.test.ts,project
+  test/fixtures/launchers/npm-11.21.0/templates.json,project
+tests[68]:
   - command: npm run typecheck
     scope: project
     provenance:
@@ -714,6 +716,20 @@ tests[66]:
     provenance:
       author: codex-sol
       created_at: "2026-11-21T17:15:22.038Z"
+      source_kind: local_mutation
+      source_ref: fix/release-hook-wrapper-options-bm
+  - command: node --test --test-name-pattern='launcher specimens stay data|Windows lifecycle discovery' test/attestation-union.test.ts test/release-runtime.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-21T18:20:47.420Z"
+      source_kind: local_mutation
+      source_ref: fix/release-hook-wrapper-options-bm
+  - command: "npm run verify:release-publish-attestation"
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-21T18:20:50.673Z"
       source_kind: local_mutation
       source_ref: fix/release-hook-wrapper-options-bm
 docs[4]{path,scope}:
