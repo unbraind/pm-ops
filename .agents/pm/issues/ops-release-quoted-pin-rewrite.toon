@@ -2,13 +2,11 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: in_progress
+status: open
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T19:44:21.019Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-21T20:28:24.850Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[172]:
+comments[174]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -534,6 +532,12 @@ comments[172]:
   - created_at: "2026-11-21T19:38:42.119Z"
     author: codex-sol
     text: All five Round FV findings reproduced in paired local fixtures. The pinned baseline and the candidate fleet scans each accepted 142 hooks and reached 144 script bodies across 39 manifests. The active and configured npm policies are now carried independently through preparation and continuation.
+  - created_at: "2026-11-21T19:45:57.644Z"
+    author: codex-sol
+    text: "Round FV thread map. GitHub returned all 222 review threads, with these five open at 2ce0430. 7c2d9bd fixes PRRT_kwDOTOTl1M66bVVX by binding the prepared active and nested npm policies, PRRT_kwDOTOTl1M66bVVb by preserving uncertainty after a possibly unset expansion, PRRT_kwDOTOTl1M66bVVd by identifying the destination of a changelog copy, PRRT_kwDOTOTl1M66bVVe by retaining the renderer across literal redirect-only segments, and PRRT_kwDOTOTl1M66bVVh by withholding editable spans from decoded backquotes. Historical controls: PRRT_kwDOTOTl1M650IRm and PRRT_kwDOTOTl1M650SdF map to 24d844c for ordinary data acceptance and executable or policy refusal. PRRT_kwDOTOTl1M650SdV maps to 24d844c for fresh per-row previews. PRRT_kwDOTOTl1M650Sda and PRRT_kwDOTOTl1M650Sdd map to accb464 for local tag signing isolation and raw index injection. Related predecessors PRRT_kwDOTOTl1M66VuXL maps to 424dc59 and 91c0b2c for failed reads, with the unset case in 7c2d9bd. PRRT_kwDOTOTl1M66YLU3 and PRRT_kwDOTOTl1M66YLU8 map to 7b18e03, with redirect and receipt coverage in 7c2d9bd."
+  - created_at: "2026-11-21T20:28:22.174Z"
+    author: codex-sol
+    text: "Round FV gates passed on the 7c2d9bd code. The exact baseline passed 495 cases. The focused gate passed 13 cases, the 32 reference suites passed 1555 with two opt-in skips, and the hostile tag-signing and raw-index controls passed three cases. Standalone npm run coverage and the rewritten release-heading acceptance each passed 2206 tests with zero failures and two opt-in skips, with 100 percent statements, branches, functions and lines across 54 sources. Typecheck, test build, lint, zero duplication, docstrings and changelog:check passed. The pinned fleet scan accepted 142 hooks and reached 144 bodies across 39 manifests, including renderer preparation. Changelog regeneration retained ops-b2bs under Unreleased."
 files[27]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
