@@ -31,6 +31,7 @@ export function hasVersionInput(args) {
     });
 }
 const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun"]);
+const NPM_LIFECYCLE_COMMAND = /^(?:start|stop|restart|test)$/;
 const SCRIPT_RUNNERS = new Set(["npm", "pnpm", "bun"]);
 /** Bun dispatches its own subcommands before package scripts with the same name. */
 const BUN_SUBCOMMANDS = new Set([
@@ -84,7 +85,7 @@ export function releaseCommitDay(timestamp) {
 }
 /** Recognize package-manager commands that run a script in the same manifest. */
 function isScriptForward(program, subcommand) {
-    return (subcommand === "run" && SCRIPT_RUNNERS.has(program)) || ((program === "npm" || program === "pnpm") && subcommand === "run-script");
+    return (program === "npm" && NPM_LIFECYCLE_COMMAND.test(subcommand ?? "")) || (subcommand === "run" && SCRIPT_RUNNERS.has(program)) || ((program === "npm" || program === "pnpm") && subcommand === "run-script");
 }
 /** Skip local npm switches and retain the last explicit optional-script setting. */
 function afterNpmRunOptions(tokens, start, optional = false, lifecycle) {
@@ -144,16 +145,16 @@ function afterRunOptions(program, tokens, start, optional = false, lifecycle) {
 function scriptForward(program, parameters, scriptNames) {
     const command = afterRunOptions(program, parameters, 0);
     const subcommand = parameters[command.index]?.value;
-    const start = program === "npm" && subcommand === "start";
-    if (!start && !isScriptForward(program, subcommand))
+    if (!isScriptForward(program, subcommand))
         return undefined;
     const entry = afterRunOptions(program, parameters, command.index + 1, command.optional, command.lifecycle);
-    const target = start ? "start" : literalScriptName(parameters[entry.index]);
+    const named = subcommand === "run" || subcommand === "run-script";
+    const target = named ? literalScriptName(parameters[entry.index]) : subcommand;
     // Bun also runs source files and local binaries when there is no named script.
     if (program === "bun" && target !== undefined && !scriptNames?.has(target)
         && (BUN_SOURCE_FILE.test(target) || GENERATOR_TARGET.test(target)))
         return undefined;
-    const tail = parameters.slice(start ? entry.index : entry.index + 1);
+    const tail = parameters.slice(named ? entry.index + 1 : entry.index);
     if (program !== "npm") {
         const separator = tail[0]?.value === "--" ? tail[0] : undefined;
         if (program === "pnpm")
@@ -167,7 +168,7 @@ function scriptForward(program, parameters, scriptNames) {
     const flags = separator < 0 ? (legacyFlag ? tail.slice(0, -1) : tail)
         : tail.slice(0, separator).filter(token => token.value !== INCLUDE_EMPTY_FLAG);
     const settings = afterNpmRunOptions(flags, 0, entry.optional, entry.lifecycle);
-    return { target, runner: program, lifecycle: settings.lifecycle, optional: !start && settings.optional, unsupported: flags[settings.index]?.value,
+    return { target, runner: program, lifecycle: settings.lifecycle, optional: settings.optional && subcommand !== "start" && subcommand !== "restart", unsupported: flags[settings.index]?.value,
         args: separator < 0 ? [] : tail.slice(separator + 1), npmSeparator: tail[separator] };
 }
 /** Convert npm's literal ignore-scripts setting into lifecycle execution. */
@@ -227,7 +228,8 @@ function isPackageAdmin(program, parameters) {
 /** Detect a literal script runner and generator-writing target inside an opaque command. */
 function scriptReferenceWords(words) {
     const nested = words.flatMap(word => word.value.split(/[^\w.:-]+/));
-    return nested.some(word => SCRIPT_RUNNERS.has(word)) && nested.some(word => word === "run" || word === "run-script") ? nested : [];
+    const runner = nested.some(word => SCRIPT_RUNNERS.has(word)) && nested.some(word => word === "run" || word === "run-script");
+    return runner || (nested.includes("npm") && nested.some(word => NPM_LIFECYCLE_COMMAND.test(word))) ? nested : [];
 }
 /** Preserve exact script names in argv and in literal payloads of opaque commands. */
 function candidateScriptRunners(words) {

@@ -1533,6 +1533,11 @@ test("a complete env-file overwrite recovers the policy after branches or opaque
     assert.equal(policy(first + "\n" + overwrite, "${{ inputs.enabled }}"), "unknown");
     assert.equal(policy(first + "\n" + branch + overwrite + "\nfi"), "unknown");
   }
+  for (const alternative of ["else", "elif test -f second; then"]) {
+    const branches = branch + opposite + "\n" + alternative + "\n" + overwrite + "\nfi";
+    assert.equal(policy(branches), "unknown");
+    assert.equal(policy(branches + "\n" + overwrite), false);
+  }
   assert.equal(policy(branch + branch + opposite + "\nfi\n" + overwrite + "\nfi"), "unknown");
   assert.equal(policy(opaque + "\n" + overwrite.replace(" > ", " >> ")), "unknown");
   assert.equal(policy("exit 0\n" + overwrite), "unknown");
@@ -1622,7 +1627,12 @@ test("a reset after opaque echo data is independent of that record", () => {
 });
 
 test("npm start cannot skip its implicit server entry when the manifest has no start script", () => {
-  assert.throws(() => resolveChangelogHooks({ hook: "npm --if-present start" }, ["hook"]), /start/);
+  for (const target of ["start", "restart"]) {
+    assert.throws(() => resolveChangelogHooks({ hook: "npm --if-present " + target }, ["hook"]), /missing or empty/);
+  }
+  for (const target of ["stop", "test"]) {
+    assert.doesNotThrow(() => resolveChangelogHooks({ hook: "npm --if-present " + target }, ["hook"]));
+  }
   assert.doesNotThrow(() => resolveChangelogHooks({ hook: "npm --if-present run missing" }, ["hook"]));
 });
 
@@ -1650,5 +1660,27 @@ test("status guards and pipeline sinks do not become renderer candidates before 
     for (const generator of ["pm-changelog --stdout", "pm-changelog --check && pm-changelog --stdout"]) {
       assert.equal(includeEmptyCustomHook(prefix + generator + tail, scripts, true), prefix + generator + tail);
     }
+  }
+});
+
+test("npm lifecycle commands forward generator arguments and respect the pre-hook policy", () => {
+  for (const target of ["start", "test", "stop", "restart"]) {
+    const entries = new Map([["hook", "npm " + target + " -- --date-from-version"], [target, "pm-changelog --release-version-from-package"],
+      ["pre" + target, "pm-changelog " + standing + " --output CHANGELOG.md"]]);
+    const disabled = rewriteReleaseHookDates(entries, ["hook"], day, false);
+    assert.equal(disabled.get("hook"), "npm " + target + " -- --date-fallback " + day);
+    assert.equal(disabled.has("pre" + target), false);
+    assert.throws(() => resolveChangelogHooks(Object.fromEntries(entries), ["hook"]), /ignore-scripts/);
+    const enabled = rewriteReleaseHookDates(entries, ["hook"], day, true);
+    assert.match(enabled.get("pre" + target) ?? "", /--date-fallback 2026-11-17/);
+    assert.doesNotThrow(() => assertReleaseHookHeadingDate(enabled, ["hook"], day, "2026.11.17", true));
+    assert.throws(() => assertReleaseHookHeadingDate(enabled, ["hook"], "2026-11-18", "2026.11.17", true), /differs/);
+    for (const cmd of ["npm --prefix other " + target, "npm --color=false " + target, "sh -c 'npm " + target + "'"]) {
+      assert.throws(() => resolveChangelogHooks({ hook: cmd, [target]: "pm-changelog " + standing }, ["hook"]), /context change|wrapper/);
+    }
+    assert.doesNotThrow(() => resolveChangelogHooks({ hook: "npm install " + target, [target]: "pm-changelog " + standing }, ["hook"]));
+    assert.deepEqual(auditInvocations([workflow("npm " + target), {
+      file: "package.json", text: JSON.stringify({ scripts: { [target]: "node smoke.mjs", "changelog:full": "pm-changelog " + standing } }),
+    }]).failures, []);
   }
 });

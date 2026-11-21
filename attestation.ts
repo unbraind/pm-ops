@@ -946,6 +946,7 @@ function writtenIgnoreScripts(text: string, conditionalStep: boolean, stepEnv: R
       depth++;
       continue;
     }
+    if (depth && (line === "else" || /^elif test -f [\w.-]+; then$/.test(line))) continue;
     if (depth && line === "fi") {
       depth--;
       continue;

@@ -907,6 +907,8 @@ function writtenIgnoreScripts(text, conditionalStep, stepEnv) {
             depth++;
             continue;
         }
+        if (depth && (line === "else" || /^elif test -f [\w.-]+; then$/.test(line)))
+            continue;
         if (depth && line === "fi") {
             depth--;
             continue;
