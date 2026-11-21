@@ -96,7 +96,8 @@ function releaseCommands(generator = resolve("scripts/pm-changelog.ts"), node = 
 
 /** Release-step environment over one fixture tracker, with the resumed heading date when given. */
 function releaseStepEnv(root: string, env: NodeJS.ProcessEnv, headingDate = ""): NodeJS.ProcessEnv {
-  return { ...env, IS_RUST: "false", GITHUB_OUTPUT: join(root, "step-outputs"), CONTINUATION_SCRIPT: resolve("scripts/release-continuation.ts"), CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check", NOTES_SCRIPT: "release:notes", RELEASE_HEADING_DATE: headingDate, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: join(root, "summary.md"), NPM_CONFIG_USERCONFIG: devNull, npm_config_script_shell: fixtureScriptShell() };
+  const clean = Object.fromEntries(Object.entries(env).filter(([key]) => !/^npm_config_script[-_]shell$/i.test(key)));
+  return { ...clean, IS_RUST: "false", GITHUB_OUTPUT: join(root, "step-outputs"), CONTINUATION_SCRIPT: resolve("scripts/release-continuation.ts"), CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check", NOTES_SCRIPT: "release:notes", RELEASE_HEADING_DATE: headingDate, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: join(root, "summary.md"), NPM_CONFIG_USERCONFIG: devNull, npm_config_script_shell: fixtureScriptShell() };
 }
 
 /** Override the active policy and isolate the config that a nested npm call reloads. */
@@ -112,6 +113,19 @@ function fixtureScriptShell(): string {
     ? resolve(execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim(), "../../../bin/bash.exe")
     : "/bin/sh";
 }
+
+test("workflow npm uses the fixture shell even with inherited script-shell aliases", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-fixture-shell-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(join(root, "package.json"), JSON.stringify({ name: "fixture", scripts: { reset: "echo root" } }));
+  for (const name of ["NPM_CONFIG_SCRIPT_SHELL", "npm_config_script-shell", "NpM_CoNfIg_ScRiPt_ShElL"]) {
+    const env = releaseStepEnv(root, { ...process.env, [name]: "./missing-script-shell" });
+    assert.deepEqual(Object.keys(env).filter(key => /^npm_config_script[-_]shell$/i.test(key)), ["npm_config_script_shell"]);
+    const result = runBashFixture("npm run --silent reset", { cwd: root, env, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "root");
+  }
+});
 
 /** Invoke npm through Node while retaining the fixture shell through nested scripts. */
 function npmRunArgs(hook: string, ...flags: string[]): string[] {

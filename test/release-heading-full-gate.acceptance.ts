@@ -35,9 +35,12 @@ try {
     ...env, IS_RUST: "false", CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check",
     NOTES_SCRIPT: "release:notes", RELEASE_HEADING_DATE: "2026-11-17", RUNNER_TEMP: root,
     GITHUB_STEP_SUMMARY: join(root, "summary.md"), CONTINUATION_SCRIPT: join(candidate, "scripts/release-continuation.ts"),
+    // Reserve a fixture coordinate beyond the real tag history and stamp it
+    // through the same workflow step used for the manifest and extension.
+    NPM_VERSION: "2099.11.30", VERSION_POLICY: "daily", PREPARE_SCRIPT: "", BUILD_SCRIPT: "", PM_OPS_MODULE: join(candidate, "dist/index.js"),
   };
   const outputs = join(root, "prepare.out");
-  for (const name of ["Prepare npm changelog hooks", "Generate changelog and release notes"]) {
+  for (const name of ["Update release version", "Prepare npm changelog hooks", "Generate changelog and release notes"]) {
     const step = definition.jobs.prepare.steps.find((entry: { name?: string }) => entry.name === name);
     const policy = name === "Generate changelog and release notes"
       ? Object.fromEntries(readFileSync(outputs, "utf8").trim().split("\n").map(line => line.split("="))) : {};
@@ -45,8 +48,18 @@ try {
       PREPARED_NPM_LIFECYCLE: policy.npm_lifecycle, PREPARED_NPM_LIFECYCLE_CONFIGURED: policy.npm_lifecycle_configured }, encoding: "utf8" });
     assert.equal(prepared.status, 0, prepared.stdout + prepared.stderr);
   }
-  const rewritten = JSON.parse(readFileSync(join(candidate, "package.json"), "utf8")) as { scripts: Record<string, string> };
+  const rewritten = JSON.parse(readFileSync(join(candidate, "package.json"), "utf8")) as { version: string; scripts: Record<string, string> };
+  assert.equal(rewritten.version, releaseEnv.NPM_VERSION);
   assert.match(rewritten.scripts["changelog:full"]!, /--date-fallback 2026-11-17/);
+  const versionDay = rewritten.version.split(".").map(part => part.padStart(2, "0")).join("-");
+  assert.notEqual(versionDay, releaseEnv.RELEASE_HEADING_DATE);
+  assert.equal(execFileSync("git", ["tag", "--list", rewritten.version, "v" + rewritten.version], { cwd: candidate, env, encoding: "utf8" }), "");
+  const heading = `## ${rewritten.version} - ${releaseEnv.RELEASE_HEADING_DATE}`;
+  for (const rendered of [join(candidate, "CHANGELOG.md"), join(root, "RELEASE_NOTES.md")]) {
+    const lines = readFileSync(rendered, "utf8").split("\n");
+    assert.ok(lines.includes(heading), `${heading} must be rendered`);
+    assert.ok(!lines.includes(`## ${rewritten.version} - ${versionDay}`));
+  }
   execFileSync("npm", ["run", "release:check"], { cwd: candidate, env: releaseEnv, stdio: "inherit" });
   console.log("rewritten release:check (including coverage): PASS");
 } finally {

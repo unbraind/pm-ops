@@ -965,6 +965,10 @@ function writtenIgnoreScripts(
     const append = line[redirect + 1] === ">";
     const destination = line.slice(redirect + (append ? 2 : 1)).trimStart();
     if (!ENV_PATH.test(destination)) return undefined;
+    // Bash can split an unquoted runner path. Under errexit, only consumers
+    // that can run after a failure can see the state before such a write.
+    const unquoted = !destination.startsWith('"');
+    if (unquoted && errexit) mayStopBeforeOverwrite = true;
     const print = line.slice(0, redirect).trimEnd();
     const record = literalEnvironmentRecord(print, environment);
     if (record === undefined) {
@@ -978,7 +982,7 @@ function writtenIgnoreScripts(
       records = undefined;
       continue;
     }
-    const conditional = conditionalStep || depth > 0;
+    const conditional = conditionalStep || depth > 0 || (unquoted && !errexit);
     if (!append) {
       if (conditional) {
         if (records) for (const key of Object.keys(records)) records[key] = uncertainEnvironmentRecord(key);
@@ -995,10 +999,15 @@ function uncertainEnvironmentRecord(name: string): string | undefined {
   return /^npm_config_ignore[-_]scripts$/i.test(name) ? "unknown" : undefined;
 }
 
+/** Recognize the explicit spelling of the runner's implicit success condition. */
+function isSuccessCondition(condition: string): boolean {
+  return /^\s*success\s*\(\s*\)\s*$/i.test(condition.trim().replace(/^\$\{\{([\s\S]*)\}\}$/, "$1"));
+}
+
 /** Check whether the runner's implicit success condition can be overridden. */
 function canRunAfterFailure(condition: unknown): boolean {
   return typeof condition === "string" && /\b(?:always|cancelled|failure|success)\s*\(/i.test(condition)
-    && !/^\s*(?:\$\{\{\s*)?success\s*\(\s*\)\s*(?:\}\}\s*)?$/i.test(condition);
+    && !isSuccessCondition(condition);
 }
 
 /** Extract structured commands together with their original scalar source ranges. */
@@ -1058,7 +1067,9 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
       else {
         const shell = step.shell ?? defaultShell;
         const shellKnown = shell === undefined ? posixRunner : typeof shell === "string" && /^(?:bash|sh|(?:bash|sh) (?:-e )?\{0\}|bash --noprofile --norc -eo pipefail \{0\})$/.test(shell);
-        const conditional = (step.if !== undefined && step.if !== true) || Boolean(step["continue-on-error"]);
+        const condition = step.if;
+        const conditional = (condition !== undefined && condition !== true && !(typeof condition === "string" && isSuccessCondition(condition)))
+          || Boolean(step["continue-on-error"]);
         const errexit = shell !== "bash {0}" && shell !== "sh {0}";
         const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, producerEnvironment, errexit) : undefined;
         if (writes === undefined) unknownNames = true;

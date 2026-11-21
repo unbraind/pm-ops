@@ -866,7 +866,7 @@ function scanCommandPrefix(command, preserveBunRun = false) {
             index += 2;
             continue;
         }
-        if (sawPrefix && (!token.startsQuoted || lastPrefix === "timeout") && token.value.startsWith("-")) {
+        if (sawPrefix && (!token.startsQuoted || lastPrefix === "timeout" || lastPrefix === "exec") && token.value.startsWith("-")) {
             // Consume the option's operand too when the prefix that introduced it
             // takes one, so the operand is never mistaken for the program. `env -u
             // parallel npm --version` must not read `parallel` as a spawning wrapper.

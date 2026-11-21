@@ -229,12 +229,15 @@ export function npmLifecycle(
 
 /** Read an explicit npm lifecycle assignment on the runner's command prefix. */
 function lifecycleEnvironment(assignments: readonly ShellToken[]): NpmLifecycle | undefined {
-  let setting: NpmLifecycle | undefined;
+  const entries = new Map<string, string>();
   for (const token of assignments) {
-    const match = /^npm_config_ignore[-_]scripts=(.*)$/i.exec(token.value);
-    if (match && match[1] !== "") setting = lifecycleSetting(match[1]);
+    const match = /^(npm_config_ignore[-_]scripts)=(.*)$/is.exec(token.value);
+    if (match) entries.set(match[1], match[2]);
   }
-  return setting;
+  // Reassignment preserves the original environment entry's position. npm
+  // skips empty entries and then normalizes the spelling of each key.
+  const value = [...entries.values()].reverse().find(value => value !== "");
+  return value === undefined ? undefined : lifecycleSetting(value);
 }
 
 /** Resolve this npm command and the environment it exports to its scripts. */
@@ -1058,6 +1061,13 @@ export function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[
   for (const index of optionPositions(args)) {
     const token = args[index];
     const flag = token.value.split("=", 1)[0];
+    if (token.value === "--pm-arg") {
+      const operand = args[index + 1]?.value ?? "";
+      const equals = operand.indexOf("=");
+      if (equals > 0 && VALUE_OPTIONS.has(operand.slice(0, equals))) {
+        refuseHook("--pm-arg splits this separate option operand. Use the --pm-arg=<value> form");
+      }
+    }
     if (flag === "--") refuseHook("Unexpected delimiter -- in generator arguments");
     if (flag === OVERRIDE_DATE_FLAG) refuseHook("Explicit --date overrides the release heading. Remove --date and use a single release date policy");
     if ((flag === "--version" || flag === "--release-version") && (token.unresolved || (token.value === flag && args[index + 1]?.unresolved))) {
@@ -1268,7 +1278,7 @@ function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
     if (following === "pipe") continue;
     if ((!words[0].releaseKeyword || words.length > 1)
       && !literalRedirectOnly(words)
-      && !((alternatives.length > 0 || afterOr || (afterAnd && following !== undefined)) && rendererStatusCommand(releaseOutputProducer(words)))) {
+      && !((alternatives.length > 0 || afterOr || afterAnd) && rendererStatusCommand(releaseOutputProducer(words)))) {
       const prior = afterOr ? last.filter(command => !rendererStatusCommand(releaseOutputProducer(command))) : [];
       last = [...prior, words];
     }

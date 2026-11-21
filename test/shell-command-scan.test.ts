@@ -13,7 +13,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-import { bashArrayDeclarations, bashArrays, commandArguments, commandName, dedentRunBlocks, expandArrays, joinContinuations, shellRedirection, tokenizeCommands } from "../shell-scan.ts";
+import { bashArrayDeclarations, bashArrays, commandArguments, commandName, dedentRunBlocks, expandArrays, joinContinuations, packageScriptCommand, shellRedirection, tokenizeCommands } from "../shell-scan.ts";
 import { auditPublishAttestation, publishInvocationsIn } from "../attestation.ts";
 import { isMainInvocation } from "../scripts/main-invocation.ts";
 
@@ -26,6 +26,18 @@ test("the command prefix ends after each timeout's duration", () => {
   const [tokens] = tokenizeCommands('timeout -k 2s 60 timeout --foreground "$LIMIT" npm --version');
   assert.equal(commandName(tokens!), "npm");
   assert.deepEqual(commandArguments(tokens!).map(({ value }) => value), ["--version"]);
+});
+
+test("exec options use decoded argv while shell assignments still require an unquoted name", () => {
+  for (const option of ["-a", '"-a"', "'-a'"]) {
+    const [command] = tokenizeCommands(`exec ${option} release-hook npm run writer`);
+    assert.equal(commandName(command), "npm");
+    assert.deepEqual(packageScriptCommand(command)?.map(word => word.value), ["npm", "run", "writer"]);
+  }
+  for (const prefix of ["TITLE=release", '"TITLE=release"']) {
+    const [command] = tokenizeCommands(`${prefix} npm run writer`);
+    assert.equal(commandName(command), prefix.startsWith('"') ? "TITLE=release" : "npm");
+  }
 });
 
 test("joined numeric redirection targets preserve the next option", () => {

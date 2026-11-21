@@ -7,14 +7,18 @@ import { spawnSync } from "../subprocess.ts";
 import { isMainInvocation } from "./main-invocation.ts";
 import { npmCli } from "./release-runtime.ts";
 
+const WORKSPACE_SELECTION_EXIT = 2;
+const WORKSPACE_SELECTION = "Release hooks cannot use npm workspace selectors. Clear workspace or workspaces settings that select another manifest";
+
 /** Use npm's own workspace and npmrc loader, without running any package scripts. */
-async function readLifecycle(env: NodeJS.ProcessEnv): Promise<NpmLifecycle> {
+async function readLifecycle(env: NodeJS.ProcessEnv): Promise<NpmLifecycle | "workspace"> {
   const cli = npmCli(true);
   const fromNpm = createRequire(cli);
   const Config = fromNpm("@npmcli/config");
   const config = new Config({ ...fromNpm("@npmcli/config/lib/definitions"), npmPath: dirname(dirname(cli)),
     argv: [process.execPath, cli, "run"], env: { ...env } });
   await config.load();
+  if (config.get("workspaces") === true || config.find("workspace") !== "default") return "workspace";
   const key = "ignore-scripts";
   if (config.find(key) === "env") return npmLifecycle(undefined, env);
   for (const source of ["project", "user", "global", "builtin"]) {
@@ -38,6 +42,7 @@ export function parseNpmLifecycle(value: string | undefined): NpmLifecycle {
 /** Retain the config that nested npm commands reload after clearing the exported setting. */
 export function projectNpmLifecyclePolicy(cwd: string): { active: NpmLifecycle; configured: NpmLifecycle } {
   const result = spawnSync(process.execPath, [fileURLToPath(import.meta.url), "--policy"], { cwd, encoding: "utf8" });
+  if (result.status === WORKSPACE_SELECTION_EXIT) throw new Error(WORKSPACE_SELECTION);
   const [active, configured] = result.status === 0 ? result.stdout.split(":") : [];
   return { active: parseNpmLifecycle(active), configured: parseNpmLifecycle(configured) };
 }
@@ -54,7 +59,10 @@ export function npmLifecycleFallbackEnvironment(env: NodeJS.ProcessEnv, platform
 
 if (isMainInvocation(process.argv, import.meta.url)) {
   const active = await readLifecycle(process.env).catch(() => "unknown");
-  if (process.argv[2] === "--policy") {
+  if (active === "workspace") {
+    console.error(WORKSPACE_SELECTION);
+    process.exitCode = WORKSPACE_SELECTION_EXIT;
+  } else if (process.argv[2] === "--policy") {
     const configured = process.env.npm_config_ignore_scripts
       ? await readLifecycle(npmLifecycleFallbackEnvironment(process.env)).catch(() => "unknown")
       : active;
