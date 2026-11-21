@@ -298,12 +298,17 @@ function generatorCommand(invocation) {
 function copyWritesChangelog(args) {
     const operands = [];
     let options = true;
-    for (const word of args) {
+    for (let index = 0; index < args.length; index++) {
+        const word = args[index];
         if (options && /^-.+/.test(word.value)) {
             if (word.value === "--")
                 options = false;
-            if (/^(?:-[^-]*t|--target-directory(?:=|$))/.test(word.value))
+            // The first short option that takes a value consumes the rest of its word.
+            const operandOption = /^-[^-St]*[St]/.exec(word.value)?.[0];
+            if (operandOption?.endsWith("t") || /^--target-directory(?:=|$)/.test(word.value))
                 return false;
+            if (word.value === "--suffix" || operandOption === word.value)
+                index++;
         }
         else
             operands.push(word);

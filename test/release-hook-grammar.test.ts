@@ -1936,6 +1936,19 @@ test("an uncertain npm lifecycle refuses copies into CHANGELOG.md and permits co
   }
 });
 
+test("copy backup suffixes are consumed before identifying the last file operand", () => {
+  const target = "changelog:full";
+  for (const options of ['--suffix "$BACKUP_SUFFIX"', '-S "$BACKUP_SUFFIX"', '-fS "$BACKUP_SUFFIX"',
+    '--suffix="$BACKUP_SUFFIX"', "-Sstyle.txt", '-fS"$BACKUP_SUFFIX"']) {
+    const hook = (source: string, destination: string) => ({
+      [target]: "pm-changelog " + standing,
+      ["post" + target]: "cp --backup " + source + " " + destination + " " + options,
+    });
+    assert.doesNotThrow(() => resolveChangelogHooks(hook("CHANGELOG.md", "preview.md"), [target]), options);
+    assert.throws(() => resolveChangelogHooks(hook("preview.md", "CHANGELOG.md"), [target]), /ignore-scripts.*postchangelog:full/, options);
+  }
+});
+
 test("an OR list preserves alternative custom notes renderers, including through script forwards", () => {
   const ambiguous = ["node preferred.mjs || node fallback.mjs", "node preferred.mjs | cat | sed -n p ||\n node fallback.mjs | cat",
     "true && node preferred.mjs || node fallback.mjs", "if test -f input; then node preferred.mjs || node fallback.mjs; else node last.mjs; fi"];
