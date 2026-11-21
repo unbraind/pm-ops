@@ -2,13 +2,11 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: in_progress
+status: open
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T14:02:07.411Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-21T14:53:34.338Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[156]:
+comments[158]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -486,6 +484,12 @@ comments[156]:
   - created_at: "2026-11-21T14:02:07.402Z"
     author: codex-sol
     text: "Reproduced the parser, workflow, renderer and Windows launcher findings. Verified the two inherited binding controls and the resolved step environment precedence thread. The pinned fleet corpus accepted 142 hooks and 144 bodies across 39 manifests. Full package gates are running."
+  - created_at: "2026-11-21T14:10:54.639Z"
+    author: codex-sol
+    text: "Round FR thread map. 424dc59: PRRT_kwDOTOTl1M66VuXL keeps potentially skipped environment overwrites uncertain for failure-tolerant consumers. PRRT_kwDOTOTl1M66VuXO and PRRT_kwDOTOTl1M66SQZT preserve literal step settings over opaque actions and expression-valued parent environments. PRRT_kwDOTOTl1M66VuXP guards unresolved command lookups. PRRT_kwDOTOTl1M66VuXQ resolves nested npm lifecycle policy independently and preserves npm export semantics. PRRT_kwDOTOTl1M66VuXV retains the previous renderer on a no-else path. PRRT_kwDOTOTl1M66VuXX refuses forwarding into a status command. PRRT_kwDOTOTl1M66VuXa verifies bundled prefix selection and npm-generated Windows launchers. PRRT_kwDOTOTl1M66VuXe splits attached file redirects and keeps quoted, escaped and descriptor controls. PRRT_kwDOTOTl1M66VuXg and PRRT_kwDOTOTl1M66VuXj isolate the active and fallback npm launchers in the tests. PRRT_kwDOTOTl1M650IRm and PRRT_kwDOTOTl1M650SdF were already corrected in 24d844c. Re-ran the title acceptance and executable or policy binding refusals on the starting and candidate source. Historical tag signing, staged invalid UTF-8 and stale preview safeguards remain covered by accb464 and ccf7291."
+  - created_at: "2026-11-21T14:53:31.999Z"
+    author: codex-sol
+    text: "Round FR local gates passed on source commit 424dc59. Isolated starting-head suite: 328 passed. Focused and reference suites: 1375 passed across 25 files. Shell and hook regression suites: 137 passed. npm 11.21.0 nested lifecycle and launcher controls passed. Tag signing, index-only invalid UTF-8 and stale preview checks passed. Fleet: 39 manifests, 142 hooks and 144 reachable bodies accepted. Typecheck, test build, lint, zero duplication, docstring and changelog:check passed. Regeneration is byte-identical, with ops-b2bs under Unreleased. The first coverage run overlapped the Windows launcher edit; the frozen rewritten candidate ran npm run coverage and passed with 2195 tests, two opt-in skips and 100% statements, branches, functions and lines over 54 sources. The full heading acceptance passed, including both dependency audits, pack dry run, section and heading checks, publication attestation and installed lifecycle policy checks. Both items remain open at handoff."
 files[25]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
