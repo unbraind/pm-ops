@@ -301,6 +301,7 @@ test("npm lifecycle follows workflow env, project config and explicit options", 
   const manifest = new Map(Object.entries(scripts));
   for (const [config, env, enabled] of [
     ["ignore-scripts=true", {}, false],
+    ["fund=false\n# project preference\nignore-scripts=false", {}, true],
     ["ignore-scripts=true\r\n'ignore-scripts' = 'false'", {}, true],
     ["ignore-scripts=false # comment\n[section]\nignore-scripts=true", {}, true],
     ["ignore-scripts", {}, false],
@@ -319,7 +320,7 @@ test("npm lifecycle follows workflow env, project config and explicit options", 
     assert.doesNotThrow(() => assertReleaseHookHeadingDate(rewritten, ["hook"], day, undefined, lifecycle));
   }
   for (const lifecycle of [
-    npmLifecycle(undefined), npmLifecycle("ignore-scripts = ${EXTERNAL}"),
+    npmLifecycle(undefined), npmLifecycle("fund=false\n# no lifecycle policy"), npmLifecycle("ignore-scripts = ${EXTERNAL}"),
     npmLifecycle("ignore-scripts=false\nignore-scripts[]=true"), npmLifecycle("ignore-scripts = 'false' # uncertain"),
     npmLifecycle("ignore-scripts=false", { npm_config_ignore_scripts: "${{ vars.IGNORE_SCRIPTS }}" }),
     npmLifecycle(undefined, { NPM_CONFIG_IGNORE_SCRIPTS: "true", npm_config_ignore_scripts: "false" }),

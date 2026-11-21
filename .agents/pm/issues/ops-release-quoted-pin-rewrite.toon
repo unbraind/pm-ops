@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T04:38:20.939Z"
+updated_at: "2026-11-21T05:01:35.823Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -16,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[137]:
+comments[138]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -429,6 +429,9 @@ comments[137]:
   - created_at: "2026-11-21T04:38:20.938Z"
     author: codex-sol
     text: "The direct reference suite identified one fixture integration failure among 1355 tests. The isolated empty-probe checkout omitted the lifecycle helper imported by continuation. Include that source in the fixture closure, retaining the no-node_modules and no-npm-invocation assertions."
+  - created_at: "2026-11-21T05:01:35.820Z"
+    author: codex-sol
+    text: "The 29 direct-reference files passed with 1472 passes and two opt-in skips after the fixture closure fix in f7502f4. Standalone coverage passed all test assertions but measured one unexecuted static npmrc branch. Add explicit refusal for unrelated settings alone and acceptance for an unrelated key preceding a literal lifecycle setting, then repeat both coverage gates."
 files[25]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
