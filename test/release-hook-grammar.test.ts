@@ -1482,3 +1482,17 @@ test("a copied Node executable in a spaced path keeps its generator and script e
   assert.throws(() => check(before + " helper.js"), /generated release hook file/);
   assert.doesNotThrow(() => check(before + " committed.js helper.js"));
 });
+
+test("conditional notes accept prepared script forwards only when every branch ends in a generator", () => {
+  const generator = "pm-changelog " + standing + " --stdout";
+  const notes = "if test -f preview; then npm run first; else npm run second; fi";
+  const scripts = new Map([["first", generator], ["second", "npm run next"], ["next", generator]]);
+  for (const next of [generator, "if true; then npm run first; else " + generator + "; fi"]) {
+    scripts.set("next", next);
+    assert.equal(includeEmptyCustomHook(notes, scripts, true), notes);
+  }
+  for (const next of ["node notes.mjs", "npm run next", "npm run --if-present missing", "# no renderer", ">preview.md"]) {
+    scripts.set("next", next);
+    assert.throws(() => includeEmptyCustomHook(notes, scripts, true), /single script entry point/);
+  }
+});

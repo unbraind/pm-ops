@@ -3,14 +3,16 @@ title: Release 2026.11.15 changelog heading drifts after rollover publication
 description: "Baseline origin/main fails npm run changelog:check. CHANGELOG.md says 2026.11.15 - 2026-11-15, while tag v2026.11.15 points at the November 16 release commit. The pinned generator derives the tagged heading from commit time, regenerating 2026-11-16. Confirmed on unchanged origin/main while fixing #290."
 type: Issue
 pm_format_version: 2
-status: open
+status: in_progress
 priority: 2
 tags[3]: "area:release","gh:unbraind/pm-ops#292","gh:unbraind/pm-ops#295"
 created_at: "2026-11-16T19:17:51.165Z"
-updated_at: "2026-11-21T05:22:21.874Z"
+updated_at: "2026-11-21T05:32:01.782Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: "Resolve the existing tagged release-heading date policy mismatch; npm run changelog:check and release date checks agree before and after rollover without changing historical tags."
-comments[168]{created_at,author,text}:
+comments[170]{created_at,author,text}:
   "2026-11-16T19:18:50.836Z",codex-sol,"Verified npm run changelog:check fails on untouched origin/main c29fe88 as well as the fix branch. Tag v2026.11.15 targets c29fe88 with commit time 2026-11-16T17:43:01Z. Regeneration changes only the first heading date from 2026-11-15 to 2026-11-16. No historical tags or changelog content were changed for #290."
   "2026-11-16T19:24:41.440Z","harness:claude-code","2026-11-16 20:0xZ (orchestrator): root cause filed as unbraind/pm-ops#292. v2026.11.15 was prepared and tagged on 11-16, prepare rendered the heading from the version (2026-11-15), and after tagging pm-changelog uses the real tag date (2026-11-16, by design per pm-changelog#120). Regenerated CHANGELOG.md in PR #291 so 'npm run changelog:check' passes on this branch (exit 0); main stays red until #291 or another regeneration merges."
   "2026-11-16T22:58:09.756Z",pi-ops-292,"Root cause (issue #292): prepare renders the pending version's heading with --date-from-version, so a resumed candidate (version day before today) is stamped with its version day. The release step then tags it today; pm-changelog by design derives a tagged window's heading from the tag commit date (pm-changelog#120), so post-tag regeneration on unchanged main renders a different day and changelog:check is red on main. The release PR's own CI passes (candidate still untagged), so the failure only appears after the merge.\n\nDesign: use the generator's existing --date-fallback flag (applies only while no release tag exists; ignored once the tag exists, so it matches post-tag invocations byte-for-byte). decideDailyRelease now outputs heading_date: today in RELEASE_TIMEZONE, padded ISO, when the version's calendar day is before today; empty for a same-day release, which is therefore unchanged. The 'Generate changelog and release notes' step, in the same in-place package.json policy rewrite that already appends --include-empty, swaps --date-from-version for --date-fallback <heading_date> in the three changelog scripts when resumed, refreshes a stale pin when a candidate is re-prepared on a later day, and restores --date-from-version when the pending version is current again. The release commit carries the pinned spelling, so the release PR's CI (untagged candidate), prepare's nested release:check and post-tag checks on main all regenerate the same bytes with no follow-up regeneration. The date verifier accepts a pinned --date-fallback day (explicit ISO day only) as an equally clock-free alternative to --date-from-version. Rust/justfile releases (CHANGELOG_DATE derived from the tag name) keep their own spelling and are not touched."
@@ -179,6 +181,8 @@ comments[168]{created_at,author,text}:
   "2026-11-21T05:01:34.796Z",codex-sol,"The 29 direct-reference files passed with 1472 passes and two opt-in skips after the fixture closure fix in f7502f4. Standalone coverage passed all test assertions but measured one unexecuted static npmrc branch. Add explicit refusal for unrelated settings alone and acceptance for an unrelated key preceding a literal lifecycle setting, then repeat both coverage gates."
   "2026-11-21T05:20:40.538Z",codex-sol,"Round FM supplemental verification. f7502f4 covers the P-6W/P-6X empty-probe fixture closure and 0bac7cc covers the P-6W static npmrc refusal and inverse. Both supplement the thirteen-thread implementation map in 6446306. At 0bac7cc, standalone coverage passed 2167 tests with two opt-in skips and zero failures, at 100 percent statements, branches, functions and lines across all 54 sources. Fleet results were 142 hooks and 144 reached bodies over 39 manifests with zero refusals."
   "2026-11-21T05:22:20.261Z",codex-sol,"Final Round FM gates on 0bac7cc passed. The three focused suites passed 216/216 and the final grammar suite passed 87/87. All 29 reference files passed with 1472 passes and two opt-in skips. The signing, index-byte and fresh-preview controls passed 4/4. Typecheck, test compilation, lint, zero duplication, docstrings and changelog:check passed. The separate rewritten release-heading acceptance completed the real release:check, including 100 percent per-file coverage on all 54 sources (2167 passes, two opt-in skips), both dependency audits, packing and the release verifiers. Regeneration preserves ops-b2bs under Unreleased."
+  "2026-11-21T05:30:05.922Z",codex-sol,"P-6K inverse on the pushed head: both conditional branches reach prepared generators through local npm forwards, but the root refuses them. Preserve refusal for a genuine custom or unresolved branch. For P-56 an expression-valued job map can supply both case variants: reversing their order produced opposite real npm values even with a literal step override of one spelling, so uncertainty is required."
+  "2026-11-21T05:32:01.731Z",codex-sol,"Both terminal direct and forwarded generators now pass the P-6K inverse; custom, missing, cyclic, empty and redirection-only targets still refuse. Real npm 11.21.0 also confirmed the P-56 uncertainty: with lowercase ignore_scripts=true and uppercase IGNORE_SCRIPTS=false, reversing environment insertion order changes npm config get ignore-scripts from false to true. An unresolved higher-level map can introduce the other spelling. A literal step value cannot rule that out."
 files[36]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
@@ -216,7 +220,7 @@ files[36]{path,scope}:
   test/release-workflow.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[62]:
+tests[63]:
   - command: npm run typecheck
     scope: project
     provenance:
@@ -655,6 +659,13 @@ tests[62]:
     provenance:
       author: codex-sol
       created_at: "2026-11-21T05:21:19.942Z"
+      source_kind: local_mutation
+      source_ref: fix/release-hook-wrapper-options-bm
+  - command: "node --test --test-name-pattern=\"conditional notes accept prepared script|custom notes choose one renderer\" test/release-hook-grammar.test.ts"
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-21T05:31:56.422Z"
       source_kind: local_mutation
       source_ref: fix/release-hook-wrapper-options-bm
 docs[3]{path,scope}:

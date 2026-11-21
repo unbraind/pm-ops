@@ -1098,8 +1098,8 @@ export function includeEmptyReleaseSections(script: string, scriptNames?: Readon
   return applyHookEdits(script, edits.values());
 }
 
-/** Find the last renderer on each if/elif/else path before selecting an argument recipient. */
-function finalHookCommand(commands: ShellCommand[], hasGenerator: boolean): ShellCommand {
+/** Find the possible final commands on each if/elif/else path. */
+function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
   const alternatives: ShellCommand[][] = [[]];
   let last: ShellCommand[] = [];
   for (const words of commands) {
@@ -1111,10 +1111,27 @@ function finalHookCommand(commands: ShellCommand[], hasGenerator: boolean): Shel
     }
     if (!words[0].releaseKeyword || words.length > 1) last = [words];
   }
-  if (last.length > 1 && !(hasGenerator && last.every(words => {
+  return last;
+}
+
+/** Follow terminal script forwards without treating a custom, missing or cyclic renderer as a generator. */
+function allGeneratorRenderers(last: ShellCommand[], scripts: ReadonlyMap<string, string>, names: ReadonlySet<string>, depth: number): boolean {
+  return depth <= MAX_SCRIPT_FORWARDS && last.length > 0 && last.every(words => {
     const command = releaseHookCommand(releaseOutputProducer(words));
-    return command && generatorCommand(command);
-  }))) refuseHook("Custom hook has alternative renderers. Use a single script entry point");
+    if (!command) return false;
+    if (generatorCommand(command)) return true;
+    const forward = scriptForward(basename(command[0].value), command.slice(1), names);
+    const body = forward?.target && scripts.get(forward.target);
+    return Boolean(body && allGeneratorRenderers(finalHookCommands(parseReleaseHook(body).commands), scripts, names, depth + 1));
+  });
+}
+
+/** Alternatives need no custom argument when all of their terminal generators receive the flag directly. */
+function finalHookCommand(commands: ShellCommand[], hasGenerator: boolean, scripts: ReadonlyMap<string, string>): ShellCommand {
+  const last = finalHookCommands(commands);
+  if (last.length > 1 && !(hasGenerator && allGeneratorRenderers(last, scripts, new Set(scripts.keys()), 0))) {
+    refuseHook("Custom hook has alternative renderers. Use a single script entry point");
+  }
   return last.at(-1) ?? [];
 }
 
@@ -1138,7 +1155,7 @@ function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<
     if (!text) return hasGenerator ? undefined : count; // An optional missing target runs no command.
     const { commands, spans } = parseReleaseHook(text);
     const recipient = commandReceivingArguments(text, commands, spans);
-    const producer = releaseOutputProducer(recipient ?? finalHookCommand(commands, hasGenerator));
+    const producer = releaseOutputProducer(recipient ?? finalHookCommand(commands, hasGenerator, scripts));
     if (producer !== recipient) blockedTarget = forward.target;
     const next = releaseHookCommand(producer === recipient ? [...producer, ...forward.args] : producer);
     if (!next) refuseHook("Custom script " + JSON.stringify(forward.target) + " cannot receive forwarded arguments. Move the logic into a script file");
@@ -1150,7 +1167,7 @@ function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<
 /** Save the flag and any npm delimiters on the root caller, preserving shared target scripts. */
 export function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<string, string>, hasGenerator = false): string {
   const { commands, spans } = parseReleaseHook(script);
-  const invocation = releaseHookCommand(releaseOutputProducer(finalHookCommand(commands, hasGenerator)));
+  const invocation = releaseHookCommand(releaseOutputProducer(finalHookCommand(commands, hasGenerator, scripts)));
   if (!invocation) return script;
   const [program, ...args] = invocation;
   const separator = scriptForward(basename(program.value), args)?.npmSeparator;
