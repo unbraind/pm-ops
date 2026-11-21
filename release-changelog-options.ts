@@ -798,7 +798,8 @@ export function visitChangelogScriptCommands(
       // pnpm passes its delimiter through verbatim. A nested runner can consume
       // it, but the generator only accepts named options.
       const separators = effective.filter(token => forwardedSeparators.has(token));
-      const contextProblem = generatedHookProblem(effective, written) ?? forwardedBindingProblem(effective, bindings)
+      const contextProblem = (checkContext ? generatedHookProblem(effective, written) : undefined)
+        ?? forwardedBindingProblem(effective, bindings)
         ?? (checkContext ? releaseContextProblem(effective, names, preceding) : undefined);
       if (checkContext) preceding = nextShellContext(words, preceding, effective);
       if (contextProblem) {

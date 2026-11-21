@@ -1043,8 +1043,21 @@ test("release hooks refuse to execute a file written by an earlier redirect", ()
     assert.throws(() => rewriteReleaseHookDates(scripts, ["changelog:full"], day), refuse, hook);
     assert.throws(() => assertReleaseHookHeadingDate(scripts, ["changelog:full"], day), refuse, hook);
     assert.throws(() => rewriteReleaseHeadingDate(hook, day), refuse, hook);
-    assert.match(auditInvocations([workflow(hook)]).failures[0] ?? "", refuse, hook);
+    const manifest = { file: "package.json", text: JSON.stringify({ scripts: Object.fromEntries(scripts) }) };
+    assert.match(auditInvocations([manifest]).failures[0] ?? "", refuse, hook);
+    assert.match(auditInvocations([workflow(hook + "\npm-changelog " + standing)]).failures[0] ?? "", refuse, hook);
   }
+});
+
+test("only release hook paths may refuse a script that executes redirected output", () => {
+  const smoke = "printf 'console.log(1)' >smoke.js; node smoke.js";
+  const writer = "pm-changelog " + standing;
+  const audit = (generate: string) => auditInvocations([
+    { file: "package.json", text: JSON.stringify({ scripts: { "changelog:full": generate, "changelog:check": writer, smoke } }) },
+    workflow("npm run smoke", smoke),
+  ]).failures;
+  assert.deepEqual(audit(writer), []);
+  assert.match(audit("npm run smoke")[0] ?? "", /generated release hook file "smoke\.js"/);
 });
 
 test("redirected release data and committed script invocations remain usable", () => {
