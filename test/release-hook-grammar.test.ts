@@ -183,6 +183,8 @@ test("package version selection uses a bare boolean and explicit versions accept
   for (const selector of ["--release-version-from-package=true", "--release-version-from-package=false", "--release-version-from-package="]) {
     assert.match(verify(selector).join("\n"), /Unexpected value on the boolean --release-version-from-package/, selector);
   }
+  assert.match(verify('--release-version-from-package="$VALUE"').join("\n"), /Unresolved option word/);
+  assert.deepEqual(verify('--release-version-from-package --title="$VALUE"'), []);
 });
 
 test("the shared shell scanner decodes quoted timeout switches and records fixed option names", () => {

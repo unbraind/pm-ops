@@ -1000,13 +1000,13 @@ export function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[
     if (VALUE_OPTIONS.has(token.value) && args[index + 1]?.multipleWords) {
       refuseHook(`Unquoted or multiword expansion in the operand of ${token.value}`);
     }
-    if ((flag === DATE_FLAG || flag === PACKAGE_VERSION_FLAG) && token.value !== flag) {
-      refuseHook("Unexpected value on the boolean " + flag);
-    }
     if (token.unresolved) {
       const name = literalOptionName(token);
-      if (name !== undefined && name !== DATE_FLAG && name !== FALLBACK_DATE_FLAG) continue;
+      if (name !== undefined && name !== DATE_FLAG && name !== FALLBACK_DATE_FLAG && name !== PACKAGE_VERSION_FLAG) continue;
       refuseHook(`Unresolved option word in pm-changelog hook: ${JSON.stringify(token.value)}`);
+    }
+    if ((flag === DATE_FLAG || flag === PACKAGE_VERSION_FLAG) && token.value !== flag) {
+      refuseHook("Unexpected value on the boolean " + flag);
     }
     if (token.value === DATE_FLAG) {
       options.push({ kind: "version", first: token, last: token });

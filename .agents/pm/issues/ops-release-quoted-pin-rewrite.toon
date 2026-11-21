@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T17:29:37.590Z"
+updated_at: "2026-11-21T17:37:31.052Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -16,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[165]:
+comments[166]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -513,6 +513,9 @@ comments[165]:
   - created_at: "2026-11-21T17:29:37.590Z"
     author: codex-sol
     text: Targeted runtime coverage exposed two missing lookup controls after the main fix. The added cases cover empty PATH entries outside the POSIX lifecycle probe and a batch launcher that remains ineligible even when its adjacent Node is verified. The runtime suite passed all nine cases with 100% coverage in all four dimensions.
+  - created_at: "2026-11-21T17:37:31.048Z"
+    author: codex-sol
+    text: "The focused suite found that inline boolean validation changed the refusal for a dynamic date flag. The paired fixtures preserve the unresolved-option diagnostic for dynamic date and package selectors. Literal inline booleans are refused, while inline version values and dynamic title data are still accepted."
 files[25]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
