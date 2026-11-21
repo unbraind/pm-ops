@@ -308,9 +308,9 @@ test("release commits stay current after tagging, including empty and same-day r
 test("release workflow uses the same npm policy for generation, drift checking and notes", () => {
   const workflow = readFileSync(resolve(".github/workflows/daily-release.yml"), "utf8");
   const step = workflow.slice(workflow.indexOf("- name: Generate changelog"), workflow.indexOf("- name: Run release checks"));
-  assert.match(step, /npm run "\$CHANGELOG_SCRIPT"$/m);
-  assert.match(step, /npm run "\$CHANGELOG_CHECK_SCRIPT"$/m);
-  assert.match(step, /npm run --silent "\$NOTES_SCRIPT" > /);
+  assert.match(step, /verify_lifecycle\s+npm run "\$CHANGELOG_SCRIPT"$/m);
+  assert.match(step, /verify_lifecycle\s+npm run "\$CHANGELOG_CHECK_SCRIPT"$/m);
+  assert.match(step, /verify_lifecycle\s+npm run --silent "\$NOTES_SCRIPT" > [^\n]+\n\s+verify_lifecycle/);
 });
 
 test("dependency-only release windows support forwarded generators and custom notes hooks", () => {
@@ -1027,7 +1027,7 @@ test("mixed generation and check hooks deliver the saved option to their finishi
   }
 });
 
-test("generation runs notes with the prepared npm lifecycle despite intervening npmrc edits", t => {
+test("generation refuses lifecycle drift and preserves nested npm behavior under a stable policy", t => {
   const root = mkdtempSync(join(tmpdir(), "prepared-notes-policy-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const config = join(root, "user.npmrc");
@@ -1037,24 +1037,28 @@ test("generation runs notes with the prepared npm lifecycle despite intervening 
   env.NPM_CONFIG_GLOBALCONFIG = devNull;
   writeFileSync(join(root, "flip.mjs"), 'import fs from "node:fs"; const p = process.env.NPM_CONFIG_USERCONFIG; fs.writeFileSync(p, fs.readFileSync(p, "utf8").includes("true") ? "ignore-scripts=false\\n" : "ignore-scripts=true\\n");');
   writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: {
-    "changelog:full": "node flip.mjs", "changelog:check": "node check.mjs", "release:notes": "node notes.mjs",
-    "prerelease:notes": "node before.mjs",
+    "changelog:full": "node flip.mjs", "changelog:check": "node check.mjs", "release:notes": "npm run --silent nested",
+    "prerelease:notes": "node before.mjs", prenested: "node before.mjs", nested: "node notes.mjs",
   } }));
   writeFileSync(join(root, "check.mjs"), "");
   writeFileSync(join(root, "notes.mjs"), 'console.log("main")');
   writeFileSync(join(root, "before.mjs"), 'console.log("before")');
-  for (const skip of [true, false]) {
-    writeFileSync(config, "ignore-scripts=" + skip + "\n");
-    const result = runBashFixture(changelogStepScript(), { cwd: root, env, encoding: "utf8" });
-    assert.equal(result.status, 0, result.stdout + result.stderr);
-    assert.equal(readFileSync(join(root, "RELEASE_NOTES.md"), "utf8").trim(), skip ? "main" : "before\nmain");
+  const changer = readFileSync(join(root, "flip.mjs"), "utf8");
+  for (const skip of [true, false, undefined]) {
+    const setting = skip === undefined ? "" : "ignore-scripts=" + skip + "\n";
+    const notes = join(root, "RELEASE_NOTES.md");
+    rmSync(notes, { force: true });
+    writeFileSync(config, setting);
+    writeFileSync(join(root, "flip.mjs"), changer);
+    const changed = runBashFixture(changelogStepScript(), { cwd: root, env, encoding: "utf8" });
+    assert.notEqual(changed.status, 0);
+    assert.match(changed.stdout + changed.stderr, /npm lifecycle policy changed/);
+    assert.equal(existsSync(notes), false);
+
+    writeFileSync(config, setting);
+    writeFileSync(join(root, "flip.mjs"), "");
+    const stable = runBashFixture(changelogStepScript(), { cwd: root, env, encoding: "utf8" });
+    assert.equal(stable.status, 0, stable.stdout + stable.stderr);
+    assert.equal(readFileSync(notes, "utf8").trim(), skip ? "main" : "before\nbefore\nmain");
   }
-  writeFileSync(config, "");
-  const changed = runBashFixture(changelogStepScript(), { cwd: root, env, encoding: "utf8" });
-  assert.notEqual(changed.status, 0);
-  assert.match(changed.stdout + changed.stderr, /npm lifecycle policy changed/);
-  writeFileSync(join(root, "flip.mjs"), "");
-  writeFileSync(config, "");
-  const stable = runBashFixture(changelogStepScript(), { cwd: root, env, encoding: "utf8" });
-  assert.equal(stable.status, 0, stable.stdout + stable.stderr);
 });

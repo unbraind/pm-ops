@@ -647,19 +647,15 @@ jobs:
             just release-notes > "$RUNNER_TEMP/RELEASE_NOTES.md"
           else
             case "$PREPARED_NPM_LIFECYCLE" in
-              true) export npm_config_ignore_scripts=false ;;
-              false) export npm_config_ignore_scripts=true ;;
-              unknown) ;; # Preparation checked all possible lifecycle writers.
+              true|false|unknown) ;;
               *) echo "::error::Missing or invalid prepared npm lifecycle policy"; exit 1 ;;
             esac
             verify_lifecycle() {
-              if [[ "$PREPARED_NPM_LIFECYCLE" == unknown ]]; then
-                local policy
-                policy=$(node "${CONTINUATION_SCRIPT%/scripts/*}/scripts/project-npm-lifecycle.ts")
-                if [[ "$policy" != unknown ]]; then
-                  echo "::error::The npm lifecycle policy changed after changelog preparation"
-                  return 1
-                fi
+              local policy
+              policy=$(node "${CONTINUATION_SCRIPT%/scripts/*}/scripts/project-npm-lifecycle.ts")
+              if [[ "$policy" != "$PREPARED_NPM_LIFECYCLE" ]]; then
+                echo "::error::The npm lifecycle policy changed after changelog preparation"
+                return 1
               fi
             }
             verify_lifecycle
@@ -668,6 +664,7 @@ jobs:
             npm run "$CHANGELOG_CHECK_SCRIPT"
             verify_lifecycle
             npm run --silent "$NOTES_SCRIPT" > "$RUNNER_TEMP/RELEASE_NOTES.md"
+            verify_lifecycle
           fi
           [[ -s "$RUNNER_TEMP/RELEASE_NOTES.md" ]]
       - name: Record preparation stamp

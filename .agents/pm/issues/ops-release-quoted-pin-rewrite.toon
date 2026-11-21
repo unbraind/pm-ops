@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T09:17:44.908Z"
+updated_at: "2026-11-21T09:37:52.285Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -16,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[149]:
+comments[151]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -465,6 +465,12 @@ comments[149]:
   - created_at: "2026-11-21T09:17:44.904Z"
     author: codex-sol
     text: "The complete SzHi review also covers npm test, stop and restart. All four lifecycle commands share npm's run-script dispatch. New fixtures exercise forwarded options, enabled and skipped pre-hooks, project selectors, opaque wrappers, optional missing scripts and npm's implicit start and restart defaults. RIdB also covers else and elif boundaries before an unconditional environment-file replacement."
+  - created_at: "2026-11-21T09:18:48.406Z"
+    author: codex-sol
+    text: "Round FP supplemental map. PRRT_kwDOTOTl1M66SzHi is implemented by f7caf9f and 27fc46f across npm start, test, stop and restart. PRRT_kwDOTOTl1M66RIdB is implemented by f7caf9f and 27fc46f for nested if, elif and else blocks. The remaining eleven thread mappings in the f7caf9f comment are unchanged. The paired lifecycle and branch tests pass."
+  - created_at: "2026-11-21T09:37:52.282Z"
+    author: codex-sol
+    text: "The reference sweep caught the repository's credential guard rejecting the lifecycle environment export. A real nested npm run also showed that a false CLI override alone does not survive a conflicting user configuration. SzHX now compares the live policy against the recorded value before each npm hook and after notes. Drift refuses before the stamp. Stable true, false and unknown configurations preserve nested pre-hooks exactly as npm runs them. All 19 credential workflow tests passed."
 files[25]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
