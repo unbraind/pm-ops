@@ -2,13 +2,11 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: in_progress
+status: open
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T05:32:08.190Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-21T05:50:49.449Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[142]:
+comments[144]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -444,6 +442,12 @@ comments[142]:
   - created_at: "2026-11-21T05:32:08.190Z"
     author: codex-sol
     text: "Both terminal direct and forwarded generators now pass the P-6K inverse; custom, missing, cyclic, empty and redirection-only targets still refuse. Real npm 11.21.0 also confirmed the P-56 uncertainty: with lowercase ignore_scripts=true and uppercase IGNORE_SCRIPTS=false, reversing environment insertion order changes npm config get ignore-scripts from false to true. An unresolved higher-level map can introduce the other spelling. A literal step value cannot rule that out."
+  - created_at: "2026-11-21T05:48:23.229Z"
+    author: codex-sol
+    text: "Supplemental P-6K maps to 87cffb3. The actual preparation entry point pins and adds --include-empty to both forwarded generators and refuses a mixed target before changing the manifest. All 130 tests in the direct-reference suites for this change passed. The original 142 hooks and 144 bodies, typecheck, test build, lint, zero duplication, docstrings and changelog:check passed on the correction. The original thirteen-thread map remains in 6446306 with the P-6W/P-6X fixtures in f7502f4 and 0bac7cc."
+  - created_at: "2026-11-21T05:50:43.834Z"
+    author: codex-sol
+    text: "Supplemental commit 87cffb3 passes all 130 directly affected tests, static checks and the fleet scan of 142 hooks and 144 bodies. The pushed head 1f5c49a passed standalone and rewritten-candidate coverage. The supplemental full gates have separate runs under the original push cutoff."
 files[25]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
