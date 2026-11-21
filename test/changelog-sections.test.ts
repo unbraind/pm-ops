@@ -81,7 +81,8 @@ function changelogStepScript(): string {
     const script = workflow.jobs.prepare.steps.find(step => step.name === name)?.run;
     assert.ok(script, name);
     return script;
-  }).join(`\nexport PREPARED_NPM_LIFECYCLE="$(sed -n 's/^npm_lifecycle=//p' "$GITHUB_OUTPUT" | tail -n 1)"\n`);
+  }).join(`\nexport PREPARED_NPM_LIFECYCLE="$(sed -n 's/^npm_lifecycle=//p' "$GITHUB_OUTPUT" | tail -n 1)"
+export PREPARED_NPM_LIFECYCLE_CONFIGURED="$(sed -n 's/^npm_lifecycle_configured=//p' "$GITHUB_OUTPUT" | tail -n 1)"\n`);
 }
 
 /** Fixture npm scripts that call this repository's generator with the standing policy. */
@@ -592,12 +593,14 @@ test("a resumed release passes preparation, continuation and post-tag checks acr
     assert.equal(prepared.status, 0, prepared.stdout + prepared.stderr);
     assert.match(readFileSync(join(root, "CHANGELOG.md"), "utf8"), /^## 2026\.10\.23 - 2026-10-24$/m);
     commitPreparedRelease(root, env, merge);
-    const receipt = readFileSync(releaseEnv.GITHUB_OUTPUT!, "utf8").trim();
-    assert.equal(receipt, "npm_lifecycle=false");
+    const receipt = readFileSync(releaseEnv.GITHUB_OUTPUT!, "utf8").trim().split("\n");
+    assert.deepEqual(receipt, ["npm_lifecycle=false", "npm_lifecycle_configured=unknown"]);
     const live: NodeJS.ProcessEnv = { ...releaseEnv, npm_config_ignore_scripts: "false" };
     delete live.PREPARED_NPM_LIFECYCLE;
     const verify = [releaseEnv.CONTINUATION_SCRIPT!, "heading-date"];
-    execFileSync(process.execPath, verify, { cwd: root, env: { ...live, PREPARED_NPM_LIFECYCLE: receipt.split("=")[1] } });
+    execFileSync(process.execPath, verify, { cwd: root, env: {
+      ...live, PREPARED_NPM_LIFECYCLE: receipt[0].split("=")[1], PREPARED_NPM_LIFECYCLE_CONFIGURED: receipt[1].split("=")[1],
+    } });
     const refused = spawnSync(process.execPath, verify, { cwd: root, env: live, encoding: "utf8" });
     assert.notEqual(refused.status, 0);
     assert.match(refused.stderr, /2026-10-23 differs from verified merge commit day 2026-10-24/);
@@ -1069,5 +1072,43 @@ test("generation refuses lifecycle drift and preserves nested npm behavior under
     const stable = runBashFixture(changelogStepScript(), { cwd: root, env, encoding: "utf8" });
     assert.equal(stable.status, 0, stable.stdout + stable.stderr);
     assert.equal(readFileSync(notes, "utf8").trim(), skip ? "main" : "before\nbefore\nmain");
+  }
+});
+
+test("generation detects drift in the nested npm fallback with the active setting held fixed", t => {
+  const root = mkdtempSync(join(tmpdir(), "prepared-npm-fallback-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const env = releaseStepEnv(root, Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_config_/i.test(key))));
+  const config = join(root, "fixture.npmrc");
+  Object.assign(env, { NPM_CONFIG_USERCONFIG: config, NPM_CONFIG_GLOBALCONFIG: devNull, npm_config_ignore_scripts: "true" });
+  if (process.platform !== "win32") {
+    const bin = join(root, "bin");
+    mkdirSync(bin);
+    symlinkSync(npmCli(), join(bin, "npm"));
+    env.PATH = [bin, env.PATH].join(delimiter);
+  }
+  writeFileSync(join(root, "check.mjs"), "");
+  writeFileSync(join(root, "notes.mjs"), 'if (process.argv.includes("--include-empty")) console.log("ready")');
+  writeFileSync(join(root, "before.mjs"), 'console.log("unexpected prewriter")');
+  writeFileSync(join(root, "package.json"), JSON.stringify({ name: "fixture", scripts: {
+    "changelog:full": "node change.mjs", "changelog:check": "node check.mjs",
+    "release:notes": "npm --ignore-scripts=false --silent run bridge",
+    bridge: "npm --silent run writer", writer: "node notes.mjs", prewriter: "node before.mjs",
+  } }));
+  const notes = join(root, "RELEASE_NOTES.md");
+  for (const changed of [true, false]) {
+    const next = changed ? "false" : "true";
+    writeFileSync(config, "ignore-scripts=true\n");
+    writeFileSync(join(root, "change.mjs"), 'import fs from "node:fs"; fs.writeFileSync(process.env.NPM_CONFIG_USERCONFIG, "ignore-scripts=' + next + '\\n");');
+    rmSync(notes, { force: true });
+    const result = runBashFixture(changelogStepScript(), { cwd: root, env, encoding: "utf8" });
+    if (changed) {
+      assert.notEqual(result.status, 0);
+      assert.match(result.stdout + result.stderr, /npm lifecycle policy changed/);
+      assert.equal(existsSync(notes), false);
+    } else {
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      assert.equal(readFileSync(notes, "utf8").trim(), "ready");
+    }
   }
 });

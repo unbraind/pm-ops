@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertReleaseHookHeadingDate, releaseCommitDay, resolveChangelogHooks } from "../release-changelog-options.ts";
-import { projectNpmLifecyclePolicy } from "./project-npm-lifecycle.ts";
+import { parseNpmLifecycle, projectNpmLifecyclePolicy } from "./project-npm-lifecycle.ts";
 import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "./release-runtime.ts";
 import { originalPublicationSigner, verifyRegistryProvenance, type ProvenanceIdentity, type verifySigstoreBundle } from "../release-provenance.ts";
 import { pathToFileURL } from "node:url";
@@ -462,19 +462,16 @@ async function reconcilePostHook(receipt: CandidateReceipt, pr: RestPr, reposito
   await record("complete");
 }
 
-/** Decode the verified preparation output, including absent legacy receipt fields. */
-function preparedLifecycle(value: string | undefined): boolean | "unknown" {
-  if (value === "true") return true;
-  if (value === "false") return false;
-  return "unknown";
-}
-
 /** Invoke one bounded workflow transition; every schedule starts with discovery, never preparation. */
 export async function runReleaseContinuation(mode: string | undefined, verifyProvenance?: typeof verifySigstoreBundle): Promise<void> {
   if (mode === "heading-date") {
     const project = required("NPM_PROJECT_PATH");
-    const recorded = process.env.PREPARED_NPM_LIFECYCLE;
-    const lifecycle = projectNpmLifecyclePolicy(project, recorded ? preparedLifecycle(recorded) : undefined);
+    const { PREPARED_NPM_LIFECYCLE: active, PREPARED_NPM_LIFECYCLE_CONFIGURED: configured } = process.env;
+    // An older candidate can lack either field. Preserve its existing probe behavior.
+    const lifecycle = active ? {
+      active: parseNpmLifecycle(active),
+      configured: configured ? parseNpmLifecycle(configured) : projectNpmLifecyclePolicy(project).configured,
+    } : projectNpmLifecyclePolicy(project);
     const pkg = JSON.parse(readFileSync(join(project, "package.json"), "utf8")) as { version?: string; scripts: Record<string, string> };
     const hooks = ["CHANGELOG_SCRIPT", "CHANGELOG_CHECK_SCRIPT", "NOTES_SCRIPT"].map(required);
     const scripts = resolveChangelogHooks(pkg.scripts, hooks, lifecycle);
@@ -512,14 +509,16 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
   }
   if (mode === "manifest") {
     const packageBytes = process.env.IS_RUST === "true" ? Buffer.alloc(0) : readFileSync(join(handoff, "package.tgz"));
+    const configured = process.env.PREPARED_NPM_LIFECYCLE_CONFIGURED;
     const c: ReleaseCandidate = {
-      npmLifecycle: preparedLifecycle(process.env.PREPARED_NPM_LIFECYCLE),
+      npmLifecycle: parseNpmLifecycle(process.env.PREPARED_NPM_LIFECYCLE),
       schema: 1, repository, defaultBranch: "main", baseSha: required("RELEASE_BASE_SHA"), headSha: required("VERIFIED_COMMIT"), tree: required("VERIFIED_TREE"),
       version: required("NPM_VERSION"), tag: required("RELEASE_TAG"), packageName: process.env.PACKAGE_NAME || "github-only",
       packageSha256: releaseDigest(packageBytes), packageIntegrity: `sha512-${createHash("sha512").update(packageBytes).digest("base64")}`,
       notesSha256: releaseDigest(readFileSync(join(handoff, "RELEASE_NOTES.md"))), cliVersion: process.env.CLI_VERSION ?? "", opsVersion: required("PM_OPS_VERSION"), toolsSha: required("WORKFLOW_TOOLS_SHA"),
       runId: Number(required("GITHUB_RUN_ID")), runAttempt: Number(required("GITHUB_RUN_ATTEMPT")), workflow, configDigest, npmPublish: required("NPM_PUBLISH") === "true",
     };
+    if (configured) c.npmLifecycleConfigured = parseNpmLifecycle(configured);
     validateReleaseCandidate(c);
     writeFileSync(join(handoff, "candidate.json"), JSON.stringify(c));
     return;

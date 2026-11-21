@@ -1,7 +1,7 @@
 /** Persist the date and empty-section policies used by release changelog hooks. */
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import {
-  activeNpmLifecycle, changelogArguments, includeEmptyCustomHook, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHookDates,
+  changelogArguments, includeEmptyCustomHook, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHookDates,
   visitChangelogScriptCommands,
 } from "../release-changelog-options.ts";
 import { projectNpmLifecyclePolicy } from "./project-npm-lifecycle.ts";
@@ -50,7 +50,8 @@ try {
     }
   }
   if (changed) writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
-  if (process.argv[2]) appendFileSync(process.argv[2], "npm_lifecycle=" + activeNpmLifecycle(lifecycle) + "\n");
+  if (process.argv[2]) appendFileSync(process.argv[2],
+    "npm_lifecycle=" + lifecycle.active + "\nnpm_lifecycle_configured=" + lifecycle.configured + "\n");
 } catch (error) {
   console.error((error as Error).message);
   process.exitCode = 1;

@@ -93,7 +93,9 @@ async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { ro
     REMOTE_BRANCH_SHA: f.c.headSha, ARTIFACT_ID: "20", RELEASE_BASE_SHA: f.c.baseSha, VERIFIED_COMMIT: f.c.headSha, VERIFIED_TREE: f.c.tree, NPM_VERSION: f.c.version, RELEASE_TAG: f.c.tag,
     PREPARED_NPM_LIFECYCLE: "unknown", PACKAGE_NAME: f.c.packageName, CLI_VERSION: f.c.cliVersion, PM_OPS_VERSION: f.c.opsVersion, WORKFLOW_TOOLS_SHA: f.c.toolsSha!, GITHUB_ENV: join(root, "env"), PUBLISHING_WORKFLOW_REF: f.options.publishingWorkflowRef, GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", NPM_PUBLISH: "true", IS_RUST: "false", RELEASE_FIXTURE: root,
     PATH: `${root}:${process.env.PATH}` };
-  const saved = new Map([...Object.keys(values), "CANDIDATE_RECEIPT", "SUPERSEDED_PR_NUMBERS", "POST_RELEASE_SCRIPT", "NPM_PROJECT_PATH", "RETIRE_UNPUBLISHED", "RELEASE_COMMIT"].map(key => [key, process.env[key]]));
+  const saved = new Map([...Object.keys(values), "CANDIDATE_RECEIPT", "SUPERSEDED_PR_NUMBERS", "POST_RELEASE_SCRIPT", "NPM_PROJECT_PATH",
+    "PREPARED_NPM_LIFECYCLE_CONFIGURED", "RETIRE_UNPUBLISHED", "RELEASE_COMMIT"].map(key => [key, process.env[key]]));
+  delete process.env.PREPARED_NPM_LIFECYCLE_CONFIGURED;
   Object.assign(process.env, values);
   const refresh = () => {
     f.c.configDigest = releaseConfigDigest({}); f.c.packageSha256 = releaseDigest("verified bytes"); f.c.notesSha256 = releaseDigest("verified notes");
@@ -654,6 +656,14 @@ test("entry point captures npm and GitHub-only manifests without executing packa
     const prepared = JSON.parse(readFileSync(join(f.handoff, "candidate.json"), "utf8"));
     assert.equal(prepared.packageSha256, f.c.packageSha256);
     assert.equal(prepared.npmLifecycle, "unknown");
+    assert.equal(prepared.npmLifecycleConfigured, undefined);
+    process.env.PREPARED_NPM_LIFECYCLE = "false";
+    process.env.PREPARED_NPM_LIFECYCLE_CONFIGURED = "true";
+    await runReleaseContinuation("manifest");
+    const nested = JSON.parse(readFileSync(join(f.handoff, "candidate.json"), "utf8"));
+    assert.equal(nested.npmLifecycle, false);
+    assert.equal(nested.npmLifecycleConfigured, true);
+    delete process.env.PREPARED_NPM_LIFECYCLE_CONFIGURED;
     process.env.IS_RUST = "true"; process.env.NPM_PUBLISH = "false"; process.env.PACKAGE_NAME = ""; delete process.env.CLI_VERSION;
     await runReleaseContinuation("manifest");
     const rust = JSON.parse(readFileSync(join(f.handoff, "candidate.json"), "utf8")) as { packageName: string; cliVersion: string; npmPublish: boolean; packageSha256: string };
@@ -1578,7 +1588,9 @@ test("heading-date continuation mirrors the generator at the committer offset de
   const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
   const lifecycle = Object.entries(process.env).filter(([key]) => /^npm_config_/i.test(key));
   const savedPolicy = process.env.PREPARED_NPM_LIFECYCLE;
+  const savedConfigured = process.env.PREPARED_NPM_LIFECYCLE_CONFIGURED;
   delete process.env.PREPARED_NPM_LIFECYCLE;
+  delete process.env.PREPARED_NPM_LIFECYCLE_CONFIGURED;
   for (const [key] of lifecycle) delete process.env[key];
   Object.assign(process.env, env);
   try {
@@ -1643,6 +1655,16 @@ test("heading-date continuation mirrors the generator at the committer offset de
       process.env.PREPARED_NPM_LIFECYCLE = value;
       await assert.rejects(runReleaseContinuation("heading-date"), /ignore-scripts.*pregenerate/);
     }
+    write({ generate: script, check: script, notes: "npm --ignore-scripts=false run bridge", bridge: "npm run writer",
+      writer: script, prewriter: "pm-changelog --date-fallback 2026-11-06" });
+    process.env.PREPARED_NPM_LIFECYCLE = "false";
+    process.env.PREPARED_NPM_LIFECYCLE_CONFIGURED = "false";
+    writeFileSync(npmrc, "ignore-scripts=false\n");
+    await runReleaseContinuation("heading-date");
+    process.env.PREPARED_NPM_LIFECYCLE_CONFIGURED = "true";
+    writeFileSync(npmrc, "ignore-scripts=true\n");
+    await assert.rejects(runReleaseContinuation("heading-date"), /2026-11-06.*2026-11-07.*retire-unpublished/);
+    delete process.env.PREPARED_NPM_LIFECYCLE_CONFIGURED;
     delete process.env.PREPARED_NPM_LIFECYCLE;
     for (const bad of [undefined, null, 1, "", " "]) {
       write({ generate: script, check: script, notes: bad });
@@ -1653,6 +1675,8 @@ test("heading-date continuation mirrors the generator at the committer offset de
   } finally {
     if (savedPolicy === undefined) delete process.env.PREPARED_NPM_LIFECYCLE;
     else process.env.PREPARED_NPM_LIFECYCLE = savedPolicy;
+    if (savedConfigured === undefined) delete process.env.PREPARED_NPM_LIFECYCLE_CONFIGURED;
+    else process.env.PREPARED_NPM_LIFECYCLE_CONFIGURED = savedConfigured;
     Object.assign(process.env, Object.fromEntries(lifecycle));
     Object.keys(env).forEach(key => {
       const saved = previous[key];

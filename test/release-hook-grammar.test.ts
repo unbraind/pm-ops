@@ -6,7 +6,7 @@ import { delimiter, join, resolve } from "node:path";
 import test from "node:test";
 import { stringify } from "yaml";
 import { executableShellBodies } from "../attestation.ts";
-import { projectNpmLifecycle } from "../scripts/project-npm-lifecycle.ts";
+import { projectNpmLifecyclePolicy } from "../scripts/project-npm-lifecycle.ts";
 import { npmCli } from "../scripts/release-runtime.ts";
 import { execFileSync } from "../subprocess.ts";
 import {
@@ -108,7 +108,7 @@ test("preparation and npm agree when the project disables lifecycle hooks", t =>
     execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts"), output], { cwd: root, env: runEnv });
     const prepared = JSON.parse(readFileSync(manifest, "utf8")).scripts;
     assert.equal(existsSync(runEnv.GITHUB_OUTPUT), false);
-    assert.equal(readFileSync(output, "utf8"), "npm_lifecycle=" + override + "\n");
+    assert.equal(readFileSync(output, "utf8"), "npm_lifecycle=" + override + "\nnpm_lifecycle_configured=false\n");
     if (override) assert.match(prepared.prehook, /--date-fallback 2026-11-17/);
     else assert.equal(prepared.prehook, scripts.prehook);
     execFileSync(process.execPath, [npmCli(), "run", "hook"], { cwd: root, env: runEnv });
@@ -990,6 +990,23 @@ test("the public shell scanner still returns editable spans in literal substitut
   assert.equal(text.slice(start, end), '"--date-from-version"');
 });
 
+test("backquoted commands expose source spans only for a verbatim child body", () => {
+  const prefix = "value=`";
+  const operand = "\\".repeat(4);
+  const body = "printf " + operand;
+  const changed = tokenizeCommandsWithSpans(prefix + body + "`");
+  const child = changed.commands.find(words => words[0]?.value === "printf")!;
+  assert.equal(child[1].value, "\\");
+  assert.equal(changed.spans.get(child[1]), undefined);
+  assert.equal(changed.spans.get(child[0]), undefined);
+  const literal = "printf '%s' heading";
+  const original = prefix + literal + "`";
+  const intact = tokenizeCommandsWithSpans(original);
+  const program = intact.commands.find(words => words[0]?.value === "printf")!;
+  const { start, end } = intact.spans.get(program[1])!;
+  assert.equal(original.slice(start, end), "'%s'");
+});
+
 test("literal here-document data is never rewritten and opaque executable bodies are refused", () => {
   const body = "pm-changelog --version v2026.11.16";
   const sibling = "pm-changelog " + standing;
@@ -1468,8 +1485,8 @@ test("workspace preparation records only a resolved npm lifecycle setting", t =>
     execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts"), output], { cwd: member, env: { ...env, ...overrides } });
     return [readFileSync(output, "utf8").trim(), JSON.parse(readFileSync(manifest, "utf8")).scripts.prehook];
   };
-  const enabled = ["npm_lifecycle=true", scripts.prehook.replace("--date-from-version", "--date-fallback " + day) + " --include-empty"];
-  const disabled = ["npm_lifecycle=false", scripts.prehook];
+  const enabled = ["npm_lifecycle=true\nnpm_lifecycle_configured=true", scripts.prehook.replace("--date-from-version", "--date-fallback " + day) + " --include-empty"];
+  const disabled = ["npm_lifecycle=false\nnpm_lifecycle_configured=false", scripts.prehook];
   assert.deepEqual(prepare("ignore-scripts=false", "ignore-scripts=true"), enabled);
   assert.deepEqual(prepare("ignore-scripts=true", "ignore-scripts=false"), disabled);
   assert.deepEqual(prepare("", "ignore-scripts=false"), enabled);
@@ -1477,7 +1494,7 @@ test("workspace preparation records only a resolved npm lifecycle setting", t =>
   for (const config of ["", "ignore-scripts=${UNRESOLVED_RELEASE_SETTING}", "ignore-scripts[]=false"]) {
     assert.throws(() => prepare(config, ""), /ignore-scripts.*prehook/);
   }
-  assert.equal(projectNpmLifecycle(join(root, "absent")), "unknown");
+  assert.deepEqual(projectNpmLifecyclePolicy(join(root, "absent")), { active: "unknown", configured: "unknown" });
   assert.throws(() => prepare("", "", { npm_config_ignore_scripts: "true", "npm_config_ignore-scripts": "false" }), /ignore-scripts.*prehook/);
   assert.throws(() => prepare("", "", { npm_config_userconfig: root }), /ignore-scripts.*prehook/);
   assert.throws(() => prepare("ignore-scripts=true", "", { PATH: member }), /ignore-scripts.*prehook/);
@@ -1637,6 +1654,39 @@ test("a reset after opaque echo data is independent of that record", () => {
   }) })[1].environment);
   assert.equal(observe('echo npm_config_ignore_scripts=true >> "$GITHUB_ENV"'), "unknown");
   assert.equal(observe('echo npm_config_ignore_scripts=true > "$GITHUB_ENV"'), false);
+});
+
+test("nounset preserves uncertainty about an overwrite for consumers that can run after failure", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-env-nounset-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = join(root, "environment");
+  const run = [
+    'echo npm_config_ignore_scripts=false >> "$GITHUB_ENV"',
+    'echo "$RECORD" >> "$GITHUB_ENV"',
+    'echo npm_config_ignore_scripts=true > "$GITHUB_ENV"',
+  ].join("\n");
+  const policy = (flags: string, condition: string, record?: string) => npmLifecycle(undefined, executableShellBodies({
+    file: ".github/workflows/env.yml",
+    text: stringify({ jobs: { release: { "runs-on": "ubuntu-latest", steps: [
+      { shell: "bash {0}", run: "set " + flags + "\n" + run, env: record === undefined ? undefined : { RECORD: record } },
+      { run: "true", if: condition },
+    ] } } }),
+  })[1].environment);
+  for (const flags of ["-e", "-u", "-eu"]) {
+    if (process.platform !== "win32") {
+      const env = { ...process.env, GITHUB_ENV: file };
+      delete (env as NodeJS.ProcessEnv).RECORD;
+      writeFileSync(file, "");
+      const execute = () => execFileSync("bash", ["-c", "set " + flags + "\n" + run], { cwd: root, env, stdio: "pipe" });
+      if (flags.includes("u")) assert.throws(execute, /unbound variable/);
+      else execute();
+      assert.equal(readFileSync(file, "utf8"), "npm_config_ignore_scripts=" + !flags.includes("u") + "\n");
+    }
+    assert.equal(policy(flags, "always()"), flags.includes("u") ? "unknown" : false);
+    assert.equal(policy(flags, "success()"), false);
+  }
+  assert.equal(policy("-eu", "always()", "OTHER=value"), false);
+  assert.equal(policy("-eu", "always()", "${{ vars.RECORD }}"), "unknown");
 });
 
 test("npm start cannot skip its implicit server entry when the manifest has no start script", () => {
@@ -1849,6 +1899,41 @@ test("conditional status checks preserve the previous notes renderer", () => {
   assert.equal(includeEmptyCustomHook(custom, new Map()), "node notes.mjs --include-empty; " + status);
   const alternative = "node fallback.mjs; if test -f notes.txt; then node render.mjs; test -s notes.txt; fi";
   assert.throws(() => includeEmptyCustomHook(alternative, new Map()), /alternative renderers/);
+});
+
+test("literal standalone redirects leave the renderer and its forwarding boundary intact", () => {
+  for (const redirect of [">preview.log", '2>> "preview log"', "<input >output", "2>&1"]) {
+    const hook = "node notes.mjs; " + redirect;
+    assert.equal(includeEmptyCustomHook(hook, new Map()), "node notes.mjs --include-empty; " + redirect);
+    assert.throws(() => includeEmptyCustomHook("npm run render", new Map([["render", hook]])), /cannot receive forwarded arguments/);
+  }
+  const generator = "pm-changelog " + standing + " --stdout; >preview.log";
+  assert.equal(includeEmptyCustomHook(generator, new Map(), true), generator);
+  assert.equal(includeEmptyCustomHook("npm run render", new Map([["render", generator]]), true), "npm run render");
+  const ambiguous = "node primary.mjs; if test -f input; then node alternative.mjs; fi; >preview.log";
+  assert.throws(() => includeEmptyCustomHook(ambiguous, new Map()), /alternative renderers/);
+  const unresolved = "if test -f input; then " + generator + '; else >"$DYNAMIC"; fi';
+  assert.throws(() => includeEmptyCustomHook(unresolved, new Map(), true), /alternative renderers/);
+  const status = "node notes.mjs; if test -f input; then >preview.log; fi";
+  assert.equal(includeEmptyCustomHook(status, new Map()), status.replace("notes.mjs", "notes.mjs --include-empty"));
+  assert.equal(includeEmptyCustomHook("node notes.mjs; >\"$DYNAMIC\"", new Map()), "node notes.mjs; >\"$DYNAMIC\"");
+});
+
+test("an uncertain npm lifecycle refuses copies into CHANGELOG.md and permits copies out", () => {
+  const target = "changelog:full";
+  const manifests = (copy: string) => ({ [target]: "pm-changelog " + standing, ["post" + target]: copy });
+  for (const copy of ["cp preview.md CHANGELOG.md", "command cp -f -- preview.md ./CHANGELOG.md"]) {
+    assert.throws(() => resolveChangelogHooks(manifests(copy), [target]), /ignore-scripts.*postchangelog:full/);
+    assert.equal(resolveChangelogHooks(manifests(copy), [target], false).has("post" + target), false);
+    assert.equal(resolveChangelogHooks(manifests(copy), [target], true).get("post" + target), copy);
+  }
+  for (const copy of ['cp preview.md "$DESTINATION"', "cp preview.md CHANGELOG.{md,txt}"]) {
+    assert.throws(() => resolveChangelogHooks(manifests(copy), [target]), /ignore-scripts.*postchangelog:full/);
+  }
+  for (const copy of ["cp CHANGELOG.md preview.md", "cp preview.md other/CHANGELOG.md", "cp -t previews CHANGELOG.md",
+    "cp --target-directory=previews CHANGELOG.md", "cp CHANGELOG.md", "echo cp preview.md CHANGELOG.md"]) {
+    assert.doesNotThrow(() => resolveChangelogHooks(manifests(copy), [target]), copy);
+  }
 });
 
 test("an OR list preserves alternative custom notes renderers, including through script forwards", () => {

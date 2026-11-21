@@ -2,21 +2,21 @@
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { npmLifecycle, type NpmLifecycle, type NpmLifecyclePolicy } from "../release-changelog-options.ts";
+import { npmLifecycle, type NpmLifecycle } from "../release-changelog-options.ts";
 import { spawnSync } from "../subprocess.ts";
 import { isMainInvocation } from "./main-invocation.ts";
 import { npmCli } from "./release-runtime.ts";
 
 /** Use npm's own workspace and npmrc loader, without running any package scripts. */
-async function readLifecycle(): Promise<NpmLifecycle> {
+async function readLifecycle(env: NodeJS.ProcessEnv): Promise<NpmLifecycle> {
   const cli = npmCli(true);
   const fromNpm = createRequire(cli);
   const Config = fromNpm("@npmcli/config");
   const config = new Config({ ...fromNpm("@npmcli/config/lib/definitions"), npmPath: dirname(dirname(cli)),
-    argv: [process.execPath, cli, "run"], env: { ...process.env } });
+    argv: [process.execPath, cli, "run"], env: { ...env } });
   await config.load();
   const key = "ignore-scripts";
-  if (config.find(key) === "env") return npmLifecycle(undefined, process.env);
+  if (config.find(key) === "env") return npmLifecycle(undefined, env);
   for (const source of ["project", "user", "global", "builtin"]) {
     const layer = config.data.get(source);
     if (layer.loadError && layer.loadError.code !== "ENOENT") return "unknown";
@@ -28,21 +28,26 @@ async function readLifecycle(): Promise<NpmLifecycle> {
   return "unknown";
 }
 
-/** Run from the hook directory so npm resolves relative configuration paths there too. */
-export function projectNpmLifecycle(cwd: string, env?: NodeJS.ProcessEnv): NpmLifecycle {
-  const result = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], { cwd, env, encoding: "utf8" });
-  if (result.status === 0 && result.stdout === "true") return true;
-  if (result.status === 0 && result.stdout === "false") return false;
+/** Decode a scalar written by the npm probe or verified release receipt. */
+export function parseNpmLifecycle(value: string | undefined): NpmLifecycle {
+  if (value === "true") return true;
+  if (value === "false") return false;
   return "unknown";
 }
 
 /** Retain the config that nested npm commands reload after clearing the exported setting. */
-export function projectNpmLifecyclePolicy(cwd: string, recorded?: NpmLifecycle): NpmLifecyclePolicy {
-  const active = recorded ?? projectNpmLifecycle(cwd);
-  if (recorded === undefined && !process.env.npm_config_ignore_scripts) return active;
-  return { active, configured: projectNpmLifecycle(cwd, { ...process.env, npm_config_ignore_scripts: "" }) };
+export function projectNpmLifecyclePolicy(cwd: string): { active: NpmLifecycle; configured: NpmLifecycle } {
+  const result = spawnSync(process.execPath, [fileURLToPath(import.meta.url), "--policy"], { cwd, encoding: "utf8" });
+  const [active, configured] = result.status === 0 ? result.stdout.split(":") : [];
+  return { active: parseNpmLifecycle(active), configured: parseNpmLifecycle(configured) };
 }
 
 if (isMainInvocation(process.argv, import.meta.url)) {
-  process.stdout.write(String(await readLifecycle().catch(() => "unknown")));
+  const active = await readLifecycle(process.env).catch(() => "unknown");
+  if (process.argv[2] === "--policy") {
+    const configured = process.env.npm_config_ignore_scripts
+      ? await readLifecycle({ ...process.env, npm_config_ignore_scripts: "" }).catch(() => "unknown")
+      : active;
+    process.stdout.write(active + ":" + configured);
+  } else process.stdout.write(String(active));
 }

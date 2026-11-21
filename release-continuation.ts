@@ -23,6 +23,8 @@ export interface ReleaseCandidate {
   toolsSha?: string;
   /** Effective npm lifecycle execution used to verify the prepared hooks. */
   npmLifecycle?: boolean | "unknown";
+  /** Fallback lifecycle execution prepared for nested npm calls. */
+  npmLifecycleConfigured?: boolean | "unknown";
   runId: number;
   runAttempt: number;
   workflow: string;
@@ -98,7 +100,7 @@ export function ownsContinuationPr(pr: ContinuationPr, repository: string, base:
 /** Refuse malformed durable input before it reaches paths, shell arguments or remote effects. */
 export function validateReleaseCandidate(candidate: ReleaseCandidate): void {
   const c = candidate;
-  const fields = ["schema", "repository", "defaultBranch", "baseSha", "headSha", "tree", "version", "tag", "packageName", "packageSha256", "packageIntegrity", "notesSha256", "cliVersion", "opsVersion", "toolsSha", "npmLifecycle", "runId", "runAttempt", "workflow", "configDigest", "npmPublish"];
+  const fields = ["schema", "repository", "defaultBranch", "baseSha", "headSha", "tree", "version", "tag", "packageName", "packageSha256", "packageIntegrity", "notesSha256", "cliVersion", "opsVersion", "toolsSha", "npmLifecycle", "npmLifecycleConfigured", "runId", "runAttempt", "workflow", "configDigest", "npmPublish"];
   if (c.schema !== 1 || !/^[A-Za-z0-9_][\w.-]*\/[A-Za-z0-9_][\w.-]*$/.test(c.repository) || c.defaultBranch !== "main"
     || ![c.baseSha, c.headSha, c.tree].every(sha => /^[a-f0-9]{40}$/.test(sha))
     || !/^\d{4}\.\d+\.\d+(-\d+)?$/.test(c.version) || c.tag !== `v${c.version.split("-")[0].split(".").map(part => part.padStart(2, "0")).join(".")}${c.version.includes("-") ? "-" + c.version.split("-")[1] : ""}`
@@ -109,6 +111,8 @@ export function validateReleaseCandidate(candidate: ReleaseCandidate): void {
     || !/^\.github\/workflows\/[\w.-]+\.ya?ml$/.test(c.workflow)
     || typeof c.npmPublish !== "boolean" || typeof c.cliVersion !== "string" || (c.cliVersion !== "" && !/^\d{4}\.\d+\.\d+(-\d+)?$/.test(c.cliVersion))
     || (c.npmLifecycle !== undefined && c.npmLifecycle !== "unknown" && typeof c.npmLifecycle !== "boolean")
+    || (c.npmLifecycleConfigured !== undefined && (c.npmLifecycle === undefined
+      || (c.npmLifecycleConfigured !== "unknown" && typeof c.npmLifecycleConfigured !== "boolean")))
     || (c.toolsSha !== undefined && !/^[a-f0-9]{40}$/.test(c.toolsSha))
     || !/^\d{4}\.\d+\.\d+(-\d+)?$/.test(c.opsVersion) || Object.keys(c).some(key => !fields.includes(key))) {
     throw new Error("Malformed release candidate");

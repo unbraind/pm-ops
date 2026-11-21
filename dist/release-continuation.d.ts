@@ -19,6 +19,8 @@ export interface ReleaseCandidate {
     toolsSha?: string;
     /** Effective npm lifecycle execution used to verify the prepared hooks. */
     npmLifecycle?: boolean | "unknown";
+    /** Fallback lifecycle execution prepared for nested npm calls. */
+    npmLifecycleConfigured?: boolean | "unknown";
     runId: number;
     runAttempt: number;
     workflow: string;

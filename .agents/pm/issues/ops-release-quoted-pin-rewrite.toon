@@ -2,11 +2,13 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: open
+status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T18:37:55.550Z"
+updated_at: "2026-11-21T19:44:21.019Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -14,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[170]:
+comments[172]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -526,6 +528,12 @@ comments[170]:
   - created_at: "2026-11-21T18:37:53.417Z"
     author: codex-sol
     text: "Round FT final local verification passed. Standalone npm run coverage on 585c24c passed 2200 tests with 100% statements, branches, functions and lines across 54 sources. The rewritten release acceptance on 8156384 passed its complete release gate with 2201 passing tests, zero failures, two opt-in real-repository skips, and the same four 100% results. Typecheck, lint, zero duplication, docstrings, changelog:check, publisher attestation and lifecycle checks passed. Regeneration after fetching tags was byte-identical with ops-b2bs under Unreleased. The pinned fleet accepted 142 hooks and reached 144 bodies across 39 manifests, with no renderer refusals."
+  - created_at: "2026-11-21T19:29:11.166Z"
+    author: codex-sol
+    text: "Round FV starts from 2ce0430. Add paired regressions before implementation, then repeat the release suites, fleet scan, and full coverage gate."
+  - created_at: "2026-11-21T19:38:42.119Z"
+    author: codex-sol
+    text: All five Round FV findings reproduced in paired local fixtures. The pinned baseline and the candidate fleet scans each accepted 142 hooks and reached 144 script bodies across 39 manifests. The active and configured npm policies are now carried independently through preparation and continuation.
 files[27]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
@@ -541,9 +549,11 @@ files[27]{path,scope}:
   scripts/release-runtime.ts,project
   scripts/verify-release-changelog-date.ts,project
   shell-scan.ts,project
+  test/attestation-union.test.ts,project
   test/changelog-sections.test.ts,project
   test/daily-release-workflow.test.ts,project
   test/daily-release.test.ts,project
+  test/fixtures/launchers/npm-11.21.0/templates.json,project
   test/release-continuation-adapter.test.ts,project
   test/release-heading-full-gate.acceptance.ts,project
   test/release-heading-snapshot-fixture.ts,project
@@ -552,9 +562,7 @@ files[27]{path,scope}:
   test/release-runtime.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-  test/attestation-union.test.ts,project
-  test/fixtures/launchers/npm-11.21.0/templates.json,project
-tests[67]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[68]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -622,6 +630,7 @@ tests[67]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/changelog-sections.test.ts test/daily-release-workflow.test.ts test/release-continuation-adapter.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-provenance.test.ts test/release-runtime-windows.test.ts test/release-runtime.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts,project,codex-sol,"2026-11-21T17:16:47.902Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-name-pattern='launcher specimens stay data|Windows lifecycle discovery' test/attestation-union.test.ts test/release-runtime.test.ts,project,codex-sol,"2026-11-21T18:20:59.373Z",local_mutation,fix/release-hook-wrapper-options-bm
   "npm run verify:release-publish-attestation",project,codex-sol,"2026-11-21T18:21:02.247Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 --test-name-pattern='backquoted commands expose|literal standalone redirects|uncertain npm lifecycle refuses copies|nounset preserves|generation detects drift|active and configured lifecycle values|heading-date continuation mirrors|behind-base squash|entry point captures npm|workspace preparation|project disables lifecycle|inherited npm bindings|npm forwards inherited title' test/release-hook-grammar.test.ts test/changelog-sections.test.ts test/daily-release-workflow.test.ts test/release-continuation.test.ts test/release-continuation-adapter.test.ts,project,codex-sol,"2026-11-21T19:38:45.080Z",local_mutation,fix/release-hook-wrapper-options-bm
 docs[4]{path,scope}:
   CHANGELOG.md,project
   docs/reusable-release.md,project

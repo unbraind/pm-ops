@@ -1072,15 +1072,20 @@ test("continuation enforces the merge day before publish and still tags after mi
   }
 });
 
-test("both heading checks receive the lifecycle value recorded for the verified candidate", () => {
+test("both heading checks receive the active and configured lifecycle values recorded for the verified candidate", () => {
   const generation = step("Generate changelog and release notes");
   const manifest = step("Record immutable release candidate");
   const policy = step("Prepare npm changelog hooks");
   assert.equal(workflow.jobs.prepare.steps.indexOf(policy) + 1, workflow.jobs.prepare.steps.indexOf(generation));
   assert.doesNotMatch(policy.run, /npm run/);
-  assert.equal(generation.env?.PREPARED_NPM_LIFECYCLE, "${{ steps." + policy.id + ".outputs.npm_lifecycle }}");
-  assert.equal(manifest.env?.PREPARED_NPM_LIFECYCLE, "${{ steps." + policy.id + ".outputs.npm_lifecycle }}");
   const checks = workflow.jobs.release.steps.filter(entry => entry.run?.includes('"$CONTINUATION_SCRIPT" heading-date'));
   assert.equal(checks.length, 2);
-  for (const entry of checks) assert.equal(entry.env?.PREPARED_NPM_LIFECYCLE, "${{ steps.continue.outputs.npmLifecycle }}");
+  for (const [name, prepared, candidate] of [
+    ["PREPARED_NPM_LIFECYCLE", "npm_lifecycle", "npmLifecycle"],
+    ["PREPARED_NPM_LIFECYCLE_CONFIGURED", "npm_lifecycle_configured", "npmLifecycleConfigured"],
+  ]) {
+    assert.equal(generation.env?.[name], "${{ steps." + policy.id + ".outputs." + prepared + " }}");
+    assert.equal(manifest.env?.[name], "${{ steps." + policy.id + ".outputs." + prepared + " }}");
+    for (const entry of checks) assert.equal(entry.env?.[name], "${{ steps.continue.outputs." + candidate + " }}");
+  }
 });

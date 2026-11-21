@@ -698,8 +698,10 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
         return commands;
     }
     for (const body of nested) {
-        const start = body.start + (text[body.start] === "`" ? 1 : 2);
-        const childSpans = text.startsWith(body.text, start) ? spans : undefined;
+        const backquoted = text[body.start] === "`";
+        const start = body.start + (backquoted ? 1 : 2);
+        const end = body.end - Number(text[body.end - 1] === "`");
+        const childSpans = !backquoted || text.slice(start, end) === body.text ? spans : undefined;
         commands.push(...scanShellCommands(body.text, depth + 1, body.arithmetic, undefined, childSpans, offset + start));
     }
     for (const found of [...commands]) {

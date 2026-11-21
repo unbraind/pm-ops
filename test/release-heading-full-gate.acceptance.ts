@@ -39,8 +39,10 @@ try {
   const outputs = join(root, "prepare.out");
   for (const name of ["Prepare npm changelog hooks", "Generate changelog and release notes"]) {
     const step = definition.jobs.prepare.steps.find((entry: { name?: string }) => entry.name === name);
+    const policy = name === "Generate changelog and release notes"
+      ? Object.fromEntries(readFileSync(outputs, "utf8").trim().split("\n").map(line => line.split("="))) : {};
     const prepared = runBashFixture(step.run, { cwd: candidate, env: { ...releaseEnv, GITHUB_OUTPUT: outputs,
-      PREPARED_NPM_LIFECYCLE: name === "Generate changelog and release notes" ? readFileSync(outputs, "utf8").trim().split("=")[1] : undefined }, encoding: "utf8" });
+      PREPARED_NPM_LIFECYCLE: policy.npm_lifecycle, PREPARED_NPM_LIFECYCLE_CONFIGURED: policy.npm_lifecycle_configured }, encoding: "utf8" });
     assert.equal(prepared.status, 0, prepared.stdout + prepared.stderr);
   }
   const rewritten = JSON.parse(readFileSync(join(candidate, "package.json"), "utf8")) as { scripts: Record<string, string> };

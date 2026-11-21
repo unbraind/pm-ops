@@ -310,6 +310,11 @@ test("lifecycle discovery skips a non-executable npm and stops at an executable 
       const result = spawnSync(process.execPath, [probe], { cwd: root, env, encoding: "utf8" });
       assert.equal(result.status, 0, result.stderr);
       assert.equal(result.stdout, expected, JSON.stringify(env.PATH));
+      const policy = spawnSync(process.execPath, [probe, "--policy"], {
+        cwd: root, env: { ...env, npm_config_ignore_scripts: "false" }, encoding: "utf8",
+      });
+      assert.equal(policy.status, 0, policy.stderr);
+      assert.equal(policy.stdout, mode === 0o644 ? "true:false" : "unknown:unknown", JSON.stringify(env.PATH));
     }
   }
 });

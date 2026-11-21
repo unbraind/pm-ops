@@ -897,6 +897,7 @@ function literalEnvironmentRecord(print, stepEnv) {
 function writtenIgnoreScripts(text, conditionalStep, stepEnv, errexit) {
     let records = {};
     let mayStopBeforeOverwrite = false;
+    let nounset = false;
     let depth = 0;
     const lines = text.split(/\r?\n/);
     const bodies = heredocBodyLines(lines);
@@ -917,6 +918,8 @@ function writtenIgnoreScripts(text, conditionalStep, stepEnv, errexit) {
         const shellOptions = /^set -([eu]+)(?:o pipefail)?$/.exec(line);
         if (shellOptions?.[1].includes("e"))
             errexit = true;
+        if (shellOptions?.[1].includes("u"))
+            nounset = true;
         if (!line || line.startsWith("#") || shellOptions || /^(?:true|:|echo [\w .-]+)$/.test(line)
             || READ_ENV_FILE.test(line))
             continue;
@@ -930,11 +933,14 @@ function writtenIgnoreScripts(text, conditionalStep, stepEnv, errexit) {
         const print = line.slice(0, redirect).trimEnd();
         const record = literalEnvironmentRecord(print, stepEnv);
         if (record === undefined) {
-            if (!/^(?:cat [\w./-]+|echo "\$\w+")$/.test(print))
+            const read = /^cat [\w./-]+$/.test(print);
+            const echo = /^echo "\$(\w+)"$/.exec(print);
+            if (!read && !echo)
                 return undefined;
-            // A successful step reached a later overwrite. A failed cat under
-            // errexit can terminate the step while the earlier contents still apply.
-            if (errexit && print.startsWith("cat "))
+            // A failed read or an unset expansion can leave the earlier contents in place.
+            const operand = echo && stepEnv?.[echo[1]];
+            const mayBeUnset = typeof operand !== "string" || operand.includes("${{");
+            if (read ? errexit : nounset && mayBeUnset)
                 mayStopBeforeOverwrite = true;
             records = undefined;
             continue;

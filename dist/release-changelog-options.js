@@ -294,6 +294,24 @@ function generatorCommand(invocation) {
     const file = invocation[index];
     return file && !file.unresolved && GENERATOR_TARGET.test(file.value) ? invocation.slice(index) : undefined;
 }
+/** Identify the destination operand of a copy in file-to-file form. */
+function copyWritesChangelog(args) {
+    const operands = [];
+    let options = true;
+    for (const word of args) {
+        if (options && /^-.+/.test(word.value)) {
+            if (word.value === "--")
+                options = false;
+            if (/^(?:-[^-]*t|--target-directory(?:=|$))/.test(word.value))
+                return false;
+        }
+        else
+            operands.push(word);
+    }
+    const destination = operands.at(-1);
+    return operands.length >= 2 && (destination.unresolved || hasBraceExpansion(destination)
+        || posix.normalize(destination.value) === "CHANGELOG.md");
+}
 /** Look for a reachable generator without interpreting an opaque command as executable argv. */
 function canReachGenerator(words, names, seen, writing = false, lifecycle = "unknown", configured = lifecycle) {
     if (writing && redirectsChangelog(words))
@@ -307,6 +325,8 @@ function canReachGenerator(words, names, seen, writing = false, lifecycle = "unk
     if (writing && name === "tee") {
         return parameters.some(word => word.unresolved || hasBraceExpansion(word) || posix.normalize(word.value) === "CHANGELOG.md");
     }
+    if (writing && name === "cp")
+        return copyWritesChangelog(parameters);
     if (DATA_CONSUMERS.has(name) || isPackageAdmin(program, parameters))
         return false;
     const forward = scriptForward(name, parameters, names);
@@ -1119,6 +1139,22 @@ export function includeEmptyReleaseSections(script, scriptNames) {
     }
     return applyHookEdits(script, edits.values());
 }
+/** A standalone literal redirect has no executable that can render notes. */
+function literalRedirectOnly(words) {
+    let index = words.findIndex(word => !word.releaseKeyword);
+    if (index < 0 || hookSyntaxProblem(words))
+        return false;
+    for (; index < words.length; index++) {
+        const word = words[index];
+        const redirect = shellRedirection(word);
+        if (!redirect)
+            return false;
+        const target = redirect.joined ? word : words[++index];
+        if (!target || (!redirect.joined && shellRedirection(target)) || target.unresolved || hasBraceExpansion(target))
+            return false;
+    }
+    return true;
+}
 /** Find the possible final renderers on conditional and OR-list paths. */
 function finalHookCommands(commands) {
     const alternatives = [];
@@ -1145,6 +1181,7 @@ function finalHookCommands(commands) {
         if (following === "pipe")
             continue;
         if ((!words[0].releaseKeyword || words.length > 1)
+            && !literalRedirectOnly(words)
             && !((alternatives.length > 0 || afterOr) && rendererStatusCommand(releaseOutputProducer(words)))) {
             const prior = afterOr ? last.filter(command => !rendererStatusCommand(releaseOutputProducer(command))) : [];
             last = [...prior, words];
@@ -1215,7 +1252,7 @@ function customForwardDelimiters(invocation, scripts, hasGenerator) {
         const { commands, spans } = parseReleaseHook(text);
         const recipient = commandReceivingArguments(text, commands, spans);
         const terminal = finalHookCommand(commands, hasGenerator, scripts);
-        const producer = releaseOutputProducer(recipient && !rendererStatusCommand(recipient) ? recipient : terminal);
+        const producer = releaseOutputProducer(recipient && releaseHookCommand(recipient) && !rendererStatusCommand(recipient) ? recipient : terminal);
         if (producer !== recipient)
             blockedTarget = forward.target;
         const next = releaseHookCommand(producer === recipient ? [...producer, ...forward.args] : producer);

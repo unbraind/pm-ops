@@ -636,6 +636,7 @@ jobs:
         working-directory: ${{ env.NPM_PROJECT_PATH }}
         env:
           PREPARED_NPM_LIFECYCLE: ${{ steps.changelog.outputs.npm_lifecycle }}
+          PREPARED_NPM_LIFECYCLE_CONFIGURED: ${{ steps.changelog.outputs.npm_lifecycle_configured }}
           NPM_VERSION: ${{ steps.decide.outputs.npm_version }}
           RELEASE_HEADING_DATE: ${{ steps.decide.outputs.heading_date }}
         shell: bash
@@ -646,14 +647,15 @@ jobs:
             just changelog-check
             just release-notes > "$RUNNER_TEMP/RELEASE_NOTES.md"
           else
-            case "$PREPARED_NPM_LIFECYCLE" in
-              true|false|unknown) ;;
-              *) echo "::error::Missing or invalid prepared npm lifecycle policy"; exit 1 ;;
-            esac
+            prepared_policy="$PREPARED_NPM_LIFECYCLE:$PREPARED_NPM_LIFECYCLE_CONFIGURED"
+            if [[ ! "$prepared_policy" =~ ^(true|false|unknown):(true|false|unknown)$ ]]; then
+              echo "::error::Missing or invalid prepared npm lifecycle policy"
+              exit 1
+            fi
             verify_lifecycle() {
               local policy
-              policy=$(node "${CONTINUATION_SCRIPT%/scripts/*}/scripts/project-npm-lifecycle.ts")
-              if [[ "$policy" != "$PREPARED_NPM_LIFECYCLE" ]]; then
+              policy=$(node "${CONTINUATION_SCRIPT%/scripts/*}/scripts/project-npm-lifecycle.ts" --policy)
+              if [[ "$policy" != "$prepared_policy" ]]; then
                 echo "::error::The npm lifecycle policy changed after changelog preparation"
                 return 1
               fi
@@ -763,6 +765,7 @@ jobs:
           RELEASE_BASE_SHA: ${{ steps.decide.outputs.base_sha }}
           WORKFLOW_TOOLS_SHA: ${{ job.workflow_sha }}
           PREPARED_NPM_LIFECYCLE: ${{ steps.changelog.outputs.npm_lifecycle }}
+          PREPARED_NPM_LIFECYCLE_CONFIGURED: ${{ steps.changelog.outputs.npm_lifecycle_configured }}
           VERIFIED_COMMIT: ${{ steps.pack.outputs.commit }}
           VERIFIED_TREE: ${{ steps.pack.outputs.tree }}
           NPM_VERSION: ${{ steps.decide.outputs.npm_version }}
@@ -1210,6 +1213,7 @@ jobs:
         shell: bash
         env:
           PREPARED_NPM_LIFECYCLE: ${{ steps.continue.outputs.npmLifecycle }}
+          PREPARED_NPM_LIFECYCLE_CONFIGURED: ${{ steps.continue.outputs.npmLifecycleConfigured }}
         run: node "$CONTINUATION_SCRIPT" heading-date
       - name: Verify npm will accept this workflow's OIDC identity
         if: steps.continue.outputs.action == 'publish' && inputs.npm-publish
@@ -1386,6 +1390,7 @@ jobs:
         shell: bash
         env:
           PREPARED_NPM_LIFECYCLE: ${{ steps.continue.outputs.npmLifecycle }}
+          PREPARED_NPM_LIFECYCLE_CONFIGURED: ${{ steps.continue.outputs.npmLifecycleConfigured }}
           RELEASE_TAG: ${{ needs.reconcile.outputs.tag }}
         run: |
           set -euo pipefail
