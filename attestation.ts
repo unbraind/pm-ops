@@ -954,8 +954,9 @@ function writtenIgnoreScripts(
       depth--;
       continue;
     }
-    if (/^set -[eu]*e[eu]*(?:o pipefail)?$/.test(line)) errexit = true;
-    if (!line || line.startsWith("#") || /^(?:true|:|set -[eu]+(?:o pipefail)?|echo [\w .-]+)$/.test(line)
+    const shellOptions = /^set -([eu]+)(?:o pipefail)?$/.exec(line);
+    if (shellOptions?.[1].includes("e")) errexit = true;
+    if (!line || line.startsWith("#") || shellOptions || /^(?:true|:|echo [\w .-]+)$/.test(line)
       || READ_ENV_FILE.test(line)) continue;
     const redirect = line.indexOf(">");
     if (redirect < 0) return undefined;

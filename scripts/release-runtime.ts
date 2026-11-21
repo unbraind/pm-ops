@@ -37,19 +37,22 @@ function windowsNpmCli(launcher: string): string | undefined {
   const directory = dirname(launcher);
   const launcherName = basename(launcher);
   if (!["npm", "npm.cmd"].includes(launcherName)) return undefined;
+  const localNode = join(directory, "node.exe");
+  if (isExecutableFile(localNode, "win32") && realpathSync(localNode) !== realpathSync(process.execPath)) return undefined;
   const source = windowsLauncherText(launcher);
   const direct = DIRECT_WINDOWS_NPM.exec(source)?.[1];
   if (direct) {
     const cli = resolve(directory, direct);
     return isExecutableFile(cli, "win32") ? realpathSync(cli) : undefined;
   }
-  const localNode = join(directory, "node.exe");
-  const node = isExecutableFile(localNode, "win32") ? localNode : process.execPath;
-  const base = launcherName === "npm.cmd" ? directory : dirname(node);
-  const bin = join(base, "node_modules/npm/bin");
+  const bundledNode = dirname(process.execPath);
+  // A batch launcher uses its own directory. Only the running Node's
+  // installation supplies the bundled helper that the probe may execute.
+  if (launcherName === "npm.cmd" && realpathSync(directory) !== realpathSync(bundledNode)) return undefined;
+  const bin = join(bundledNode, "node_modules/npm/bin");
   const template = join(bin, launcherName);
   if (!existsSync(template) || source !== windowsLauncherText(template)) return undefined;
-  const prefix = execFileSync(node, [join(bin, "npm-prefix.js")], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  const prefix = execFileSync(process.execPath, [join(bin, "npm-prefix.js")], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
   if (!isAbsolute(prefix) || /[\r\n]/.test(prefix)) return undefined;
   const configured = join(prefix, "node_modules/npm/bin/npm-cli.js");
   const bundled = join(bin, "npm-cli.js");

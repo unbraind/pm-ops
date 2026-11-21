@@ -317,6 +317,7 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
   const root = mkdtempSync(join(tmpdir(), "release-win-npm-discovery-"));
   t.after(() => removeRuntimeFixture(root));
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  const executable = Object.getOwnPropertyDescriptor(process, "execPath")!;
   const path = process.env.PATH!;
   const npm = npmCli();
   const bin = join(root, "bin");
@@ -344,9 +345,17 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
     process.env.PATH = bin;
     const node = join(bin, "node.exe");
     try { linkSync(process.execPath, node); } catch { cpSync(process.execPath, node); chmodSync(node, 0o755); }
+    assert.throws(() => npmCli(true), /needs an npm CLI/, "a launcher with another Node path cannot select the probe runtime");
+    Object.defineProperty(process, "execPath", { ...executable, value: node });
     assert.equal(npmCli(true), selected);
     rmSync(join(bin, "npm"));
     assert.equal(npmCli(true), selected);
+    const displaced = join(root, "displaced");
+    cpSync(join(bin, "node_modules"), join(displaced, "node_modules"), { recursive: true });
+    copyFileSync(join(bin, "npm.cmd"), join(displaced, "npm.cmd"));
+    process.env.PATH = displaced;
+    assert.throws(() => npmCli(true), /needs an npm CLI/, "a relocated batch launcher cannot select another bundled prefix script");
+    process.env.PATH = bin;
     for (const invalidPrefix of ["", prefix + "\nrelative"]) {
       setPrefix(invalidPrefix);
       assert.throws(() => npmCli(true), /needs an npm CLI/);
@@ -372,6 +381,7 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
     rmSync(direct);
     assert.throws(() => npmCli(true), /needs an npm CLI/);
   } finally {
+    Object.defineProperty(process, "execPath", executable);
     Object.defineProperty(process, "platform", platform);
     process.env.PATH = path;
   }

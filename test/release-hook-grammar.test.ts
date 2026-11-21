@@ -1718,8 +1718,11 @@ test("environment-file overwrites after a failed read require a successful produ
   assert.deepEqual(audit(previous, producer, consume), []);
   assert.deepEqual(audit(previous, producer, { ...consume, if: "${{ success() }}" }), []);
   assert.deepEqual(audit(previous, { ...producer, shell: "bash {0}" }, { ...consume, if: "always()" }), []);
-  assert.match(audit(previous, { run: "set -e\n" + producer.run, shell: "bash {0}" },
-    { ...consume, if: "always()" })[0] ?? "", /Cannot determine npm ignore-scripts/);
+  for (const flags of ["-e", "-ueo pipefail"]) {
+    assert.match(audit(previous, { run: "set " + flags + "\n" + producer.run, shell: "bash {0}" },
+      { ...consume, if: "always()" })[0] ?? "", /Cannot determine npm ignore-scripts/);
+  }
+  assert.deepEqual(audit(previous, { run: "set -u\n" + producer.run, shell: "bash {0}" }, { ...consume, if: "always()" }), []);
   assert.deepEqual(audit(previous, { run: 'echo "$RECORD" >> "$GITHUB_ENV"\n' + overwrite },
     { ...consume, if: "${{ always() }}" }), []);
 });

@@ -914,9 +914,10 @@ function writtenIgnoreScripts(text, conditionalStep, stepEnv, errexit) {
             depth--;
             continue;
         }
-        if (/^set -[eu]*e[eu]*(?:o pipefail)?$/.test(line))
+        const shellOptions = /^set -([eu]+)(?:o pipefail)?$/.exec(line);
+        if (shellOptions?.[1].includes("e"))
             errexit = true;
-        if (!line || line.startsWith("#") || /^(?:true|:|set -[eu]+(?:o pipefail)?|echo [\w .-]+)$/.test(line)
+        if (!line || line.startsWith("#") || shellOptions || /^(?:true|:|echo [\w .-]+)$/.test(line)
             || READ_ENV_FILE.test(line))
             continue;
         const redirect = line.indexOf(">");
