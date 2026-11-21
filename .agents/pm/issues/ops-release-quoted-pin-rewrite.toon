@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T17:16:48.453Z"
+updated_at: "2026-11-21T17:29:37.590Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -16,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[164]:
+comments[165]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -510,6 +510,9 @@ comments[164]:
   - created_at: "2026-11-21T17:16:26.941Z"
     author: codex-sol
     text: "Round FT paired checks reproduced the hook reader, adapter output, sparse snapshot, lifecycle discovery, and fixture-environment failures at 56a4f84. A synthetic npm installation without the Windows launchers also reproduced the host-dependent copy failure. The pinned fleet scan before and after the fixes accepted 142 hook roots and reached 144 script bodies across 39 manifests."
+  - created_at: "2026-11-21T17:29:37.590Z"
+    author: codex-sol
+    text: Targeted runtime coverage exposed two missing lookup controls after the main fix. The added cases cover empty PATH entries outside the POSIX lifecycle probe and a batch launcher that remains ineligible even when its adjacent Node is verified. The runtime suite passed all nine cases with 100% coverage in all four dimensions.
 files[25]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project

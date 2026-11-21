@@ -264,7 +264,7 @@ else require("node:fs").writeFileSync("installed-with-node", process.execPath);
     Object.defineProperty(process, "execPath", { ...executable, value: node });
     const poison = join(root, "poison"); mkdirSync(poison);
     writeFileSync(join(poison, "node"), "#!/bin/sh\nexit 91\n"); chmodSync(join(poison, "node"), 0o755);
-    process.env.PATH = poison + delimiter + relative(process.cwd(), bin);
+    process.env.PATH = ["", poison, relative(process.cwd(), bin)].join(delimiter);
     for (const target of new Set([platform.value, "win32"])) {
       Object.defineProperty(process, "platform", { ...platform, value: target });
       const source = join(root, `source-${target}`); mkdirSync(join(source, ".github/release-runtime"), { recursive: true });
@@ -371,6 +371,7 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
     try { linkSync(process.execPath, node); } catch { cpSync(process.execPath, node); chmodSync(node, 0o755); }
     assert.throws(() => npmCli(true), /needs an npm CLI/, "a launcher with another Node path cannot select the probe runtime");
     Object.defineProperty(process, "execPath", { ...executable, value: node });
+    process.env.PATH = ["", bin].join(delimiter);
     assert.equal(npmCli(true), selected);
     rmSync(join(bin, "npm"));
     assert.equal(npmCli(true), selected);
@@ -379,7 +380,16 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
     copyFileSync(join(bin, "npm.cmd"), join(displaced, "npm.cmd"));
     process.env.PATH = displaced;
     assert.throws(() => npmCli(true), /needs an npm CLI/, "a relocated batch launcher cannot select another bundled prefix script");
+    const adjacent = join(displaced, "node.exe");
+    if (platform.value !== "win32") {
+      symlinkSync(node, adjacent);
+      assert.throws(() => npmCli(true), /needs an npm CLI/, "the same adjacent Node does not authorize a relocated batch launcher");
+    }
     copyFileSync(join(dirname(local), "npm"), join(displaced, "npm"));
+    if (platform.value !== "win32") {
+      assert.equal(npmCli(true), selected, "a relocated Bash launcher can use a verified adjacent Node");
+      rmSync(adjacent);
+    }
     const otherNode = join(root, "other-node");
     mkdirSync(otherNode);
     writeFileSync(join(otherNode, "node.exe"), "other installation");
@@ -387,10 +397,6 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
     assert.throws(() => npmCli(true), /needs an npm CLI/, "an unverified Bash PATH fallback cannot select the probe runtime");
     process.env.PATH = displaced;
     assert.throws(() => npmCli(true), /needs an npm CLI/, "a stock launcher needs an identifiable Node");
-    if (platform.value !== "win32") {
-      symlinkSync(node, join(displaced, "node.exe"));
-      assert.equal(npmCli(true), selected, "a relocated Bash launcher can use a verified adjacent Node");
-    }
     process.env.PATH = bin;
     for (const invalidPrefix of ["", prefix + "\nrelative"]) {
       setPrefix(invalidPrefix);
