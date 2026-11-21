@@ -1,0 +1,18 @@
+id: ops-release-generated-hook-paths
+title: Audit changelog generators written into a script and executed later
+description: Greptile reproduced a redirected here-document flowing into a later script invocation on 9ba9b87. Discussion r4649579841 on pm-ops#295 records the new case.
+type: Issue
+status: open
+priority: 1
+tags[2]: "area:release","gh:unbraind/pm-ops#295"
+created_at: "2026-11-21T01:19:43.101Z"
+updated_at: "2026-11-21T01:19:43.101Z"
+author: codex-sol
+repro_steps: "Analyze a hook that uses quoted cat here-document input containing a versioned pm-changelog call, redirects to generate.sh, then runs sh generate.sh."
+expected_result: Refuse a generator-bearing here-document when its output is later executable input. Continue accepting literal preview files and preserve the runner and date-policy refusal fixtures.
+actual_result: The date auditor treats the here-document as data and misses the generator executed by the later shell command.
+regression: true
+files[2]{path,scope}:
+  release-hook-grammar.ts,project
+  test/release-hook-grammar.test.ts,project
+body: ""
