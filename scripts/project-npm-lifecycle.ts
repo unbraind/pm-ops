@@ -2,7 +2,7 @@
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { npmLifecycle, type NpmLifecycle } from "../release-changelog-options.ts";
+import { npmLifecycle, type NpmLifecycle, type NpmLifecyclePolicy } from "../release-changelog-options.ts";
 import { spawnSync } from "../subprocess.ts";
 import { isMainInvocation } from "./main-invocation.ts";
 import { npmCli } from "./release-runtime.ts";
@@ -29,11 +29,18 @@ async function readLifecycle(): Promise<NpmLifecycle> {
 }
 
 /** Run from the hook directory so npm resolves relative configuration paths there too. */
-export function projectNpmLifecycle(cwd: string): NpmLifecycle {
-  const result = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], { cwd, encoding: "utf8" });
+export function projectNpmLifecycle(cwd: string, env?: NodeJS.ProcessEnv): NpmLifecycle {
+  const result = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], { cwd, env, encoding: "utf8" });
   if (result.status === 0 && result.stdout === "true") return true;
   if (result.status === 0 && result.stdout === "false") return false;
   return "unknown";
+}
+
+/** Retain the config that nested npm commands reload after clearing the exported setting. */
+export function projectNpmLifecyclePolicy(cwd: string, recorded?: NpmLifecycle): NpmLifecyclePolicy {
+  const active = recorded ?? projectNpmLifecycle(cwd);
+  if (!process.env.npm_config_ignore_scripts) return active;
+  return { active, configured: projectNpmLifecycle(cwd, { ...process.env, npm_config_ignore_scripts: "" }) };
 }
 
 if (isMainInvocation(process.argv, import.meta.url)) {

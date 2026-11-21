@@ -13,10 +13,19 @@ export declare function isRealCalendarDay(day: string): boolean;
 export declare function releaseCommitDay(timestamp: string): string;
 /** Whether npm automatically runs the named script's pre/post scripts. */
 export type NpmLifecycle = boolean | "unknown";
+/** The active setting and the fallback after npm clears its exported ignore-scripts key. */
+export type NpmLifecyclePolicy = NpmLifecycle | {
+    /** Policy at the entry point, before per-command overrides. */
+    active: NpmLifecycle;
+    /** Effective policy with the lowercase npm_config_ignore_scripts entry removed. */
+    configured: NpmLifecycle;
+};
+/** Read the active setting from either a simple policy or the richer npm environment. */
+export declare function activeNpmLifecycle(policy: NpmLifecyclePolicy): NpmLifecycle;
 /** Resolve CLI-independent npm configuration from the workflow env and project .npmrc. */
 export declare function npmLifecycle(projectConfig: string | undefined, environment?: Readonly<Record<string, unknown>>): NpmLifecycle;
 /** Resolve the same graph used by preparation and continuation, including comment-only hooks. */
-export declare function resolveChangelogHooks(scripts: Record<string, unknown> | undefined, hooks: readonly string[], lifecycle?: NpmLifecycle): Map<string, string>;
+export declare function resolveChangelogHooks(scripts: Record<string, unknown> | undefined, hooks: readonly string[], lifecycle?: NpmLifecyclePolicy): Map<string, string>;
 /** Outside a release hook, trace only redirects carrying a generator or a known script forward. */
 export declare function generatedWriterProblem(words: ShellCommand, written: Set<string>, heredoc?: ShellToken, names?: ReadonlySet<string>, seen?: Set<string>): string | undefined;
 /** Whether a non-root step could run a generator or delegate to its local package scripts. */
@@ -47,11 +56,11 @@ export interface ChangelogScriptCommand {
 /** Lifecycle inputs for direct npm hooks and standalone workflow shell bodies. */
 interface NpmLifecycleInputs {
     /** Configuration inherited by the configured hooks. */
-    lifecycle: NpmLifecycle;
+    lifecycle: NpmLifecyclePolicy;
     /** Inspect only explicitly invoked scripts when classifying the configured main command. */
     mainOnly?: boolean;
     /** Static environment of each standalone workflow step. */
-    workflowSteps?: ReadonlyMap<string, NpmLifecycle>;
+    workflowSteps?: ReadonlyMap<string, NpmLifecyclePolicy>;
 }
 /** Scan local scripts in invocation order and join forwarded argv at its actual destination. */
 export declare function visitChangelogScriptCommands(scripts: ReadonlyMap<string, string>, inspect: (entry: ChangelogScriptCommand) => void, hooks?: readonly string[], resolved?: Map<string, string>, entryPoints?: ReadonlySet<string>, npm?: NpmLifecycleInputs): void;
@@ -88,7 +97,7 @@ export declare function readReleaseDateOptions(args: readonly ShellToken[]): Dat
 /** Refuse publication when a standalone generator's heading differs from the verified merge day. */
 export declare function assertReleaseHeadingDate(scripts: readonly string[], mergeDay: string, packageVersion?: string, scriptNames?: ReadonlySet<string>): void;
 /** Verify the complete generator argv from each release hook before publication. */
-export declare function assertReleaseHookHeadingDate(scripts: ReadonlyMap<string, string>, hooks: readonly string[], mergeDay: string, packageVersion?: string, lifecycle?: NpmLifecycle): void;
+export declare function assertReleaseHookHeadingDate(scripts: ReadonlyMap<string, string>, hooks: readonly string[], mergeDay: string, packageVersion?: string, lifecycle?: NpmLifecyclePolicy): void;
 /** Enable empty sections on each generator while preserving shell operators and redirections. */
 export declare function includeEmptyReleaseSections(script: string, scriptNames?: ReadonlySet<string>): string;
 /** Save the flag and any npm delimiters on the root caller, preserving shared target scripts. */
@@ -96,6 +105,6 @@ export declare function includeEmptyCustomHook(script: string, scripts: Readonly
 /** Refresh the inline pins, or restore the standing policy for a current version. */
 export declare function rewriteReleaseHeadingDate(script: string, headingDate: string, scriptNames?: ReadonlySet<string>): string;
 /** Rewrite all heading options received by the manifest's resolved release hooks. */
-export declare function rewriteReleaseHookDates(scripts: ReadonlyMap<string, string>, hooks: readonly string[], headingDate: string, lifecycle?: NpmLifecycle, packageVersion?: string): Map<string, string>;
+export declare function rewriteReleaseHookDates(scripts: ReadonlyMap<string, string>, hooks: readonly string[], headingDate: string, lifecycle?: NpmLifecyclePolicy, packageVersion?: string): Map<string, string>;
 export {};
 //# sourceMappingURL=release-changelog-options.d.ts.map

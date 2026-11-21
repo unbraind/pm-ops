@@ -579,6 +579,14 @@ test("a resumed release passes preparation, continuation and post-tag checks acr
       ...releaseCommands(), "prerelease:notes": "pm-changelog --release-version-from-package --date-fallback 2026-10-23",
     } }));
     const releaseEnv: NodeJS.ProcessEnv = { ...releaseStepEnv(root, env, plan.heading_date), NPM_PROJECT_PATH: root, RELEASE_TIMEZONE: timezone, npm_config_ignore_scripts: "true" };
+    if (process.platform !== "win32") {
+      const selectedNpm = npmCli();
+      const [active, shadow] = ["active-npm", "shadow-npm"].map(dir => join(root, dir));
+      for (const dir of [active, shadow]) mkdirSync(dir);
+      symlinkSync(selectedNpm, join(active, "npm"));
+      writeFileSync(join(shadow, "npm"), "#!/bin/sh\nexit 91\n", { mode: 0o755 });
+      releaseEnv.PATH = [active, shadow, env.PATH].join(delimiter);
+    }
     const prepared = runBashFixture(changelogStepScript(), { cwd: root, env: releaseEnv, encoding: "utf8" });
     assert.equal(prepared.status, 0, prepared.stdout + prepared.stderr);
     assert.match(readFileSync(join(root, "CHANGELOG.md"), "utf8"), /^## 2026\.10\.23 - 2026-10-24$/m);

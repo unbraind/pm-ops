@@ -40,7 +40,7 @@ import {
 import { isMainInvocation } from "./main-invocation.ts";
 import { tallyFlaggedInvocations } from "../invocation-audit.ts";
 import { executableShellBodies } from "../attestation.ts";
-import { hasVersionInput, generatedWriterProblem, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, npmLifecycle, visitChangelogScriptCommands, type NpmLifecycle } from "../release-changelog-options.ts";
+import { hasVersionInput, generatedWriterProblem, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, npmLifecycle, visitChangelogScriptCommands, type NpmLifecyclePolicy } from "../release-changelog-options.ts";
 
 import { describeReleaseContextChange, parseReleaseHook, refuseHook } from "../release-hook-grammar.ts";
 
@@ -178,7 +178,7 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
   const scripts = new Map<string, string>();
   const origins = new Map<string, Pick<Invocation, "file" | "line" | "script">>();
   const projectConfig = sources.find(source => source.file === ".npmrc")?.text;
-  const workflowSteps = new Map<string, NpmLifecycle>();
+  const workflowSteps = new Map<string, NpmLifecyclePolicy>();
   const found: Invocation[] = [];
   const entryPoints = new Set<string>(HOOK_INPUTS.map(([, name]) => name));
   for (const source of sources) {
@@ -199,7 +199,10 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
         const key = "\0run" + origins.size;
         origins.set(key, { file: source.file });
         scripts.set(key, text);
-        workflowSteps.set(key, npmLifecycle(projectConfig, environment));
+        workflowSteps.set(key, {
+          active: npmLifecycle(projectConfig, environment),
+          configured: npmLifecycle(projectConfig, { ...environment, npm_config_ignore_scripts: "" }),
+        });
       }
     }
   }

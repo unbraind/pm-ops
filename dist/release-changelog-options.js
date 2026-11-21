@@ -171,6 +171,14 @@ function scriptForward(program, parameters, scriptNames) {
     return { target, runner: program, lifecycle: settings.lifecycle, optional: settings.optional && subcommand !== "start" && subcommand !== "restart", unsupported: flags[settings.index]?.value,
         args: separator < 0 ? [] : tail.slice(separator + 1), npmSeparator: tail[separator] };
 }
+/** Read the active setting from either a simple policy or the richer npm environment. */
+export function activeNpmLifecycle(policy) {
+    return typeof policy === "object" ? policy.active : policy;
+}
+/** Read the policy npm falls back to when it clears its exported environment key. */
+function configuredNpmLifecycle(policy) {
+    return typeof policy === "object" ? policy.configured : policy;
+}
 /** Convert npm's literal ignore-scripts setting into lifecycle execution. */
 function lifecycleSetting(value) {
     if (value === true || value === "true")
@@ -208,6 +216,14 @@ function lifecycleEnvironment(assignments) {
             setting = lifecycleSetting(match[1]);
     }
     return setting;
+}
+/** Resolve this npm command and the environment it exports to its scripts. */
+function forwardedLifecycle(override, ambient, configured) {
+    // npm exports ignore-scripts=true. An override back to false writes
+    // an empty value unless the environment already supplied false.
+    if (override !== true || ambient === true)
+        return { enabled: override ?? ambient, nested: override ?? ambient };
+    return { enabled: true, nested: ambient === "unknown" && configured !== true ? "unknown" : configured };
 }
 /** Resolve the same graph used by preparation and continuation, including comment-only hooks. */
 export function resolveChangelogHooks(scripts, hooks, lifecycle = "unknown") {
@@ -278,7 +294,7 @@ function generatorCommand(invocation) {
     return file && !file.unresolved && GENERATOR_TARGET.test(file.value) ? invocation.slice(index) : undefined;
 }
 /** Look for a reachable generator without interpreting an opaque command as executable argv. */
-function canReachGenerator(words, names, seen, writing = false, lifecycle = "unknown") {
+function canReachGenerator(words, names, seen, writing = false, lifecycle = "unknown", configured = lifecycle) {
     if (writing && redirectsChangelog(words))
         return true;
     const assignments = [];
@@ -295,8 +311,9 @@ function canReachGenerator(words, names, seen, writing = false, lifecycle = "unk
     const forward = scriptForward(name, parameters, names);
     if (forward?.target && names instanceof HookScriptNames) {
         const isNpm = forward.runner === "npm";
-        const enabled = forward.lifecycle ?? (isNpm ? lifecycleEnvironment(assignments) : undefined) ?? lifecycle;
-        return names.sequence(forward.target, !isNpm || enabled !== false).some(target => names.canGenerate(target, seen, writing, target === forward.target ? forward.args : [], enabled))
+        const ambient = (isNpm ? lifecycleEnvironment(assignments) : undefined) ?? lifecycle;
+        const { enabled, nested } = forwardedLifecycle(forward.lifecycle, ambient, configured);
+        return names.sequence(forward.target, !isNpm || enabled !== false).some(target => names.canGenerate(target, seen, writing, target === forward.target ? forward.args : [], nested, configured))
             || (!writing && forward.args.some(mentionsGenerator));
     }
     const generator = generatorCommand(invocation);
@@ -608,7 +625,7 @@ function changelogInvocation(words, scriptNames, audit = false) {
     }
     if (name === "command") {
         const lookup = parameters.find(word => word.value !== "-p");
-        if (/^-p*[vV][pvV]*$/.test(lookup.value))
+        if (lookup && !program.unresolved && !lookup.unresolved && /^-p*[vV][pvV]*$/.test(lookup.value))
             return undefined;
     }
     else if (DATA_CONSUMERS.has(name))
@@ -635,7 +652,7 @@ class HookScriptNames extends Set {
         return this.has(name) && this.sequence(name, true).some(script => this.canGenerate(script, seen));
     }
     /** Follow literal script references without recursively evaluating the wrapper's shell payload. */
-    canGenerate(name, seen = new Set(), writing = false, args = [], lifecycle = "unknown") {
+    canGenerate(name, seen = new Set(), writing = false, args = [], lifecycle = "unknown", configured = lifecycle) {
         if (!this.has(name) || seen.has(name))
             return false;
         const ancestors = new Set(seen).add(name);
@@ -646,7 +663,7 @@ class HookScriptNames extends Set {
         let preceding;
         for (const command of commands) {
             const words = command === recipient ? [...command, ...args] : command;
-            if (generatedWriterProblem(words, written, heredocBodies.get(command), this, ancestors) || canReachGenerator(words, this, ancestors, writing, lifecycle))
+            if (generatedWriterProblem(words, written, heredocBodies.get(command), this, ancestors) || canReachGenerator(words, this, ancestors, writing, lifecycle, configured))
                 return true;
             if (!this.allowUnresolvedProjects)
                 continue;
@@ -739,17 +756,17 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
         if (!forward)
             return undefined;
         return { ...forward, bindings: assignments.map(word => word.value.split(/[+=]/, 1)[0]),
-            lifecycle: forward.lifecycle ?? (forward.runner === "npm" ? lifecycleEnvironment(assignments) : undefined) };
+            environment: forward.runner === "npm" ? lifecycleEnvironment(assignments) : undefined };
     }
-    // Workflow invocations supply their own lifecycle even when a hook must
-    // also be checked as a standalone entry with no forwarded arguments.
     const entryLifecycles = new Map();
     const visited = new Set();
     const withoutArgs = new Map();
     const recipients = new Map();
     const forwardedSeparators = new WeakSet();
     /** Walk one invocation, preserving token identity back to each supplying script. */
-    function visit(name, args, parents, lifecycle, releasePath, implicitNpm = false, bindings = new Set()) {
+    function visit(name, args, parents, policy, releasePath, bindings = new Set(), uncertainLifecycle = false) {
+        const lifecycle = activeNpmLifecycle(policy);
+        const configured = configuredNpmLifecycle(policy);
         const chain = [...parents, name].join(" -> ");
         if (parents.includes(name)) {
             if (hooks)
@@ -775,7 +792,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
         const checkContext = releasePath || knownWriters.canGenerate(name)
             || (recipient !== undefined && canReachGenerator([...recipient, ...args], knownWriters));
         if (args.length === 0) {
-            const key = JSON.stringify([checkContext, lifecycle, implicitNpm, name, [...bindings].sort()]);
+            const key = JSON.stringify([checkContext, lifecycle, configured, uncertainLifecycle, name, [...bindings].sort()]);
             const depth = hooks ? parents.length : 0;
             if ((withoutArgs.get(key) ?? -1) >= depth)
                 return;
@@ -783,7 +800,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
         }
         visited.add(name);
         const invocationNames = checkContext ? names : knownWriters;
-        if (implicitNpm && lifecycle === "unknown" && knownWriters.canGenerate(name, undefined, true)) {
+        if (uncertainLifecycle && knownWriters.canGenerate(name, undefined, true, [], lifecycle, configured)) {
             const lifecycleProblem = `Cannot determine npm ignore-scripts for lifecycle hook ${JSON.stringify(name)} that may write CHANGELOG.md. Set npm_config_ignore_scripts on the consuming step or use an explicit npm --ignore-scripts=true/false option. A project .npmrc applies when no environment override is present; user/global npm config and external env are uncertain`;
             const contextProblem = commands.some(words => redirectsChangelog(words, true)) ? lifecycleProblem + ". " + CHANGELOG_TRAVERSAL : lifecycleProblem;
             if (hooks)
@@ -823,20 +840,22 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
                     continue;
                 if (forward.forwardedSeparator)
                     forwardedSeparators.add(forward.forwardedSeparator);
-                const enabled = forward.lifecycle ?? lifecycle;
+                const policy = { ...forwardedLifecycle(forward.lifecycle, forward.environment ?? lifecycle, configured), configured };
                 const isNpm = forward.runner === "npm";
                 if (isNpm && entryPoints.has(forward.target) && collectingWorkflowEntries) {
-                    const settings = entryLifecycles.get(forward.target) ?? new Set();
-                    settings.add(enabled);
+                    const settings = entryLifecycles.get(forward.target) ?? [];
+                    settings.push(policy);
                     entryLifecycles.set(forward.target, settings);
                 }
-                const inherited = isNpm && forward.bindings.length ? new Set([...bindings, ...forward.bindings]) : bindings;
-                const sequence = names.sequence(forward.target, !npm.mainOnly && (!isNpm || enabled !== false));
-                for (const target of sequence) {
-                    const main = target === forward.target;
-                    visit(target, main ? forward.args : [], [...parents, name], enabled, checkContext, isNpm && !main, inherited);
-                }
+                visitSequence(forward.target, [...parents, name], policy, checkContext, isNpm, forward.args, isNpm && forward.bindings.length ? new Set([...bindings, ...forward.bindings]) : bindings);
             }
+        }
+    }
+    /** Take the implicit siblings from this invocation, and pass its exported policy into their bodies. */
+    function visitSequence(target, parents, policy, releasePath, isNpm, args = [], bindings) {
+        for (const name of names.sequence(target, !npm.mainOnly && (!isNpm || policy.enabled !== false))) {
+            const main = name === target;
+            visit(name, main ? args : [], parents, { active: policy.nested, configured: policy.configured }, releasePath, bindings, isNpm && !main && policy.enabled === "unknown");
         }
     }
     const { lifecycle, workflowSteps } = npm;
@@ -844,12 +863,12 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
     for (const [step, setting] of workflowSteps ?? [])
         visit(step, [], [], setting, false);
     collectingWorkflowEntries = false;
+    const projectPolicy = { enabled: activeNpmLifecycle(lifecycle), nested: activeNpmLifecycle(lifecycle), configured: configuredNpmLifecycle(lifecycle) };
     for (const hook of hooks ?? entryPoints) {
         if (!hooks && !names.has(hook))
             continue;
-        for (const setting of entryLifecycles.get(hook) ?? [lifecycle]) {
-            for (const name of names.sequence(hook, !npm.mainOnly && setting !== false))
-                visit(name, [], [], setting, true, name !== hook);
+        for (const policy of entryLifecycles.get(hook) ?? [projectPolicy]) {
+            visitSequence(hook, [], policy, true, true);
         }
     }
     if (hooks)
@@ -1100,18 +1119,24 @@ export function includeEmptyReleaseSections(script, scriptNames) {
 }
 /** Find the possible final commands on each if/elif/else path. */
 function finalHookCommands(commands) {
-    const alternatives = [[]];
+    const alternatives = [];
     let last = [];
     for (const words of commands) {
         for (const word of words) {
             if (!word.releaseKeyword)
                 break;
             if (word.value === "if")
-                alternatives.push([]);
-            if (word.value === "elif" || word.value === "else")
-                alternatives.at(-1).push(...last);
-            if (word.value === "fi" && alternatives.length > 1)
-                last = [...alternatives.pop(), ...last];
+                alternatives.push({ before: last, branches: [], hasElse: false });
+            const branch = alternatives.at(-1);
+            if (branch && (word.value === "elif" || word.value === "else")) {
+                branch.branches.push(...last);
+                branch.hasElse = word.value === "else";
+                last = branch.before;
+            }
+            if (branch && word.value === "fi") {
+                alternatives.pop();
+                last = [...new Set([...branch.branches, ...last, ...(branch.hasElse ? [] : branch.before)])];
+            }
         }
         if (!words[0].releaseKeyword || words.length > 1)
             last = [words];
@@ -1131,10 +1156,11 @@ function allGeneratorRenderers(last, scripts, names, depth) {
         return Boolean(body && allGeneratorRenderers(finalHookCommands(parseReleaseHook(body).commands), scripts, names, depth + 1));
     });
 }
-/** Recognize a Git tail whose arguments belong to repository bookkeeping. */
-function gitTail(words) {
+const RENDERER_STATUS_COMMANDS = new Set(["git", "test", "[", "[[", "true", "false", ":"]);
+/** Identify a shell status check or repository bookkeeping after rendering. */
+function rendererStatusCommand(words) {
     const command = releaseHookCommand(words);
-    return Boolean(command && basename(command[0].value) === "git");
+    return Boolean(command && RENDERER_STATUS_COMMANDS.has(basename(command[0].value)));
 }
 /** Alternatives need no custom argument when all of their terminal generators receive the flag directly. */
 function finalHookCommand(commands, hasGenerator, scripts) {
@@ -1143,17 +1169,14 @@ function finalHookCommand(commands, hasGenerator, scripts) {
         refuseHook("Custom hook has alternative renderers. Use a single script entry point");
     }
     const terminal = last.at(-1) ?? [];
-    if (!gitTail(terminal))
+    if (!rendererStatusCommand(terminal))
         return terminal;
-    const candidates = [...new Set(commands.map(releaseOutputProducer))].filter(words => {
-        const command = releaseHookCommand(words);
-        return command && !["git", "test", "[", "[[", "true", "false", ":"].includes(basename(command[0].value));
-    });
+    const candidates = [...new Set(commands.map(releaseOutputProducer))].filter(words => releaseHookCommand(words) && !rendererStatusCommand(words));
     if (candidates.length === 1)
         return candidates[0];
     if (hasGenerator && allGeneratorRenderers(candidates, scripts, new Set(scripts.keys()), 0))
         return terminal;
-    refuseHook("Cannot identify one renderer before the trailing Git command. Use a single script entry point");
+    refuseHook("Cannot identify one renderer before the trailing status command. Use a single script entry point");
 }
 /** Count npm option boundaries between a configured custom hook and its final executable. */
 function customForwardDelimiters(invocation, scripts, hasGenerator) {
@@ -1181,7 +1204,7 @@ function customForwardDelimiters(invocation, scripts, hasGenerator) {
             return hasGenerator ? undefined : { count }; // An optional missing target runs no command.
         const { commands, spans } = parseReleaseHook(text);
         const recipient = commandReceivingArguments(text, commands, spans);
-        const producer = releaseOutputProducer(recipient && !gitTail(recipient) ? recipient : finalHookCommand(commands, hasGenerator, scripts));
+        const producer = releaseOutputProducer(recipient && !rendererStatusCommand(recipient) ? recipient : finalHookCommand(commands, hasGenerator, scripts));
         if (producer !== recipient)
             blockedTarget = forward.target;
         const next = releaseHookCommand(producer === recipient ? [...producer, ...forward.args] : producer);

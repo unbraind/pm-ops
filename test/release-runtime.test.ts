@@ -1,12 +1,13 @@
 /** Bootstrap exact source tools without relying on publication of their declared package version. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cpSync, chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "../subprocess.ts";
-import { tmpdir } from "node:os";
-import { delimiter, join, relative } from "node:path";
+import { devNull, tmpdir } from "node:os";
+import { createRequire } from "node:module";
+import { delimiter, dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
-import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "../scripts/release-runtime.ts";
+import { ensureReleaseRuntime, installReleaseTools, npmCli, workflowToolsRoot } from "../scripts/release-runtime.ts";
 import { interceptRuntimeNpm } from "./runtime-npm-fixture.ts";
 import { runReleaseContinuation } from "../scripts/release-continuation.ts";
 
@@ -294,8 +295,11 @@ test("lifecycle discovery skips a non-executable npm and stops at an executable 
   const root = mkdtempSync(join(tmpdir(), "release-path-policy-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const probe = join(workflowToolsRoot, "scripts/project-npm-lifecycle.ts");
-  const env = { ...process.env, PATH: [root, process.env.PATH].join(delimiter) };
-  for (const key of Object.keys(env)) if (/^npm_config_ignore_scripts$/i.test(key)) delete (env as NodeJS.ProcessEnv)[key];
+  const env: NodeJS.ProcessEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_config_/i.test(key)));
+  const fallback = join(root, "fallback");
+  mkdirSync(fallback);
+  symlinkSync(npmCli(), join(fallback, "npm"));
+  Object.assign(env, { PATH: [root, fallback].join(delimiter), NPM_CONFIG_USERCONFIG: devNull, NPM_CONFIG_GLOBALCONFIG: join(root, "global.npmrc") });
   writeFileSync(join(root, "package.json"), "{}");
   writeFileSync(join(root, ".npmrc"), "ignore-scripts=true\n");
   const launcher = join(root, "npm");
@@ -305,5 +309,70 @@ test("lifecycle discovery skips a non-executable npm and stops at an executable 
     const result = spawnSync(process.execPath, [probe], { cwd: root, env, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, expected);
+  }
+});
+
+
+test("Windows lifecycle discovery follows the stock launcher prefix and refuses an unverified shim", async t => {
+  const root = mkdtempSync(join(tmpdir(), "release-win-npm-discovery-"));
+  t.after(() => removeRuntimeFixture(root));
+  const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  const path = process.env.PATH!;
+  const npm = npmCli();
+  const bin = join(root, "bin");
+  const jobLocal = join(root, "job-local/node_modules/.bin");
+  const direct = join(root, "job-local/node_modules/npm/bin/npm-cli.js");
+  mkdirSync(dirname(direct), { recursive: true });
+  writeFileSync(direct, "#!/usr/bin/env node\n");
+  await createRequire(npm)("cmd-shim")(direct, join(jobLocal, "npm"));
+  const local = join(bin, "node_modules/npm/bin/npm-cli.js");
+  const prefix = join(root, "prefix with spaces");
+  const selected = join(prefix, "node_modules/npm/bin/npm-cli.js");
+  for (const cli of [local, selected]) {
+    mkdirSync(dirname(cli), { recursive: true });
+    writeFileSync(cli, "");
+  }
+  for (const launcher of ["npm", "npm.cmd"]) {
+    copyFileSync(join(dirname(npm), launcher), join(dirname(local), launcher));
+    copyFileSync(join(dirname(npm), launcher), join(bin, launcher));
+  }
+  const prefixScript = join(dirname(local), "npm-prefix.js");
+  const setPrefix = (value: string) => writeFileSync(prefixScript, "console.log(" + JSON.stringify(value) + ")");
+  setPrefix(prefix);
+  try {
+    Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+    process.env.PATH = bin;
+    const node = join(bin, "node.exe");
+    try { linkSync(process.execPath, node); } catch { cpSync(process.execPath, node); chmodSync(node, 0o755); }
+    assert.equal(npmCli(true), selected);
+    rmSync(join(bin, "npm"));
+    assert.equal(npmCli(true), selected);
+    for (const invalidPrefix of ["", prefix + "\nrelative"]) {
+      setPrefix(invalidPrefix);
+      assert.throws(() => npmCli(true), /needs an npm CLI/);
+    }
+    setPrefix(prefix);
+    rmSync(selected);
+    assert.equal(npmCli(true), local);
+    rmSync(local);
+    assert.throws(() => npmCli(true), /needs an npm CLI/);
+    writeFileSync(join(bin, "npm.cmd"), "@echo off\r\nexit /b 0\r\n");
+    assert.throws(() => npmCli(true), /needs an npm CLI/);
+    rmSync(join(bin, "npm.cmd"));
+    assert.throws(() => npmCli(true), /needs an npm CLI/);
+    writeFileSync(join(bin, "npm.exe"), "");
+    assert.throws(() => npmCli(true), /needs an npm CLI/);
+    process.env.PATH = [jobLocal, bin].join(delimiter);
+    assert.equal(npmCli(true), direct);
+    const shim = join(jobLocal, "npm");
+    const original = readFileSync(shim, "utf8");
+    writeFileSync(shim, original.replace("case", "exit 91\ncase"));
+    assert.throws(() => npmCli(true), /needs an npm CLI/);
+    writeFileSync(shim, original);
+    rmSync(direct);
+    assert.throws(() => npmCli(true), /needs an npm CLI/);
+  } finally {
+    Object.defineProperty(process, "platform", platform);
+    process.env.PATH = path;
   }
 });

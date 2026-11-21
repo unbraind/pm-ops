@@ -180,6 +180,24 @@ function scriptForward(program: string, parameters: readonly ShellToken[], scrip
 /** Whether npm automatically runs the named script's pre/post scripts. */
 export type NpmLifecycle = boolean | "unknown";
 
+/** The active setting and the fallback after npm clears its exported ignore-scripts key. */
+export type NpmLifecyclePolicy = NpmLifecycle | {
+  /** Policy at the entry point, before per-command overrides. */
+  active: NpmLifecycle;
+  /** Effective policy with the lowercase npm_config_ignore_scripts entry removed. */
+  configured: NpmLifecycle;
+};
+
+/** Read the active setting from either a simple policy or the richer npm environment. */
+export function activeNpmLifecycle(policy: NpmLifecyclePolicy): NpmLifecycle {
+  return typeof policy === "object" ? policy.active : policy;
+}
+
+/** Read the policy npm falls back to when it clears its exported environment key. */
+function configuredNpmLifecycle(policy: NpmLifecyclePolicy): NpmLifecycle {
+  return typeof policy === "object" ? policy.configured : policy;
+}
+
 /** Convert npm's literal ignore-scripts setting into lifecycle execution. */
 function lifecycleSetting(value: unknown): NpmLifecycle {
   if (value === true || value === "true") return false;
@@ -218,9 +236,19 @@ function lifecycleEnvironment(assignments: readonly ShellToken[]): NpmLifecycle 
   return setting;
 }
 
+/** Resolve this npm command and the environment it exports to its scripts. */
+function forwardedLifecycle(
+  override: NpmLifecycle | undefined, ambient: NpmLifecycle, configured: NpmLifecycle,
+): { enabled: NpmLifecycle; nested: NpmLifecycle } {
+  // npm exports ignore-scripts=true. An override back to false writes
+  // an empty value unless the environment already supplied false.
+  if (override !== true || ambient === true) return { enabled: override ?? ambient, nested: override ?? ambient };
+  return { enabled: true, nested: ambient === "unknown" && configured !== true ? "unknown" : configured };
+}
+
 /** Resolve the same graph used by preparation and continuation, including comment-only hooks. */
 export function resolveChangelogHooks(
-  scripts: Record<string, unknown> | undefined, hooks: readonly string[], lifecycle: NpmLifecycle = "unknown",
+  scripts: Record<string, unknown> | undefined, hooks: readonly string[], lifecycle: NpmLifecyclePolicy = "unknown",
 ): Map<string, string> {
   const all = new Map(Object.entries(scripts ?? {}).map(([key, value]) => [key, typeof value === "string" ? value : ""]));
   const resolved = new Map<string, string>();
@@ -294,6 +322,7 @@ function generatorCommand(invocation: ShellCommand): ShellCommand | undefined {
 /** Look for a reachable generator without interpreting an opaque command as executable argv. */
 function canReachGenerator(
   words: ShellCommand, names?: ReadonlySet<string>, seen?: Set<string>, writing = false, lifecycle: NpmLifecycle = "unknown",
+  configured = lifecycle,
 ): boolean {
   if (writing && redirectsChangelog(words)) return true;
   const assignments: ShellToken[] = [];
@@ -308,9 +337,10 @@ function canReachGenerator(
   const forward = scriptForward(name, parameters, names);
   if (forward?.target && names instanceof HookScriptNames) {
     const isNpm = forward.runner === "npm";
-    const enabled = forward.lifecycle ?? (isNpm ? lifecycleEnvironment(assignments) : undefined) ?? lifecycle;
+    const ambient = (isNpm ? lifecycleEnvironment(assignments) : undefined) ?? lifecycle;
+    const { enabled, nested } = forwardedLifecycle(forward.lifecycle, ambient, configured);
     return names.sequence(forward.target, !isNpm || enabled !== false).some(target =>
-      names.canGenerate(target, seen, writing, target === forward.target ? forward.args : [], enabled))
+      names.canGenerate(target, seen, writing, target === forward.target ? forward.args : [], nested, configured))
       || (!writing && forward.args.some(mentionsGenerator));
   }
   const generator = generatorCommand(invocation);
@@ -590,7 +620,7 @@ function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<stri
   }
   if (name === "command") {
     const lookup = parameters.find(word => word.value !== "-p");
-    if (/^-p*[vV][pvV]*$/.test(lookup!.value)) return undefined;
+    if (lookup && !program.unresolved && !lookup.unresolved && /^-p*[vV][pvV]*$/.test(lookup.value)) return undefined;
   } else if (DATA_CONSUMERS.has(name)) return undefined;
   if (mentions || referencesWriter(words, scriptNames)) refuseHook(`Unrecognized wrapper or executable ${JSON.stringify(program.value)} before possible pm-changelog command`);
   return undefined;
@@ -620,6 +650,7 @@ class HookScriptNames extends Set<string> {
   /** Follow literal script references without recursively evaluating the wrapper's shell payload. */
   canGenerate(
     name: string, seen = new Set<string>(), writing = false, args: readonly ShellToken[] = [], lifecycle: NpmLifecycle = "unknown",
+    configured = lifecycle,
   ): boolean {
     if (!this.has(name) || seen.has(name)) return false;
     const ancestors = new Set(seen).add(name);
@@ -630,7 +661,7 @@ class HookScriptNames extends Set<string> {
     let preceding: ReleaseContextChange | undefined;
     for (const command of commands) {
       const words = command === recipient ? [...command, ...args] : command;
-      if (generatedWriterProblem(words, written, heredocBodies.get(command), this, ancestors) || canReachGenerator(words, this, ancestors, writing, lifecycle)) return true;
+      if (generatedWriterProblem(words, written, heredocBodies.get(command), this, ancestors) || canReachGenerator(words, this, ancestors, writing, lifecycle, configured)) return true;
       if (!this.allowUnresolvedProjects) continue;
       if ((preceding?.directory || commandContextChanges(words).some(context => context.directory))
         && maySelectUnresolvedScript(words, this)) return true;
@@ -702,11 +733,11 @@ function commandReceivingArguments(
 /** Lifecycle inputs for direct npm hooks and standalone workflow shell bodies. */
 interface NpmLifecycleInputs {
   /** Configuration inherited by the configured hooks. */
-  lifecycle: NpmLifecycle;
+  lifecycle: NpmLifecyclePolicy;
   /** Inspect only explicitly invoked scripts when classifying the configured main command. */
   mainOnly?: boolean;
   /** Static environment of each standalone workflow step. */
-  workflowSteps?: ReadonlyMap<string, NpmLifecycle>;
+  workflowSteps?: ReadonlyMap<string, NpmLifecyclePolicy>;
 }
 
 /** Find versioned generator options on a command that expands an inherited assignment. */
@@ -755,12 +786,13 @@ export function visitChangelogScriptCommands(
     const forward = scriptForward(basename(program.value), parameters, names);
     if (!forward) return undefined;
     return { ...forward, bindings: assignments.map(word => word.value.split(/[+=]/, 1)[0]),
-      lifecycle: forward.lifecycle ?? (forward.runner === "npm" ? lifecycleEnvironment(assignments) : undefined) };
+      environment: forward.runner === "npm" ? lifecycleEnvironment(assignments) : undefined };
   }
 
   // Workflow invocations supply their own lifecycle even when a hook must
   // also be checked as a standalone entry with no forwarded arguments.
-  const entryLifecycles = new Map<string, Set<NpmLifecycle>>();
+  type InvocationLifecycle = ReturnType<typeof forwardedLifecycle> & { configured: NpmLifecycle };
+  const entryLifecycles = new Map<string, InvocationLifecycle[]>();
   const visited = new Set<string>();
   const withoutArgs = new Map<string, number>();
   const recipients = new Map<string, ShellCommand | undefined>();
@@ -768,9 +800,11 @@ export function visitChangelogScriptCommands(
 
   /** Walk one invocation, preserving token identity back to each supplying script. */
   function visit(
-    name: string, args: readonly ShellToken[], parents: readonly string[], lifecycle: NpmLifecycle, releasePath: boolean, implicitNpm = false,
-    bindings: ReadonlySet<string> = new Set(),
+    name: string, args: readonly ShellToken[], parents: readonly string[], policy: NpmLifecyclePolicy, releasePath: boolean,
+    bindings: ReadonlySet<string> = new Set(), uncertainLifecycle = false,
   ): void {
+    const lifecycle = activeNpmLifecycle(policy);
+    const configured = configuredNpmLifecycle(policy);
     const chain = [...parents, name].join(" -> ");
     if (parents.includes(name)) {
       if (hooks) refuseHook("Changelog script forward cycle: " + chain);
@@ -792,14 +826,14 @@ export function visitChangelogScriptCommands(
     const checkContext = releasePath || knownWriters.canGenerate(name)
       || (recipient !== undefined && canReachGenerator([...recipient, ...args], knownWriters));
     if (args.length === 0) {
-      const key = JSON.stringify([checkContext, lifecycle, implicitNpm, name, [...bindings].sort()]);
+      const key = JSON.stringify([checkContext, lifecycle, configured, uncertainLifecycle, name, [...bindings].sort()]);
       const depth = hooks ? parents.length : 0;
       if ((withoutArgs.get(key) ?? -1) >= depth) return;
       withoutArgs.set(key, depth);
     }
     visited.add(name);
     const invocationNames = checkContext ? names : knownWriters;
-    if (implicitNpm && lifecycle === "unknown" && knownWriters.canGenerate(name, undefined, true)) {
+    if (uncertainLifecycle && knownWriters.canGenerate(name, undefined, true, [], lifecycle, configured)) {
       const lifecycleProblem = `Cannot determine npm ignore-scripts for lifecycle hook ${JSON.stringify(name)} that may write CHANGELOG.md. Set npm_config_ignore_scripts on the consuming step or use an explicit npm --ignore-scripts=true/false option. A project .npmrc applies when no environment override is present; user/global npm config and external env are uncertain`;
       const contextProblem = commands.some(words => redirectsChangelog(words, true)) ? lifecycleProblem + ". " + CHANGELOG_TRAVERSAL : lifecycleProblem;
       if (hooks) refuseHook(contextProblem);
@@ -833,20 +867,28 @@ export function visitChangelogScriptCommands(
         }
         if (!names.has(forward.target) && (forward.optional || !hooks)) continue;
         if (forward.forwardedSeparator) forwardedSeparators.add(forward.forwardedSeparator);
-        const enabled = forward.lifecycle ?? lifecycle;
+        const policy = { ...forwardedLifecycle(forward.lifecycle, forward.environment ?? lifecycle, configured), configured };
         const isNpm = forward.runner === "npm";
         if (isNpm && entryPoints.has(forward.target) && collectingWorkflowEntries) {
-          const settings = entryLifecycles.get(forward.target) ?? new Set<NpmLifecycle>();
-          settings.add(enabled);
+          const settings = entryLifecycles.get(forward.target) ?? [];
+          settings.push(policy);
           entryLifecycles.set(forward.target, settings);
         }
-        const inherited = isNpm && forward.bindings.length ? new Set([...bindings, ...forward.bindings]) : bindings;
-        const sequence = names.sequence(forward.target, !npm.mainOnly && (!isNpm || enabled !== false));
-        for (const target of sequence) {
-          const main = target === forward.target;
-          visit(target, main ? forward.args : [], [...parents, name], enabled, checkContext, isNpm && !main, inherited);
-        }
+        visitSequence(forward.target, [...parents, name], policy, checkContext, isNpm, forward.args,
+          isNpm && forward.bindings.length ? new Set([...bindings, ...forward.bindings]) : bindings);
       }
+    }
+  }
+
+  /** Take the implicit siblings from this invocation, and pass its exported policy into their bodies. */
+  function visitSequence(
+    target: string, parents: readonly string[], policy: InvocationLifecycle,
+    releasePath: boolean, isNpm: boolean, args: readonly ShellToken[] = [], bindings?: ReadonlySet<string>,
+  ): void {
+    for (const name of names.sequence(target, !npm.mainOnly && (!isNpm || policy.enabled !== false))) {
+      const main = name === target;
+      visit(name, main ? args : [], parents, { active: policy.nested, configured: policy.configured }, releasePath, bindings,
+        isNpm && !main && policy.enabled === "unknown");
     }
   }
 
@@ -854,10 +896,11 @@ export function visitChangelogScriptCommands(
   let collectingWorkflowEntries = true;
   for (const [step, setting] of workflowSteps ?? []) visit(step, [], [], setting, false);
   collectingWorkflowEntries = false;
+  const projectPolicy = { enabled: activeNpmLifecycle(lifecycle), nested: activeNpmLifecycle(lifecycle), configured: configuredNpmLifecycle(lifecycle) };
   for (const hook of hooks ?? entryPoints) {
     if (!hooks && !names.has(hook)) continue;
-    for (const setting of entryLifecycles.get(hook) ?? [lifecycle]) {
-      for (const name of names.sequence(hook, !npm.mainOnly && setting !== false)) visit(name, [], [], setting, true, name !== hook);
+    for (const policy of entryLifecycles.get(hook) ?? [projectPolicy]) {
+      visitSequence(hook, [], policy, true, true);
     }
   }
   if (hooks) return;
@@ -1079,7 +1122,7 @@ export function assertReleaseHeadingDate(scripts: readonly string[], mergeDay: s
 
 /** Verify the complete generator argv from each release hook before publication. */
 export function assertReleaseHookHeadingDate(
-  scripts: ReadonlyMap<string, string>, hooks: readonly string[], mergeDay: string, packageVersion?: string, lifecycle: NpmLifecycle = "unknown",
+  scripts: ReadonlyMap<string, string>, hooks: readonly string[], mergeDay: string, packageVersion?: string, lifecycle: NpmLifecyclePolicy = "unknown",
 ): void {
   visitChangelogScriptCommands(scripts, ({ effective, names }) => assertHeadingOptions(effective, mergeDay, packageVersion, names), hooks,
     undefined, undefined, { lifecycle });
@@ -1115,14 +1158,22 @@ export function includeEmptyReleaseSections(script: string, scriptNames?: Readon
 
 /** Find the possible final commands on each if/elif/else path. */
 function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
-  const alternatives: ShellCommand[][] = [[]];
+  const alternatives: Array<{ before: ShellCommand[]; branches: ShellCommand[]; hasElse: boolean }> = [];
   let last: ShellCommand[] = [];
   for (const words of commands) {
     for (const word of words) {
       if (!word.releaseKeyword) break;
-      if (word.value === "if") alternatives.push([]);
-      if (word.value === "elif" || word.value === "else") alternatives.at(-1)!.push(...last);
-      if (word.value === "fi" && alternatives.length > 1) last = [...alternatives.pop()!, ...last];
+      if (word.value === "if") alternatives.push({ before: last, branches: [], hasElse: false });
+      const branch = alternatives.at(-1);
+      if (branch && (word.value === "elif" || word.value === "else")) {
+        branch.branches.push(...last);
+        branch.hasElse = word.value === "else";
+        last = branch.before;
+      }
+      if (branch && word.value === "fi") {
+        alternatives.pop();
+        last = [...new Set([...branch.branches, ...last, ...(branch.hasElse ? [] : branch.before)])];
+      }
     }
     if (!words[0].releaseKeyword || words.length > 1) last = [words];
   }
@@ -1141,10 +1192,12 @@ function allGeneratorRenderers(last: ShellCommand[], scripts: ReadonlyMap<string
   });
 }
 
-/** Recognize a Git tail whose arguments belong to repository bookkeeping. */
-function gitTail(words: ShellCommand): boolean {
+const RENDERER_STATUS_COMMANDS = new Set(["git", "test", "[", "[[", "true", "false", ":"]);
+
+/** Identify a shell status check or repository bookkeeping after rendering. */
+function rendererStatusCommand(words: ShellCommand): boolean {
   const command = releaseHookCommand(words);
-  return Boolean(command && basename(command[0].value) === "git");
+  return Boolean(command && RENDERER_STATUS_COMMANDS.has(basename(command[0].value)));
 }
 
 /** Alternatives need no custom argument when all of their terminal generators receive the flag directly. */
@@ -1154,14 +1207,11 @@ function finalHookCommand(commands: ShellCommand[], hasGenerator: boolean, scrip
     refuseHook("Custom hook has alternative renderers. Use a single script entry point");
   }
   const terminal = last.at(-1) ?? [];
-  if (!gitTail(terminal)) return terminal;
-  const candidates = [...new Set(commands.map(releaseOutputProducer))].filter(words => {
-    const command = releaseHookCommand(words);
-    return command && !["git", "test", "[", "[[", "true", "false", ":"].includes(basename(command[0].value));
-  });
+  if (!rendererStatusCommand(terminal)) return terminal;
+  const candidates = [...new Set(commands.map(releaseOutputProducer))].filter(words => releaseHookCommand(words) && !rendererStatusCommand(words));
   if (candidates.length === 1) return candidates[0];
   if (hasGenerator && allGeneratorRenderers(candidates, scripts, new Set(scripts.keys()), 0)) return terminal;
-  refuseHook("Cannot identify one renderer before the trailing Git command. Use a single script entry point");
+  refuseHook("Cannot identify one renderer before the trailing status command. Use a single script entry point");
 }
 
 /** Count npm option boundaries between a configured custom hook and its final executable. */
@@ -1186,7 +1236,7 @@ function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<
     if (!text) return hasGenerator ? undefined : { count }; // An optional missing target runs no command.
     const { commands, spans } = parseReleaseHook(text);
     const recipient = commandReceivingArguments(text, commands, spans);
-    const producer = releaseOutputProducer(recipient && !gitTail(recipient) ? recipient : finalHookCommand(commands, hasGenerator, scripts));
+    const producer = releaseOutputProducer(recipient && !rendererStatusCommand(recipient) ? recipient : finalHookCommand(commands, hasGenerator, scripts));
     if (producer !== recipient) blockedTarget = forward.target;
     const next = releaseHookCommand(producer === recipient ? [...producer, ...forward.args] : producer);
     if (!next) refuseHook("Custom script " + JSON.stringify(forward.target) + " cannot receive forwarded arguments. Move the logic into a script file");
@@ -1273,7 +1323,7 @@ function rewriteDateOptions(options: ValidDateOption[], headingDate: string, sou
 
 /** Rewrite all heading options received by the manifest's resolved release hooks. */
 export function rewriteReleaseHookDates(
-  scripts: ReadonlyMap<string, string>, hooks: readonly string[], headingDate: string, lifecycle: NpmLifecycle = "unknown",
+  scripts: ReadonlyMap<string, string>, hooks: readonly string[], headingDate: string, lifecycle: NpmLifecyclePolicy = "unknown",
   packageVersion?: string,
 ): Map<string, string> {
   validateReplacementDay(headingDate);

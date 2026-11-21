@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertReleaseHookHeadingDate, releaseCommitDay, resolveChangelogHooks } from "../release-changelog-options.ts";
-import { projectNpmLifecycle } from "./project-npm-lifecycle.ts";
+import { projectNpmLifecyclePolicy } from "./project-npm-lifecycle.ts";
 import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "./release-runtime.ts";
 import { originalPublicationSigner, verifyRegistryProvenance, type ProvenanceIdentity, type verifySigstoreBundle } from "../release-provenance.ts";
 import { pathToFileURL } from "node:url";
@@ -474,7 +474,7 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
   if (mode === "heading-date") {
     const project = required("NPM_PROJECT_PATH");
     const recorded = process.env.PREPARED_NPM_LIFECYCLE;
-    const lifecycle = recorded ? preparedLifecycle(recorded) : projectNpmLifecycle(project);
+    const lifecycle = projectNpmLifecyclePolicy(project, recorded ? preparedLifecycle(recorded) : undefined);
     const pkg = JSON.parse(readFileSync(join(project, "package.json"), "utf8")) as { version?: string; scripts: Record<string, string> };
     const hooks = ["CHANGELOG_SCRIPT", "CHANGELOG_CHECK_SCRIPT", "NOTES_SCRIPT"].map(required);
     const scripts = resolveChangelogHooks(pkg.scripts, hooks, lifecycle);

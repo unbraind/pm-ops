@@ -88,6 +88,13 @@ export function isRedirectionSuffix(source: string, start: number, end: number):
   return operator === "&" ? /^[0-9]*[<>]>?$/.test(prefix) : /^[0-9]*>$/.test(prefix);
 }
 
+/** A file redirect ends an attached word except after a literal descriptor or an incomplete operator. */
+function startsFileRedirect(source: string, start: number, end: number, character: "<" | ">"): boolean {
+  const prefix = source.slice(start, end).replaceAll("\\\n", "");
+  const continuation = character === ">" ? /^(?:[0-9]*[<>]?|&>?)$/ : /^[0-9]*<{0,2}$/;
+  return !continuation.test(prefix);
+}
+
 /** Record operators from the original source, where quoting and escapes are still visible. */
 export function recordShellRedirection(token: ShellToken, source: string, start: number, end: number): void {
   if (!REDIRECTION.test(token.value)) return;
@@ -659,6 +666,10 @@ function scanShellCommands(
       cases[cases.length - 1] = "pattern";
       index += text[index + 1] === ";" && text[index + 2] === "&" ? 2 : 1;
       continue;
+    }
+    if (started && (character === "<" || character === ">") && startsFileRedirect(text, wordStart, index, character)) {
+      endWord(index);
+      wordStart = index;
     }
     if (isOperatorStart(character)) {
       if (children !== undefined && !arithmetic && character === "(" && !started

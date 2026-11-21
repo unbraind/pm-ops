@@ -1,6 +1,6 @@
 /** Exercise the release hook language at the same boundaries as npm and GitHub Actions. */
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import test from "node:test";
@@ -1191,7 +1191,8 @@ test("GITHUB_ENV lifecycle writes apply to later steps within their job", () => 
   assert.match(audit([{ run: write.run + "\n" + consume.run }])[0], /Cannot determine npm ignore-scripts/);
   const computed = { run: 'echo "npm_config_ignore_scripts=$SETTING" >> "$GITHUB_ENV"' };
   for (const env of [{}, { SETTING: "true\nOTHER=yes" }, { SETTING: "${{ inputs.policy }}" }]) {
-    assert.match(audit([{ ...computed, env }, { ...consume, env: { npm_config_ignore_scripts: "true" } }])[0], /Cannot determine npm ignore-scripts/);
+    assert.match(audit([{ ...computed, env }, consume])[0], /Cannot determine npm ignore-scripts/);
+    assert.deepEqual(audit([{ ...computed, env }, { ...consume, env: { npm_config_ignore_scripts: "true" } }]), []);
     assert.deepEqual(audit([{ ...computed, env }, { run: "npm --ignore-scripts run " + entry }]), []);
   }
   for (const uncertain of [
@@ -1682,5 +1683,144 @@ test("npm lifecycle commands forward generator arguments and respect the pre-hoo
     assert.deepEqual(auditInvocations([workflow("npm " + target), {
       file: "package.json", text: JSON.stringify({ scripts: { [target]: "node smoke.mjs", "changelog:full": "pm-changelog " + standing } }),
     }]).failures, []);
+  }
+});
+
+
+test("environment-file overwrites after a failed read require a successful producer", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-env-overwrite-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = join(root, "environment");
+  const previous = { run: 'echo npm_config_ignore_scripts=false >> "$GITHUB_ENV"' };
+  const overwrite = 'echo npm_config_ignore_scripts=true > "$GITHUB_ENV"';
+  const producer = { run: 'cat settings >> "$GITHUB_ENV"\n' + overwrite };
+  const consume = { run: "npm run changelog:full" };
+  const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
+    "changelog:full": "pm-changelog " + standing,
+    "prechangelog:full": "printf heading > CHANGELOG.md",
+  } }) };
+  const audit = (...steps: object[]) => auditInvocations([manifest, {
+    file: ".github/workflows/env.yml", text: stringify({ jobs: { release: { "runs-on": "ubuntu-latest", steps } } }),
+  }]).failures;
+  if (process.platform !== "win32") {
+    for (const present of [false, true]) {
+      if (present) writeFileSync(join(root, "settings"), "OTHER=value\n");
+      writeFileSync(file, "OTHER=before\n");
+      const run = () => execFileSync("bash", ["-ec", producer.run], { cwd: root, env: { ...process.env, GITHUB_ENV: file }, stdio: "pipe" });
+      if (present) assert.doesNotThrow(run);
+      else assert.throws(run, /settings/);
+      assert.equal(readFileSync(file, "utf8"), present ? "npm_config_ignore_scripts=true\n" : "OTHER=before\n");
+    }
+  }
+  for (const condition of ["${{ always() }}", "failure()", "!success()"]) {
+    assert.match(audit(previous, producer, { ...consume, if: condition })[0] ?? "", /Cannot determine npm ignore-scripts/);
+  }
+  assert.deepEqual(audit(previous, producer, consume), []);
+  assert.deepEqual(audit(previous, producer, { ...consume, if: "${{ success() }}" }), []);
+  assert.deepEqual(audit(previous, { ...producer, shell: "bash {0}" }, { ...consume, if: "always()" }), []);
+  assert.match(audit(previous, { run: "set -e\n" + producer.run, shell: "bash {0}" },
+    { ...consume, if: "always()" })[0] ?? "", /Cannot determine npm ignore-scripts/);
+  assert.deepEqual(audit(previous, { run: 'echo "$RECORD" >> "$GITHUB_ENV"\n' + overwrite },
+    { ...consume, if: "${{ always() }}" }), []);
+});
+
+test("the step's explicit npm setting wins over unknown writes by an earlier action", () => {
+  const audit = (env: unknown, action: { uses: string; if?: boolean } = { uses: "./local-action" },
+    jobEnv?: string) => auditInvocations([
+    { file: "package.json", text: JSON.stringify({ scripts: {
+      "changelog:full": "pm-changelog " + standing, "prechangelog:full": "printf heading > CHANGELOG.md",
+    } }) },
+    { file: ".github/workflows/env.yml", text: stringify({ env: { npm_config_ignore_scripts: "true" }, jobs: {
+      release: { "runs-on": "ubuntu-latest", env: jobEnv, steps: [action, { run: "npm run changelog:full", env }] },
+    } }) },
+  ]).failures;
+  assert.deepEqual(audit({ npm_config_ignore_scripts: "true" }), []);
+  assert.deepEqual(audit({ npm_config_ignore_scripts: "false" }), []);
+  for (const env of [{}, { npm_config_ignore_scripts: "" }, { npm_config_ignore_scripts: "${{ inputs.policy }}" }]) {
+    assert.match(audit(env)[0] ?? "", /Cannot determine npm ignore-scripts/);
+  }
+  const disabled = { uses: "./local-action", if: false };
+  assert.deepEqual(audit({}, disabled), []);
+  const generated = "${{ fromJSON(vars.RELEASE_ENV) }}";
+  assert.deepEqual(audit({ npm_config_ignore_scripts: "true" }, disabled, generated), []);
+  assert.match(audit({}, disabled, generated)[0] ?? "", /Cannot determine npm ignore-scripts/);
+});
+
+test("a computed command basename without lookup arguments cannot abort generator inspection", () => {
+  const writer = "pm-changelog " + standing;
+  assert.equal(rewriteReleaseHeadingDate('"$TOOLS"/command; ' + writer, day),
+    '"$TOOLS"/command; pm-changelog --release-version-from-package --date-fallback ' + day);
+  assert.equal(rewriteReleaseHeadingDate("command -v pm-changelog && " + writer, day),
+    "command -v pm-changelog && pm-changelog --release-version-from-package --date-fallback " + day);
+  for (const args of ["", "-v "]) {
+    assert.throws(() => rewriteReleaseHeadingDate('"$TOOLS"/command ' + args + writer, day), /Unrecognized wrapper/);
+  }
+});
+
+test("npm restores the configured setting after a parent overrides ignore-scripts back to the default", () => {
+  const hook = "changelog:full";
+  const script = "npm --ignore-scripts=false run relay";
+  const source = (relay: string) => ({ [hook]: script, relay, prerelay: "pm-changelog " + standing,
+    writer: "pm-changelog " + standing, prewriter: "pm-changelog --release-version-from-package" });
+  const plain = source("npm run writer");
+  assert.deepEqual([...resolveChangelogHooks(plain, [hook], false).keys()], [hook, "prerelay", "relay", "writer"]);
+  assert.doesNotThrow(() => assertReleaseHookHeadingDate(new Map(Object.entries(plain)), [hook], day, "2026.11.17", false));
+  assert.equal(rewriteReleaseHookDates(new Map(Object.entries(plain)), [hook], day, false).has("prewriter"), false);
+  const enabled = source("npm --ignore-scripts=false run writer");
+  assert.equal(resolveChangelogHooks(enabled, [hook], false).has("prewriter"), true);
+  assert.throws(() => rewriteReleaseHookDates(new Map(Object.entries(enabled)), [hook], day, false), /without a date policy/);
+  assert.equal(resolveChangelogHooks(plain, [hook], true).has("prewriter"), true);
+  assert.throws(() => resolveChangelogHooks(plain, [hook]), /Cannot determine npm ignore-scripts.*prewriter/);
+  assert.equal(resolveChangelogHooks({ ...plain, [hook]: "npm --ignore-scripts=true run relay" }, [hook], true).has("prewriter"), false);
+});
+
+test("a conditional notes hook without else keeps the preceding renderer", () => {
+  const branch = "if test -f preview.json; then node render.mjs; fi";
+  assert.throws(() => includeEmptyCustomHook("node fallback.mjs; " + branch, new Map()), /alternative renderers/);
+  assert.equal(includeEmptyCustomHook(branch, new Map()), branch.replace("render.mjs", "render.mjs --include-empty"));
+  const complete = "node setup.mjs; if test -f preview.json; then pm-changelog --stdout; else node dist/cli.js --stdout; fi";
+  assert.equal(includeEmptyCustomHook(complete, new Map(), true), complete);
+  const nested = "node fallback.mjs; if test -f preview.json; then if test -f other.json; then node render.mjs; fi; fi";
+  assert.throws(() => includeEmptyCustomHook(nested, new Map()), /alternative renderers/);
+});
+
+test("npm cannot forward a custom renderer flag to a trailing status command", () => {
+  for (const tail of ["true", "false", ":", "test -s notes.txt", "[ -s notes.txt ]", "git diff --quiet"]) {
+    const scripts = new Map([["render", "node notes.mjs && " + tail]]);
+    assert.throws(() => includeEmptyCustomHook("npm run render", scripts), /cannot receive forwarded arguments/);
+  }
+  assert.equal(includeEmptyCustomHook("npm run render", new Map([["render", "node notes.mjs"]])), "npm run render -- --include-empty");
+  assert.equal(includeEmptyCustomHook("npm run render", new Map([["render", "pm-changelog --stdout && true"]]), true), "npm run render");
+});
+
+
+test("preparation and real npm reload project policy when a nested override clears the inherited env setting", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-npm-cli-default-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const bin = join(root, "bin");
+  mkdirSync(bin);
+  const cli = npmCli();
+  if (process.platform !== "win32") symlinkSync(cli, join(bin, "npm"));
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_config_/i.test(key)));
+  Object.assign(env, { PATH: [bin, env.PATH].join(delimiter), npm_config_ignore_scripts: "true",
+    NPM_CONFIG_USERCONFIG: join(root, "user.npmrc"), NPM_CONFIG_GLOBALCONFIG: join(root, "global.npmrc"),
+    CHANGELOG_SCRIPT: "hook", CHANGELOG_CHECK_SCRIPT: "hook", NOTES_SCRIPT: "hook", RELEASE_HEADING_DATE: day });
+  const scripts = {
+    hook: "npm --ignore-scripts=false run relay", relay: "npm run writer",
+    writer: "node pm-changelog.ts " + standing + " --stdout",
+    prewriter: "node pm-changelog.ts --release-version-from-package",
+  };
+  const manifest = join(root, "package.json");
+  const prepare = () => execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env, stdio: "pipe" });
+  writeFileSync(join(root, "pm-changelog.ts"), String.raw`require("node:fs").appendFileSync("calls", process.argv.includes("--stdout") ? "writer\n" : "prewriter\n");`);
+  for (const ignore of [false, true]) {
+    writeFileSync(manifest, JSON.stringify({ name: "fixture", scripts }));
+    writeFileSync(join(root, ".npmrc"), "ignore-scripts=" + ignore + "\n");
+    const calls = join(root, "calls");
+    rmSync(calls, { force: true });
+    execFileSync(process.execPath, [cli, "run", "hook"], { cwd: root, env });
+    assert.equal(readFileSync(calls, "utf8"), ignore ? "writer\n" : "prewriter\nwriter\n");
+    if (ignore) assert.doesNotThrow(prepare);
+    else assert.throws(prepare, /without a date policy/);
   }
 });

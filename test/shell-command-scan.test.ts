@@ -365,3 +365,25 @@ test("a clobber redirection keeps its target out of argv without consuming a lat
     assert.deepEqual(commandArguments(commands[0]).map(word => word.value), ["--check"], redirect);
   }
 });
+
+
+test("unquoted file redirects split attached arguments while retaining descriptor and data words", () => {
+  for (const [source, args, redirects] of [
+    ["printf hello>preview.log", ["hello"], [{ operator: ">", joined: true }]],
+    ["printf hello>> preview.log", ["hello"], [{ operator: ">>", joined: false }]],
+    ["printf hello2>preview.log", ["hello2"], [{ operator: ">", joined: true }]],
+    ["printf hello 2>preview.log", ["hello"], [{ operator: "2>", joined: true }]],
+    ["printf hello<input", ["hello"], [{ operator: "<", joined: true }]],
+    ["printf hello <input>output", ["hello"], [{ operator: "<", joined: true }, { operator: ">", joined: true }]],
+    ["printf hello < input>output", ["hello"], [{ operator: "<", joined: false }, { operator: ">", joined: true }]],
+    ["printf hello>first>output", ["hello"], [{ operator: ">", joined: true }, { operator: ">", joined: true }]],
+    ['printf "2">preview.log', ["2"], [{ operator: ">", joined: true }]],
+    [String.raw`printf \2>preview.log`, ["2"], [{ operator: ">", joined: true }]],
+    ["printf 'hello>preview.log'", ["hello>preview.log"], []],
+    [String.raw`printf hello\>preview.log`, ["hello>preview.log"], []],
+  ] as const) {
+    const [command] = tokenizeCommands(source);
+    assert.deepEqual(commandArguments(command).map(word => word.value), args, source);
+    assert.deepEqual(command.map(shellRedirection).filter(Boolean), redirects, source);
+  }
+});
