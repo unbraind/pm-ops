@@ -2,13 +2,11 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: in_progress
+status: open
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T20:36:29.849Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-21T20:54:08.108Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[175]:
+comments[176]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -543,6 +541,9 @@ comments[175]:
   - created_at: "2026-11-21T20:36:23.338Z"
     author: codex-sol
     text: Greptile thread PRRT_kwDOTOTl1M66b_zV on 39b5d1f reproduced locally. A trailing cp backup suffix was treated as the destination. Paired fixtures now cover copies into and out of CHANGELOG.md with short and long suffix options.
+  - created_at: "2026-11-21T20:53:53.948Z"
+    author: codex-sol
+    text: "Greptile PRRT_kwDOTOTl1M66b_zV maps to local commit b61e213. The 128 grammar and runtime cases passed, GNU cp verified both copy directions, and the destination helper exercised all 17 branches. Typecheck, lint, duplication, docstrings and changelog:check passed. The pinned fleet accepted 142 hooks and reached 144 bodies across 39 manifests. The full follow-up reruns are bounded by the original post-push deadline. The PR head remains 39b5d1f pending those gates."
 files[27]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
