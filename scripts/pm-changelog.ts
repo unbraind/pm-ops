@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { mergeChangelog } from "pm-changelog";
+import { changelogOutputTarget } from "../release-changelog-options.ts";
 import { execFileSync, spawnSync } from "../subprocess.ts";
 import { isMainInvocation } from "./main-invocation.ts";
 
@@ -15,32 +16,33 @@ export function describeEmptyReleases(markdown: string): string {
 
 /** Generate once, then use identical normalized bytes for writes, checks and notes. */
 export function runChangelog(args: readonly string[], cwd = process.cwd(), env = process.env): number {
-  const forwarded: string[] = [];
-  let output = "CHANGELOG.md";
+  const { output: { value: output }, invalidOption, check, stdout, consumed, positions } = changelogOutputTarget(args.map(value => ({ value })));
+  if (invalidOption) throw new Error(`${invalidOption} requires a value`);
   let mode = "replace";
-  let check = false;
-  let stdout = false;
   let summary = false;
-  for (let index = 0; index < args.length; index++) {
+  for (const index of positions) {
     const arg = args[index]!;
-    if (arg === "--output" || arg === "--mode") {
-      const value = args[++index];
-      if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value`);
-      if (arg === "--output") output = value;
-      else mode = value;
-    } else if (arg === "--check") check = true;
-    else if (arg === "--stdout") stdout = true;
-    else if (arg === "--github-step-summary") summary = true;
-    else forwarded.push(arg);
+    if (arg === "--mode" || arg.startsWith("--mode=")) {
+      const separate = arg === "--mode";
+      const value = separate ? args[index + 1] : arg.slice("--mode=".length);
+      if (!value || value.startsWith("--")) throw new Error("--mode requires a value");
+      if (value !== "replace" && value !== "prepend") throw new Error("--mode must be replace or prepend");
+      mode = value;
+      consumed.add(index);
+      if (separate) consumed.add(index + 1);
+    } else if (arg === "--github-step-summary") {
+      summary = true;
+      consumed.add(index);
+    }
   }
-  if (mode !== "replace" && mode !== "prepend") throw new Error("--mode must be replace or prepend");
+  const forwarded = args.filter((_, index) => !consumed.has(index));
   if (forwarded.some(arg => ["--all-release-tags", "--since-previous-tag", "--until-release-tag"].includes(arg))
     && spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, env, encoding: "utf8" }).status !== 0) {
     throw new Error("Changelog release windows need a git repository; the current directory is not inside one. Generate from tracker items without tag flags instead.");
   }
   if (summary && !env.GITHUB_STEP_SUMMARY) throw new Error("--github-step-summary requires GITHUB_STEP_SUMMARY");
   const generator = createRequire(import.meta.url).resolve("pm-changelog/cli");
-  const markdown = describeEmptyReleases(execFileSync(process.execPath, [generator, ...forwarded, "--stdout"], { cwd, env, encoding: "utf8" }));
+  const markdown = describeEmptyReleases(execFileSync(process.execPath, [generator, ...forwarded, "--output", output, "--stdout"], { cwd, env, encoding: "utf8" }));
   const destination = resolve(cwd, output);
   const existing = existsSync(destination) ? readFileSync(destination, "utf8") : "";
   const result = mode === "prepend" ? mergeChangelog(existing, markdown).markdown : markdown;

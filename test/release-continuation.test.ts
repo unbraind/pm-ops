@@ -206,6 +206,8 @@ test("behind-base squash merges retire only untouched unpublished receipts, incl
       assert.throws(() => decideReleaseContinuation(candidateFixture(), { ...e, ...evidence }), /operator reconciliation|identity disagrees/);
     }
   }
+  for (const npmLifecycle of [true, false, "unknown"] as const) validateReleaseCandidate({ ...candidateFixture(), npmLifecycle });
+  assert.throws(() => validateReleaseCandidate({ ...candidateFixture(), npmLifecycle: "disabled" } as unknown as ReleaseCandidate), /Malformed/);
   const legacy = candidateFixture(); delete legacy.toolsSha; validateReleaseCandidate(legacy);
 });
 

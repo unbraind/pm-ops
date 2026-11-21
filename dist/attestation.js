@@ -869,8 +869,99 @@ function publishInvocationsInArgv(source, argv) {
     }
     return found;
 }
+/** Read a run default while preserving an unresolved defaults expression. */
+function defaultRunSetting(container, key) {
+    const run = mapping(mapping(container)?.defaults)?.run;
+    return typeof run === "string" ? run : mapping(run)?.[key];
+}
+const IGNORE_SCRIPTS_ENV = "npm_config_ignore_scripts";
+const ENV_PATH = /^(?:"\$(?:GITHUB_ENV|\{GITHUB_ENV\})"|\$(?:GITHUB_ENV|\{GITHUB_ENV\}))(?:\s+#.*)?$/;
+const READ_ENV_FILE = /^cat\s+(?:"\$(?:GITHUB_ENV|\{GITHUB_ENV\})"|\$(?:GITHUB_ENV|\{GITHUB_ENV\}))$/;
+/** Decode one literal NAME=value record emitted by echo or printf. */
+function literalEnvironmentRecord(print, stepEnv) {
+    const variable = /^echo "([A-Za-z_]\w*)=\$(\w+)"$/.exec(print);
+    if (variable) {
+        const value = stepEnv?.[variable[2]];
+        return typeof value === "string" && /^[\w.-]*$/.test(value) ? variable[1] + "=" + value : undefined;
+    }
+    const echo = /^(?:echo\s+|printf\s+(['"])%s\\n\1\s+)(['"]?)([A-Za-z_]\w*=[\w.-]*)\2$/.exec(print);
+    if (echo)
+        return echo[3];
+    const literal = /^printf\s+(['"])([A-Za-z_]\w*=[\w.-]*)\\n\1$/.exec(print);
+    if (literal)
+        return literal[2];
+    const format = /^printf\s+(['"])([A-Za-z_]\w*=)%s\\n\1\s+(['"]?)([\w.-]+)\3$/.exec(print);
+    return format ? format[2] + format[4] : undefined;
+}
+/** Model one runner environment file, which starts empty for each step. */
+function writtenIgnoreScripts(text, conditionalStep, stepEnv, errexit) {
+    let records = {};
+    let mayStopBeforeOverwrite = false;
+    let depth = 0;
+    const lines = text.split(/\r?\n/);
+    const bodies = heredocBodyLines(lines);
+    for (const [index, part] of lines.entries()) {
+        const line = part.trim();
+        if (bodies[index] || /^cat <<'[\w.-]+'$/.test(line))
+            continue;
+        if (/^if test -f [\w.-]+; then$/.test(line)) {
+            depth++;
+            continue;
+        }
+        if (depth && (line === "else" || /^elif test -f [\w.-]+; then$/.test(line)))
+            continue;
+        if (depth && line === "fi") {
+            depth--;
+            continue;
+        }
+        const shellOptions = /^set -([eu]+)(?:o pipefail)?$/.exec(line);
+        if (shellOptions?.[1].includes("e"))
+            errexit = true;
+        if (!line || line.startsWith("#") || shellOptions || /^(?:true|:|echo [\w .-]+)$/.test(line)
+            || READ_ENV_FILE.test(line))
+            continue;
+        const redirect = line.indexOf(">");
+        if (redirect < 0)
+            return undefined;
+        const append = line[redirect + 1] === ">";
+        const destination = line.slice(redirect + (append ? 2 : 1)).trimStart();
+        if (!ENV_PATH.test(destination))
+            return undefined;
+        const print = line.slice(0, redirect).trimEnd();
+        const record = literalEnvironmentRecord(print, stepEnv);
+        if (record === undefined) {
+            if (!/^(?:cat [\w./-]+|echo "\$\w+")$/.test(print))
+                return undefined;
+            // A successful step reached a later overwrite. A failed cat under
+            // errexit can terminate the step while the earlier contents still apply.
+            if (errexit && print.startsWith("cat "))
+                mayStopBeforeOverwrite = true;
+            records = undefined;
+            continue;
+        }
+        const conditional = conditionalStep || depth > 0;
+        if (!append) {
+            if (conditional) {
+                if (records)
+                    for (const key of Object.keys(records))
+                        records[key] = "unknown";
+            }
+            else
+                records = {};
+        }
+        const [name, value] = record.split("=");
+        if (records && name.toLowerCase() === IGNORE_SCRIPTS_ENV)
+            records[name] = conditional ? "unknown" : value;
+    }
+    return records && { records, mayStopBeforeOverwrite };
+}
+/** Check whether the runner's implicit success condition can be overridden. */
+function canRunAfterFailure(condition) {
+    return typeof condition === "string" && /\b(?:always|cancelled|failure|success)\s*\(/i.test(condition)
+        && !/^\s*(?:\$\{\{\s*)?success\s*\(\s*\)\s*(?:\}\}\s*)?$/i.test(condition);
+}
 /** Extract structured commands together with their original scalar source ranges. */
-function executableShellBodies(source) {
+export function executableShellBodies(source) {
     if (COMPOSE_PATH.test(source.file))
         return composeExecutableBodies(source);
     if (!MANIFEST_PATH.test(source.file) && !isWorkflowYaml(source.file)) {
@@ -898,14 +989,51 @@ function executableShellBodies(source) {
         : Object.entries(mapping(data?.jobs) ?? {}).map(([key, value]) => ({ path: ["jobs", key], value }));
     const bodies = [];
     for (const container of containers) {
-        const steps = mapping(container.value)?.steps;
+        const job = mapping(container.value);
+        const steps = job?.steps;
         if (!Array.isArray(steps))
             continue;
+        const runner = job["runs-on"];
+        const posixRunner = [runner].flat().some(label => typeof label === "string" && /^(?:ubuntu-|macos-|linux$|macos$)/i.test(label));
+        const defaultShell = defaultRunSetting(job, "shell") ?? defaultRunSetting(data, "shell");
+        const inherited = {};
+        let unknownNames = false;
+        let uncertainOnFailure = false;
         for (const [index, value] of steps.entries()) {
             const step = mapping(value);
-            if (step === undefined || !Object.hasOwn(step, "run"))
+            if (step === undefined || !Object.hasOwn(step, "run")) {
+                if (step?.if !== false)
+                    unknownNames = true;
                 continue;
-            bodies.push(bodyAt([...container.path, "steps", index, "run"], step.run));
+            }
+            const body = bodyAt([...container.path, "steps", index, "run"], step.run);
+            const directory = step["working-directory"] ?? defaultRunSetting(job, "working-directory") ?? defaultRunSetting(data, "working-directory");
+            if (directory !== undefined)
+                body.workingDirectory = directory;
+            const stepEnv = mapping(step.env);
+            const environment = { ...mapping(data?.env), ...mapping(job.env), ...inherited, ...stepEnv };
+            const stepLifecycle = Object.entries(stepEnv ?? {}).some(([key, value]) => /^npm_config_ignore[-_]scripts$/i.test(key) && [true, false, "true", "false"].includes(value));
+            if (!stepLifecycle && (unknownNames || (uncertainOnFailure && canRunAfterFailure(step.if))
+                || [data?.env, job.env, step.env].some(layer => typeof layer === "string")))
+                environment[IGNORE_SCRIPTS_ENV] = "unknown";
+            body.environment = environment;
+            if (job.if === false || step.if === false)
+                body.disabled = true;
+            else {
+                const shell = step.shell ?? defaultShell;
+                const shellKnown = shell === undefined ? posixRunner : typeof shell === "string" && /^(?:bash|sh|(?:bash|sh) (?:-e )?\{0\}|bash --noprofile --norc -eo pipefail \{0\})$/.test(shell);
+                const conditional = (step.if !== undefined && step.if !== true) || Boolean(step["continue-on-error"]);
+                const errexit = shell !== "bash {0}" && shell !== "sh {0}";
+                const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, stepEnv, errexit) : undefined;
+                if (writes === undefined)
+                    unknownNames = true;
+                else {
+                    Object.assign(inherited, writes.records);
+                    if (writes.mayStopBeforeOverwrite)
+                        uncertainOnFailure = true;
+                }
+            }
+            bodies.push(body);
         }
     }
     return bodies;

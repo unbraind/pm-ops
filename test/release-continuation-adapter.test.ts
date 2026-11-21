@@ -3,11 +3,12 @@ import "./provenance-trust-fixture.ts";
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { spawnSync } from "../subprocess.ts";
+import { execFileSync, spawnSync } from "../subprocess.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { parse } from "yaml";
+import { resolveReleaseContext } from "pm-changelog";
 import { assertNoNpmInstalls } from "./npm-bootstrap-contract.ts";
 import { candidateFixture, evidenceFixture } from "./release-continuation-fixture.ts";
 import { publicationSettleMs, releaseConfigDigest, releaseDigest } from "../release-continuation.ts";
@@ -89,7 +90,7 @@ async function withAdapter(callback: (f: ReturnType<typeof remoteFixture> & { ro
   const values: Record<string, string> = { GITHUB_REPOSITORY: f.c.repository, GH_TOKEN: "synthetic-token", RELEASE_CONFIG: "{}", CALLER_WORKFLOW: `${f.c.repository}/${f.c.workflow}@refs/heads/main`,
     RUNNER_TEMP: root, GITHUB_WORKSPACE: root, GITHUB_OUTPUT: join(root, "output"), NPM_PROJECT_DIR: ".", TRIGGER_SHA: f.e.triggerSha, RELEASE_TIMEZONE: "Europe/Vienna", RELEASE_PR_NUMBER: "42", RELEASE_BRANCH: f.pr.head.ref,
     REMOTE_BRANCH_SHA: f.c.headSha, ARTIFACT_ID: "20", RELEASE_BASE_SHA: f.c.baseSha, VERIFIED_COMMIT: f.c.headSha, VERIFIED_TREE: f.c.tree, NPM_VERSION: f.c.version, RELEASE_TAG: f.c.tag,
-    PACKAGE_NAME: f.c.packageName, CLI_VERSION: f.c.cliVersion, PM_OPS_VERSION: f.c.opsVersion, WORKFLOW_TOOLS_SHA: f.c.toolsSha!, GITHUB_ENV: join(root, "env"), PUBLISHING_WORKFLOW_REF: f.options.publishingWorkflowRef, GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", NPM_PUBLISH: "true", IS_RUST: "false", RELEASE_FIXTURE: root,
+    PREPARED_NPM_LIFECYCLE: "unknown", PACKAGE_NAME: f.c.packageName, CLI_VERSION: f.c.cliVersion, PM_OPS_VERSION: f.c.opsVersion, WORKFLOW_TOOLS_SHA: f.c.toolsSha!, GITHUB_ENV: join(root, "env"), PUBLISHING_WORKFLOW_REF: f.options.publishingWorkflowRef, GITHUB_RUN_ID: "10", GITHUB_RUN_ATTEMPT: "1", NPM_PUBLISH: "true", IS_RUST: "false", RELEASE_FIXTURE: root,
     PATH: `${root}:${process.env.PATH}` };
   const saved = new Map([...Object.keys(values), "CANDIDATE_RECEIPT", "SUPERSEDED_PR_NUMBERS", "POST_RELEASE_SCRIPT", "NPM_PROJECT_PATH", "RETIRE_UNPUBLISHED", "RELEASE_COMMIT"].map(key => [key, process.env[key]]));
   Object.assign(process.env, values);
@@ -649,7 +650,9 @@ test("pilot schedules the shared workflow hourly and daily; empty reconciliation
 test("entry point captures npm and GitHub-only manifests without executing package bytes", async () => {
   await withAdapter(async f => {
     await runReleaseContinuation("manifest");
-    assert.equal(JSON.parse(readFileSync(join(f.handoff, "candidate.json"), "utf8")).packageSha256, f.c.packageSha256);
+    const prepared = JSON.parse(readFileSync(join(f.handoff, "candidate.json"), "utf8"));
+    assert.equal(prepared.packageSha256, f.c.packageSha256);
+    assert.equal(prepared.npmLifecycle, "unknown");
     process.env.IS_RUST = "true"; process.env.NPM_PUBLISH = "false"; process.env.PACKAGE_NAME = ""; delete process.env.CLI_VERSION;
     await runReleaseContinuation("manifest");
     const rust = JSON.parse(readFileSync(join(f.handoff, "candidate.json"), "utf8")) as { packageName: string; cliVersion: string; npmPublish: boolean; packageSha256: string };
@@ -1564,4 +1567,86 @@ test("occupied-coordinate retirement refuses ambiguous history, registry errors 
     assert.match(await probeOutput(f), /pending=true/);
     assertIntentRetained(f);
   });
+});
+
+
+test("heading-date continuation mirrors the generator at the committer offset despite publication after midnight", async t => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-08T04:00:00Z") });
+  const root = mkdtempSync(join(tmpdir(), "continuation-heading-"));
+  const env = { npm_config_userconfig: join(root, "user.npmrc"), npm_config_globalconfig: join(root, "global.npmrc"), NPM_PROJECT_PATH: root, RELEASE_TIMEZONE: "Europe/Vienna", CHANGELOG_SCRIPT: "generate", CHANGELOG_CHECK_SCRIPT: "check", NOTES_SCRIPT: "notes" };
+  const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
+  const lifecycle = Object.entries(process.env).filter(([key]) => /^npm_config_/i.test(key));
+  const savedPolicy = process.env.PREPARED_NPM_LIFECYCLE;
+  delete process.env.PREPARED_NPM_LIFECYCLE;
+  for (const [key] of lifecycle) delete process.env[key];
+  Object.assign(process.env, env);
+  try {
+    execFileSync("git", ["init", "--quiet"], { cwd: root });
+    execFileSync("git", ["config", "--local", "tag.gpgSign", "false"], { cwd: root });
+    const script = 'pm-changelog --date-fallback "2026-11-07"';
+    const write = (scripts: unknown) => writeFileSync(join(root, "package.json"), JSON.stringify({ scripts }));
+    for (const [timestamp, expectedDay] of [
+      ["2026-11-06T23:30:00Z", "2026-11-06"],
+      ["2026-11-07T00:30:00+01:00", "2026-11-07"],
+    ]) {
+      execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "Verified merge"], {
+        cwd: root, env: { ...process.env, GIT_AUTHOR_DATE: "2026-11-05T12:00:00Z", GIT_COMMITTER_DATE: timestamp },
+      });
+      execFileSync("git", ["tag", "-f", "v2026.11.5"], { cwd: root });
+      assert.equal(resolveReleaseContext({ cwd: root, version: "2026.11.5", dateFallback: "2026-11-07" }).date, expectedDay);
+      writeFileSync(join(root, "CHANGELOG.md"), "## 2026.11.5 - 1999-12-31\n");
+      const pin = `pm-changelog --date-fallback '${expectedDay}'`;
+      write({ generate: `npm --if-present run before-changelog && ${pin}`, check: pin, notes: pin });
+      for (const timezone of ["Europe/Vienna", "UTC"]) {
+        process.env.RELEASE_TIMEZONE = timezone;
+        await runReleaseContinuation("heading-date");
+      }
+      const wrongDay = expectedDay === "2026-11-06" ? "2026-11-07" : "2026-11-06";
+      write({
+        generate: pin, check: pin, notes: "npm run --silent notes:forward -- --stdout",
+        "notes:forward": "npm run-script notes:generator --",
+        "notes:generator": `timeout 60 pm-changelog --date-fallback ${wrongDay}`,
+      });
+      await assert.rejects(runReleaseContinuation("heading-date"), new RegExp(`${wrongDay}.*${expectedDay}.*retire-unpublished`));
+    }
+    const npmrc = join(root, ".npmrc");
+    write({ generate: script, check: script, notes: script, pregenerate: "pm-changelog --date-fallback 2026-11-06" });
+    await assert.rejects(runReleaseContinuation("heading-date"), /ignore-scripts.*pregenerate/);
+    writeFileSync(npmrc, "ignore-scripts=true\n");
+    await runReleaseContinuation("heading-date");
+    writeFileSync(npmrc, "ignore-scripts=false\n");
+    await assert.rejects(runReleaseContinuation("heading-date"), /2026-11-06.*2026-11-07.*retire-unpublished/);
+    process.env.PREPARED_NPM_LIFECYCLE = "false";
+    await runReleaseContinuation("heading-date");
+    writeFileSync(npmrc, "ignore-scripts=true\n");
+    process.env.PREPARED_NPM_LIFECYCLE = "true";
+    await assert.rejects(runReleaseContinuation("heading-date"), /retire-unpublished/);
+    process.env.PREPARED_NPM_LIFECYCLE = "";
+    await runReleaseContinuation("heading-date");
+    writeFileSync(npmrc, "ignore-scripts=false\n");
+    await assert.rejects(runReleaseContinuation("heading-date"), /retire-unpublished/);
+    writeFileSync(npmrc, "ignore-scripts=true\n");
+    for (const value of ["unknown", "invalid"]) {
+      process.env.PREPARED_NPM_LIFECYCLE = value;
+      await assert.rejects(runReleaseContinuation("heading-date"), /ignore-scripts.*pregenerate/);
+    }
+    delete process.env.PREPARED_NPM_LIFECYCLE;
+    for (const bad of [undefined, null, 1, "", " "]) {
+      write({ generate: script, check: script, notes: bad });
+      await assert.rejects(runReleaseContinuation("heading-date"), /Missing changelog hook: notes/);
+    }
+    write(undefined);
+    await assert.rejects(runReleaseContinuation("heading-date"), /Missing changelog hook: generate/);
+  } finally {
+    if (savedPolicy === undefined) delete process.env.PREPARED_NPM_LIFECYCLE;
+    else process.env.PREPARED_NPM_LIFECYCLE = savedPolicy;
+    Object.assign(process.env, Object.fromEntries(lifecycle));
+    Object.keys(env).forEach(key => {
+      const saved = previous[key];
+      if (saved !== undefined) process.env[key] = saved;
+      else delete process.env[key];
+    });
+    rmSync(root, { recursive: true, force: true });
+    t.mock.timers.reset();
+  }
 });

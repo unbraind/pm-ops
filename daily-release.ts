@@ -1,6 +1,7 @@
 /** Pure release planning shared by the reusable workflow and its regression suite. */
 import { tokenize } from "./docstrings.ts";
 import { npmVersionToTag } from "./release-completeness.ts";
+import { isRealCalendarDay, releaseCommitDay } from "./release-changelog-options.ts";
 
 /** GitHub CLI facts used to decide whether this workflow owns an open PR. */
 export interface ReleasePullRequest {
@@ -24,6 +25,8 @@ export interface DailyReleaseInput {
   lastRelease: { tag: string; sha: string } | null;
   /** Calendar day in the configured release timezone, padded or unpadded. */
   today: string;
+  /** Expected GitHub squash commit timestamp, required when planning a heading pin. */
+  expectedCommitTimestamp?: string;
   /** Tree comparison catches an empty or reverted commit since the tag. */
   hasChanges: boolean;
   /** Every release tag reachable from main, including older spelling variants. */
@@ -41,6 +44,20 @@ export interface DailyReleaseInput {
 /** Normalize a release calendar day for daily comparisons, intentionally discarding any -N suffix. */
 export function releaseVersion(date: string): string {
   return date.replace(/^v/, "").split("-")[0].split(".").map(Number).join(".");
+}
+
+/** Parse a YYYY.M.D coordinate, rejecting nonexistent days and ignoring any same-day -N suffix. */
+function calendarDay(coordinate: string): [number, number, number] | null {
+  const match = coordinate.replace(/^v/, "").match(/^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:-\d+)?$/);
+  if (!match) return null;
+  const day: [number, number, number] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  if (!isRealCalendarDay(isoDay(day))) throw new Error(`Invalid calendar day in release coordinate ${JSON.stringify(coordinate)}`);
+  return day;
+}
+
+/** Format an already parsed calendar day as the generator's padded ISO heading date. */
+function isoDay(day: [number, number, number]): string {
+  return day.map((part, index) => String(part).padStart(index === 0 ? 4 : 2, "0")).join("-");
 }
 
 /** Select the newest numeric release date regardless of zero padding or tag creation order. */
@@ -73,6 +90,11 @@ export function decideDailyRelease(input: DailyReleaseInput) {
     && !input.releaseTags.some(tag => releaseCoordinate(tag) === releaseCoordinate(current)) ? current : undefined;
   const version = input.packageVersion ?? pending ?? releaseVersion(input.today);
   const tag = npmVersionToTag(version);
+  const versionDay = calendarDay(version);
+  // Validate the scheduling coordinate independently of the expected commit day.
+  const todayDay = calendarDay(input.today);
+  const commitDay = input.expectedCommitTimestamp === undefined ? "" : releaseCommitDay(input.expectedCommitTimestamp);
+  const headingDate = versionDay && todayDay && isoDay(versionDay) !== commitDay ? commitDay : "";
   const releasedToday = input.publishedToday === true || input.releaseTags.some(tag => releaseVersion(tag) === releaseVersion(input.today));
   const versionExists = input.releaseTags.some(tag => releaseCoordinate(tag) === releaseCoordinate(version));
   const shouldRelease = !releasedToday && !versionExists && input.hasChanges && input.lastRelease?.sha !== input.mainSha;
@@ -82,6 +104,7 @@ export function decideDailyRelease(input: DailyReleaseInput) {
     action: !shouldRelease ? "skip" : existingPr ? "refresh" : "create",
     tag,
     npm_version: version,
+    heading_date: headingDate,
     base_sha: input.mainSha,
     release_branch: existingPr?.headRefName ?? `release/${tag.slice(1)}`,
     pr_number: existingPr?.number ?? "",

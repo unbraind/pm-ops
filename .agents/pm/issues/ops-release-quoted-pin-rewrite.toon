@@ -1,0 +1,600 @@
+id: ops-release-quoted-pin-rewrite
+title: Refresh and verify quoted release changelog option names
+description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
+type: Issue
+status: open
+priority: 1
+tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
+created_at: "2026-11-17T19:50:58.644Z"
+updated_at: "2026-11-21T15:11:06.595Z"
+author: codex-sol
+estimated_minutes: 60
+acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
+severity: high
+repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
+expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
+actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
+comments[162]:
+  - created_at: "2026-11-17T20:49:08.758Z"
+    author: codex-sol
+    text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
+  - created_at: "2026-11-17T20:53:41.510Z"
+    author: codex-sol
+    text: Red-first fixtures confirmed quoted pins passed the verifier while the prepare step left them stale and the continuation guard accepted them. The shared parser reuses the shell scanner and edits only the option source spans. The workflow exercises quoted pins across a later-day retry and the pre-publication guard.
+  - created_at: "2026-11-17T21:00:30.935Z"
+    author: codex-sol
+    text: "Typecheck, lint, the live date verifier, and tag-backed changelog regeneration and check passed. The follow-up was recovered from its existing tracker commit with the item history intact. Full coverage and the workflow-reference test sweep are running."
+  - created_at: "2026-11-17T21:10:02.888Z"
+    author: codex-sol
+    text: "The initial 27-file sweep found one native-probe fixture missing the new repository-local helper files. Updated the fixture copy list without adding installed dependencies. Its isolated rerun passed all seven tests, including the empty probe without npm."
+  - created_at: "2026-11-17T21:11:50.303Z"
+    author: codex-sol
+    text: "Greptile PRRT_kwDOTOTl1M64nxQb on PR #295 maps to 1304543287232095379ddeb8dfba5fae05b3cf9a. Preparation refreshes and restores quoted date options from their shell token spans, and continuation rejects stale quoted pins against the verified merge commit day."
+  - created_at: "2026-11-17T21:26:38.531Z"
+    author: codex-sol
+    text: The committed 27-file reference sweep passed with 1259 tests and two configured external-repository skips. The first full coverage run hit the existing five-second artifact-reader startup timeout described by ops-input-startup-timeout. The release heading fixtures and native probe passed.
+  - created_at: "2026-11-17T21:36:50.019Z"
+    author: codex-sol
+    text: "The pinned-heading acceptance fixture ran the full npm release:check successfully, including npm run coverage at 100% statements, branches, functions and lines across 52 source files. It executed 1715 passing tests with two configured external-repository skips. Typecheck, lint, the live date verifier and tag-backed changelog regeneration and check passed. The isolated artifact-reader retry passed all six tests. The standing-policy full coverage retry is running independently."
+  - created_at: "2026-11-17T21:41:39.887Z"
+    author: codex-sol
+    text: "Greptile follow-up PRRT_kwDOTOTl1M64qrmO on the pushed head identified a regression for version-qualified pm-changelog package specifiers. Cover the verifier, preparation refresh and restore, and continuation check for that existing hook form."
+  - created_at: "2026-11-17T21:43:12.064Z"
+    author: codex-sol
+    text: "The three version-qualified regressions failed on the first pushed head and passed after adding package specifiers to generator recognition. The fixtures cover an npx version, npm exec version, and a Bun package tag, along with refresh, restore and a stale-pin refusal."
+  - created_at: "2026-11-17T21:55:28.198Z"
+    author: codex-sol
+    text: "Greptile PRRT_kwDOTOTl1M64qrmO maps to 9f41433c9ee493ef35b20879ae64d7c8229c8fc8. The 106 focused verifier and workflow tests passed. Full npm run coverage passed with 1717 passing tests, two configured-repository skips, and 100% statements, branches, functions and lines across 52 sources. Typecheck, lint and tag-backed changelog regeneration and check passed."
+  - created_at: "2026-11-18T00:30:33.347Z"
+    author: codex-sol
+    text: "Round BM starts from the pushed PR head. Extend the shared scanner for wrapper operands, refuse ambiguous changelog commands, and reject unresolved option names across preparation, verification, and continuation."
+  - created_at: "2026-11-18T01:03:42.551Z"
+    author: codex-sol
+    text: "Round BM CodeRabbit mapping. PRRT_kwDOTOTl1M64tWD1 maps to f6bdec27de5d8bea97c3369500b38c398ee062c4 for timeout duration operands and explicit refusal of unknown wrappers. PRRT_kwDOTOTl1M64tWD9 maps to f6bdec27de5d8bea97c3369500b38c398ee062c4 for refusing unresolved option words in preparation, verification and continuation. On the published Round BL base, the focused suite passed 1,571 tests with two existing opt-in skips. npm run typecheck, npm run lint, npm run docstring, npm run verify:release-changelog-date and the four shell scanner proof scripts passed. npm run coverage passed 2,019 tests with the same two existing skips and 100 percent statements, branches, functions and lines across 52 measured sources. git fetch --tags origin, npm run changelog:full and npm run changelog:check passed. npm run accept:packed passed for npm/Node and Bun."
+  - created_at: "2026-11-18T01:11:09.777Z"
+    author: codex-sol
+    text: "On the Round BM push, CI passed on Node 22 and 26. Greptile identified two compatibility regressions in the parser change. Preserve package-management commands and quoted dynamic values on fixed option names while continuing to refuse unknown wrappers and unresolved date-policy words."
+  - created_at: "2026-11-18T01:30:24.276Z"
+    author: codex-sol
+    text: "Compatibility corrections are in e29526eb7631629ef084c7fb77325478841e4d70. The focused suite passed 1,574 tests with two existing opt-in skips, and the six targeted regressions passed. Typecheck, lint, docstring, duplication, changelog regeneration and verification, the four scanner proof scripts, and packed npm/Node and native Bun acceptance passed. The full coverage gate is running for this commit."
+  - created_at: "2026-11-18T02:40:26.059Z"
+    author: codex-sol
+    text: Round BQ reproduced the test guard refusal and confirmed the unknown wrapper control is refused. The prepare script also puts the empty-section option on trailing echo and skips both generators. Add command-level regression fixtures and preserve source text.
+  - created_at: "2026-11-18T02:46:12.412Z"
+    author: codex-sol
+    text: PRRT_kwDOTOTl1M64vwvQ maps to 5dd95bd. Preparation accepts all seven lookup forms and still refuses an unrecognized executing wrapper. The test -x guard and command execution both have regression fixtures.
+  - created_at: "2026-11-18T02:46:13.558Z"
+    author: codex-sol
+    text: "PRRT_kwDOTOTl1M64vwvT maps to 5dd95bd. Preparation inserts --include-empty per generator without changing surrounding operators, redirections or already-enabled hooks. The focused preparation and scanner fixtures passed."
+  - created_at: "2026-11-18T02:46:15.398Z"
+    author: codex-sol
+    text: "Round BQ passed all five focused regressions, typecheck, lint, documentation and duplication gates, both live changelog verifiers, and tag-backed changelog regeneration and check. Final-head coverage and remaining test evidence are required before push."
+  - created_at: "2026-11-18T02:58:20.721Z"
+    author: codex-sol
+    text: The full suite exposed a legacy adjacency fixture with --include-empty on true. Moved the pre-existing flag into the generator command so the fixture still isolates date rewriting next to a shell separator. All seven focused regressions passed.
+  - created_at: "2026-11-18T04:01:34.406Z"
+    author: codex-sol
+    text: "Round BS will follow literal package-script forwards from the configured changelog hooks, then persist the empty-section option on each generator. A dependency-only workflow fixture will exercise the subsequent release:check without a workflow-supplied option."
+  - created_at: "2026-11-18T04:37:44.650Z"
+    author: codex-sol
+    text: "The first Round BS push refused valid npm run --silent forwards. Preparation, continuation and the date verifier now share the option-aware parser. The dependency-only npm fixture and six related regressions passed with npm 11.21.0."
+  - created_at: "2026-11-18T05:01:22.564Z"
+    author: codex-sol
+    text: "Verified npm 11.21.0 optional forwarding semantics, including an absent script, later option overrides, and the argument separator. Preparation now skips only absent optional targets with literal names. Seven affected fixture tests, typecheck and lint passed."
+  - created_at: "2026-11-18T06:10:11.632Z"
+    author: codex-sol
+    text: "Round BW: PRRT_kwDOTOTl1M64zDCx and PRRT_kwDOTOTl1M64zDC1 map to 1e51801, with Bun execution switches preserved by 93c0baf. The Bun and pnpm forward fixtures cover pinning and continuation rejection, and the real prepare/check fixture runs with spaces in the Node and generator paths. The first regression selection passed 9 tests. The Bun execution switch and verifier regression selection passed 4 tests, and Bun executed the tested switches in a disposable fixture."
+    edited_at: "2026-11-18T06:44:28.794Z"
+  - created_at: "2026-11-18T07:30:51.019Z"
+    author: codex-sol
+    text: "Round BY will reproduce forwarded date flags bypassing preparation and continuation, then verify the policies on the resolved generator arguments."
+  - created_at: "2026-11-18T07:42:43.058Z"
+    author: codex-sol
+    text: The new preparation and verifier fixtures failed on the review head because the caller flags were skipped. A local runner probe confirmed that npm and Bun consume the delimiter and pnpm forwards it literally. Preparation removes the pnpm delimiter when it would reach a generator with a date policy.
+  - created_at: "2026-11-18T07:46:31.790Z"
+    author: codex-sol
+    text: "Round BY: PRRT_kwDOTOTl1M640mQT maps to 495e0f6. Preparation pins the resolved generator arguments, and continuation refuses a stale forwarded day. npm, Bun and pnpm each delivered the correct pinned arguments in an isolated runner probe."
+  - created_at: "2026-11-18T08:00:08.541Z"
+    author: codex-sol
+    text: Coverage on 9ea587b ran 2041 tests with zero failures and two optional real-data skips. The only coverage miss was the preservation path for a comment-only forwarded hook. The extended preparation fixture now exercises that path.
+  - created_at: "2026-11-18T11:06:29.255Z"
+    author: codex-sol
+    text: "Round CC will bound release-hook syntax, resolve npm lifecycle execution, and verify preparation and continuation together."
+  - created_at: "2026-11-18T11:25:43.861Z"
+    author: codex-sol
+    text: "Implemented a bounded release-hook reader with source spans, local-script argv forwarding and enabled npm pre/post callbacks. The real npm lifecycle fixture and all 12 grammar regressions pass. Shell evaluation and conflicting date policies receive one actionable refusal."
+  - created_at: "2026-11-18T11:56:32.170Z"
+    author: codex-sol
+    text: "Round CC implementation b780464 covers PRRT_kwDOTOTl1M643thX (npm lifecycle writers), PRRT_kwDOTOTl1M643thq (declined support, refused explicitly by readReleaseDateOptions because the two generator policies are mutually exclusive), PRRT_kwDOTOTl1M643thn (version before option validation), PRRT_kwDOTOTl1M643thd (insert before an open option) and PRRT_kwDOTOTl1M643thu (quoted timeout switches). The runtime probe now also verifies Bun and pnpm forwarding, inherited npm lifecycle settings, and opaque payload refusal."
+  - created_at: "2026-11-18T11:58:58.496Z"
+    author: codex-sol
+    text: "Round CC follow-up 8c8277e verifies runner-specific forwarding and tests opaque shells, input and pipelines without evaluating them. All 17 grammar regressions pass. The preliminary full report identified the public scanner span path and wrapper branches after the release scanner separation. Dedicated scanner cases now exercise them. Typecheck, lint and docstring passed, duplication reported zero clones."
+  - created_at: "2026-11-18T16:30:15.308Z"
+    author: codex-sol
+    text: "Round CM verified 16 unresolved findings on PR #295 at 2e59f07. Checking the tagged committer day, canonical hook parsing, and candidate fixture fidelity before running the release gates."
+  - created_at: "2026-11-18T16:41:26.311Z"
+    author: codex-sol
+    text: "Round CM thread mapping for d4d701eeeb8ff5299c5d75da355bc94429b2c075. PRRT_kwDOTOTl1M65DAQ5 corrects the timezone tracker description. PRRT_kwDOTOTl1M65DARI pins the quoted-option repro to 60ef4b9 and labels the pre-fix result. PRRT_kwDOTOTl1M65DARQ checks the committed changelog without regeneration. PRRT_kwDOTOTl1M65DARb selects the expected squash committer day and verifies it against %cI, with a Vienna midnight regression. PRRT_kwDOTOTl1M65DARj checks configured hooks as standalone entry points. PRRT_kwDOTOTl1M65DARw explicitly refuses --date overrides. PRRT_kwDOTOTl1M65DAR8 rejects an invalid replacement before manifest writes. PRRT_kwDOTOTl1M65DASF keeps descriptor duplication with its pipeline command. PRRT_kwDOTOTl1M65DASO explicitly refuses unresolved release versions with literal and package-derived alternatives. PRRT_kwDOTOTl1M65DASX explicitly refuses non-root workflow hook steps and their local forwards. PRRT_kwDOTOTl1M65DASg explicitly refuses project-selecting npm exec options. PRRT_kwDOTOTl1M65DASo makes fixture commits independent of signing settings. PRRT_kwDOTOTl1M65DASy installs the candidate lock in the disposable clone. PRRT_kwDOTOTl1M65DAS7 explicitly refuses tracked snapshot symlinks. PRRT_kwDOTOTl1M65DATF mirrors tracked additions and deletions in the candidate index. PRRT_kwDOTOTl1M65DATQ explicitly enables the npm fixture's outer lifecycle hooks. The committed changelog check passed before generation. The 66 grammar, verifier and snapshot checks passed. The final committed candidate is subject to the linked full coverage and acceptance gates."
+  - created_at: "2026-11-18T18:24:42.810Z"
+    author: codex-sol
+    text: "Round CP traces directory, environment, and wrapper context through release hook script forwards. Verification will cover the shared grammar, release consumers, and the heading snapshot."
+  - created_at: "2026-11-18T18:38:32.089Z"
+    author: codex-sol
+    text: "Round CP shares generator reachability across directory, environment and wrapper checks. Direct and two-forward refusal fixtures and canonical controls passed. Registered the release verification commands for this work."
+  - created_at: "2026-11-18T18:39:38.269Z"
+    author: codex-sol
+    text: Round CP review thread mapping for 68242b74f8a1139802657bc181b75d773f823eb1. PRRT_kwDOTOTl1M65HYMP refuses opaque wrappers across chained script forwards. PRRT_kwDOTOTl1M65HYMY refuses environment edits such as env -u. PRRT_kwDOTOTl1M65HYMh refuses generator --pm-cwd before checking the package version. PRRT_kwDOTOTl1M65HYMx refuses directory changes before a forward. PRRT_kwDOTOTl1M65HYMK skips empty implicit lifecycle scripts. PRRT_kwDOTOTl1M65HYMm excludes trailing comments from here-document classification. PRRT_kwDOTOTl1M65HYM4 treats ENOTDIR as a missing tracked path.
+  - created_at: "2026-11-18T18:39:40.223Z"
+    author: codex-sol
+    text: "Focused grammar, shell scanner, date verifier and heading regressions passed. Typecheck, lint, duplication, docstrings and changelog check passed locally. Release the claim for orchestration. The clean commit is subject to the linked coverage and full heading acceptance gates."
+  - created_at: "2026-11-18T18:42:58.197Z"
+    author: codex-sol
+    text: Round CP integration tests now require the context diagnostic for Bun --cwd and npm --prefix. Both preparation fixtures pass with those diagnostics.
+  - created_at: "2026-11-18T18:58:31.347Z"
+    author: codex-sol
+    text: "Round CP spot checks added exact script names containing punctuation and literal shell payloads under opaque wrappers and non-root workflow steps. The focused grammar, shell scanner, date verifier, snapshot and daily release tests passed all 121 checks."
+  - created_at: "2026-11-18T18:58:34.082Z"
+    author: codex-sol
+    text: Round CP PRRT_kwDOTOTl1M65HYMP also maps to ba8f8298733d734f4021ca19f14f429dda4b177b for exact script names and literal payloads behind opaque wrappers. The same reachability check refuses literal forwards in non-root workflow working-directory steps.
+  - created_at: "2026-11-18T19:16:07.708Z"
+    author: codex-sol
+    text: "Round CP follow-up checks exec flags in linear time after the CodeQL annotation. The new upstream v2026.11.18 tag moves one existing changelog item from Unreleased to its published heading. The grammar tests pass for clearing the environment, preserving login argv, and supplying an argv name."
+  - created_at: "2026-11-18T21:00:00.757Z"
+    author: codex-sol
+    text: Round CS is addressing the Greptile finding on context changes in package scripts outside the release hook graph.
+  - created_at: "2026-11-18T21:06:25.833Z"
+    author: codex-sol
+    text: Greptile thread PRRT_kwDOTOTl1M65JuTt maps to 0093d76. The date verifier accepts unrelated npm --prefix and cd scripts and still refuses each on a release hook forward path. The grammar and verifier suite passed 69 tests.
+  - created_at: "2026-11-18T21:21:53.143Z"
+    author: codex-sol
+    text: Added a multiline conditional on a canonical release hook path to exercise standalone shell control words after the context checks were scoped. The focused canonical-hook test passed.
+  - created_at: "2026-11-18T22:39:13.120Z"
+    author: codex-sol
+    text: "Round CV checks which command lists retain a directory change, including pipelines and parenthesized lists."
+  - created_at: "2026-11-18T22:44:00.966Z"
+    author: codex-sol
+    text: "Round CV mapping for PR #295. PRRT_kwDOTOTl1M65OF5a is fixed in 2167a46 by isolating shell changes made in pipeline stages and subshells. PRRT_kwDOTOTl1M65OF5c is fixed in 2167a46 by validating the cutoff day in versioned all-release-tags hooks against the verified heading day. Both new regressions failed before the changes and passed afterward. Typecheck, lint, duplication and docstring passed."
+  - created_at: "2026-11-19T05:40:13.136Z"
+    author: codex-sol
+    text: Round DG is reproducing six release-hook findings before fixes. Merged current main and regenerated CHANGELOG.md from release tags. Verification will run the focused suites and release gates directly.
+  - created_at: "2026-11-19T05:44:59.189Z"
+    author: codex-sol
+    text: "All six reported defects reproduced on the merge baseline. The new fixtures cover effective argv, version equivalence and mismatch, clobber redirection, manifest line locations, quoted redirection text, and symlinked ancestors."
+  - created_at: "2026-11-19T05:48:20.855Z"
+    author: codex-sol
+    text: Round DG mapping to dbf7e59d54bbc5b6bf6822b484b88ad8dff560c7. PRRT_kwDOTOTl1M65SNKn follows forwarded stdout/check flags when classifying writers. PRRT_kwDOTOTl1M65TI8A binds explicit versions to the stamped coordinate in preparation and continuation. PRRT_kwDOTOTl1M65TI8N lexes clobber redirection before pipes. PRRT_kwDOTOTl1M65TI8S reports the package script key and its manifest line. PRRT_kwDOTOTl1M65TI8d preserves quoted or escaped redirection arguments. PRRT_kwDOTOTl1M65TI8k rejects symlinked source ancestors before mirroring.
+  - created_at: "2026-11-19T05:49:29.624Z"
+    author: codex-sol
+    text: "Round DG verification with Node 24.19.0 and npm 11.21.0 passed typecheck, lint, duplication (0%), docstrings, and changelog:check. The linked focused, coverage, and rewritten release acceptance commands run directly under the round instructions."
+  - created_at: "2026-11-19T05:54:57.215Z"
+    author: codex-sol
+    text: "Round DG follow-up in this commit covers PRRT_kwDOTOTl1M65SNKn through Bun and the generator short output alias, and removes an unreachable root-map condition in the PRRT_kwDOTOTl1M65TI8S manifest location code. All focused assertions for these follow-ups passed."
+  - created_at: "2026-11-19T06:35:39.072Z"
+    author: codex-sol
+    text: "Round DG predecessor da84092 passed all local static gates, 100% default-depth coverage across 53 source files (2094 passed and two optional live-fleet skips), and rewritten release acceptance under the CI quick profile. The default-depth acceptance hit the existing artifact-reader subprocess timeout. Its isolated suite passed all six tests. Pre-push fetch discovered main commit d69316a (#303). Merge 7417b55 rebuilt the two conflicted continuation maps and regenerated an identical changelog. Exact-head gates are being rerun on the refreshed merge using the CI quick profile."
+  - created_at: "2026-11-19T09:03:38.493Z"
+    author: codex-sol
+    text: "Round DM on 3bd0c0e: reproducing lifecycle output target classification and bracket pathname expansion before patching."
+  - created_at: "2026-11-19T09:09:35.458Z"
+    author: codex-sol
+    text: "Red on 3bd0c0e: split dynamic redirects passed the unknown-lifecycle probe, -o preview output overwrote the default changelog, and unquoted bracket patterns stayed literal. The four focused regressions now pass with the shared output parser and pathname expansion fix."
+  - created_at: "2026-11-19T09:13:55.997Z"
+    author: codex-sol
+    text: "Round DM mapping to d00b9b1f8e6db9942c4e6ec5ca344e42c4600d21: PRRT_kwDOTOTl1M65YXjm (unresolved redirect), PRRT_kwDOTOTl1M65YXjq (shared adapter output), PRRT_kwDOTOTl1M65YXj2 (bracket pathname expansion). The regressions pass; typecheck, lint, duplication (0%), docstring and changelog:check passed. The linked broader suite and final coverage and acceptance gates are in progress."
+  - created_at: "2026-11-19T11:44:38.957Z"
+    author: codex-sol
+    text: Round DR investigates CodeRabbit thread PRRT_kwDOTOTl1M65cxic on pm-ops#295. The v2026.11.18 workflow both persisted and forwarded --include-empty for custom release hooks. Preserve the dependency-only custom notes contract and verify it through the workflow step.
+  - created_at: "2026-11-19T11:48:32.408Z"
+    author: codex-sol
+    text: The regression reproduced empty notes and workflow exit 1. The preparer now saves --include-empty on configured custom hooks and keeps generator-backed hooks on the existing argument and date rewrite path.
+  - created_at: "2026-11-19T11:49:09.826Z"
+    author: codex-sol
+    text: "Round DR maps CodeRabbit thread PRRT_kwDOTOTl1M65cxic (pm-ops#295) to 9935c3d91fedcd56dd64f8f5eebf892a38834a6a. The dependency-only fixture reproduces the review failure on the previous preparer. Typecheck, lint, duplication, docstring and changelog:check passed with the fix."
+  - created_at: "2026-11-19T12:45:23.760Z"
+    author: codex-sol
+    text: The first Round DR push passed local release gates. Greptile found that appending the saved custom flag after a shell terminator can run it as a separate command. Correct the insertion using the existing shell spans and retest the dependency-only custom hook.
+  - created_at: "2026-11-19T12:47:00.420Z"
+    author: codex-sol
+    text: "Round DR follow-up: Greptile discussion r4628856648 maps to d604c8c0321fef59bd585eb3dc16bf36e42f9e5c. The CodeRabbit compatibility fix PRRT_kwDOTOTl1M65cxic started in 9935c3d91fedcd56dd64f8f5eebf892a38834a6a. The custom flag now uses the final shell word's source span and preserves semicolon and newline separators, comments and repeated preparation."
+  - created_at: "2026-11-19T19:08:44.233Z"
+    author: codex-sol
+    text: "Round DY inventories package hooks before restricting the audit grammar and verifies notes forwarding, snapshot fidelity and heading policy."
+  - created_at: "2026-11-19T19:11:29.771Z"
+    author: codex-sol
+    text: Reproduced npm consuming a flag supplied before its argument delimiter. Preparation now checks the final main command independently of pre/post generators and inserts the delimiter for custom npm notes.
+  - created_at: "2026-11-19T19:14:30.712Z"
+    author: codex-sol
+    text: "Independent DY fixes cover cxiu (literal npm lifecycle setting), kAjg (redirection filename is not an assignment), kAj6 (npm argument delimiter), kAkC (pre/post-independent custom output) and kAkO (both accepted date policies in the success note). Custom notes argv was verified with npm, including an idempotent second preparation."
+  - created_at: "2026-11-19T19:20:02.297Z"
+    author: codex-sol
+    text: "Focused suite caught an extra flag on trailing helper commands. Main-only traversal now follows explicit forwards, preserves generator sequences with trailing helpers, and excludes lifecycle siblings at every depth. Real npm receives the repaired flag even with a generator in prerender."
+  - created_at: "2026-11-19T19:20:42.602Z"
+    author: codex-sol
+    text: "Round DY, 14 open review threads, common prefix PRRT_kwDOTOTl1M65. Local fixes in ccf7291: cxio committer day and rollover fixture (additional tagged commit assertion in a6e000f); cxiu supported npm lifecycle setting; cxjN stale preview check; cxjW inherited npm environment isolation; cxjd fatal UTF-8 pathname decoding; kAjg redirection operand excluded from lifecycle env; kAkO both accepted date policies in the success note. kAj6 (npm forwarding delimiter) and kAkC (custom main plus pre-hook generator) are fixed by ccf7291 and a6e000f, including real npm argv. Held from integration: cxi0 traversal destination, cxi6 loop condition/directory change, cxjC continued descriptor, kAjt brace expansion, kAkZ forwarded environment binding. A disposable strict recognizer refuses all five; the current tree does not implement those new refusals. Fleet origin/main baseline accepted 142 roots in 39 repositories (144 reachable scripts). 143 bodies fit literal commands. The configured pm-vcs postrelease:changelog at b2a28dc uses conditional subshells, and the strict candidate rejects it. Await the compatibility decision before tightening or pushing."
+  - created_at: "2026-11-19T19:22:37.809Z"
+    author: codex-sol
+    text: A real two-hop npm custom notes fixture received an empty argv after the one-hop delimiter repair. Verify the exact receiving command at each npm forward and retain independent pre/post lifecycle argv.
+  - created_at: "2026-11-19T19:23:46.434Z"
+    author: codex-sol
+    text: "DY mapping addendum: kAj6 and kAkC also include 423560a. The real npm fixture exercises direct notes, an existing separator, repair of an old misplaced flag, one and two npm forwards, and a generator in either prerelease:notes or prerender. Script arguments and the second preparation are checked. Fleet integration of the five grammar refusals remains pending on pm-vcs."
+  - created_at: "2026-11-19T21:37:22.947Z"
+    author: codex-sol
+    text: Round EF applies the five targeted hook cases with script-file diagnostics and reruns the Round DY fleet compatibility and local release gates.
+  - created_at: "2026-11-19T21:45:45.282Z"
+    author: codex-sol
+    text: "The five focused regressions reproduced on the starting head. The traversal is refused when lifecycle behavior is unknown, and both shell scanners share the continued descriptor check. The first fleet scan accepted the same 142 roots and 144 bodies in 39 repositories, including the pm-vcs conditional post-hook."
+  - created_at: "2026-11-19T21:52:06.478Z"
+    author: codex-sol
+    text: "Round EF implementation dee85cd covers PRRT_kwDOTOTl1M65cxi0 (normalize CHANGELOG traversal for lifecycle classification), PRRT_kwDOTOTl1M65cxi6 (directory changes in loop conditions), PRRT_kwDOTOTl1M65cxjC (continued descriptor redirections in both scanners), PRRT_kwDOTOTl1M65kAjt (unquoted brace expansion in versioned options), and PRRT_kwDOTOTl1M65kAkZ (generator assignments across npm run). Both the Round DY revisions and the current fleet accepted 142 roots and 144 bodies in 39 repositories, including the pm-vcs conditional post-hook."
+  - created_at: "2026-11-19T21:53:53.168Z"
+    author: codex-sol
+    text: "Round EF static gates and changelog checks passed. The shared scanner historical controls passed in a disposable checkout, and the packed npm and Bun consumers passed. The full coverage and release-heading acceptance remain required."
+  - created_at: "2026-11-19T22:02:22.857Z"
+    author: codex-sol
+    text: "Focused Node run passed 811 tests across 21 files with zero skips. npm run coverage passed with 100% statements, branches, functions, and lines across 53 source files. The suite passed 2119 tests with no failures and two opt-in real-data skips. The artifact-reader test passed."
+  - created_at: "2026-11-19T22:07:09.537Z"
+    author: codex-sol
+    text: "Round EF full release-heading acceptance passed. The rewritten candidate passed release:check with 100% statements, branches, functions, and lines across 53 source files, 2119 passing tests, and two opt-in real-data skips. The tag-based changelog regeneration retained ops-b2bs under Unreleased."
+  - created_at: "2026-11-19T22:20:16.449Z"
+    author: codex-sol
+    text: "Round EF review found two acceptance regressions in the targeted guards. A directory change isolated to a loop-condition pipeline leaves the parent directory intact. An unqualified dist/cli.js env assignment can refer to a package's own CLI. Both reproduced before the refinement, and the focused regressions now pass."
+  - created_at: "2026-11-19T22:23:06.261Z"
+    author: codex-sol
+    text: Round EF refinement 36e9197 narrows PRRT_kwDOTOTl1M65cxi6 to directory changes that can affect the parent hook and PRRT_kwDOTOTl1M65kAkZ to bindings with a pm-changelog executable. The other three thread mappings remain dee85cd. The refined direct suites passed 74 tests and the fleet scan accepted 142 roots and 144 bodies across 39 repositories.
+  - created_at: "2026-11-19T22:36:12.285Z"
+    author: codex-sol
+    text: "The published PR branch head for Round EF is 9a60093. Required CI and CodeQL passed, and Greptile scored 1/5 with the two acceptance findings addressed locally by 36e9197. The refinement passed the 74 focused tests, typecheck, lint, duplication, docstring, changelog check, and the fleet scan. Full coverage and release-heading acceptance for the refinement were still running when these items were released."
+  - created_at: "2026-11-19T23:45:19.016Z"
+    author: codex-sol
+    text: Round EH adds regressions for npm consuming a pre-delimiter notes flag and for shell redirections hiding a directory change before a forwarded changelog writer. The scope is limited to the two Greptile findings.
+  - created_at: "2026-11-19T23:48:23.731Z"
+    author: codex-sol
+    text: "The red tests confirmed that a flag before npm's delimiter is consumed and can also cause a refusal when a lifecycle generator is reachable. Preparation removes that legacy npm option and saves a forwarded flag while retaining the title argument and existing npm boundaries. The shell guard strips redirections before locating the assignment-prefixed command, including command and builtin cd."
+  - created_at: "2026-11-19T23:49:16.257Z"
+    author: codex-sol
+    text: "Round EH commit 158213f addresses PRRT_kwDOTOTl1M65sJeJ (forward the custom notes flag through npm) and PRRT_kwDOTOTl1M65sJeP (detect a directory change after leading redirections and assignments). The focused red-green fixtures and typecheck, lint, duplication, and docstring gates passed. The current and pinned Round DY fleet scans each accepted 142 configured roots and 144 reachable bodies across 39 repositories."
+  - created_at: "2026-11-20T00:23:32.211Z"
+    author: codex-sol
+    text: "Round EH passed the five direct suites with 156 tests and changelog:check. The first standalone coverage attempt hit the existing artifact-reader subprocess timeout tracked by ops-input-startup-timeout. Wait for the rewritten release acceptance to finish before the one allowed standalone retry."
+  - created_at: "2026-11-20T00:31:53.023Z"
+    author: codex-sol
+    text: "Round EH passed node test/release-heading-full-gate.acceptance.ts, including the rewritten candidate's complete release:check and 100% statements, branches, functions, and lines across 53 sources. The candidate suite passed 2120 tests with two opt-in skips. The only allowed standalone coverage retry started after acceptance finished."
+  - created_at: "2026-11-20T00:41:01.182Z"
+    author: codex-sol
+    text: "Round EH gates passed. The five focused suites passed all 156 tests. Typecheck, lint, duplication, docstrings, and changelog:check passed. The standalone npm run coverage retry passed 2120 tests with two opt-in skips and measured 100% in all four dimensions across 53 sources. The rewritten release acceptance independently passed the same coverage thresholds. Changelog regeneration from fetched tags retains ops-b2bs under Unreleased."
+  - created_at: "2026-11-20T00:50:45.734Z"
+    author: codex-sol
+    text: Round EK is tracing inherited npm script assignments against forwarded release option usage for Greptile thread PRRT_kwDOTOTl1M65wN_0.
+  - created_at: "2026-11-20T00:56:20.497Z"
+    author: codex-sol
+    text: Round EK maps Greptile thread PRRT_kwDOTOTl1M65wN_0 to implementation 55b76ad. The release hook walker follows names assigned on npm script forwards and refuses a child command that expands one of those names alongside versioned generator options. The assignment value can be either generator entry point.
+  - created_at: "2026-11-20T02:41:21.499Z"
+    author: codex-sol
+    text: "Round EK focused tests passed 275 of 275. Standalone coverage passed at 100% on retry. Full release-heading acceptance is blocked by the known artifact-reader subprocess timeout on both attempts, tracked in ops-input-startup-timeout. The implementation is local."
+  - created_at: "2026-11-20T04:24:28.861Z"
+    author: codex-sol
+    text: "Round EO starts at 2ad2aa6. Reproduce the reported behavior with paired fixtures before editing, then verify the release tooling and fleet corpus."
+  - created_at: "2026-11-20T04:30:52.333Z"
+    author: codex-sol
+    text: "Round EO paired fixtures reproduced six failures at 2ad2aa6. Both heading tag tests failed with global tag signing enabled. The prior grammar, date and section fixtures passed 125/125 before the changes. The pinned fleet accepted 142 entry hooks and 144 bodies across 39 manifests before and after the changes."
+  - created_at: "2026-11-20T04:38:36.420Z"
+    author: codex-sol
+    text: "Round EO test isolation: 650Sda applies a repository-local tag signing override in both temporary repositories. Both heading tests passed with a disposable global tag.gpgSign=true. 650Sdd creates an invalid byte path in each Git index, verifies the checkout contains no such filename, and verifies refusal before candidate changes."
+  - created_at: "2026-11-20T04:39:42.864Z"
+    author: codex-sol
+    text: "Round EO release logic: classify inherited references by executable, runtime entry and version or date option position. Keep adjacent redirection destinations distinct. Follow workflow npm lifecycle settings to default hooks and find the final custom notes renderer through forwards. The preview test now requires fresh output and checks an explicitly disabled lifecycle. The pinned fleet still accepts 142 hooks and 144 bodies."
+  - created_at: "2026-11-20T04:40:32.283Z"
+    author: codex-sol
+    text: "Round EO thread-to-commit map. 24d844c: PRRT_kwDOTOTl1M650IRm and PRRT_kwDOTOTl1M650SdF distinguish inherited ordinary values from generator and policy positions; PRRT_kwDOTOTl1M650SdI separates consecutive redirection destinations; PRRT_kwDOTOTl1M650SdM routes the empty-section flag to the final custom notes renderer; PRRT_kwDOTOTl1M650SdP uses the lifecycle from workflow invocations of default entries; PRRT_kwDOTOTl1M650SdR preserves combined output redirections on the original command; PRRT_kwDOTOTl1M650SdV requires a fresh preview for every lifecycle row. accb464: PRRT_kwDOTOTl1M650Sda disables tag signing in fixture repositories; PRRT_kwDOTOTl1M650Sdd injects invalid UTF-8 directly into the source or candidate index."
+  - created_at: "2026-11-20T04:50:34.872Z"
+    author: codex-sol
+    text: "Round EO focused suite: 767/767 passed across 19 test files, zero skipped. The four historical scanner controls passed with their expected assertion failures on reverted code. Both earlier packed acceptance commands passed with npm and native Bun. Typecheck, test compilation, lint, docstrings, zero duplication and changelog:check passed. Regenerating the changelog produced identical bytes with ops-b2bs under Unreleased."
+  - created_at: "2026-11-20T04:58:49.854Z"
+    author: codex-sol
+    text: "Standalone npm run coverage passed on the final implementation: 53 sources at 100% statements, branches, functions and lines. Of 2,127 tests, 2,125 passed and the two opt-in real-data checks skipped. The bounded artifact-reader test passed. Full rewritten-candidate acceptance is running."
+  - created_at: "2026-11-20T05:20:14.631Z"
+    author: codex-sol
+    text: "The rewritten-candidate acceptance command node test/release-heading-full-gate.acceptance.ts passed its complete release:check with 100% statements, branches, functions and lines across 53 sources (2,125 passed, two opt-in skips, zero failures). The date pin, changelog checks, release tools audit, package dry run and lifecycle checks passed. Both implementation commits have been verified."
+  - created_at: "2026-11-20T05:30:34.741Z"
+    author: codex-sol
+    text: A review of the Round EO notes change identified that the final pipeline filter can receive the renderer option. Preserve all supported output filters and cover both the direct and forwarded forms alongside the custom-renderer inverse.
+  - created_at: "2026-11-20T05:33:46.161Z"
+    author: codex-sol
+    text: "Paired pipeline fixtures failed on a838d35. The release grammar now records the producer upstream of each supported filter. Direct and forwarded generators keep their empty-section flag, and a custom renderer after a preview receives the flag before its pipeline. Three focused regressions passed, including actual Bash output and all eleven supported filter names. The pinned fleet accepted all 142 hooks and 144 bodies."
+  - created_at: "2026-11-20T05:34:26.823Z"
+    author: codex-sol
+    text: "Round EO mapping supplement: PRRT_kwDOTOTl1M650SdM is addressed by 24d844c and 0bc2732. The latter also corrects PRRT_kwDOTOTl1M652X2z, the pipeline-filter regression reported against a838d35. All other thread mappings remain as recorded. The new full coverage and rewritten-candidate checks are running."
+  - created_at: "2026-11-20T05:47:56.610Z"
+    author: codex-sol
+    text: "The pipeline correction in 0bc2732 passed the paired Bash and option-routing cases, all four historical scanner controls, the 142-hook/144-body fleet scan, typecheck, test compilation, lint, zero duplication, docstrings and changelog:check. Its broader focused suite, standalone coverage and full rewritten-candidate acceptance were still running during the observation window for pushed head a838d35. Results on that earlier head are recorded separately."
+  - created_at: "2026-11-20T05:51:12.459Z"
+    author: codex-sol
+    text: "The complete focused suite on 0bc2732 subsequently passed all 768 tests across 19 files, with zero failures and zero skips. Full coverage and rewritten-candidate acceptance had not completed before the push observation cutoff."
+  - created_at: "2026-11-20T08:53:35.884Z"
+    author: codex-sol
+    text: "Round ET targets the workflow directory, npm argv assignment, literal here-document, and attached redirection findings on 9f967b0. Paired fixtures will establish baseline behavior before implementation."
+  - created_at: "2026-11-20T08:59:12.064Z"
+    author: codex-sol
+    text: "All four paired fixtures reproduced their reported failure on 9f967b0 and pass with the fixes. The inherited TITLE option control still passes. The pinned scan accepts 142 configured hooks and 144 reached bodies across 39 packages, with no refusals. Typecheck, builds, lint, zero duplication, docstrings, and changelog:check passed. Full unit coverage and rewritten-candidate acceptance are running."
+  - created_at: "2026-11-20T09:01:49.824Z"
+    author: codex-sol
+    text: "Added parser controls for a separated, tab-stripping punctuation delimiter and an opaque pipeline followed by a command separator. The cases check that delimiter quoting remains data and a shell sink remains refused."
+  - created_at: "2026-11-20T09:09:32.994Z"
+    author: codex-sol
+    text: Round ET review mapping. PRRT_kwDOTOTl1M6529wl uses 5858ace for unresolved run defaults. PRRT_kwDOTOTl1M6529wn uses 5858ace for npm lifecycle assignment tokens. PRRT_kwDOTOTl1M6529ws uses 5858ace for literal cat delimiters and 1b79b2e for tab-stripping and shell-sink controls. PRRT_kwDOTOTl1M6529w3 uses 5858ace for attached combined redirections.
+  - created_at: "2026-11-20T09:09:34.776Z"
+    author: codex-sol
+    text: "Focused verification passed 1,228 tests across 18 files, including every unit test file referring to the changed modules. The linked direct suite passed 130 tests. Historical Bash proofs, isolated signing and invalid UTF-8 fixtures, and npm and Bun packed consumers passed. The workflow attestation inventory matched the baseline. The full coverage and rewritten release gate are still running."
+  - created_at: "2026-11-20T09:15:30.602Z"
+    author: codex-sol
+    text: The first standalone coverage attempt hit ENOSPC while writing its counters. A fresh checkout on temporary storage is running the same npm coverage command at the same source revision with the original thresholds. The independent rewritten release gate continues.
+  - created_at: "2026-11-20T09:31:07.453Z"
+    author: codex-sol
+    text: "Round ET local gates passed. The standalone npm run coverage and node test/release-heading-full-gate.acceptance.ts each reported 100% statements, branches, functions and lines across 53 source files, with 2,131 passing tests and two opt-in skips. Both passed in temporary storage after the host filesystem filled. Changelog regeneration after fetching tags made no diff, and ops-b2bs remains under Unreleased. Main is already an ancestor. The tracker item is ready for orchestrator review."
+  - created_at: "2026-11-20T12:19:41.296Z"
+    author: codex-sol
+    text: "Round EX begins at bd592c4. Pair each finding with an acceptance control, run prior heading fixtures and the fleet corpus, then verify the release gates."
+  - created_at: "2026-11-20T12:29:59.104Z"
+    author: codex-sol
+    text: "All eight EX findings have paired fixtures. At bd592c4 the seven behavioral cases failed and the shell-independent npm fixture lacked a callable CLI resolver. The original five suites passed 167 tests. The pinned fleet accepted 142 hooks and 144 reachable bodies from 39 manifests. Existing inherited binding controls cover quoted titles, entry points, and date options."
+  - created_at: "2026-11-20T12:36:43.982Z"
+    author: codex-sol
+    text: Round EX fixes for pm-ops#295 are in bdcb59a. PRRT_kwDOTOTl1M658IVR carries literal npm lifecycle settings across job steps. PRRT_kwDOTOTl1M658IVV requires an explicit Bun run for generator shorthand. PRRT_kwDOTOTl1M658IVZ refuses a suppressed versioned pending window. PRRT_kwDOTOTl1M658IVd refuses shell-fed here-documents. PRRT_kwDOTOTl1M658IVk merges both prepend spellings against the selected output. PRRT_kwDOTOTl1M658IVr limits root hook overrides to root callers. PRRT_kwDOTOTl1M658IVy invokes the npm JavaScript CLI with Node. PRRT_kwDOTOTl1M658IV7 preserves pnpm delimiters for the receiving command. The pinned fleet accepted 142 hooks and 144 bodies in 39 manifests. Tag-fetched regeneration kept ops-b2bs under Unreleased.
+  - created_at: "2026-11-20T13:05:45.038Z"
+    author: codex-sol
+    text: "Verification at bdcb59a: the rewritten-candidate release gate passed with 2138 passing tests, two opt-in skips and 100 percent statements, branches, functions and lines across all 53 sources. The 25-file focused run had no failures. All four historical shell controls, npm and Bun packed consumers, and the signed-tag and invalid UTF-8 index fixtures passed. The first standalone coverage run hit the documented artifact-reader timeout while fixtures were being refined. Its percentages do not certify this commit. The standalone retry uses the committed source and original thresholds."
+  - created_at: "2026-11-20T13:18:46.909Z"
+    author: codex-sol
+    text: "The standalone npm run coverage retry at bdcb59a passed all four 100 percent thresholds across 53 sources with 2138 passing and two opt-in skips. No test or timeout was relaxed. Typecheck, build:test, lint, duplication, docstring and changelog:check passed. Corepack pnpm 10.28.2 preserved the generator-bound delimiter and a nested npm runner consumed its delimiter. Native Bun produced identical argv for the explicit and shorthand changes script, and the pinned generator suppressed only the synthetic pending heading in the all-tags control."
+  - created_at: "2026-11-20T13:20:44.590Z"
+    author: codex-sol
+    text: "The pre-push fetch found main release f0ba1cf. Merge 274262b preserves the new release section and the branch-only ops-b2bs Unreleased entry. Before the v2026.11.20 tag exists, tag-fetched regeneration treats that version as pending and moves ops-b2bs into its section. Recheck the canonical tag and compare generated bytes before pushing. All eight changes still map to bdcb59a."
+  - created_at: "2026-11-20T13:36:25.203Z"
+    author: codex-sol
+    text: "The merged 2026.11.20 source at 274262b passed the 25-file focused run and standalone npm run coverage. Coverage measured 100 percent across 53 sources with 2138 passing and two opt-in skips. Typecheck, lint, duplication, docstrings and all 142 configured fleet hooks passed. The canonical release tag remains the prerequisite for final changelog regeneration with ops-b2bs under Unreleased."
+  - created_at: "2026-11-20T15:05:19.511Z"
+    author: codex-sol
+    text: "Round EX merged main ba5a49b in 28c678d. Main and the branch independently created the same Windows issue ID. The main item stays byte-identical. The prior Node 26 investigation retains all ten original history records, all timestamps and a single appended ID change under ops-windows-runtime-cleanup-node26. The shared artifact reader item retained both branches' evidence. Rechecking the merged code. The official v2026.11.20 tag is still pending."
+  - created_at: "2026-11-20T15:30:12.026Z"
+    author: codex-sol
+    text: "Round EX verification on merged source 28c678d. The 26 focused files passed 1403 tests with two opt-in skips. The reader and runtime subset passed 14 of 14. Typecheck, test build, lint, duplication, docstring and all four historical refusal controls passed. The fleet accepted 142 hooks and 144 bodies across 39 manifests. npm and native Bun validated the same packed artifact. Full coverage passed 2138 tests with two opt-in skips and 100 percent statements, branches, functions and lines across 53 files. With the official release tag v2026.11.20 still absent, the pinned generator moves ops-b2bs from Unreleased into the pending release. The standalone changelog check and the candidate acceptance gate both reproduced this drift. The checked-in changelog retains the requested Unreleased entry. The PR branch remains at bd592c4."
+  - created_at: "2026-11-20T21:12:53.065Z"
+    author: codex-sol
+    text: All 268 baseline tests passed. Twelve paired behavior checks failed on the starting head. Padding and comment controls matched on both versions. The regulator for regex performance is CodeQL alert 25. Preparation now keeps a forwarded date with its caller and checks other script contracts before restoring the version policy.
+  - created_at: "2026-11-20T21:22:28.668Z"
+    author: codex-sol
+    text: "Round FE thread map for commit 3173fdb. Prefix PRRT_kwDOTOTl1M66. GCjw and GZVa cover linear redirect matching. GICs and GIC4 preserve conditional writers and notes. GZVM records the verified preparation policy. GZVt, GZV4 and GZWE handle environment file replacement, opaque steps and case-distinct keys. GZWR covers direct summary mode. GZWb validates every version selector. GZWk preserves forwarded operands. GZWp handles expandable here-documents. GZW2 handles joined combined redirects. Earlier ordinary TITLE argument and executable or policy binding controls remain in the regression suite."
+  - created_at: "2026-11-20T21:55:59.661Z"
+    author: codex-sol
+    text: "A real npm fixture executed both conditional forms after preparation. The inline hook called the writer, the ordinary TITLE binding reached --title as Release, and multiline notes printed their expected stdout. Each generator received exactly one --include-empty and the expected date operand. The packed continuation selector corpus also passed under npm and native Bun."
+  - created_at: "2026-11-20T22:30:18.835Z"
+    author: codex-sol
+    text: "Round FE verification on 3173fdb99da9064ef053a223e2b121070e19c1d1 passed npm run coverage and node test/release-heading-full-gate.acceptance.ts. The original and rewritten candidates each measured 100% statements, branches, functions and lines across all 53 required sources, with 2149 passing tests, two opt-in skips and zero failures. The final pinned fleet scan accepted all 142 hooks and 144 bodies in 39 manifests. The regenerated changelog retains ops-b2bs under Unreleased. Hosted CodeQL is checked separately against the pushed head."
+  - created_at: "2026-11-20T22:40:51.284Z"
+    author: codex-sol
+    text: "The exact-head CodeQL alert check passed with zero annotations at f8485bf. Greptile discussion r4648492860 identifies a missing inverse for GZWk. A synthetic three-way check confirms restoration accepts unrelated help text, incorrectly refuses a printed npm run example and correctly refuses an actual caller. Add acceptance and refusal controls before correcting the shared-caller classification."
+  - created_at: "2026-11-20T22:45:53.170Z"
+    author: codex-sol
+    text: "Follow-up to GZWk, Greptile discussion r4648492860. The shared-date caller scan now skips literal data arguments of recognized commands after resolving wrappers. Shell substitution and real forwards remain subject to the shared argument contract. The new fixture failed on f8485bf and passes with the fix. Preparation integration covers an actual preview caller. The final fleet scan passed 142 hooks and 144 bodies. Build, typecheck, lint, duplication and docstrings passed. The changed decision is covered in both directions. Full original and rewritten coverage runs are in progress."
+  - created_at: "2026-11-20T22:49:19.048Z"
+    author: codex-sol
+    text: "The six priority suites passed all 304 tests with zero skips, including ordinary inherited arguments, executable and policy binding refusals, heredoc substitutions and redirections. Both shared-writer tests passed. The full focused, source and rewritten suites are running separately."
+  - created_at: "2026-11-21T00:14:07.600Z"
+    author: codex-sol
+    text: "Round FI at 2a2c59b reviews eight changelog parser and fixture findings. Add paired cases before source changes, rerun prior release fixtures and fleet inventory, and record exact gate results."
+  - created_at: "2026-11-21T00:23:18.897Z"
+    author: codex-sol
+    text: "Round FI paired regressions reproduced six failures at 2a2c59b. The heading fixture also failed with inherited prepared lifecycle false and unknown. Ordinary inherited title data and the executable and policy binding refusals passed on both versions. The candidate passes the paired tests, both lifecycle overrides, tag-signing fixtures with hostile global settings, and all 142 fleet hooks and 144 bodies in 39 manifests. In a real npm run, the renderer received the flag and tee copied its output unchanged. Preparation refused an opaque pipeline before writing the manifest."
+  - created_at: "2026-11-21T00:58:14.188Z"
+    author: codex-sol
+    text: "Round FI thread map for e0faf9f. PRRT_kwDOTOTl1M66OERL skip literal false steps in the date audit. PRRT_kwDOTOTl1M66OERN send the empty-section flag to the notes renderer before tee and reject opaque pipelines. PRRT_kwDOTOTl1M66OERV preserve cat here-document data redirected to literal files. PRRT_kwDOTOTl1M66OERa join continued shell list operators. PRRT_kwDOTOTl1M66OERg validate each explicit mode. PRRT_kwDOTOTl1M66OERl launch fixture npm through Node. PRRT_kwDOTOTl1M66OERo isolate inherited prepared lifecycle. PRRT_kwDOTOTl1M66OERs skip only Windows symlink permission denial and retain the rejection check. The paired cases cover ordinary inherited title values and refuse executable or policy selection. The 36-file reference sweep passed 1516 tests with two opt-in skips. Standalone npm run coverage passed 2156 tests with two opt-in skips and 100% statements, branches, functions and lines across 53 required sources. The pinned fleet accepted all 142 hooks and 144 bodies in 39 manifests. Typecheck, build:test, lint, duplication, docstring, changelog:check, verify:release-changelog-date and packed npm and Bun acceptance passed."
+  - created_at: "2026-11-21T01:13:05.060Z"
+    author: codex-sol
+    text: "Round FI rewritten release-heading acceptance passed on e0faf9f. The disposable candidate passed 2156 tests with two opt-in skips and 100% statements, branches, functions and lines across 53 sources. The production and release-tool npm audits each reported zero vulnerabilities. The pack dry run, changelog sections and dates, publication attestation and lifecycle policy passed. Both full runs passed the artifact-reader test without a retry. The changelog regenerated byte-identically with ops-b2bs under Unreleased."
+  - created_at: "2026-11-21T01:49:08.093Z"
+    author: codex-sol
+    text: Round FL verifies PRRT_kwDOTOTl1M66PZ3I with paired fixtures for redirect output executed later and redirect output retained as data.
+  - created_at: "2026-11-21T01:55:01.259Z"
+    author: codex-sol
+    text: "The generated script fixture failed on 9ba9b87 while the paired data-only fixture passed. The candidate refuses the redirect-to-execution sequence in preparation, continuation and date audit. Committed helpers and redirected data still pass. The inherited title and policy controls pass. The pinned fleet inventory accepted 142 hooks and 144 bodies across 39 manifests."
+  - created_at: "2026-11-21T02:02:27.893Z"
+    author: codex-sol
+    text: "Round FL thread map. PRRT_kwDOTOTl1M66PZ3I is fixed by 02ddd0b. Redirect output that becomes a later script entry is refused with guidance to commit the script. The paired fixtures cover file launchers, ordinary data operands, quoting, and continued acceptance of inherited title values. The existing follow-up record was carried forward in 5e71c82."
+  - created_at: "2026-11-21T02:27:38.447Z"
+    author: codex-sol
+    text: "Round FL local results for 02ddd0b. Nine focused test files passed 348 of 348. Four isolated signing, UTF-8 and fresh-preview controls passed. Typecheck, test build, lint, duplication at zero percent, docstring and changelog checks passed. npm run coverage passed with 2158 tests, two opt-in skips, and 100 percent statements, branches, functions and lines across 53 sources. The artifact-reader fixture passed without a retry. The rewritten candidate gate is still running."
+  - created_at: "2026-11-21T02:37:48.564Z"
+    author: codex-sol
+    text: "Round FL final local verification for PRRT_kwDOTOTl1M66PZ3I and 02ddd0b. The pinned fleet scan accepted 142 hooks and 144 bodies from 39 manifests on both the starting and candidate versions. The full rewritten release-heading acceptance passed with 2158 tests, two opt-in skips, and 100 percent in all four dimensions across 53 sources. Both npm audits reported zero vulnerabilities. Pack dry run, changelog section and date checks, publication attestation and installed lifecycle policy passed. The regenerated changelog retains ops-b2bs under Unreleased."
+  - created_at: "2026-11-21T02:45:49.891Z"
+    author: codex-sol
+    text: Greptile discussion r4650110264 on 9a47c8c found a false refusal on an unrelated smoke script. The paired fixture first reproduced that refusal in both a package script and an unrelated workflow step. It also requires refusal when the configured changelog hook forwards into that script. Scope the generated-file rule to the existing release context and rerun the gates.
+  - created_at: "2026-11-21T02:48:33.761Z"
+    author: codex-sol
+    text: "Round FL follow-up maps PRRT_kwDOTOTl1M66QqFm to f00d119. The generated-file rule from 02ddd0b now follows the audited release context, including a configured hook forwarding into the tested smoke script. The same stand-alone smoke script and an unrelated workflow step pass. Paired controls, the date verifier and the pinned 142-hook and 144-body fleet scan passed. Focused and full release gates are running on the scoped fix."
+  - created_at: "2026-11-21T03:07:09.530Z"
+    author: codex-sol
+    text: "Round FL follow-up f00d119 passed all 349 focused tests, the paired scoped refusal and acceptance tests, typecheck, test build, lint, duplication, docstring, date audit, and a byte-identical changelog regeneration. The fleet accepted all 142 hooks and 144 bodies. At the pre-cutoff checkpoint, standalone coverage and rewritten acceptance were still running. Pushed head 9a47c8c passed CI and CodeQL, with the Greptile scope finding tracked above."
+  - created_at: "2026-11-21T03:53:22.637Z"
+    author: codex-sol
+    text: "Round FM started. Verify the thirteen review findings on the current release branch, exercise earlier refusals and valid hook forms, and compare the fleet fixture before recording gate results."
+  - created_at: "2026-11-21T04:09:17.463Z"
+    author: codex-sol
+    text: "Round FM red fixtures failed on the original review head for nine targeted cases. The current branch already contains the scoped inherited-binding checks. The workspace fixture checks opposing member, root, user and environment settings. A copied Node executable exercises a spaced path on POSIX too. The prototype corpus accepted all 142 configured hooks and 144 reached bodies."
+  - created_at: "2026-11-21T04:16:46.563Z"
+    author: codex-sol
+    text: "Round FM thread map for PR #295, verified against starting head 22f8352. Commit 6446306 addresses all thirteen PRRT_kwDOTOTl1M66P- threads. 56 preserves expression-valued environment uncertainty. 59 limits definite environment writes to recognized executing shell templates. 6D documents the hook-options check. 6F classifies tee destinations. 6K refuses alternate custom notes renderers while accepting an unconditional final renderer or prepared generator branches. 6N consumes the lexer-decoded here-document delimiters with physical edit offsets. 6P preserves the selected JSON and step-output path. 6W uses the active npm configuration loader and records unknown when unresolved. 6X re-detects the verified project for empty and absent legacy receipt values. 6f accepts timeout -p. 6l copies Node to a spaced executable path and exercises the .exe entry point. 6o verifies the next untagged version heading. 6r sets one explicit lifecycle environment for preparation and real npm execution. Prior binding threads 650IRm and 650SdF are covered by 24d844c and rechecked with the current code."
+  - created_at: "2026-11-21T04:38:20.938Z"
+    author: codex-sol
+    text: "The direct reference suite identified one fixture integration failure among 1355 tests. The isolated empty-probe checkout omitted the lifecycle helper imported by continuation. Include that source in the fixture closure, retaining the no-node_modules and no-npm-invocation assertions."
+  - created_at: "2026-11-21T05:01:35.820Z"
+    author: codex-sol
+    text: "The 29 direct-reference files passed with 1472 passes and two opt-in skips after the fixture closure fix in f7502f4. Standalone coverage passed all test assertions but measured one unexecuted static npmrc branch. Add explicit refusal for unrelated settings alone and acceptance for an unrelated key preceding a literal lifecycle setting, then repeat both coverage gates."
+  - created_at: "2026-11-21T05:20:41.841Z"
+    author: codex-sol
+    text: "Round FM supplemental verification. f7502f4 covers the P-6W/P-6X empty-probe fixture closure and 0bac7cc covers the P-6W static npmrc refusal and inverse. Both supplement the thirteen-thread implementation map in 6446306. At 0bac7cc, standalone coverage passed 2167 tests with two opt-in skips and zero failures, at 100 percent statements, branches, functions and lines across all 54 sources. Fleet results were 142 hooks and 144 reached bodies over 39 manifests with zero refusals."
+  - created_at: "2026-11-21T05:22:22.569Z"
+    author: codex-sol
+    text: "Final Round FM gates on 0bac7cc passed. The three focused suites passed 216/216 and the final grammar suite passed 87/87. All 29 reference files passed with 1472 passes and two opt-in skips. The signing, index-byte and fresh-preview controls passed 4/4. Typecheck, test compilation, lint, zero duplication, docstrings and changelog:check passed. The separate rewritten release-heading acceptance completed the real release:check, including 100 percent per-file coverage on all 54 sources (2167 passes, two opt-in skips), both dependency audits, packing and the release verifiers. Regeneration preserves ops-b2bs under Unreleased."
+  - created_at: "2026-11-21T05:30:08.850Z"
+    author: codex-sol
+    text: "P-6K inverse on the pushed head: both conditional branches reach prepared generators through local npm forwards, but the root refuses them. Preserve refusal for a genuine custom or unresolved branch. For P-56 an expression-valued job map can supply both case variants: reversing their order produced opposite real npm values even with a literal step override of one spelling, so uncertainty is required."
+  - created_at: "2026-11-21T05:32:08.190Z"
+    author: codex-sol
+    text: "Both terminal direct and forwarded generators now pass the P-6K inverse; custom, missing, cyclic, empty and redirection-only targets still refuse. Real npm 11.21.0 also confirmed the P-56 uncertainty: with lowercase ignore_scripts=true and uppercase IGNORE_SCRIPTS=false, reversing environment insertion order changes npm config get ignore-scripts from false to true. An unresolved higher-level map can introduce the other spelling. A literal step value cannot rule that out."
+  - created_at: "2026-11-21T05:48:23.229Z"
+    author: codex-sol
+    text: "Supplemental P-6K maps to 87cffb3. The actual preparation entry point pins and adds --include-empty to both forwarded generators and refuses a mixed target before changing the manifest. All 130 tests in the direct-reference suites for this change passed. The original 142 hooks and 144 bodies, typecheck, test build, lint, zero duplication, docstrings and changelog:check passed on the correction. The original thirteen-thread map remains in 6446306 with the P-6W/P-6X fixtures in f7502f4 and 0bac7cc."
+  - created_at: "2026-11-21T05:50:43.834Z"
+    author: codex-sol
+    text: "Supplemental commit 87cffb3 passes all 130 directly affected tests, static checks and the fleet scan of 142 hooks and 144 bodies. The pushed head 1f5c49a passed standalone and rewritten-candidate coverage. The supplemental full gates have separate runs under the original push cutoff."
+  - created_at: "2026-11-21T08:36:59.854Z"
+    author: codex-sol
+    text: "Round FP starts at 4ad8742. Verify the thirteen review findings, inherited argument handling and existing environment fixtures. Run paired regressions, fleet compatibility and package gates before publishing the branch update."
+  - created_at: "2026-11-21T08:45:49.284Z"
+    author: codex-sol
+    text: Eleven paired tests failed on 4ad8742. Separate controls confirmed misplaced custom renderer flags and sticky environment-file uncertainty. The real continuation accepted the preparation receipt and refused the same merge with the changed live policy. The starting and candidate fleet scans each accepted all 142 hooks and 144 bodies in 39 pinned manifests.
+  - created_at: "2026-11-21T08:55:48.823Z"
+    author: codex-sol
+    text: "Prepared npm executions now pin a resolved lifecycle setting for all three hooks. An unresolved receipt keeps both lifecycle paths audited and detects a changed live setting before the next hook. Real npm fixtures passed both policy directions, stable uncertainty and changed-policy refusal. The candidate fleet scan again accepted 142 hooks and 144 bodies."
+  - created_at: "2026-11-21T08:56:55.564Z"
+    author: codex-sol
+    text: "Round FP thread map for f7caf9f, verified from 4ad8742. PRRT_kwDOTOTl1M66RAPT traces generated shell files containing changelog commands and preserves unrelated smoke scripts. PRRT_kwDOTOTl1M66RIc9 routes saved options to mixed generate and check helpers. PRRT_kwDOTOTl1M66RIdB closes conditional environment writes at fi. PRRT_kwDOTOTl1M66RIdF marks literal-false job bodies disabled for the date audit. PRRT_kwDOTOTl1M66RIdL preserves trailing Git checks and refuses ambiguous custom renderers. PRRT_kwDOTOTl1M66RIdS inserts the renderer option before its positional delimiter. PRRT_kwDOTOTl1M66RIdb splits unquoted attached redirects and retains quoted data. PRRT_kwDOTOTl1M66SzHX binds generation to the prepared npm policy and checks unresolved receipts for drift. PRRT_kwDOTOTl1M66SzHc recovers a definite environment record after a complete overwrite. PRRT_kwDOTOTl1M66SzHf documents changing or removing a stale all-tags cutoff before re-preparation. PRRT_kwDOTOTl1M66SzHi resolves npm start with its lifecycle and refuses an unmodeled default start. PRRT_kwDOTOTl1M66SzHl skips non-executable POSIX launchers while retaining uncertainty for executable shims. PRRT_kwDOTOTl1M66SzHq exercises the real continuation with a recorded policy and an opposing live setting. Prior binding threads 650IRm and 650SdF remain covered by 24d844c and the inherited title, executable and option fixtures."
+  - created_at: "2026-11-21T09:17:44.904Z"
+    author: codex-sol
+    text: "The complete SzHi review also covers npm test, stop and restart. All four lifecycle commands share npm's run-script dispatch. New fixtures exercise forwarded options, enabled and skipped pre-hooks, project selectors, opaque wrappers, optional missing scripts and npm's implicit start and restart defaults. RIdB also covers else and elif boundaries before an unconditional environment-file replacement."
+  - created_at: "2026-11-21T09:18:48.406Z"
+    author: codex-sol
+    text: "Round FP supplemental map. PRRT_kwDOTOTl1M66SzHi is implemented by f7caf9f and 27fc46f across npm start, test, stop and restart. PRRT_kwDOTOTl1M66RIdB is implemented by f7caf9f and 27fc46f for nested if, elif and else blocks. The remaining eleven thread mappings in the f7caf9f comment are unchanged. The paired lifecycle and branch tests pass."
+  - created_at: "2026-11-21T09:37:52.282Z"
+    author: codex-sol
+    text: "The reference sweep caught the repository's credential guard rejecting the lifecycle environment export. A real nested npm run also showed that a false CLI override alone does not survive a conflicting user configuration. SzHX now compares the live policy against the recorded value before each npm hook and after notes. Drift refuses before the stamp. Stable true, false and unknown configurations preserve nested pre-hooks exactly as npm runs them. All 19 credential workflow tests passed."
+  - created_at: "2026-11-21T09:38:56.314Z"
+    author: codex-sol
+    text: "Final Round FP mapping for PRRT_kwDOTOTl1M66 thread suffixes. f7caf9f covers RAPT, RIc9, RIdF, RIdL, RIdS, RIdb, SzHc, SzHf, SzHl and SzHq. f7caf9f and 27fc46f cover RIdB and SzHi. f7caf9f and fa7d170 cover SzHX. The final SzHX design compares live policy before each hook and after notes generation. The focused workflow and nested npm tests passed under stable and changed values. Both tracker items stay open at handoff."
+  - created_at: "2026-11-21T10:37:51.072Z"
+    author: codex-sol
+    text: "Round FP verification on fa7d170. The 32 reference suites passed 1520 tests with two opt-in skips. The ten earlier-round suites passed all 397 cases on the isolated starting revision. The final fleet scan accepted 142 hooks and 144 reachable bodies across 39 pinned manifests. Typecheck, test build, lint, zero duplication, docstring, changelog regeneration and changelog:check passed. ops-b2bs is under Unreleased. Standalone and rewritten coverage each passed 2186 tests with two opt-in skips and reached 100 percent statements, branches, functions and lines across 54 sources. Both artifact-reader fixtures passed."
+  - created_at: "2026-11-21T10:40:11.349Z"
+    author: codex-sol
+    text: "The rewritten full candidate acceptance on fa7d170 passed, including both dependency audits, the package dry run, release section and heading checks, publication attestation, and installed lifecycle policy checks. With standalone and rewritten coverage both at 100% across all four dimensions, Round FP verification is complete."
+  - created_at: "2026-11-21T13:44:37.661Z"
+    author: codex-sol
+    text: "Round FR started on 5b971ba. Verify review threads with paired refusal and acceptance fixtures, then run the fleet and package gates."
+  - created_at: "2026-11-21T14:02:07.402Z"
+    author: codex-sol
+    text: "Reproduced the parser, workflow, renderer and Windows launcher findings. Verified the two inherited binding controls and the resolved step environment precedence thread. The pinned fleet corpus accepted 142 hooks and 144 bodies across 39 manifests. Full package gates are running."
+  - created_at: "2026-11-21T14:10:54.639Z"
+    author: codex-sol
+    text: "Round FR thread map. 424dc59: PRRT_kwDOTOTl1M66VuXL keeps potentially skipped environment overwrites uncertain for failure-tolerant consumers. PRRT_kwDOTOTl1M66VuXO and PRRT_kwDOTOTl1M66SQZT preserve literal step settings over opaque actions and expression-valued parent environments. PRRT_kwDOTOTl1M66VuXP guards unresolved command lookups. PRRT_kwDOTOTl1M66VuXQ resolves nested npm lifecycle policy independently and preserves npm export semantics. PRRT_kwDOTOTl1M66VuXV retains the previous renderer on a no-else path. PRRT_kwDOTOTl1M66VuXX refuses forwarding into a status command. PRRT_kwDOTOTl1M66VuXa verifies bundled prefix selection and npm-generated Windows launchers. PRRT_kwDOTOTl1M66VuXe splits attached file redirects and keeps quoted, escaped and descriptor controls. PRRT_kwDOTOTl1M66VuXg and PRRT_kwDOTOTl1M66VuXj isolate the active and fallback npm launchers in the tests. PRRT_kwDOTOTl1M650IRm and PRRT_kwDOTOTl1M650SdF were already corrected in 24d844c. Re-ran the title acceptance and executable or policy binding refusals on the starting and candidate source. Historical tag signing, staged invalid UTF-8 and stale preview safeguards remain covered by accb464 and ccf7291."
+  - created_at: "2026-11-21T14:53:31.999Z"
+    author: codex-sol
+    text: "Round FR local gates passed on source commit 424dc59. Isolated starting-head suite: 328 passed. Focused and reference suites: 1375 passed across 25 files. Shell and hook regression suites: 137 passed. npm 11.21.0 nested lifecycle and launcher controls passed. Tag signing, index-only invalid UTF-8 and stale preview checks passed. Fleet: 39 manifests, 142 hooks and 144 reachable bodies accepted. Typecheck, test build, lint, zero duplication, docstring and changelog:check passed. Regeneration is byte-identical, with ops-b2bs under Unreleased. The first coverage run overlapped the Windows launcher edit; the frozen rewritten candidate ran npm run coverage and passed with 2195 tests, two opt-in skips and 100% statements, branches, functions and lines over 54 sources. The full heading acceptance passed, including both dependency audits, pack dry run, section and heading checks, publication attestation and installed lifecycle policy checks. Both items remain open at handoff."
+  - created_at: "2026-11-21T14:58:19.017Z"
+    author: codex-sol
+    text: The first pushed head passed the CodeQL workflow but its alert check flagged option-matcher backtracking and a Windows probe executable derived from PATH. Add paired defensive fixtures and keep npm prefix probing on the explicit current Node runtime.
+  - created_at: "2026-11-21T15:01:41.811Z"
+    author: codex-sol
+    text: "Round FR supplemental mapping. PRRT_kwDOTOTl1M66VuXL and PRRT_kwDOTOTl1M66VuXa are implemented by 424dc59 and hardened in 91c0b2c. The latter avoids option-matcher backtracking and binds the bundled Windows prefix helper to the current Node installation. The other eleven mappings stand. The 147 focused cases, typecheck, test build, lint, duplication, docstring and pinned fleet scan pass. The full candidate acceptance is running again on the hardened source."
+  - created_at: "2026-11-21T15:08:45.975Z"
+    author: codex-sol
+    text: The latest CodeQL check clears the regex alert. Its remaining medium trace connects the active launcher path to default installer calls that cannot take that branch. The subprocess boundary forces shell false. Greptile found two Round FR regressions in the status-only conditional path and the continued npm fallback. Add paired fixtures for these related findings.
+  - created_at: "2026-11-21T15:11:00.623Z"
+    author: codex-sol
+    text: Round FR follow-up mapping. Commit 7b18e03 covers PRRT_kwDOTOTl1M66YLU3 and supplements VuXV by keeping the renderer through status-only conditional branches. The same commit covers PRRT_kwDOTOTl1M66YLU8 and supplements VuXQ by independently loading the npm fallback when continuation has a recorded active setting. Both regressions reproduced and pass with their inverse fixtures. The pinned fleet scan still accepts 142 hooks and 144 bodies. CodeQL alert 27 remains open. Static triage found that the supplied trace combines mutually exclusive lookup modes and reaches a wrapper that forces shell false.
+files[25]{path,scope}:
+  .github/workflows/daily-release.yml,project
+  attestation.ts,project
+  CHANGELOG.md,project
+  dist/release-changelog-options.js,project
+  release-changelog-options.ts,project
+  release-continuation.ts,project
+  release-hook-grammar.ts,project
+  scripts/pm-changelog.ts,project
+  scripts/prepare-release-changelog.ts,project
+  scripts/project-npm-lifecycle.ts,project
+  scripts/release-continuation.ts,project
+  scripts/release-runtime.ts,project
+  scripts/verify-release-changelog-date.ts,project
+  shell-scan.ts,project
+  test/changelog-sections.test.ts,project
+  test/daily-release-workflow.test.ts,project
+  test/daily-release.test.ts,project
+  test/release-continuation-adapter.test.ts,project
+  test/release-heading-full-gate.acceptance.ts,project
+  test/release-heading-snapshot-fixture.ts,project
+  test/release-heading-snapshot.test.ts,project
+  test/release-hook-grammar.test.ts,project
+  test/release-runtime.test.ts,project
+  test/shell-command-scan.test.ts,project
+  test/verify-release-changelog-date.test.ts,project
+tests[64]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
+  npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
+  npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
+  npm run lint,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
+  node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/compatibility-floor.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/dependency-contract.test.ts test/multiline-quote.test.ts test/ops.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-caller-attestation.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-permissions-docs.test.ts test/release-prepare-restart.test.ts test/release-recovery-signer.test.ts test/release-review.test.ts test/release-runtime.test.ts test/release-workflow.test.ts test/shell-command-scan.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts,project,codex-sol,"2026-11-17T20:57:22.875Z",local_mutation,fix/resumed-release-heading-date
+  node test/release-heading-full-gate.acceptance.ts,project,codex-sol,"2026-11-17T20:57:22.875Z",local_mutation,fix/resumed-release-heading-date
+  node scripts/verify-release-changelog-date.ts,project,codex-sol,"2026-11-17T20:57:22.875Z",local_mutation,fix/resumed-release-heading-date
+  node --test --test-concurrency=2 test/release-runtime.test.ts,project,codex-sol,"2026-11-17T21:09:08.446Z",local_mutation,fix/resumed-release-heading-date
+  node --test --test-concurrency=1 test/regular-input.test.ts,project,codex-sol,"2026-11-17T21:36:48.504Z",local_mutation,fix/resumed-release-heading-date
+  npm run docstring,project,codex-sol,"2026-11-17T21:36:48.504Z",local_mutation,fix/resumed-release-heading-date
+  node --test --test-name-pattern='version-qualified generator|date policy belongs to the command' test/verify-release-changelog-date.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T21:43:09.688Z",local_mutation,fix/resumed-release-heading-date
+  node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/compatibility-floor.test.ts test/continuation-runtime.test.ts test/continuation-selection.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/dependency-contract.test.ts test/multiline-quote.test.ts test/ops.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-caller-attestation.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-permissions-docs.test.ts test/release-prepare-restart.test.ts test/release-recovery-signer.test.ts test/release-review.test.ts test/release-runtime.test.ts test/release-workflow.test.ts test/shell-command-scan.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts,project,codex-sol,"2026-11-18T00:35:53.953Z",local_mutation,fix/release-hook-wrapper-options-bm
+  "npm run verify:release-changelog-date",project,codex-sol,"2026-11-18T00:38:29.725Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node test/multiline-quote.proof.ts,project,codex-sol,"2026-11-18T00:38:34.663Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node test/nested-substitution.proof.ts,project,codex-sol,"2026-11-18T00:38:40.440Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node test/process-substitution.proof.ts,project,codex-sol,"2026-11-18T00:38:46.650Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node test/regex-array.proof.ts,project,codex-sol,"2026-11-18T00:38:50.635Z",local_mutation,fix/release-hook-wrapper-options-bm
+  "npm run accept:packed",project,codex-sol,"2026-11-18T00:38:54.804Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/compatibility-floor.test.ts test/continuation-runtime.test.ts test/continuation-selection.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/dependency-contract.test.ts test/global-npm-guard.test.ts test/job-local-npm.test.ts test/multiline-quote.test.ts test/ops.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-caller-attestation.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-permissions-docs.test.ts test/release-prepare-restart.test.ts test/release-recovery-signer.test.ts test/release-review.test.ts test/release-runtime.test.ts test/release-workflow.test.ts test/shell-command-scan.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts,project,codex-sol,"2026-11-18T00:39:27.249Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-name-pattern='package administration|quoted expansion in a non-date|quoted values on fixed|unresolved option words|unrecognized wrapper|supported wrappers' test/verify-release-changelog-date.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-18T01:14:34.251Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 --test-name-pattern='preparation skips changelog|preparation adds empty-section|publication heading check|continuation enforces the merge day|heading-date continuation mirrors' test/changelog-sections.test.ts test/daily-release-workflow.test.ts test/release-continuation-adapter.test.ts,project,codex-sol,"2026-11-18T02:44:50.509Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 --test-name-pattern='preparation rewrites every date|continuation refuses a pinned heading|preparation skips changelog|preparation adds empty-section|publication heading check|continuation enforces the merge day|heading-date continuation mirrors' test/changelog-sections.test.ts test/daily-release.test.ts test/daily-release-workflow.test.ts test/release-continuation-adapter.test.ts,project,codex-sol,"2026-11-18T02:58:21.491Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/changelog-sections.test.ts test/compatibility-floor.test.ts test/daily-release.test.ts test/daily-release-workflow.test.ts test/dependency-contract.test.ts test/ops.test.ts test/release-caller-attestation.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-permissions-docs.test.ts test/release-prepare-restart.test.ts test/release-recovery-signer.test.ts test/release-review.test.ts test/release-runtime.test.ts test/release-verification.test.ts test/release-workflow.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts test/verify-release-completeness.test.ts,project,codex-sol,"2026-11-18T04:05:20.812Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/changelog-sections.test.ts test/verify-release-changelog-date.test.ts,project,codex-sol,"2026-11-18T06:05:15.875Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-name-pattern='Bun execution switches' test/changelog-sections.test.ts,project,codex-sol,"2026-11-18T06:43:56.318Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test test/changelog-sections.test.ts test/release-continuation-adapter.test.ts,project,codex-sol,"2026-11-18T07:42:38.796Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/changelog-sections.test.ts test/verify-release-changelog-date.test.ts test/release-prepare-restart.test.ts test/pack-prepare.test.ts test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/continuation-selection.test.ts test/continuation-runtime.test.ts test/daily-release.test.ts test/daily-release-workflow.test.ts test/release-runtime.test.ts test/release-discovery-evidence.test.ts,project,codex-sol,"2026-11-18T07:47:23.158Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test test/release-hook-grammar.test.ts,project,codex-sol,"2026-11-18T11:19:33.908Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test test/release-runtime.test.ts,project,codex-sol,"2026-11-18T11:56:46.778Z",local_mutation,fix/release-hook-wrapper-options-bm
+  "git fetch --tags origin && npm run changelog:check",project,codex-sol,"2026-11-18T16:37:22.380Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/compatibility-floor.test.ts test/compose-attestation.test.ts test/continuation-runtime.test.ts test/continuation-selection.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/dependency-contract.test.ts test/multiline-quote.test.ts test/ops.test.ts test/pack-prepare.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-caller-attestation.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-permissions-docs.test.ts test/release-prepare-restart.test.ts test/release-recovery-signer.test.ts test/release-review.test.ts test/release-runtime.test.ts test/release-verification.test.ts test/release-workflow.test.ts test/shell-command-scan.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts,project,codex-sol,"2026-11-18T16:40:24.149Z",local_mutation,fix/release-hook-wrapper-options-bm
+  npm run duplication,project,codex-sol,"2026-11-18T16:40:29.625Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/changelog-sections.test.ts test/continuation-runtime.test.ts test/continuation-selection.test.ts test/daily-release.test.ts test/daily-release-workflow.test.ts test/multiline-quote.test.ts test/pack-prepare.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-prepare-restart.test.ts test/release-runtime.test.ts test/release-workflow.test.ts test/shell-command-scan.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts,project,codex-sol,"2026-11-18T18:34:38.528Z",local_mutation,fix/release-hook-wrapper-options-bm
+  "npm run changelog:check",project,codex-sol,"2026-11-18T18:35:04.755Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/release-hook-grammar.test.ts test/verify-release-changelog-date.test.ts,project,codex-sol,"2026-11-18T21:04:22.735Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/changelog-sections.test.ts test/continuation-runtime.test.ts test/continuation-selection.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-hook-grammar.test.ts test/release-prepare-restart.test.ts test/release-runtime.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts,project,codex-sol,"2026-11-18T22:42:35.789Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/attestation-union.test.ts test/backend-capabilities.test.ts test/changelog-sections.test.ts test/continuation-runtime.test.ts test/continuation-selection.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/docstrings.test.ts test/global-npm-guard.test.ts test/multiline-quote.test.ts test/ops.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-fixture-contracts.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-prepare-restart.test.ts test/release-review.test.ts test/release-runtime.test.ts test/release-workflow.test.ts test/shell-command-scan.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts test/verify-release-completeness.test.ts,project,codex-sol,"2026-11-19T05:46:27.952Z",local_mutation,fix/release-hook-wrapper-options-bm
+  PM_TEST_DEPTH=quick npm run coverage,project,codex-sol,"2026-11-19T06:35:39.871Z",local_mutation,fix/release-hook-wrapper-options-bm
+  PM_TEST_DEPTH=quick node test/release-heading-full-gate.acceptance.ts,project,codex-sol,"2026-11-19T06:35:39.871Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/changelog-sections.test.ts test/continuation-runtime.test.ts test/continuation-selection.test.ts test/daily-release.test.ts test/daily-release-workflow.test.ts test/release-continuation.test.ts test/release-continuation-adapter.test.ts test/release-discovery-evidence.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-prepare-restart.test.ts test/release-runtime.test.ts test/release-runtime-windows.test.ts test/release-verification.test.ts test/shell-command-scan.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts test/verify-release-completeness.test.ts,project,codex-sol,"2026-11-19T09:09:55.617Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-name-pattern='dependency-only release windows' test/changelog-sections.test.ts,project,codex-sol,"2026-11-19T11:48:28.301Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-name-pattern='custom notes keep' test/changelog-sections.test.ts,project,codex-sol,"2026-11-19T12:46:41.210Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test test/release-hook-grammar.test.ts test/changelog-sections.test.ts test/verify-release-changelog-date.test.ts,project,codex-sol,"2026-11-19T19:13:33.940Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-name-pattern='custom notes receive|preparation follows two forwards' test/changelog-sections.test.ts,project,codex-sol,"2026-11-19T19:20:04.317Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-name-pattern='custom notes' test/release-hook-grammar.test.ts test/changelog-sections.test.ts,project,codex-sol,"2026-11-19T19:23:29.019Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/multiline-quote.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-permissions-docs.test.ts test/release-review.test.ts test/release-runtime.test.ts test/release-verification.test.ts test/shell-command-scan.test.ts test/verify-release-changelog-date.test.ts,project,codex-sol,"2026-11-19T21:44:07.321Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node test/packed-consumer.acceptance.ts,project,codex-sol,"2026-11-19T21:53:50.396Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test test/release-hook-grammar.test.ts test/shell-command-scan.test.ts,project,codex-sol,"2026-11-19T22:20:19.722Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-name-pattern='custom notes receive|redirections and assignments' test/changelog-sections.test.ts test/release-hook-grammar.test.ts,project,codex-sol,"2026-11-19T23:48:29.681Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/changelog-sections.test.ts test/daily-release-workflow.test.ts test/release-continuation-adapter.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-runtime.test.ts test/verify-release-changelog-date.test.ts,project,codex-sol,"2026-11-20T00:54:30.248Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/daily-release-workflow.test.ts test/multiline-quote.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-discovery-evidence.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-permissions-docs.test.ts test/release-review.test.ts test/release-runtime.test.ts test/release-verification.test.ts test/shell-command-scan.test.ts test/verify-release-changelog-date.test.ts,project,codex-sol,"2026-11-20T04:30:58.001Z",local_mutation,fix/release-hook-wrapper-options-bm
+  "node --test --test-name-pattern=\"a notes generator pipes|custom notes delimiters|custom notes receive\" test/changelog-sections.test.ts test/release-hook-grammar.test.ts",project,codex-sol,"2026-11-20T05:32:40.371Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test test/release-hook-grammar.test.ts test/shell-command-scan.test.ts test/verify-release-changelog-date.test.ts,project,codex-sol,"2026-11-20T08:59:07.583Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/compose-attestation.test.ts test/continuation-selection.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/multiline-quote.test.ts test/ops.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-caller-attestation.test.ts test/release-continuation-adapter.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-provenance.test.ts test/release-recovery-signer.test.ts test/release-repair.test.ts test/release-runtime-windows.test.ts test/release-runtime.test.ts test/shell-command-scan.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts,project,codex-sol,"2026-11-20T12:34:43.051Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/regular-input.test.ts test/release-runtime.test.ts test/release-runtime-windows.test.ts,project,codex-sol,"2026-11-20T15:15:13.494Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/compatibility-floor.test.ts test/compose-attestation.test.ts test/continuation-runtime.test.ts test/continuation-selection.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/dependency-contract.test.ts test/multiline-quote.test.ts test/ops.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-caller-attestation.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-permissions-docs.test.ts test/release-prepare-restart.test.ts test/release-provenance.test.ts test/release-recovery-signer.test.ts test/release-repair.test.ts test/release-review.test.ts test/release-runtime.test.ts test/release-workflow.test.ts test/shell-command-scan.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts,project,codex-sol,"2026-11-20T21:22:59.962Z",local_mutation,fix/release-hook-wrapper-options-bm
+  "node --test --test-name-pattern=\"shared (date restoration|writers keep preview)\" test/changelog-sections.test.ts",project,codex-sol,"2026-11-20T22:44:00.548Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/compatibility-floor.test.ts test/compose-attestation.test.ts test/continuation-runtime.test.ts test/continuation-selection.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/dependency-contract.test.ts test/multiline-quote.test.ts test/ops.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/regular-input.test.ts test/release-caller-attestation.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-permissions-docs.test.ts test/release-prepare-restart.test.ts test/release-provenance.test.ts test/release-recovery-signer.test.ts test/release-repair.test.ts test/release-review.test.ts test/release-runtime-windows.test.ts test/release-runtime.test.ts test/release-workflow.test.ts test/shell-command-scan.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts,project,codex-sol,"2026-11-21T00:23:16.206Z",local_mutation,fix/release-hook-wrapper-options-bm
+  "node --test --test-name-pattern=\"release hooks refuse to execute|redirected release data|inherited npm bindings\" test/release-hook-grammar.test.ts",project,codex-sol,"2026-11-21T01:55:07.169Z",local_mutation,fix/release-hook-wrapper-options-bm
+  "node --test --test-name-pattern=\"only release hook paths|release hooks refuse to execute|redirected release data|inherited npm bindings\" test/release-hook-grammar.test.ts",project,codex-sol,"2026-11-21T02:47:06.031Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test test/release-hook-grammar.test.ts test/changelog-sections.test.ts test/release-continuation-adapter.test.ts,project,codex-sol,"2026-11-21T04:09:29.962Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/compose-attestation.test.ts test/continuation-selection.test.ts test/daily-release-workflow.test.ts test/daily-release.test.ts test/multiline-quote.test.ts test/ops.test.ts test/publish-indirection-corpus.test.ts test/publish-indirection.test.ts test/published-attestation.test.ts test/regex-array.test.ts test/release-caller-attestation.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-continuation.test.ts test/release-discovery-evidence.test.ts test/release-hook-grammar.test.ts test/release-permissions-docs.test.ts test/release-prepare-restart.test.ts test/release-provenance.test.ts test/release-recovery-signer.test.ts test/release-repair.test.ts test/release-review.test.ts test/release-runtime-windows.test.ts test/release-runtime.test.ts test/shell-command-scan.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts,project,codex-sol,"2026-11-21T05:21:21.071Z",local_mutation,fix/release-hook-wrapper-options-bm
+  "node --test --test-name-pattern=\"conditional notes accept prepared script|custom notes choose one renderer\" test/release-hook-grammar.test.ts",project,codex-sol,"2026-11-21T05:32:05.196Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test test/release-hook-grammar.test.ts test/shell-command-scan.test.ts test/release-runtime.test.ts test/changelog-sections.test.ts,project,codex-sol,"2026-11-21T14:01:46.991Z",local_mutation,fix/release-hook-wrapper-options-bm
+docs[3]{path,scope}:
+  CHANGELOG.md,project
+  docs/reusable-release.md,project
+  README.md,project
+body: ""

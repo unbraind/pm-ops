@@ -47,6 +47,8 @@ export interface ShellToken {
     unresolved?: boolean;
     /** True when unresolved expansion can produce multiple arguments despite some quoting. */
     multipleWords?: true;
+    /** Literal reserved word in shell command position, as identified by the release lexer. */
+    releaseKeyword?: true;
     /**
      * True when the word's FIRST character came from inside quotes.
      *
@@ -60,6 +62,21 @@ export interface ShellToken {
 }
 /** One simple command: the words it would run, in order. */
 export type ShellCommand = ShellToken[];
+/** Recognize Bash combined output redirection across physical line continuations. */
+export declare function isCombinedOutputRedirect(source: string, index: number): boolean;
+/** Whether this operator continues a literal redirection after shell line joining. */
+export declare function isRedirectionSuffix(source: string, start: number, end: number): boolean;
+/** Record operators from the original source, where quoting and escapes are still visible. */
+export declare function recordShellRedirection(token: ShellToken, source: string, start: number, end: number): void;
+/** The literal shell operator and whether its destination is part of this word. */
+export declare function shellRedirection(token: ShellToken): {
+    operator: string;
+    joined: boolean;
+} | undefined;
+/** A literal option name followed by an equals sign and a single-word expansion. */
+export declare function fixedOptionName(token: ShellToken): string | undefined;
+/** Whether this program's shell text is scanned recursively. */
+export declare function isShellEvaluator(program: string): boolean;
 /** A lexical child region, before any parent binding is expanded. */
 interface ShellChildRegion {
     /** First character of the opening delimiter. */
@@ -92,6 +109,22 @@ interface ShellChildRegion {
  * @returns Every simple command found, outermost first.
  */
 export declare function tokenizeCommands(text: string, depth?: number): ShellCommand[];
+/** Half-open source offsets for a shell word before quote removal. */
+export interface ShellTokenSpan {
+    /** The first source character of the word. */
+    start: number;
+    /** The first source character after the word. */
+    end: number;
+}
+/**
+ * Find commands and retain source offsets for words that can be edited in place.
+ * Words reconstructed from evaluator arguments or decoded escapes may have no
+ * direct source span. The commands are still returned for verification.
+ */
+export declare function tokenizeCommandsWithSpans(text: string): {
+    commands: ShellCommand[];
+    spans: WeakMap<ShellToken, ShellTokenSpan>;
+};
 /**
  * Protect lexical child state from parent structural scans and expansion.
  *
@@ -103,6 +136,14 @@ export declare function isolateShellChildren(text: string, depth?: number, arith
     parent: string;
     children: ShellChildRegion[];
 };
+/**
+ * Drop redirections from argv. Match the operator first so only a bare
+ * operator consumes a separate target, even when a joined target is numeric.
+ *
+ * @param command - One simple command's tokens.
+ * @returns The command without its redirections.
+ */
+export declare function withoutRedirections(command: ShellCommand): ShellCommand;
 /**
  * Whether a command's program is reached through a spawning wrapper.
  *
@@ -156,10 +197,25 @@ export declare function commandName(input: ShellCommand): string | undefined;
  * A command with no wrapper yields exactly one reading, so ordinary commands
  * are unaffected.
  *
- * @param command - One simple command's tokens.
+ * @param input - One simple command's tokens.
  * @returns Each candidate reading, the command's own first.
  */
 export declare function commandCandidates(input: ShellCommand): ShellCommand[];
+/** Read the first executable command, retaining Bun's run subcommand so callers can resolve scripts. */
+export declare function packageScriptCommand(input: ShellCommand): ShellCommand | undefined;
+/** Options that can select a project other than the release hook's own manifest. */
+export declare const RELEASE_PROJECT_OPTION: RegExp;
+/** Environment names whose values can change npm or the generator's behavior. */
+export declare const RELEASE_CONTEXT_VARIABLE: RegExp;
+/** A context change discovered at a wrapper, runner, or shell boundary. */
+export interface ReleaseContextChange {
+    /** The option or command to name in the refusal. */
+    construct: string;
+    /** The command can select a manifest beyond the one available to the resolver. */
+    directory?: boolean;
+}
+/** Locate a release command using only wrappers with explicit argv boundaries. */
+export declare function releaseHookCommand(input: ShellCommand, context?: ReleaseContextChange[], assignments?: ShellToken[]): ShellCommand | undefined;
 /**
  * List a command's arguments -- everything after its program name.
  *

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "id": "794945f0-ebda-4701-a6d8-d4ca2431b7db",
+  "item_path": ".agents/pm/issues/ops-input-startup-timeout.toon",
+  "item_id": "ops-input-startup-timeout",
+  "requested_preference": "ours",
+  "requested_preference_applied": false,
+  "conflict_resolution": "latest_document_update",
+  "fields_from_theirs": [],
+  "union_fields": [
+    "comments",
+    "docs",
+    "tests"
+  ],
+  "merged_field_hashes": {
+    "comments": "f98363d98b2c0085d63207335df5517e8665894f808c72ff6dc50cec87776d26",
+    "docs": "52ccebe202bc386bb973b042f167ba43b6aa08537f9f9cd61e2bc6022d08ff95",
+    "tests": "b2200648f71eb27859a3ed675b061193bfc0570d97769eabe0c4add4614bf5e6"
+  },
+  "decisions": [],
+  "operation": {
+    "kind": "merge",
+    "original_head": "274262bded8918f9853967fac7bfacae9e9b18a9",
+    "original_blob": "99cf54430524c868c993118e23fcc2a089289969"
+  },
+  "state": "reconciled",
+  "created_at": "2026-11-20T15:00:45.254Z",
+  "value_availability": "hash_only",
+  "value_policy": "bounded_non_sensitive_scalars_v1",
+  "reconciled_at": "2026-11-20T15:04:44.447Z"
+}

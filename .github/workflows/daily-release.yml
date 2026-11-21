@@ -370,6 +370,17 @@ jobs:
       - name: Enforce continuation runtime floor
         shell: bash
         run: node "${CONTINUATION_SCRIPT%/scripts/*}/dist/continuation-runtime.js"
+      - name: Verify trusted release tool build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${CONTINUATION_SCRIPT%/scripts/*}"
+          npm ci --include=dev --ignore-scripts --no-audit --no-fund
+          rm -rf -- dist/
+          npm run build
+          git diff --exit-code -- dist/
+          dist_status="$(git status --porcelain=v1 --untracked-files=all --ignored=matching -- dist/)"
+          [[ -z "$dist_status" ]] || { printf '::error::Unexpected release tool dist paths:\n%s\n' "$dist_status"; exit 1; }
       - name: Install pinned release tools
         shell: bash
         run: node "$CONTINUATION_SCRIPT" tools
@@ -451,8 +462,11 @@ jobs:
             const {latestReleaseTag}=createRequire(import.meta.url)(process.env.PM_OPS_MODULE);
             process.stdout.write(latestReleaseTag(readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean)));
           ' "$tags_file")"
-          RELEASE_TODAY="$(TZ="$RELEASE_TIMEZONE" date +%Y.%m.%d)"
-          export RELEASE_TODAY
+          # GitHub creates squash commits with UTC committer timestamps. Sample
+          # once so the scheduling day and expected commit day use one instant.
+          RELEASE_COMMIT_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          RELEASE_TODAY="$(TZ="$RELEASE_TIMEZONE" date -d "$RELEASE_COMMIT_TIMESTAMP" +%Y.%m.%d)"
+          export RELEASE_TODAY RELEASE_COMMIT_TIMESTAMP
           RELEASE_MAIN_SHA="$(git rev-parse HEAD)"
           export RELEASE_MAIN_SHA
           export RELEASE_LAST_TAG="$latest_tag"
@@ -516,6 +530,7 @@ jobs:
           if (prs.length >= 1000) throw new Error('PR candidate read may be truncated; refusing release');
           const plan = decideDailyRelease({
             existingPrs: prs, mainSha: e.RELEASE_MAIN_SHA, today: e.RELEASE_TODAY,
+            expectedCommitTimestamp: e.RELEASE_COMMIT_TIMESTAMP,
             packageVersion: e.RELEASE_PACKAGE_VERSION || undefined, publishedToday: e.RELEASE_PUBLISHED_TODAY === 'true',
             currentPackageVersion: e.RELEASE_CURRENT_PACKAGE_VERSION || undefined,
             registryHasCurrentVersion: e.RELEASE_REGISTRY_HAS_CURRENT_VERSION === 'true',
@@ -523,6 +538,13 @@ jobs:
             releaseTags: readFileSync(process.argv[3], 'utf8').split('\n').filter(Boolean),
             lastRelease: e.RELEASE_LAST_TAG ? { tag: e.RELEASE_LAST_TAG, sha: e.RELEASE_LAST_SHA } : null,
           });
+          // Refuse an installed planner that still pins the scheduling day.
+          const versionDay = plan.npm_version.replace(/^v/, '').split('-')[0].split('.').map(part => part.padStart(2, '0')).join('-');
+          const commitDay = e.RELEASE_COMMIT_TIMESTAMP.slice(0, 10);
+          const expectedPin = versionDay === commitDay ? '' : commitDay;
+          if (plan.should_release && (plan.heading_date ?? '') !== expectedPin) {
+            throw new Error('Release decision returned an incorrect heading_date; rebuild or upgrade the release tools before preparing.');
+          }
           for (const [key, value] of Object.entries(plan)) console.log(key + '=' + value);
           NODE
       - name: Generate recovery notes
@@ -595,11 +617,27 @@ jobs:
               npm run "$BUILD_SCRIPT"
             fi
           fi
+      - name: Prepare npm changelog hooks
+        id: changelog
+        if: steps.decide.outputs.should_release == 'true' && !inputs.rust
+        working-directory: ${{ env.NPM_PROJECT_PATH }}
+        env:
+          RELEASE_HEADING_DATE: ${{ steps.decide.outputs.heading_date }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The tree-change decision already admitted this release. Dependency
+          # and workflow changes still need notes without a closed tracker item.
+          # Persist the same policy for nested release:check and post-tag checks.
+          RELEASE_TOOLS="${CONTINUATION_SCRIPT%/scripts/*}"
+          node "$RELEASE_TOOLS/scripts/prepare-release-changelog.ts" "${GITHUB_OUTPUT:-}"
       - name: Generate changelog and release notes
         if: steps.decide.outputs.should_release == 'true'
         working-directory: ${{ env.NPM_PROJECT_PATH }}
         env:
+          PREPARED_NPM_LIFECYCLE: ${{ steps.changelog.outputs.npm_lifecycle }}
           NPM_VERSION: ${{ steps.decide.outputs.npm_version }}
+          RELEASE_HEADING_DATE: ${{ steps.decide.outputs.heading_date }}
         shell: bash
         run: |
           set -euo pipefail
@@ -608,28 +646,25 @@ jobs:
             just changelog-check
             just release-notes > "$RUNNER_TEMP/RELEASE_NOTES.md"
           else
-            # The tree-change decision already admitted this release. Dependency
-            # and workflow changes still need notes without a closed tracker item.
-            # Persist the same policy for nested release:check and post-tag checks.
-            node --input-type=module <<'NODE'
-          import {readFileSync, writeFileSync} from 'node:fs';
-          const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-          let changed = false;
-          for (const name of new Set([process.env.CHANGELOG_SCRIPT, process.env.CHANGELOG_CHECK_SCRIPT, process.env.NOTES_SCRIPT])) {
-            const script = pkg.scripts?.[name];
-            if (typeof script !== 'string' || !script.trim()) throw new Error('Missing changelog hook: ' + name);
-            if (!script.split(/\s+/).includes('--include-empty')) {
-              pkg.scripts[name] = script + ' --include-empty';
-              changed = true;
-              // The release commit carries this package.json edit; say so instead of changing consumer config silently.
-              console.log('::notice::Release commit appends --include-empty to package.json script "' + name + '" so later changelog checks agree with this dependency-only release.');
+            case "$PREPARED_NPM_LIFECYCLE" in
+              true|false|unknown) ;;
+              *) echo "::error::Missing or invalid prepared npm lifecycle policy"; exit 1 ;;
+            esac
+            verify_lifecycle() {
+              local policy
+              policy=$(node "${CONTINUATION_SCRIPT%/scripts/*}/scripts/project-npm-lifecycle.ts")
+              if [[ "$policy" != "$PREPARED_NPM_LIFECYCLE" ]]; then
+                echo "::error::The npm lifecycle policy changed after changelog preparation"
+                return 1
+              fi
             }
-          }
-          if (changed) writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-          NODE
-            npm run "$CHANGELOG_SCRIPT" -- --include-empty
-            npm run "$CHANGELOG_CHECK_SCRIPT" -- --include-empty
-            npm run --silent "$NOTES_SCRIPT" -- --include-empty > "$RUNNER_TEMP/RELEASE_NOTES.md"
+            verify_lifecycle
+            npm run "$CHANGELOG_SCRIPT"
+            verify_lifecycle
+            npm run "$CHANGELOG_CHECK_SCRIPT"
+            verify_lifecycle
+            npm run --silent "$NOTES_SCRIPT" > "$RUNNER_TEMP/RELEASE_NOTES.md"
+            verify_lifecycle
           fi
           [[ -s "$RUNNER_TEMP/RELEASE_NOTES.md" ]]
       - name: Record preparation stamp
@@ -727,6 +762,7 @@ jobs:
         env:
           RELEASE_BASE_SHA: ${{ steps.decide.outputs.base_sha }}
           WORKFLOW_TOOLS_SHA: ${{ job.workflow_sha }}
+          PREPARED_NPM_LIFECYCLE: ${{ steps.changelog.outputs.npm_lifecycle }}
           VERIFIED_COMMIT: ${{ steps.pack.outputs.commit }}
           VERIFIED_TREE: ${{ steps.pack.outputs.tree }}
           NPM_VERSION: ${{ steps.decide.outputs.npm_version }}
@@ -1169,6 +1205,12 @@ jobs:
             [[ -z "$script" || "$script" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$ ]] || { echo '::error::Hooks must be npm script names.'; exit 1; }
           done
           printf 'NPM_PROJECT_PATH=%s\n' "$project" >> "$GITHUB_ENV"
+      - name: Check prepared heading day before publication
+        if: steps.continue.outputs.action == 'publish' && !inputs.rust
+        shell: bash
+        env:
+          PREPARED_NPM_LIFECYCLE: ${{ steps.continue.outputs.npmLifecycle }}
+        run: node "$CONTINUATION_SCRIPT" heading-date
       - name: Verify npm will accept this workflow's OIDC identity
         if: steps.continue.outputs.action == 'publish' && inputs.npm-publish
         shell: bash
@@ -1343,6 +1385,7 @@ jobs:
         if: steps.continue.outputs.action != 'complete' && steps.extra_publish.outcome == 'success'
         shell: bash
         env:
+          PREPARED_NPM_LIFECYCLE: ${{ steps.continue.outputs.npmLifecycle }}
           RELEASE_TAG: ${{ needs.reconcile.outputs.tag }}
         run: |
           set -euo pipefail
@@ -1358,6 +1401,11 @@ jobs:
             fi
             echo "::notice::${release_tag} is already on origin at the verified commit; nothing to push."
             exit 0
+          fi
+          # Publication is irreversible. A heading mismatch is advisory here,
+          # including recovery of an already published artifact; always tag it.
+          if [[ "$IS_RUST" != true ]] && ! node "$CONTINUATION_SCRIPT" heading-date; then
+            echo "::warning::Published release heading differs from its verified merge day; continuing to tag the accepted artifact."
           fi
           if git rev-parse --verify --quiet "refs/tags/${release_tag}" > /dev/null; then
             existing_sha="$(git rev-list -n 1 "$release_tag")"

@@ -1,8 +1,10 @@
 /** Trusted workflow adapter. An empty probe uses only Node built-ins and performs no installation. */
 import { execFileSync } from "../subprocess.ts";
 import { createHash } from "node:crypto";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { assertReleaseHookHeadingDate, releaseCommitDay, resolveChangelogHooks } from "../release-changelog-options.ts";
+import { projectNpmLifecyclePolicy } from "./project-npm-lifecycle.ts";
 import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "./release-runtime.ts";
 import { originalPublicationSigner, verifyRegistryProvenance, type ProvenanceIdentity, type verifySigstoreBundle } from "../release-provenance.ts";
 import { pathToFileURL } from "node:url";
@@ -460,8 +462,31 @@ async function reconcilePostHook(receipt: CandidateReceipt, pr: RestPr, reposito
   await record("complete");
 }
 
+/** Decode the verified preparation output, including absent legacy receipt fields. */
+function preparedLifecycle(value: string | undefined): boolean | "unknown" {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return "unknown";
+}
+
 /** Invoke one bounded workflow transition; every schedule starts with discovery, never preparation. */
 export async function runReleaseContinuation(mode: string | undefined, verifyProvenance?: typeof verifySigstoreBundle): Promise<void> {
+  if (mode === "heading-date") {
+    const project = required("NPM_PROJECT_PATH");
+    const recorded = process.env.PREPARED_NPM_LIFECYCLE;
+    const lifecycle = projectNpmLifecyclePolicy(project, recorded ? preparedLifecycle(recorded) : undefined);
+    const pkg = JSON.parse(readFileSync(join(project, "package.json"), "utf8")) as { version?: string; scripts: Record<string, string> };
+    const hooks = ["CHANGELOG_SCRIPT", "CHANGELOG_CHECK_SCRIPT", "NOTES_SCRIPT"].map(required);
+    const scripts = resolveChangelogHooks(pkg.scripts, hooks, lifecycle);
+    // The workflow has detached HEAD at the tree-verified merge commit. The
+    // generator dates tags by that commit's committer timestamp (%cI), never
+    // by publication time or the time the tag ref is written.
+    const commitTimestamp = execFileSync("git", ["log", "-1", "--format=%cI", "HEAD"], { cwd: project, encoding: "utf8" }).trim();
+    // pm-changelog 2026.11.6: dist/release-context.js:496,554-558.
+    // Preserve the committer offset by taking the literal date prefix.
+    assertReleaseHookHeadingDate(scripts, hooks, releaseCommitDay(commitTimestamp), pkg.version, lifecycle);
+    return;
+  }
   if (mode === "tools") {
     const prefix = mkdtempSync(join(required("RUNNER_TEMP"), "pm-ops-tools-"));
     const module = installReleaseTools(process.env.RELEASE_TOOLS_ROOT || workflowToolsRoot, prefix, required("PM_OPS_VERSION"));
@@ -488,6 +513,7 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
   if (mode === "manifest") {
     const packageBytes = process.env.IS_RUST === "true" ? Buffer.alloc(0) : readFileSync(join(handoff, "package.tgz"));
     const c: ReleaseCandidate = {
+      npmLifecycle: preparedLifecycle(process.env.PREPARED_NPM_LIFECYCLE),
       schema: 1, repository, defaultBranch: "main", baseSha: required("RELEASE_BASE_SHA"), headSha: required("VERIFIED_COMMIT"), tree: required("VERIFIED_TREE"),
       version: required("NPM_VERSION"), tag: required("RELEASE_TAG"), packageName: process.env.PACKAGE_NAME || "github-only",
       packageSha256: releaseDigest(packageBytes), packageIntegrity: `sha512-${createHash("sha512").update(packageBytes).digest("base64")}`,

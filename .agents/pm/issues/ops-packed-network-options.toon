@@ -1,0 +1,16 @@
+id: ops-packed-network-options
+title: Keep the configured network-family timeout in packed consumer installs
+description: "Round AX verified that test/continuation-selection.acceptance.ts builds a sanitized child environment without NODE_OPTIONS. With degraded network access, the initial npm consumer install exceeded its 240-second bound despite the caller exporting --network-family-autoselection-attempt-timeout=5000. Retrying the unchanged test through a temporary npm launcher that restores only that option passed both npm and native Bun consumers on identical tarball sha256 e43ad16bb909ddd15ef0def4e49f5345e803346f61dcef20809cdadca058245b. Preserve the explicit network-family timeout at the install boundary while retaining credential isolation and avoiding arbitrary preload options."
+type: Issue
+status: open
+priority: 3
+tags[2]: "area:release","area:tests"
+created_at: "2026-11-17T15:29:20.026Z"
+updated_at: "2026-11-17T15:29:24.536Z"
+author: codex-sol
+acceptance_criteria: A regression proves the explicit network-family timeout reaches npm installs through the sanitized fixture environment; unrelated inherited variables and arbitrary preload flags remain excluded; unchanged packed npm and Bun acceptance passes.
+files[1]{path,scope}:
+  test/continuation-selection.acceptance.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node test/continuation-selection.acceptance.ts,project,codex-sol,"2026-11-17T15:29:24.415Z",local_mutation,fix/resumed-release-heading-date
+body: ""

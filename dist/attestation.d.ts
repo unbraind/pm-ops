@@ -90,6 +90,25 @@ export declare function isPublishCommand(command: ShellCommand): boolean;
  * @returns True when the command publishes with an attestation.
  */
 export declare function attestationEnabled(command: ShellCommand): boolean;
+/** Executable shell text and the physical source extent that contains it. */
+interface ExecutableShellBody {
+    /** Decoded shell passed to the scanner. */
+    text: string;
+    /** Exec-form words bypass shell tokenization entirely. */
+    argv?: ShellCommand;
+    /** Raw scalar extent, retaining physical newlines for diagnostics. */
+    raw: string;
+    /** One-based physical line at the beginning of the extent. */
+    line: number;
+    /** Effective workflow step directory, including inherited run defaults. */
+    workingDirectory?: unknown;
+    /** Workflow, job and step environment merged in execution precedence. */
+    environment?: Readonly<Record<string, unknown>>;
+    /** The workflow step has a literal false condition. */
+    disabled?: true;
+}
+/** Extract structured commands together with their original scalar source ranges. */
+export declare function executableShellBodies(source: SourceFile): ExecutableShellBody[];
 /**
  * Find publish paths in independent executable bodies, retaining opaque-path refusals.
  * @param source - Repository-relative path and executable source text.
@@ -171,4 +190,5 @@ export declare function verify(root: string): PublishAttestationResult;
  * @param exit - Called with the process exit code when there were failures.
  */
 export declare function report(result: VerifierResult, write: (line: string) => void, exit: (code: number) => void): void;
+export {};
 //# sourceMappingURL=attestation.d.ts.map

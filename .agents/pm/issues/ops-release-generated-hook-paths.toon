@@ -1,0 +1,33 @@
+id: ops-release-generated-hook-paths
+title: Audit changelog generators written into a script and executed later
+description: Greptile reproduced a redirected here-document flowing into a later script invocation on 9ba9b87. Discussion r4649579841 on pm-ops#295 records the new case.
+type: Issue
+status: open
+priority: 1
+tags[2]: "area:release","gh:unbraind/pm-ops#295"
+created_at: "2026-11-21T01:19:43.101Z"
+updated_at: "2026-11-21T03:07:43.437Z"
+author: codex-sol
+repro_steps: "Analyze a hook that uses quoted cat here-document input containing a versioned pm-changelog call, redirects to generate.sh, then runs sh generate.sh."
+expected_result: Refuse a generator-bearing here-document when its output is later executable input. Continue accepting literal preview files and preserve the runner and date-policy refusal fixtures.
+actual_result: The date auditor treats the here-document as data and misses the generator executed by the later shell command.
+regression: true
+comments[8]{created_at,author,text}:
+  "2026-11-21T01:49:12.655Z",codex-sol,Round FL verifies PRRT_kwDOTOTl1M66PZ3I with paired fixtures for redirect output executed later and redirect output retained as data.
+  "2026-11-21T01:55:11.363Z",codex-sol,"The generated script fixture failed on 9ba9b87 while the paired data-only fixture passed. The candidate refuses the redirect-to-execution sequence in preparation, continuation and date audit. Committed helpers and redirected data still pass. The inherited title and policy controls pass. The pinned fleet inventory accepted 142 hooks and 144 bodies across 39 manifests."
+  "2026-11-21T02:02:29.642Z",codex-sol,"Round FL thread map. PRRT_kwDOTOTl1M66PZ3I is fixed by 02ddd0b. Redirect output that becomes a later script entry is refused with guidance to commit the script. The paired fixtures cover file launchers, ordinary data operands, quoting, and continued acceptance of inherited title values. The existing follow-up record was carried forward in 5e71c82."
+  "2026-11-21T02:27:40.435Z",codex-sol,"Round FL local results for 02ddd0b. Nine focused test files passed 348 of 348. Four isolated signing, UTF-8 and fresh-preview controls passed. Typecheck, test build, lint, duplication at zero percent, docstring and changelog checks passed. npm run coverage passed with 2158 tests, two opt-in skips, and 100 percent statements, branches, functions and lines across 53 sources. The artifact-reader fixture passed without a retry. The rewritten candidate gate is still running."
+  "2026-11-21T02:37:51.508Z",codex-sol,"Round FL final local verification for PRRT_kwDOTOTl1M66PZ3I and 02ddd0b. The pinned fleet scan accepted 142 hooks and 144 bodies from 39 manifests on both the starting and candidate versions. The full rewritten release-heading acceptance passed with 2158 tests, two opt-in skips, and 100 percent in all four dimensions across 53 sources. Both npm audits reported zero vulnerabilities. Pack dry run, changelog section and date checks, publication attestation and installed lifecycle policy passed. The regenerated changelog retains ops-b2bs under Unreleased."
+  "2026-11-21T02:45:54.689Z",codex-sol,Greptile discussion r4650110264 on 9a47c8c found a false refusal on an unrelated smoke script. The paired fixture first reproduced that refusal in both a package script and an unrelated workflow step. It also requires refusal when the configured changelog hook forwards into that script. Scope the generated-file rule to the existing release context and rerun the gates.
+  "2026-11-21T02:48:36.727Z",codex-sol,"Round FL follow-up maps PRRT_kwDOTOTl1M66QqFm to f00d119. The generated-file rule from 02ddd0b now follows the audited release context, including a configured hook forwarding into the tested smoke script. The same stand-alone smoke script and an unrelated workflow step pass. Paired controls, the date verifier and the pinned 142-hook and 144-body fleet scan passed. Focused and full release gates are running on the scoped fix."
+  "2026-11-21T03:07:29.983Z",codex-sol,"Round FL follow-up f00d119 passed all 349 focused tests, the paired scoped refusal and acceptance tests, typecheck, test build, lint, duplication, docstring, date audit, and a byte-identical changelog regeneration. The fleet accepted all 142 hooks and 144 bodies. At the pre-cutoff checkpoint, standalone coverage and rewritten acceptance were still running. Pushed head 9a47c8c passed CI and CodeQL, with the Greptile scope finding tracked above."
+files[3]{path,scope}:
+  release-changelog-options.ts,project
+  release-hook-grammar.ts,project
+  test/release-hook-grammar.test.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "node --test --test-name-pattern=\"release hooks refuse to execute|redirected release data|inherited npm bindings\" test/release-hook-grammar.test.ts",project,codex-sol,"2026-11-21T01:55:14.203Z",local_mutation,fix/release-hook-wrapper-options-bm
+  "node --test --test-name-pattern=\"only release hook paths|release hooks refuse to execute|redirected release data|inherited npm bindings\" test/release-hook-grammar.test.ts",project,codex-sol,"2026-11-21T02:47:09.872Z",local_mutation,fix/release-hook-wrapper-options-bm
+docs[1]{path,scope}:
+  docs/reusable-release.md,project
+body: ""

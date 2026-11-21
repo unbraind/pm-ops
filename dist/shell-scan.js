@@ -31,6 +31,49 @@
  *
  * @packageDocumentation
  */
+const fixedOptionNames = new WeakMap();
+const redirections = new WeakMap();
+const REDIRECTION = /^(?:[0-9]*(?:>>|>\||<>|<<<|<<-?|[<>])&?|&>>?)/;
+/** Recognize Bash combined output redirection across physical line continuations. */
+export function isCombinedOutputRedirect(source, index) {
+    if (source[index] !== "&")
+        return false;
+    let next = index + 1;
+    while (source.startsWith("\\\n", next))
+        next += 2;
+    return source[next] === ">";
+}
+/** Whether this operator continues a literal redirection after shell line joining. */
+export function isRedirectionSuffix(source, start, end) {
+    const operator = source[end];
+    if (operator !== "&" && operator !== "|")
+        return false;
+    const prefix = source.slice(start, end).replaceAll("\\\n", "");
+    return operator === "&" ? /^[0-9]*[<>]>?$/.test(prefix) : /^[0-9]*>$/.test(prefix);
+}
+/** A file redirect ends an attached word except after a literal descriptor or an incomplete operator. */
+function startsFileRedirect(source, start, end, character) {
+    const prefix = source.slice(start, end).replaceAll("\\\n", "");
+    const continuation = character === ">" ? /^(?:[0-9]*[<>]?|&>?)$/ : /^[0-9]*<{0,2}$/;
+    return !continuation.test(prefix);
+}
+/** Record operators from the original source, where quoting and escapes are still visible. */
+export function recordShellRedirection(token, source, start, end) {
+    if (!REDIRECTION.test(token.value))
+        return;
+    const raw = source.slice(start, end).replaceAll("\\\n", "");
+    const operator = REDIRECTION.exec(raw)?.[0];
+    if (operator !== undefined)
+        redirections.set(token, { operator, joined: raw.length > operator.length });
+}
+/** The literal shell operator and whether its destination is part of this word. */
+export function shellRedirection(token) {
+    return redirections.get(token);
+}
+/** A literal option name followed by an equals sign and a single-word expansion. */
+export function fixedOptionName(token) {
+    return fixedOptionNames.get(token);
+}
 /**
  * Words that precede a command without being the command.
  *
@@ -135,6 +178,7 @@ const PREFIX_OPTIONS_WITH_OPERAND = new Map([
     ["yarn", new Set(["-p", "--package", "--cwd"])],
     ["bunx", new Set(["-p", "--package"])],
     ["env", new Set(["-u", "--unset", "-C", "--chdir"])],
+    ["exec", new Set(["-a"])],
     ["sudo", new Set(["-u", "--user", "-g", "--group", "-p", "--prompt", "-h", "--host", "-r", "--role", "-t", "--type", "-C", "--close-from", "-D", "--chdir", "-R", "--chroot", "-U", "--other-user"])],
     ["doas", new Set(["-u", "-C"])],
     ["nice", new Set(["-n", "--adjustment"])],
@@ -165,6 +209,10 @@ function basename(word) {
  * The command-prefix scan exposes BusyBox sh/ash applets as these shell names.
  */
 const SHELL_EVALUATORS = new Set(["eval", "bash", "sh", "dash", "zsh", "ksh", "mksh", "ash", "yash", "posh"]);
+/** Whether this program's shell text is scanned recursively. */
+export function isShellEvaluator(program) {
+    return SHELL_EVALUATORS.has(program);
+}
 /** True when the character ends a word outside of quotes. */
 function isOperatorStart(character) {
     return character === ";"
@@ -283,11 +331,20 @@ export function tokenizeCommands(text, depth = 0) {
     return scanShellCommands(text, depth, false);
 }
 /**
+ * Find commands and retain source offsets for words that can be edited in place.
+ * Words reconstructed from evaluator arguments or decoded escapes may have no
+ * direct source span. The commands are still returned for verification.
+ */
+export function tokenizeCommandsWithSpans(text) {
+    const spans = new WeakMap();
+    return { commands: scanShellCommands(text, 0, false, undefined, spans), spans };
+}
+/**
  * Scan public tokens or collect lexical children without entering their scopes.
  * Arithmetic mode suppresses operand commands while retaining executable children.
  * The public entry retains its existing signature and token object contract.
  */
-function scanShellCommands(text, depth, arithmetic, children) {
+function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0) {
     if (depth > 8)
         return [];
     const commands = [];
@@ -296,10 +353,11 @@ function scanShellCommands(text, depth, arithmetic, children) {
     let command = [];
     let value = "";
     let quoted = false;
-    let unresolved = false;
+    let unresolvedAt;
     let multipleWords = false;
     let startsQuoted = false;
     let started = false;
+    let wordStart = 0;
     /** An incomplete quoted word cannot prove the remaining executable source. */
     let unterminated = false;
     /** Conditional operands are words, including regex metacharacters. */
@@ -314,12 +372,19 @@ function scanShellCommands(text, depth, arithmetic, children) {
     // each search resumes past its last match, including an absent end sentinel.
     let parameterClose = -1;
     let parameterAt = -1;
-    const endWord = () => {
+    const endWord = (end) => {
         if (!started)
             return;
-        const token = unresolved ? { value, quoted, unresolved, startsQuoted } : { value, quoted, startsQuoted };
+        const token = unresolvedAt === undefined ? { value, quoted, startsQuoted } : { value, quoted, unresolved: true, startsQuoted };
+        recordShellRedirection(token, text, wordStart, end);
         if (quoted && multipleWords)
             token.multipleWords = true;
+        if (unresolvedAt !== undefined && quoted && !multipleWords) {
+            const name = /^(-{1,2}[A-Za-z0-9_-]+)=/.exec(value.slice(0, unresolvedAt))?.[1];
+            if (name !== undefined)
+                fixedOptionNames.set(token, name);
+        }
+        spans?.set(token, { start: offset + wordStart, end: offset + end });
         const caseState = cases.at(-1);
         const keyword = !token.quoted && token.unresolved !== true;
         if (caseState === "pattern") {
@@ -340,19 +405,21 @@ function scanShellCommands(text, depth, arithmetic, children) {
         regexOperand = conditional && !token.quoted && token.value === "=~";
         value = "";
         quoted = false;
-        unresolved = false;
+        unresolvedAt = undefined;
         multipleWords = false;
         startsQuoted = false;
         started = false;
     };
-    const endCommand = () => {
-        endWord();
+    const endCommand = (end) => {
+        endWord(end);
         if (command.length > 0)
             commands.push(command);
         command = [];
     };
     for (let index = 0; index < text.length; index += 1) {
         const character = text[index];
+        if (!started)
+            wordStart = index;
         if (!started && text.startsWith("[[", index) && isBraceBoundary(text[index + 2])
             && commandName(command) === undefined) {
             conditional = true;
@@ -360,7 +427,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
         if (conditional && !started && text.startsWith("]]", index) && isBraceBoundary(text[index + 2])) {
             value = "]]";
             started = true;
-            endCommand();
+            endCommand(index + 2);
             conditional = false;
             index += 1;
             continue;
@@ -368,7 +435,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
         if (character === "#" && !started) {
             const newline = text.indexOf("\n", index);
             index = newline === -1 ? text.length : newline;
-            endCommand();
+            endCommand(index);
             continue;
         }
         if (character === "\\") {
@@ -417,12 +484,12 @@ function scanShellCommands(text, depth, arithmetic, children) {
                     // Arithmetic text is an operand, while command substitutions inside
                     // it still execute. Retain that mode instead of inventing commands.
                     nested.push({ start: index, end, text: body, arithmetic: inner !== "`" && text[index + 2] === "(" });
-                    unresolved = true;
+                    unresolvedAt ??= value.length;
                     index = end;
                     continue;
                 }
                 if (inner === "$") {
-                    unresolved = true;
+                    unresolvedAt ??= value.length;
                     if (text[index + 1] === "@")
                         multipleWords = true;
                     else if (text[index + 1] === "{") {
@@ -454,7 +521,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
             // Unquoted process substitutions execute in every word context too.
             // Only dollar-prefixed arithmetic expansions suppress operand commands.
             nested.push({ start: index, end, text: inner, arithmetic: character === "$" && text[index + 2] === "(" });
-            unresolved = true;
+            unresolvedAt ??= value.length;
             multipleWords = true;
             index = end - 1;
             if (!started)
@@ -501,8 +568,8 @@ function scanShellCommands(text, depth, arithmetic, children) {
                     end += 1;
                 }
             }
+            unresolvedAt ??= value.length;
             value += text.slice(index, end);
-            unresolved = true;
             multipleWords = true;
             if (!started)
                 startsQuoted = false;
@@ -523,17 +590,17 @@ function scanShellCommands(text, depth, arithmetic, children) {
             continue;
         }
         if (character === "$" && (!regexOperand || /[A-Za-z0-9_@*#$?!-]/u.test(text[index + 1] ?? ""))) {
-            unresolved = true;
+            unresolvedAt ??= value.length;
             multipleWords = true;
         }
         if (character === " " || character === "\t" || character === "\r") {
-            endWord();
+            endWord(index);
             continue;
         }
         if (conditional && isOperatorStart(character)) {
             // Conditional control operators separate operands, never commands.
             if (!regexOperand && (character === "&" || character === "|")) {
-                endWord();
+                endWord(index);
                 continue;
             }
             // Only substitutions above introduce executable children in [[ ... ]].
@@ -542,17 +609,17 @@ function scanShellCommands(text, depth, arithmetic, children) {
             continue;
         }
         if (cases.at(-1) === "pattern" && value === "esac" && !quoted && isOperatorStart(character))
-            endWord();
+            endWord(index);
         if (cases.at(-1) === "pattern") {
             if (character === ")") {
-                endCommand();
+                endCommand(index);
                 cases[cases.length - 1] = "body";
             }
             else if (character === "(" && !started) {
                 // Bash permits an optional opening parenthesis before an arm pattern.
             }
             else if (character === "|" || character === "\n")
-                endWord();
+                endWord(index);
             else {
                 value += character;
                 started = true;
@@ -560,10 +627,14 @@ function scanShellCommands(text, depth, arithmetic, children) {
             continue;
         }
         if (cases.at(-1) === "body" && character === ";" && (text[index + 1] === ";" || text[index + 1] === "&")) {
-            endCommand();
+            endCommand(index);
             cases[cases.length - 1] = "pattern";
             index += text[index + 1] === ";" && text[index + 2] === "&" ? 2 : 1;
             continue;
+        }
+        if (started && (character === "<" || character === ">") && startsFileRedirect(text, wordStart, index, character)) {
+            endWord(index);
+            wordStart = index;
         }
         if (isOperatorStart(character)) {
             if (children !== undefined && !arithmetic && character === "(" && !started
@@ -572,7 +643,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
                 const child = readSubstitution(text, index, 1);
                 nested.push({ start: index, end: child.end, text: child.inner, arithmetic: text[index + 1] === "(", subshell: true });
                 index = child.end - 1;
-                endCommand();
+                endCommand(index);
                 continue;
             }
             // `{` and `}` are reserved WORDS, not metacharacters: they delimit a
@@ -595,15 +666,21 @@ function scanShellCommands(text, depth, arithmetic, children) {
                     continue;
                 }
             }
-            // `2>&1` is one redirection, not a command ended by a backgrounding `&`.
-            // The `&` belongs to the word only while that word is still an operator
-            // awaiting its target.
-            if (character === "&" && /^[0-9]*[<>]>?$/.test(value)) {
+            if (isCombinedOutputRedirect(text, index)) {
+                endWord(index);
+                wordStart = index;
+                value = character;
+                started = true;
+                continue;
+            }
+            // Keep descriptor duplication and clobber redirections in the same
+            // command. A quoted or escaped operator prefix cannot introduce them.
+            if (isRedirectionSuffix(text, wordStart, index)) {
                 value += character;
                 started = true;
                 continue;
             }
-            endCommand();
+            endCommand(index);
             continue;
         }
         value += character;
@@ -611,7 +688,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
             startsQuoted = false;
         started = true;
     }
-    endCommand();
+    endCommand(text.length);
     if (unterminated || conditional || arrayAssignment || cases.length > 0)
         commands.push([{ value: "$", quoted: false, unresolved: true, startsQuoted: false }]);
     if (arithmetic)
@@ -620,8 +697,11 @@ function scanShellCommands(text, depth, arithmetic, children) {
         children.push(...nested);
         return commands;
     }
-    for (const body of nested)
-        commands.push(...scanShellCommands(body.text, depth + 1, body.arithmetic));
+    for (const body of nested) {
+        const start = body.start + (text[body.start] === "`" ? 1 : 2);
+        const childSpans = text.startsWith(body.text, start) ? spans : undefined;
+        commands.push(...scanShellCommands(body.text, depth + 1, body.arithmetic, undefined, childSpans, offset + start));
+    }
     for (const found of [...commands]) {
         // A YAML key's value is shell text, and it may arrive as ONE quoted word:
         // `run: "npm publish"` leaves a single token holding the whole command, so
@@ -641,7 +721,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
         // evaluator at all.
         for (const candidate of commandCandidates(found)) {
             const name = commandName(candidate);
-            if (name === undefined || !SHELL_EVALUATORS.has(name))
+            if (name === undefined || !isShellEvaluator(name))
                 continue;
             const words = candidate.slice(1).map((argument) => argument.value);
             // The shell joins an evaluator's words with a space and evaluates the
@@ -681,48 +761,20 @@ export function isolateShellChildren(text, depth = 0, arithmetic = false) {
     return { parent: arithmetic ? "" : parent, children };
 }
 /**
- * True when an unquoted word is a redirection operator rather than a command word.
- *
- * A redirection and its target are not part of the command the shell runs, so
- * `> /dev/null npm publish` runs npm. A scan that reads words in order sees `>`
- * as the program and audits nothing. The forms accepted here are the ones a
- * workflow actually writes: the plain operators, a file-descriptor prefix
- * (`2>`, `2>>`), the duplicating forms (`>&`, `2>&1`, `&>`), and the read-write
- * form `<>`. `<>` has to be named explicitly: it is not `<` followed by `>`, so
- * without it the operator was read as a joined redirection that consumes no
- * target, its target `/dev/null` became the command word, and the real
- * `npm publish` after it was never audited.
- *
- * @param token - One command word.
- * @returns True when the word is a redirection operator.
- */
-function isRedirection(token) {
-    if (token.startsQuoted)
-        return false;
-    return /^(?:[0-9]*(?:>>?|<>|<<?<?)&?[0-9-]*|&>>?)$/.test(token.value);
-}
-/**
- * Drop a command's redirections, so only the words it runs remain.
- *
- * An operator written apart from its target (`> file`) consumes the word after
- * it; one written joined to it (`>file`, `2>&1`) consumes nothing further.
+ * Drop redirections from argv. Match the operator first so only a bare
+ * operator consumes a separate target, even when a joined target is numeric.
  *
  * @param command - One simple command's tokens.
  * @returns The command without its redirections.
  */
-function withoutRedirections(command) {
+export function withoutRedirections(command) {
     const kept = [];
     for (let index = 0; index < command.length; index += 1) {
         const token = command[index];
-        if (!isRedirection(token)) {
-            // A joined form such as `>file` or `2>&1` is one word and takes no target.
-            if (!token.startsQuoted && /^(?:[0-9]*>>?|[0-9]*<<?<?|&>>?)[^\s]/.test(token.value))
-                continue;
+        const redirect = shellRedirection(token);
+        if (!redirect)
             kept.push(token);
-            continue;
-        }
-        // A bare operator takes the next word as its target.
-        if (!/&[0-9-]$/.test(token.value))
+        else if (!redirect.joined)
             index += 1;
     }
     return kept;
@@ -758,9 +810,10 @@ function withoutRedirections(command) {
  * wrapper class.
  *
  * @param command - One simple command's tokens.
+ * @param preserveBunRun - Keep Bun script execution available to package-script callers.
  * @returns The program index and whether a spawning wrapper was consumed.
  */
-function scanCommandPrefix(command) {
+function scanCommandPrefix(command, preserveBunRun = false) {
     let index = 0;
     let sawPrefix = false;
     let spawned = false;
@@ -769,7 +822,7 @@ function scanCommandPrefix(command) {
     let lastPrefix;
     while (index < command.length) {
         const token = command[index];
-        if (!token.startsQuoted && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(token.value)) {
+        if ((!token.startsQuoted || lastPrefix === "env") && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(token.value)) {
             index += 1;
             continue;
         }
@@ -780,6 +833,15 @@ function scanCommandPrefix(command) {
             lastPrefix = base;
             index += 1;
             continue;
+        }
+        // A command lookup consumes its operands as names. Only the execution
+        // form of the builtin is a wrapper around the next program.
+        if (base === "command") {
+            let option = index + 1;
+            while (command[option]?.value === "-p")
+                option += 1;
+            if (/^-p*[vV][pvV]*$/.test(command[option]?.value ?? ""))
+                return { index, spawned };
         }
         if (COMMAND_PREFIXES.has(base)) {
             sawPrefix = true;
@@ -795,13 +857,14 @@ function scanCommandPrefix(command) {
             index += 1;
             continue;
         }
-        if (second !== undefined && TWO_WORD_PREFIXES.get(base)?.has(second.value) === true) {
+        if (second !== undefined && TWO_WORD_PREFIXES.get(base)?.has(second.value) === true
+            && !(preserveBunRun && base === "bun" && second.value === "run")) {
             sawPrefix = true;
             lastPrefix = base;
             index += 2;
             continue;
         }
-        if (sawPrefix && !token.startsQuoted && token.value.startsWith("-")) {
+        if (sawPrefix && (!token.startsQuoted || lastPrefix === "timeout") && token.value.startsWith("-")) {
             // Consume the option's operand too when the prefix that introduced it
             // takes one, so the operand is never mistaken for the program. `env -u
             // parallel npm --version` must not read `parallel` as a spawning wrapper.
@@ -809,6 +872,13 @@ function scanCommandPrefix(command) {
             if (lastPrefix !== undefined && PREFIX_OPTIONS_WITH_OPERAND.get(lastPrefix)?.has(token.value) === true) {
                 index += 1;
             }
+            continue;
+        }
+        // timeout consumes one positional duration after its options, then the
+        // command begins. The duration can itself come from a shell expansion.
+        if (lastPrefix === "timeout") {
+            lastPrefix = undefined;
+            index += 1;
             continue;
         }
         // The YAML `run` key carries executable shell text as its value:
@@ -899,7 +969,7 @@ export function commandName(input) {
  * A command with no wrapper yields exactly one reading, so ordinary commands
  * are unaffected.
  *
- * @param command - One simple command's tokens.
+ * @param input - One simple command's tokens.
  * @returns Each candidate reading, the command's own first.
  */
 export function commandCandidates(input) {
@@ -917,6 +987,83 @@ export function commandCandidates(input) {
         candidates.push(command.slice(index));
     }
     return candidates;
+}
+/** Read the first executable command, retaining Bun's run subcommand so callers can resolve scripts. */
+export function packageScriptCommand(input) {
+    const command = withoutRedirections(input);
+    const { index } = scanCommandPrefix(command, true);
+    return index < command.length ? command.slice(index) : undefined;
+}
+/** Canonical release wrappers and the option spellings that take no separate operand. */
+const RELEASE_WRAPPERS = {
+    timeout: /^(?:--(?:foreground|preserve-status|verbose)|-[pv])$/,
+    nice: /^-\d+$/,
+    env: /^(?:-i|--ignore-environment)$/,
+    command: /^-p$/,
+    exec: /^-[cl]+$/,
+    stdbuf: /^-[ioe].+$/,
+    time: /^-p$/,
+    npx: /^(?:-y|--yes|--no-install)$/,
+    bunx: /^(?:--bun|--no-install)$/,
+    npm: /^(?:-y|--yes)$/,
+};
+/** Options that can select a project other than the release hook's own manifest. */
+export const RELEASE_PROJECT_OPTION = /^(?:-[Cw]|--(?:prefix|cwd|dir|chdir|filter|workspace|(?:no-)?workspaces|(?:no-)?include-workspace-root)(?:=|$))/;
+/** Environment names whose values can change npm or the generator's behavior. */
+export const RELEASE_CONTEXT_VARIABLE = /^(?:npm_config_|pm_)[\w]+(?=\+?=|$)/i;
+/** Locate a release command using only wrappers with explicit argv boundaries. */
+export function releaseHookCommand(input, context, assignments) {
+    const words = withoutRedirections(input);
+    let i = 0;
+    while (words[i]?.releaseKeyword)
+        i++;
+    while (i < words.length && !words[i].startsQuoted && /^[A-Za-z_]\w*\+?=/.test(words[i].value)) {
+        const assignment = words[i++];
+        assignments?.push(assignment);
+        const variable = RELEASE_CONTEXT_VARIABLE.exec(assignment.value)?.[0];
+        if (variable)
+            context?.push({ construct: variable + " assignment" });
+    }
+    while (i < words.length) {
+        const token = words[i];
+        const name = basename(token.value);
+        const pair = (name === "npm" && words[i + 1]?.value === "exec") || (name === "bun" && words[i + 1]?.value === "x");
+        const wrapper = pair && name === "bun" ? "bunx" : name;
+        if (!Object.hasOwn(RELEASE_WRAPPERS, wrapper) || (name === "npm" && !pair) || token.unresolved)
+            break;
+        const start = i;
+        i += pair ? 2 : 1;
+        while (i < words.length && words[i].value.startsWith("-")) {
+            const flag = words[i++].value;
+            if (flag === "--")
+                break;
+            if ((wrapper === "env" || wrapper === "npm" || wrapper === "npx" || wrapper === "bunx") && RELEASE_PROJECT_OPTION.test(flag)) {
+                context?.push({ construct: (wrapper === "npm" ? "npm exec" : wrapper) + " " + flag, directory: true });
+                return words.slice(start);
+            }
+            if ((wrapper === "env" && /^(?:-$|-[iu]|--(?:ignore-environment|unset)(?:=|$))/.test(flag))
+                || (wrapper === "exec" && RELEASE_WRAPPERS.exec.test(flag) && flag.includes("c"))) {
+                context?.push({ construct: wrapper + " " + flag });
+            }
+            const options = PREFIX_OPTIONS_WITH_OPERAND.get(wrapper);
+            if (options?.has(flag))
+                i++;
+            else if (!options?.has(flag.split("=")[0]) && !RELEASE_WRAPPERS[wrapper].test(flag))
+                return words.slice(start);
+        }
+        if (wrapper === "env") {
+            while (/^[A-Za-z_][A-Za-z_0-9]*=/.test(words[i]?.value ?? "")) {
+                const assignment = words[i++];
+                assignments?.push(assignment);
+                const variable = RELEASE_CONTEXT_VARIABLE.exec(assignment.value)?.[0];
+                if (variable)
+                    context?.push({ construct: "env " + variable + " assignment" });
+            }
+        }
+        if (wrapper === "timeout")
+            i++;
+    }
+    return i < words.length ? words.slice(i) : undefined;
 }
 /**
  * List a command's arguments -- everything after its program name.

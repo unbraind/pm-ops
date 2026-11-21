@@ -96,7 +96,7 @@ test("registry verifier CLI binds the caller identity and fails closed on malfor
     const result = spawnSync(process.execPath, [new URL("../scripts/verify-registry-provenance.ts", import.meta.url).pathname], { input: readFileSync(join(root, "proof.json")), encoding: "utf8", timeout: 30_000, env: { PATH: process.env.PATH, ...values } });
     assert.equal(result.status, 1); assert.notEqual(result.stderr, "");
     mkdirSync(join(root, "scripts"));
-    for (const path of ["release-provenance.ts", "subprocess.ts", "scripts/verify-registry-provenance.ts", "scripts/release-runtime.ts", "scripts/main-invocation.ts"]) cpSync(new URL("../" + path, import.meta.url), join(root, path));
+    for (const path of ["release-provenance.ts", "subprocess.ts", "merge-driver.ts", "scripts/verify-registry-provenance.ts", "scripts/release-runtime.ts", "scripts/main-invocation.ts"]) cpSync(new URL("../" + path, import.meta.url), join(root, path));
     writeFileSync(join(root, "package.json"), '{"type":"module"}');
     const privateModules = join(root, ".github/release-runtime/node_modules"); mkdirSync(privateModules, { recursive: true });
     symlinkSync(dirname(createRequire(import.meta.url).resolve("sigstore/package.json")), join(privateModules, "sigstore"), "junction");

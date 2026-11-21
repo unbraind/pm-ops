@@ -677,6 +677,64 @@ the release tag does not change the committed changelog. Nonempty unreleased
 work stays visible, and empty version sections retain their notes.
 Regenerating main cannot change changelogs inside historical release commits.
 
+## Release changelog hook grammar
+
+Preparation, continuation and the date verifier read the same release-hook
+language. In workflows, each YAML `run` value is a complete shell body. Quotes
+can contain spaces, newlines, a literal `#`, or an operator.
+
+- Run `pm-changelog` directly, by executable path, or through the repository's
+  `node scripts/pm-changelog.ts` adapter or generator entry point `node dist/cli.js`.
+  A versioned invocation takes exactly one kind of date policy,
+  `--date-from-version` or `--date-fallback YYYY-MM-DD`. Supply a literal
+  release version or use `--release-version-from-package`. An explicit
+  `--date` override is refused for versioned release hooks.
+- Forward to a literal local script with `npm run [--if-present] <script> -- <args>`,
+  the npm or pnpm `run-script` alias, `bun run`, or `pnpm run`. npm runs enabled,
+  nonempty `pre<script>` and `post<script>` around the main script. Only the main
+  script receives the forwarded arguments. An explicit npm `--ignore-scripts`
+  disables its lifecycle siblings, including in nested npm calls. Bun forwards also cover
+  declared pre/post writers. A pnpm forward with an implicit generator writer
+  requires an explicit npm forward because pnpm lifecycle execution is configurable.
+  Place forwarded npm arguments after `--`.
+- Recognized execution prefixes are `timeout`, `nice`, `env`, `command`,
+  `exec`, `stdbuf`, `time`, `npx`, `bunx`, `bun x` and `npm exec`.
+  For example, `timeout "--signal" TERM 60 npm run changelog:full` has the
+  same generator and arguments as the unwrapped script.
+- Separate commands with `&&`, `||`, `;` or a newline. Pipelines into ordinary output filters such as `awk` and `sed` are
+  checked by stage, including descriptor duplication such as `2>&1 | grep Release`.
+  Piping generator commands or text into an opaque executable is refused. File checks such as `test` and `[`, command lookups
+  such as `command -v`, printed text and package administration are data.
+  The date verifier skips direct generator commands without a version input.
+
+Keep generator option names literal. Put dynamic scalar values in a quoted
+operand, for example `--title "$TITLE"`. Shell evaluators, command substitutions,
+array expansions and executable here-documents produce a refusal with the
+canonical replacement. Preparation inserts `--include-empty` ahead of a
+trailing value-taking option whose operand a caller supplies.
+
+### Execution context
+
+The resolver follows every script forward from the release hook to the
+generator. It refuses a path when any command changes context in a way it
+cannot model:
+
+- Directory changes such as `cd`, `pushd`, generator `--pm-cwd`, runner
+  `--prefix`, `-C` or `--workspace`, and a workflow `working-directory` outside
+  the root package.
+- Environment edits such as `env -u`, `env -i`, or setting, exporting or
+  unsetting `npm_config_*` or `PM_*` variables in the hook. For an npm
+  forward the resolver supports the literal lifecycle setting, for example
+  `env npm_config_ignore_scripts=true npm run writer`. A workflow environment
+  value or project `.npmrc` can also set `ignore-scripts`. When its value is
+  unknown, preparation refuses an implicit pre/post hook that may write
+  `CHANGELOG.md`.
+- Wrappers outside the supported list, including `nohup`, at any depth.
+
+The refusal names the construct and gives the canonical form. Run
+`pm-changelog` directly from the root package with literal option names and
+one date policy, or put it in a local script and use `npm run <script> -- <args>`.
+
 ## Cheapest valid re-verification plans
 
 `pm ops reverify` selects the exact cheapest approved dependency closure that

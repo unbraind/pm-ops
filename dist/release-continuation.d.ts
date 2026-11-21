@@ -1,3 +1,4 @@
+export { assertReleaseHeadingDate } from "./release-changelog-options.ts";
 /** Immutable candidate prepared by a trusted default-branch workflow. */
 export interface ReleaseCandidate {
     schema: 1;
@@ -16,6 +17,8 @@ export interface ReleaseCandidate {
     opsVersion: string;
     /** Exact trusted tool commit; absent only on legacy receipts. */
     toolsSha?: string;
+    /** Effective npm lifecycle execution used to verify the prepared hooks. */
+    npmLifecycle?: boolean | "unknown";
     runId: number;
     runAttempt: number;
     workflow: string;

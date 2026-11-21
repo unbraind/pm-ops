@@ -1,19 +1,87 @@
 /** Install locked runtime dependencies only when release tooling is actually needed. */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { devNull, tmpdir } from "node:os";
 import { createRequire } from "node:module";
+import { isExecutableFile } from "../merge-driver.ts";
 import { execFileSync } from "../subprocess.ts";
 
 /** The source checkout containing this trusted helper, never a release PR checkout. */
 export const workflowToolsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+// npm's generated Bash shim has two exec paths to the same adjacent CLI.
+// Accept the stock body so a launcher containing a different command stays opaque.
+const DIRECT_WINDOWS_NPM = new RegExp([
+  "^#!/bin/sh",
+  String.raw`basedir=\$\(dirname "\$\(echo "\$0" \| sed -e 's,\\{2},/,g'\)"\)`,
+  "",
+  "case `uname` in",
+  String.raw`    \*CYGWIN\*\|\*MINGW\*\|\*MSYS\*\)`,
+  "        if command -v cygpath > /dev/null 2>&1; then",
+  String.raw`            basedir=\x60cygpath -w "\$basedir"\x60`,
+  "        fi",
+  "    ;;",
+  "esac",
+  "",
+  String.raw`if \[ -x "\$basedir/node" \]; then`,
+  String.raw`  exec "\$basedir/node"  "\$basedir/((?:\.\./|node_modules/)npm/bin/npm-cli\.js)" "\$@"`,
+  "else ?",
+  String.raw`  exec node  "\$basedir/\1" "\$@"`,
+  "fi",
+  "$",
+].join("\n"));
+
+/** Follow a stock Windows launcher using the same Node and configured prefix. */
+function windowsNpmCli(launcher: string): string | undefined {
+  const directory = dirname(launcher);
+  const launcherName = basename(launcher);
+  if (!["npm", "npm.cmd"].includes(launcherName)) return undefined;
+  const localNode = join(directory, "node.exe");
+  if (isExecutableFile(localNode, "win32") && realpathSync(localNode) !== realpathSync(process.execPath)) return undefined;
+  const source = windowsLauncherText(launcher);
+  const direct = DIRECT_WINDOWS_NPM.exec(source)?.[1];
+  if (direct) {
+    const cli = resolve(directory, direct);
+    return isExecutableFile(cli, "win32") ? realpathSync(cli) : undefined;
+  }
+  const bundledNode = dirname(process.execPath);
+  // A batch launcher uses its own directory. Only the running Node's
+  // installation supplies the bundled helper that the probe may execute.
+  if (launcherName === "npm.cmd" && realpathSync(directory) !== realpathSync(bundledNode)) return undefined;
+  const bin = join(bundledNode, "node_modules/npm/bin");
+  const template = join(bin, launcherName);
+  if (!existsSync(template) || source !== windowsLauncherText(template)) return undefined;
+  const prefix = execFileSync(process.execPath, [join(bin, "npm-prefix.js")], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  if (!isAbsolute(prefix) || /[\r\n]/.test(prefix)) return undefined;
+  const configured = join(prefix, "node_modules/npm/bin/npm-cli.js");
+  const bundled = join(bin, "npm-cli.js");
+  const cli = isExecutableFile(configured, "win32") ? configured : bundled;
+  return isExecutableFile(cli, "win32") ? realpathSync(cli) : undefined;
+}
+
+/** Normalize line endings when comparing npm launcher bodies. */
+function windowsLauncherText(file: string): string {
+  return readFileSync(file, "utf8").replaceAll("\r\n", "\n");
+}
+
 /** Locate an npm CLI without executing a shell or switching the selected Node. */
-function npmCli(): string {
+export function npmCli(pathOnly = false): string {
   const adjacent = join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js");
-  if (existsSync(adjacent)) return adjacent;
+  if (!pathOnly && existsSync(adjacent)) return adjacent;
   for (const directory of (process.env.PATH ?? "").split(delimiter).filter(Boolean)) {
+    if (pathOnly) {
+      const win = process.platform === "win32";
+      const names = win ? ["npm", "npm.com", "npm.exe", "npm.bat", "npm.cmd"] : ["npm"];
+      const launcher = names.map(name => join(directory, name)).find(file => isExecutableFile(file, process.platform));
+      if (!launcher) continue;
+      const target = realpathSync(launcher);
+      if (basename(target) === "npm-cli.js") return target;
+      const windowsCli = win ? windowsNpmCli(launcher) : undefined;
+      if (windowsCli) return windowsCli;
+      // An unrecognized shim ahead of npm may select another installation.
+      break;
+    }
     for (const candidate of [join(directory, "node_modules/npm/bin/npm-cli.js"), join(directory, "../lib/node_modules/npm/bin/npm-cli.js")]) {
       if (existsSync(candidate)) return resolve(candidate);
     }
