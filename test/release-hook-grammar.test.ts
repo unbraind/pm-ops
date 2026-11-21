@@ -1995,13 +1995,16 @@ test("the selected npm honors a hyphenated lifecycle environment key", t => {
 test("the date audit requires a definite nested lifecycle after an earlier command", () => {
   const scripts = { "release:notes": "npm --ignore-scripts=false run relay", writer: "pm-changelog " + standing,
     prewriter: "pm-changelog " + standing, prerelay: "node refresh.mjs", relay: "npm run writer" };
-  const inspect = (relay: string, prerelay = scripts.prerelay) => auditInvocations([
+  const inspect = (relay: string, prerelay = scripts.prerelay, configured = "ignore-scripts=true") => auditInvocations([
     { file: "package.json", text: JSON.stringify({ scripts: { ...scripts, relay, prerelay } }) },
-    { file: ".npmrc", text: "ignore-scripts=true" },
+    { file: ".npmrc", text: configured },
   ]).failures;
   assert.match(inspect(scripts.relay)[0], /Cannot verify.*nested npm lifecycle.*writer/);
   assert.deepEqual(inspect("npm --ignore-scripts=true run writer"), []);
   assert.deepEqual(inspect(scripts.relay, ""), []);
+  assert.deepEqual(inspect(scripts.relay, scripts.prerelay, "ignore-scripts=false"), []);
+  const enabled = { ...scripts, "release:notes": "npm run relay" };
+  assert.equal(resolveChangelogHooks(enabled, ["release:notes"], true).get("prewriter"), scripts.prewriter);
 });
 
 test("GITHUB_ENV writes expand the producer's effective literal environment", () => {

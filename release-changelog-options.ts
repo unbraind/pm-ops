@@ -921,8 +921,9 @@ export function visitChangelogScriptCommands(
         const ambient = forward.environment ?? lifecycle;
         const policy = { ...forwardedLifecycle(forward.lifecycle, ambient, configured), configured };
         const inheritsSetting = forward.lifecycle === undefined && forward.environment === undefined;
-        if (isNpm && checkContext && !npm.mainOnly && config.reloadable && previouslyRan && inheritsSetting
-          && lifecycle !== "unknown" && names.sequence(forward.target, true).length > 1) {
+        // An implicit reload can enable a sibling that preparation skipped.
+        if (isNpm && checkContext && !npm.mainOnly && lifecycle === false && config.reloadable && previouslyRan && inheritsSetting
+          && names.sequence(forward.target, true).length > 1) {
           const problem = `Cannot verify nested npm lifecycle for ${JSON.stringify(forward.target)} after an earlier command may have changed npm configuration. Use an explicit npm --ignore-scripts=true/false option`;
           if (hooks) refuseHook(problem);
           inspect({ parents, name, names, text, words, effective, spans, forwardedSeparators: separators, contextProblem: problem });
