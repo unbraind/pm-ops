@@ -2,11 +2,13 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: open
+status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-21T15:01:48.434Z"
+updated_at: "2026-11-21T15:08:45.975Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -14,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[160]:
+comments[161]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -496,6 +498,9 @@ comments[160]:
   - created_at: "2026-11-21T15:01:41.811Z"
     author: codex-sol
     text: "Round FR supplemental mapping. PRRT_kwDOTOTl1M66VuXL and PRRT_kwDOTOTl1M66VuXa are implemented by 424dc59 and hardened in 91c0b2c. The latter avoids option-matcher backtracking and binds the bundled Windows prefix helper to the current Node installation. The other eleven mappings stand. The 147 focused cases, typecheck, test build, lint, duplication, docstring and pinned fleet scan pass. The full candidate acceptance is running again on the hardened source."
+  - created_at: "2026-11-21T15:08:45.975Z"
+    author: codex-sol
+    text: The latest CodeQL check clears the regex alert. Its remaining medium trace connects the active launcher path to default installer calls that cannot take that branch. The subprocess boundary forces shell false. Greptile found two Round FR regressions in the status-only conditional path and the continued npm fallback. Add paired fixtures for these related findings.
 files[25]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project

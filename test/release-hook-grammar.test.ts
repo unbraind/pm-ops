@@ -1827,3 +1827,44 @@ test("preparation and real npm reload project policy when a nested override clea
     else assert.throws(prepare, /without a date policy/);
   }
 });
+
+
+test("conditional status checks preserve the previous notes renderer", () => {
+  const status = "if test -f notes.txt; then test -s notes.txt; fi";
+  const generator = "pm-changelog " + standing + " --stdout; " + status;
+  assert.equal(includeEmptyCustomHook(generator, new Map(), true), generator);
+  const custom = "node notes.mjs; " + status;
+  assert.equal(includeEmptyCustomHook(custom, new Map()), "node notes.mjs --include-empty; " + status);
+  const alternative = "node fallback.mjs; if test -f notes.txt; then node render.mjs; test -s notes.txt; fi";
+  assert.throws(() => includeEmptyCustomHook(alternative, new Map()), /alternative renderers/);
+});
+
+test("continuation independently reloads the npm fallback with only a recorded active setting", t => {
+  const root = mkdtempSync(join(tmpdir(), "continued-npm-fallback-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const bin = join(root, "bin");
+  mkdirSync(bin);
+  if (process.platform !== "win32") symlinkSync(npmCli(), join(bin, "npm"));
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^npm_config_/i.test(name)));
+  Object.assign(env, {
+    PATH: [bin, env.PATH].join(delimiter), NPM_CONFIG_USERCONFIG: join(root, "user.npmrc"), NPM_CONFIG_GLOBALCONFIG: join(root, "global.npmrc"),
+    NPM_PROJECT_PATH: root, CHANGELOG_SCRIPT: "hook", CHANGELOG_CHECK_SCRIPT: "hook", NOTES_SCRIPT: "hook", PREPARED_NPM_LIFECYCLE: "true",
+    GIT_AUTHOR_DATE: day + "T12:00:00Z", GIT_COMMITTER_DATE: day + "T12:00:00Z",
+  });
+  const options = { cwd: root, env, stdio: "pipe" as const };
+  execFileSync("git", ["init", "-q"], options);
+  execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--no-gpg-sign", "--allow-empty", "-qm", "Continuation"], options);
+  const scripts = {
+    hook: "npm --ignore-scripts=true run relay",
+    relay: "npm --ignore-scripts=false run bridge",
+    bridge: "npm run writer",
+    writer: "pm-changelog " + standing,
+    prewriter: "pm-changelog --release-version-from-package --date-fallback 2026-11-16",
+  };
+  writeFileSync(join(root, "package.json"), JSON.stringify({ name: "fixture", version: "2026.11.17", scripts }));
+  const verify = () => execFileSync(process.execPath, [resolve("scripts/release-continuation.ts"), "heading-date"], options);
+  writeFileSync(join(root, ".npmrc"), "ignore-scripts=true\n");
+  assert.doesNotThrow(verify);
+  writeFileSync(join(root, ".npmrc"), "ignore-scripts=false\n");
+  assert.throws(verify, /differs from verified merge commit day/);
+});

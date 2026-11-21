@@ -1175,7 +1175,8 @@ function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
         last = [...new Set([...branch.branches, ...last, ...(branch.hasElse ? [] : branch.before)])];
       }
     }
-    if (!words[0].releaseKeyword || words.length > 1) last = [words];
+    if ((!words[0].releaseKeyword || words.length > 1)
+      && !(alternatives.length > 0 && rendererStatusCommand(releaseOutputProducer(words)))) last = [words];
   }
   return last;
 }

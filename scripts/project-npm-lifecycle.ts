@@ -39,7 +39,7 @@ export function projectNpmLifecycle(cwd: string, env?: NodeJS.ProcessEnv): NpmLi
 /** Retain the config that nested npm commands reload after clearing the exported setting. */
 export function projectNpmLifecyclePolicy(cwd: string, recorded?: NpmLifecycle): NpmLifecyclePolicy {
   const active = recorded ?? projectNpmLifecycle(cwd);
-  if (!process.env.npm_config_ignore_scripts) return active;
+  if (recorded === undefined && !process.env.npm_config_ignore_scripts) return active;
   return { active, configured: projectNpmLifecycle(cwd, { ...process.env, npm_config_ignore_scripts: "" }) };
 }
 
