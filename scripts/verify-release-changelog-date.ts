@@ -245,7 +245,7 @@ export function auditInvocations(sources: SourceFile[]): VerifierResult {
   return tallyFlaggedInvocations(
     invocations,
     ({ file, line, script, command, options, problem }) => {
-      let location = line === undefined ? file : `${file}:${line}`;
+      let location = [file, line].filter(part => part !== undefined).join(":");
       if (script !== undefined) location += ` (script ${JSON.stringify(script)})`;
       const excerpt = command.trim().slice(0, 160);
       if (problem !== undefined) return `${location}: ${problem}: ${excerpt}`;

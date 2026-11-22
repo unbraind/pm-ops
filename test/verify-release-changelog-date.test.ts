@@ -559,6 +559,7 @@ test("decoded scripts retain multiline quoted arguments and report the JSON scri
   const workflowAudit = auditInvocations([malformedWorkflow]);
   assert.equal(workflowAudit.failures.length, 1);
   assert.match(workflowAudit.failures[0], /release\.yml:8: malformed/);
+  assert.deepEqual(invocationsIn(malformedWorkflow).map(invocation => invocation.line), [5, 8]);
   assert.deepEqual(auditInvocations([{ ...malformedWorkflow, text: firstStep }]).failures, []);
 });
 
