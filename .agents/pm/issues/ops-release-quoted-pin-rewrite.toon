@@ -2,13 +2,11 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: in_progress
+status: open
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-22T09:39:27.032Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-22T09:54:05.042Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[213]:
+comments[214]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -657,6 +655,9 @@ comments[213]:
   - created_at: "2026-11-22T09:39:27.032Z"
     author: codex-sol
     text: "The post-push Greptile review on b3a94b2 reproduced a Round GG regression in PRRT_kwDOTOTl1M66iY4n. Alternative branches now use their own possible writes while condition writes and writes after the join are retained. The paired cases cover else, elif, nested conditionals, same-branch execution, and loop iterations. The pinned fleet still accepts 142 hooks and 144 bodies."
+  - created_at: "2026-11-22T09:43:37.194Z"
+    author: codex-sol
+    text: "PRRT_kwDOTOTl1M66iY4n maps to 09d08e7 and supplements PRRT_kwDOTOTl1M66h4VJ. The added paired fixture was red on b3a94b2 and green with the branch fix. The 278 focused tests, pinned fleet inventory, typecheck, test build, lint, duplication, docstrings and changelog checks passed."
 files[32]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
@@ -690,7 +691,7 @@ files[32]{path,scope}:
   test/release-runtime.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[78]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[79]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -769,6 +770,7 @@ tests[78]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/release-hook-grammar.test.ts test/shell-command-scan.test.ts test/release-workflow.test.ts,project,codex-sol,"2026-11-22T04:12:08.099Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-concurrency=2 test/changelog-sections.test.ts test/daily-release-workflow.test.ts test/release-continuation-adapter.test.ts test/release-heading-snapshot.test.ts test/release-hook-grammar.test.ts test/release-provenance.test.ts test/release-runtime-windows.test.ts test/release-runtime.test.ts test/shell-command-scan.test.ts test/verify-release-changelog-date.test.ts,project,codex-sol,"2026-11-22T06:10:33.068Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-concurrency=2 test/attestation-union.test.ts test/changelog-sections.test.ts test/compatibility-floor.test.ts test/daily-release-workflow.test.ts test/dependency-contract.test.ts test/ops.test.ts test/release-caller-attestation.test.ts test/release-caller.test.ts test/release-continuation-adapter.test.ts test/release-hook-grammar.test.ts test/release-permissions-docs.test.ts test/release-provenance.test.ts test/release-recovery-signer.test.ts test/release-review.test.ts test/release-runtime-windows.test.ts test/release-runtime.test.ts test/release-workflow.test.ts test/third-party-publish-wrappers.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts test/release-heading-snapshot.test.ts test/shell-command-scan.test.ts,project,codex-sol,"2026-11-22T08:41:10.563Z",local_mutation,fix/release-hook-wrapper-options-bm
+  node --test --test-name-pattern='forwarded file writes stay separate' test/release-hook-grammar.test.ts,project,codex-sol,"2026-11-22T09:43:34.177Z",local_mutation,fix/release-hook-wrapper-options-bm
 docs[4]{path,scope}:
   CHANGELOG.md,project
   docs/reusable-release.md,project
