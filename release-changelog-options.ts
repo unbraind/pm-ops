@@ -522,6 +522,31 @@ function generatedHookProblem(words: ShellCommand, written: Set<string>, recordW
   return undefined;
 }
 
+type HookWriteBranch = { condition: Set<string>; completed: Set<string> };
+
+/** Keep alternative bodies independent while retaining condition and joined writes. */
+function advanceHookWriteBranches(words: ShellCommand, written: Set<string>, branches: HookWriteBranch[]): void {
+  for (const word of words) {
+    if (!word.releaseKeyword) continue;
+    if (word.value === "if") {
+      branches.push({ condition: new Set(written), completed: new Set() });
+      continue;
+    }
+    const branch = branches.at(-1);
+    if (!branch) continue;
+    if (word.value === "then") {
+      branch.condition = new Set(written);
+    } else if (word.value === "elif" || word.value === "else") {
+      for (const path of written) branch.completed.add(path);
+      written.clear();
+      for (const path of branch.condition) written.add(path);
+    } else if (word.value === "fi") {
+      branches.pop();
+      for (const path of branch.completed) written.add(path);
+    }
+  }
+}
+
 /** Outside a release hook, trace only redirects carrying a generator or a known script forward. */
 export function generatedWriterProblem(
   words: ShellCommand, written: Set<string>, heredoc?: ShellToken, names?: ReadonlySet<string>, seen?: Set<string>,
@@ -875,8 +900,8 @@ export function visitChangelogScriptCommands(
   const knownWriters = new HookScriptNames(scripts, false);
   const targeted = new Set<string>();
   const parsed = new Map([...scripts].map(([name, text]) => {
-    const { commands, spans } = parseReleaseHook(text);
-    return [name, { text, commands, spans }];
+    const { commands, spans, hasLoop } = parseReleaseHook(text);
+    return [name, { text, commands, spans, hasLoop }];
   }));
 
   /** Read the local script target, arguments, and command-prefix assignments. */
@@ -922,7 +947,7 @@ export function visitChangelogScriptCommands(
       refuseHook(parents.length === 0 ? "Missing changelog hook: " + name
         : "Cannot resolve changelog script forward " + chain + ": missing or empty package.json script");
     }
-    const { text, commands, spans } = script;
+    const { text, commands, spans, hasLoop } = script;
     let recipient: ShellCommand | undefined;
     if (args.length > 0) {
       if (!recipients.has(name)) recipients.set(name, commandReceivingArguments(text, commands, spans));
@@ -958,7 +983,10 @@ export function visitChangelogScriptCommands(
     resolved?.set(name, text);
     let preceding: ReleaseContextChange | undefined;
     let mayHaveChanged = config.mayHaveChanged;
+    const branches: HookWriteBranch[] = [];
     for (const words of commands) {
+      // Different branches can both run across separate loop iterations.
+      if (checkContext && !hasLoop) advanceHookWriteBranches(words, written, branches);
       const previouslyRan = mayHaveChanged;
       const effective = words === recipient ? [...words, ...args] : words;
       mayHaveChanged ||= mayChangeNpmConfig(effective);

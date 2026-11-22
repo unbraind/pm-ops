@@ -1111,6 +1111,31 @@ test("forwarded release hooks share possible writes across the call and lifecycl
   }
 });
 
+test("forwarded file writes stay separate across alternatives and survive the join", () => {
+  const entry = ["changelog:full"];
+  const writer = "pm-changelog " + standing;
+  const commands = { preview: "printf data >generate.sh", helper: "sh generate.sh" };
+  const inspect = (hook: string) => {
+    const scripts = { "changelog:full": hook + "; " + writer, ...commands };
+    const resolved = resolveChangelogHooks(scripts, entry, true);
+    const prepared = rewriteReleaseHookDates(resolved, entry, day, true);
+    assertReleaseHookHeadingDate(prepared, entry, day, "2026.11.17", true);
+  };
+  for (const hook of [
+    "if test -f preview; then npm run preview; else npm run helper; fi",
+    "if test -f preview; then npm run preview; elif test -f other; then npm run helper; fi",
+    "if test -f preview; then npm run preview; else if true; then npm run helper; fi; fi",
+    "{ true; }; if test -f preview; then { npm run preview; }; else npm run helper; fi",
+  ]) assert.doesNotThrow(() => inspect(hook), hook);
+  for (const hook of [
+    "if test -f preview; then npm run preview; else npm run helper; fi; npm run helper",
+    "if test -f preview; then npm run preview; npm run helper; fi",
+    "if npm run preview; then true; elif test -f other; then npm run helper; fi",
+    "if false; then true; elif npm run preview; then true; else npm run helper; fi",
+    "while test -f preview; do if test -f other; then npm run preview; else npm run helper; fi; done",
+  ]) assert.throws(() => inspect(hook), /generated release hook file "generate\.sh"/, hook);
+});
+
 test("only release hook paths may refuse a script that executes redirected output", () => {
   const smoke = "printf 'console.log(1)' >smoke.js; node smoke.js";
   const writer = "pm-changelog " + standing;

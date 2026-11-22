@@ -111,6 +111,7 @@ export function parseReleaseHook(text: string) {
   let words: ShellCommand = [];
   const piped = new Set<ShellCommand>();
   const loops: boolean[] = [];
+  let hasLoop = false;
   let subshellDepth = 0;
   let inSubshell = false;
   let heredoc = -1;
@@ -125,7 +126,10 @@ export function parseReleaseHook(text: string) {
         const span = spans.get(word)!;
         if (text.slice(span.start, span.end).replaceAll("\\\n", "") !== word.value) break;
         if (/^(?:if|then|elif|else|fi|done|\})$/.test(word.value)) word.releaseKeyword = true;
-        if (/^(?:while|until|for|select)$/.test(word.value)) loops.push(/^(?:while|until)$/.test(word.value));
+        if (/^(?:while|until|for|select)$/.test(word.value)) {
+          hasLoop = true;
+          loops.push(/^(?:while|until)$/.test(word.value));
+        }
         if (word.value === "do" && loops.length) loops[loops.length - 1] = false;
         if (word.value === "done") loops.pop();
       }
@@ -316,5 +320,5 @@ export function parseReleaseHook(text: string) {
     if (piped.has(command)) upstream.push(command);
     else upstream = [];
   }
-  return { commands, spans, heredocBodies };
+  return { commands, spans, heredocBodies, hasLoop };
 }

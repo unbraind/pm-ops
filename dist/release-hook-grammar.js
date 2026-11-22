@@ -99,6 +99,7 @@ export function parseReleaseHook(text) {
     let words = [];
     const piped = new Set();
     const loops = [];
+    let hasLoop = false;
     let subshellDepth = 0;
     let inSubshell = false;
     let heredoc = -1;
@@ -115,8 +116,10 @@ export function parseReleaseHook(text) {
                     break;
                 if (/^(?:if|then|elif|else|fi|done|\})$/.test(word.value))
                     word.releaseKeyword = true;
-                if (/^(?:while|until|for|select)$/.test(word.value))
+                if (/^(?:while|until|for|select)$/.test(word.value)) {
+                    hasLoop = true;
                     loops.push(/^(?:while|until)$/.test(word.value));
+                }
                 if (word.value === "do" && loops.length)
                     loops[loops.length - 1] = false;
                 if (word.value === "done")
@@ -365,6 +368,6 @@ export function parseReleaseHook(text) {
         else
             upstream = [];
     }
-    return { commands, spans, heredocBodies };
+    return { commands, spans, heredocBodies, hasLoop };
 }
 //# sourceMappingURL=release-hook-grammar.js.map

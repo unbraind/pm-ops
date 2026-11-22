@@ -521,6 +521,35 @@ function generatedHookProblem(words, written, recordWrites = true) {
     }
     return undefined;
 }
+/** Keep alternative bodies independent while retaining condition and joined writes. */
+function advanceHookWriteBranches(words, written, branches) {
+    for (const word of words) {
+        if (!word.releaseKeyword)
+            continue;
+        if (word.value === "if") {
+            branches.push({ condition: new Set(written), completed: new Set() });
+            continue;
+        }
+        const branch = branches.at(-1);
+        if (!branch)
+            continue;
+        if (word.value === "then") {
+            branch.condition = new Set(written);
+        }
+        else if (word.value === "elif" || word.value === "else") {
+            for (const path of written)
+                branch.completed.add(path);
+            written.clear();
+            for (const path of branch.condition)
+                written.add(path);
+        }
+        else if (word.value === "fi") {
+            branches.pop();
+            for (const path of branch.completed)
+                written.add(path);
+        }
+    }
+}
 /** Outside a release hook, trace only redirects carrying a generator or a known script forward. */
 export function generatedWriterProblem(words, written, heredoc, names, seen) {
     const payload = heredoc ? [heredoc] : ["echo", "printf"].includes(words[0].value) ? words : [];
@@ -843,8 +872,8 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
     const knownWriters = new HookScriptNames(scripts, false);
     const targeted = new Set();
     const parsed = new Map([...scripts].map(([name, text]) => {
-        const { commands, spans } = parseReleaseHook(text);
-        return [name, { text, commands, spans }];
+        const { commands, spans, hasLoop } = parseReleaseHook(text);
+        return [name, { text, commands, spans, hasLoop }];
     }));
     /** Read the local script target, arguments, and command-prefix assignments. */
     function forwardToScript(words) {
@@ -883,7 +912,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
             refuseHook(parents.length === 0 ? "Missing changelog hook: " + name
                 : "Cannot resolve changelog script forward " + chain + ": missing or empty package.json script");
         }
-        const { text, commands, spans } = script;
+        const { text, commands, spans, hasLoop } = script;
         let recipient;
         if (args.length > 0) {
             if (!recipients.has(name))
@@ -922,7 +951,11 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
         resolved?.set(name, text);
         let preceding;
         let mayHaveChanged = config.mayHaveChanged;
+        const branches = [];
         for (const words of commands) {
+            // Different branches can both run across separate loop iterations.
+            if (checkContext && !hasLoop)
+                advanceHookWriteBranches(words, written, branches);
             const previouslyRan = mayHaveChanged;
             const effective = words === recipient ? [...words, ...args] : words;
             mayHaveChanged ||= mayChangeNpmConfig(effective);

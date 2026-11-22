@@ -28,5 +28,6 @@ export declare function parseReleaseHook(text: string): {
     commands: ShellCommand[];
     spans: WeakMap<ShellToken, ShellTokenSpan>;
     heredocBodies: Map<ShellCommand, ShellToken>;
+    hasLoop: boolean;
 };
 //# sourceMappingURL=release-hook-grammar.d.ts.map
