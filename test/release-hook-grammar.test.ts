@@ -2447,13 +2447,20 @@ test("preparation uses npm's parsed lifecycle boolean for one environment spelli
   writeFileSync(manifest, JSON.stringify({ name: "fixture", scripts }));
   writeFileSync(join(root, "draft.md"), "post-hook output");
   const env = { ...isolatedNpmConfig(root), CHANGELOG_SCRIPT: "hook", CHANGELOG_CHECK_SCRIPT: "hook", NOTES_SCRIPT: "hook" };
+  const output = join(root, "outputs");
+  const prepare = [resolve("scripts/prepare-release-changelog.ts"), output];
   for (const [value, lifecycle] of [[" true ", false], [" false ", true]] as const) {
     const options = { cwd: root, env: { ...env, npm_config_ignore_scripts: value }, encoding: "utf8" as const };
-    const output = join(root, "outputs");
     writeFileSync(output, "");
     assert.equal(execFileSync(process.execPath, [npmCli(true), "config", "get", "ignore-scripts"], options).trim(), String(!lifecycle));
-    execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts"), output], options);
+    execFileSync(process.execPath, prepare, options);
     assert.equal(readFileSync(output, "utf8"), "npm_lifecycle=" + lifecycle + "\nnpm_lifecycle_configured=unknown\n");
     assert.equal(JSON.parse(readFileSync(manifest, "utf8")).scripts.posthook, scripts.posthook);
   }
+  const invalid = { cwd: root, env: { ...env, npm_config_ignore_scripts: "ambiguous" }, encoding: "utf8" as const };
+  const prepared = readFileSync(manifest, "utf8");
+  writeFileSync(output, "");
+  assert.throws(() => execFileSync(process.execPath, prepare, invalid), /ignore-scripts.*posthook/);
+  assert.equal(readFileSync(output, "utf8"), "");
+  assert.equal(readFileSync(manifest, "utf8"), prepared);
 });

@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-22T06:19:13.575Z"
+updated_at: "2026-11-22T07:00:26.975Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -16,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[204]:
+comments[205]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -630,6 +630,9 @@ comments[204]:
   - created_at: "2026-11-22T06:19:13.575Z"
     author: codex-sol
     text: The cumulative fresh-preview fixture exposed comment-only hooks missing from the date edit map. A paired fixture reproduced rejection of an existing no-op hook and retained the missing-hook refusal. Preparation now overlays date changes on the full manifest before resolving caller-supplied generator arguments.
+  - created_at: "2026-11-22T07:00:26.973Z"
+    author: codex-sol
+    text: "On 64afab6 the 417-test reference sweep and 142-hook, 144-body fleet preparation scan passed. Both full suites had 2234 passes and two opt-in skips. Coverage identified one uncovered branch for an invalid npm environment value. The added real npm control exercises that refusal and verifies the manifest and output remain intact. The focused coverage report confirms that branch was exercised."
 files[30]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
