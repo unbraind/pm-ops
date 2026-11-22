@@ -326,7 +326,14 @@ test("Round GI prepend checks retained links before writing, while replace check
   delete implicitEnv.PM_PATH;
   const implicitArgs = cliArgs.slice(2);
   assert.equal(runChangelog([...implicitArgs, "--mode=prepend", "--check"], root, implicitEnv), 0);
+  assert.equal(runChangelog([...implicitArgs, "--mode=prepend", "--check"], root, env), 0);
   assert.equal(runChangelog([...implicitArgs, "--mode=prepend", "--check", "--pm-cwd=.", "--pm-arg=--pm-path=.agents/pm"], root, implicitEnv), 0);
+  rmSync(join(root, ".agents/pm/sample-history.toon"));
+  const stdout = spawnSync(process.execPath, [resolve("scripts/pm-changelog.ts"), ...cliArgs, "--mode=prepend", "--stdout"],
+    { cwd: root, env, encoding: "utf8" });
+  assert.equal(stdout.status, 1);
+  assert.equal(stdout.stdout, "");
+  assert.match(stdout.stderr, /sample-history\.toon/);
 });
 
 test("Round GI the resumed heading fixture depends on the workflow's planner mapping", () => {
