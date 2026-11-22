@@ -2,13 +2,11 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: in_progress
+status: open
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-22T12:20:37.206Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-22T12:39:03.331Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[221]:
+comments[222]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -681,6 +679,9 @@ comments[221]:
   - created_at: "2026-11-22T12:20:37.205Z"
     author: codex-sol
     text: Greptile reported PRRT_kwDOTOTl1M66jkbU and PRRT_kwDOTOTl1M66jkbX on pushed head 97ef2f1. Paired fixtures first reproduced both regressions. The local correction keeps exec sequencing scoped to each branch and preserves the winning spelling of Windows runner environment records for subsequent Bash reads. Both paired fixtures pass and the package gates are rerunning.
+  - created_at: "2026-11-22T12:38:53.384Z"
+    author: codex-sol
+    text: "Round GI follow-up mapping. Local commit f6bbca2 addresses PRRT_kwDOTOTl1M66jkbU by preserving mutually exclusive exec renderers and PRRT_kwDOTOTl1M66jkbX by preserving Windows environment spelling for Bash reads. Both fixtures were red on 97ef2f1 and pass locally. The 195 focused tests, typecheck, lint, zero duplication, docstrings, changelog:check and the pinned fleet inventory of 142 hooks and 144 bodies pass. The follow-up full gates have no completion receipt yet. Hosted CI on 97ef2f1 passed its Node, Windows consumer, lock compatibility and CodeQL checks. Greptile returned 3 out of 5 with a required 5, and CodeRabbit skipped automatic review."
 files[32]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
