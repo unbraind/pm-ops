@@ -2770,6 +2770,8 @@ test("terminal exit keeps its argv and refuses a later reachable renderer candid
       /exit terminates the shell/);
   }
   assert.equal(includeEmptyCustomHook("node notes.mjs exit 0", new Map()), "node notes.mjs exit 0 --include-empty");
+  const setup = './setup-"$PROFILE".sh; node notes.mjs';
+  assert.equal(includeEmptyCustomHook(setup, new Map()), setup + " --include-empty");
   assert.equal(includeEmptyCustomHook("node old.mjs; node notes.mjs; exit 0", new Map()), "node old.mjs; node notes.mjs --include-empty; exit 0");
   assert.throws(() => includeEmptyCustomHook("node notes.mjs; (exit 0)", new Map()), /renderer inside shell grouping/);
   assert.equal(includeEmptyCustomHook("(exit 0); node notes.mjs", new Map()), "(exit 0); node notes.mjs --include-empty");

@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-22T13:42:26.649Z"
+updated_at: "2026-11-22T14:30:07.647Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -16,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[225]:
+comments[227]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -693,6 +693,12 @@ comments[225]:
   - created_at: "2026-11-22T13:42:26.648Z"
     author: codex-sol
     text: "The paired fixtures, typecheck, test build, lint, zero duplication, docstrings, and changelog check passed. A pinned npm run confirmed that the nested explicit setting restores the inner prehook. The pinned inventory accepts 142 hooks and 144 reachable bodies across 39 manifests. Full verification is running."
+  - created_at: "2026-11-22T13:44:46.217Z"
+    author: codex-sol
+    text: "Round GK thread map for pm-ops#295. d79476a addresses PRRT_kwDOTOTl1M66j9hX for definite workflow lifecycle exports, PRRT_kwDOTOTl1M66j9ha for nested npm override documentation, PRRT_kwDOTOTl1M66j9he for Bash lifecycle declarations, PRRT_kwDOTOTl1M66j9hi for zero-iteration renderer paths, PRRT_kwDOTOTl1M66j9ho for terminal exit and unreachable renderers, PRRT_kwDOTOTl1M66j9hs for effective prepend titles, PRRT_kwDOTOTl1M66j9hv for Rust caller hook selection, PRRT_kwDOTOTl1M66j9hy for unresolved version option names, and PRRT_kwDOTOTl1M66j9h1 for repeated fallback fixture options. The five historical controls were also reverified. PRRT_kwDOTOTl1M650IRm and PRRT_kwDOTOTl1M650SdF map to 24d844c and 5c58ce7 for ordinary title acceptance and refusal of inherited executable or policy selectors. PRRT_kwDOTOTl1M650SdV maps to 24d844c for per-row preview isolation. PRRT_kwDOTOTl1M650Sda and PRRT_kwDOTOTl1M650Sdd map to accb464 for signing isolation and invalid UTF-8 raw index fixtures. This maps all nine current threads and five historical controls."
+  - created_at: "2026-11-22T14:30:07.646Z"
+    author: codex-sol
+    text: The 30 reference suites passed 1553 tests with two opt-in skips. The rewritten release gate passed 2253 tests with two opt-in skips and 100 percent coverage in all four dimensions across 54 sources. Both dependency audits returned zero vulnerabilities. The standalone coverage rerun is collecting counters against frozen source. The additional terminal-exit inverse confirms a path with a shell expansion can be an unrelated setup command.
 files[32]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
