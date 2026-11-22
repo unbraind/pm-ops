@@ -227,8 +227,8 @@ export function npmLifecycle(
   return setting;
 }
 
-/** Read an explicit npm lifecycle assignment on the runner's command prefix. */
-function lifecycleEnvironment(assignments: readonly ShellToken[]): NpmLifecycle | undefined {
+/** Read command-prefix npm settings, including aliases that survive clearing the canonical key. */
+function lifecycleEnvironment(assignments: readonly ShellToken[]) {
   const entries = new Map<string, string>();
   for (const token of assignments) {
     const match = /^(npm_config_ignore[-_]scripts)=(.*)$/is.exec(token.value);
@@ -236,18 +236,28 @@ function lifecycleEnvironment(assignments: readonly ShellToken[]): NpmLifecycle 
   }
   // Reassignment preserves the original environment entry's position. npm
   // skips empty entries and then normalizes the spelling of each key.
-  const value = [...entries.values()].reverse().find(value => value !== "");
-  return value === undefined ? undefined : lifecycleSetting(value);
+  const ordered = [...entries].reverse();
+  const active = ordered.find(([, value]) => value !== "");
+  if (!active) return undefined;
+  const aliases = ordered.filter(([name, value]) => name !== "npm_config_ignore_scripts" && value !== "");
+  const portable = aliases.find(([name]) => !name.includes("-"));
+  return { active: lifecycleSetting(active[1]), alias: aliases[0] && lifecycleSetting(aliases[0][1]),
+    portableAlias: portable && lifecycleSetting(portable[1]) };
 }
 
 /** Resolve this npm command and the environment it exports to its scripts. */
 function forwardedLifecycle(
-  override: NpmLifecycle | undefined, ambient: NpmLifecycle, configured: NpmLifecycle,
-): { enabled: NpmLifecycle; nested: NpmLifecycle } {
+  override: NpmLifecycle | undefined, ambient: NpmLifecycle, inheritedFallback: NpmLifecycle,
+  environment?: ReturnType<typeof lifecycleEnvironment>,
+): { enabled: NpmLifecycle; nested: NpmLifecycle; configured: NpmLifecycle } {
+  // Some script shells drop environment names containing hyphens.
+  const retained = environment?.alias ?? inheritedFallback;
+  const portable = environment?.portableAlias ?? inheritedFallback;
+  const configured = retained === portable ? portable : "unknown";
   // npm exports ignore-scripts=true. An override back to false writes
   // an empty value unless the environment already supplied false.
-  if (override !== true || ambient === true) return { enabled: override ?? ambient, nested: override ?? ambient };
-  return { enabled: true, nested: ambient === "unknown" && configured !== true ? "unknown" : configured };
+  if (override !== true || ambient === true) return { enabled: override ?? ambient, nested: override ?? ambient, configured };
+  return { enabled: true, nested: ambient === "unknown" && configured !== true ? "unknown" : configured, configured };
 }
 
 /** Resolve the same graph used by preparation and continuation, including comment-only hooks. */
@@ -378,10 +388,10 @@ function canReachGenerator(
   const forward = scriptForward(name, parameters, names);
   if (forward?.target && names instanceof HookScriptNames) {
     const isNpm = forward.runner === "npm";
-    const ambient = (isNpm ? lifecycleEnvironment(assignments) : undefined) ?? lifecycle;
-    const { enabled, nested } = forwardedLifecycle(forward.lifecycle, ambient, configured);
-    return names.sequence(forward.target, !isNpm || enabled !== false).some(target =>
-      names.canGenerate(target, seen, writing, target === forward.target ? forward.args : [], nested, configured))
+    const environment = isNpm ? lifecycleEnvironment(assignments) : undefined;
+    const policy = forwardedLifecycle(forward.lifecycle, environment?.active ?? lifecycle, configured, environment);
+    return names.sequence(forward.target, !isNpm || policy.enabled !== false).some(target =>
+      names.canGenerate(target, seen, writing, target === forward.target ? forward.args : [], policy.nested, policy.configured))
       || (!writing && forward.args.some(mentionsGenerator));
   }
   const generator = generatorCommand(invocation);
@@ -848,7 +858,7 @@ export function visitChangelogScriptCommands(
 
   // Workflow invocations supply their own lifecycle even when a hook must
   // also be checked as a standalone entry with no forwarded arguments.
-  type InvocationLifecycle = ReturnType<typeof forwardedLifecycle> & { configured: NpmLifecycle };
+  type InvocationLifecycle = ReturnType<typeof forwardedLifecycle>;
   const entryLifecycles = new Map<string, InvocationLifecycle[]>();
   const visited = new Set<string>();
   const withoutArgs = new Map<string, number>();
@@ -929,8 +939,8 @@ export function visitChangelogScriptCommands(
         if (!names.has(forward.target) && (forward.optional || !hooks)) continue;
         if (forward.forwardedSeparator) forwardedSeparators.add(forward.forwardedSeparator);
         const isNpm = forward.runner === "npm";
-        const ambient = forward.environment ?? lifecycle;
-        const policy = { ...forwardedLifecycle(forward.lifecycle, ambient, configured), configured };
+        const ambient = forward.environment?.active ?? lifecycle;
+        const policy = forwardedLifecycle(forward.lifecycle, ambient, configured, forward.environment);
         const inheritsSetting = forward.lifecycle === undefined && forward.environment === undefined;
         // An implicit reload can enable a sibling that preparation skipped.
         if (isNpm && checkContext && !npm.mainOnly && lifecycle === false && config.reloadable && previouslyRan && inheritsSetting
@@ -1061,11 +1071,12 @@ export function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[
   for (const index of optionPositions(args)) {
     const token = args[index];
     const flag = token.value.split("=", 1)[0];
-    if (token.value === "--pm-arg") {
-      const operand = args[index + 1]?.value;
+    if (flag === "--pm-arg") {
+      const separate = token.value === flag;
+      const operand = separate ? args[index + 1]?.value : token.value.slice(flag.length + 1);
       if (!operand) refuseHook("--pm-arg requires a value");
       const equals = operand.indexOf("=");
-      if (equals > 0 && VALUE_OPTIONS.has(operand.slice(0, equals))) {
+      if (separate && equals > 0 && VALUE_OPTIONS.has(operand.slice(0, equals))) {
         refuseHook("--pm-arg splits this separate option operand. Use the --pm-arg=<value> form");
       }
     }

@@ -1032,14 +1032,17 @@ test("continuation enforces the merge day before publish and still tags after mi
       mkdirSync(project);
       execFileSync("git", ["init", "--quiet", "--bare", remote]);
       execFileSync("git", ["init", "--quiet", project]);
+      const globalConfig = join(root, "host-gitconfig");
+      writeFileSync(globalConfig, "[push]\ngpgSign = true\n[tag]\ngpgSign = true\n");
       const env = {
-        ...process.env, IS_RUST: "false", RELEASE_TAG: "v2026.10.23-2",
+        ...process.env, GIT_CONFIG_GLOBAL: globalConfig, IS_RUST: "false", RELEASE_TAG: "v2026.10.23-2",
         CONTINUATION_SCRIPT: fileURLToPath(new URL("../scripts/release-continuation.ts", import.meta.url)), NPM_PROJECT_PATH: project,
         CHANGELOG_SCRIPT: "changelog", CHANGELOG_CHECK_SCRIPT: "changelog", NOTES_SCRIPT: "changelog", RELEASE_TIMEZONE: "Europe/Vienna",
         GIT_AUTHOR_DATE: "2026-10-22T12:00:00Z", GIT_COMMITTER_DATE: `${mergeDay}T00:30:00+02:00`,
       };
       const git = (...args: string[]) => execFileSync("git", args, { cwd: project, env, encoding: "utf8" }).trim();
       git("config", "--local", "tag.gpgSign", "false");
+      git("config", "--local", "push.gpgSign", "false");
       const dateOption = pinDay ? `"--date-fallback" '${pinDay}'` : "--date-from-version";
       writeFileSync(join(project, "package.json"), JSON.stringify({
         version: "2026.10.23-2", scripts: { changelog: `pm-changelog --release-version-from-package ${dateOption}` },

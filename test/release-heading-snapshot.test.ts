@@ -12,10 +12,13 @@ function snapshotFixture(t: TestContext, files: string[]) {
   const root = mkdtempSync(join(tmpdir(), "heading-snapshot-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const source = join(root, "source"), candidate = join(root, "candidate");
-  const env = { ...process.env, GIT_AUTHOR_DATE: "2026-11-06T12:00:00Z", GIT_COMMITTER_DATE: "2026-11-06T12:00:00Z" };
+  const globalConfig = join(root, "host-gitconfig");
+  writeFileSync(globalConfig, "[core]\nautocrlf = true\n");
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: globalConfig, GIT_AUTHOR_DATE: "2026-11-06T12:00:00Z", GIT_COMMITTER_DATE: "2026-11-06T12:00:00Z" };
   const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, env });
   mkdirSync(source);
   git(source, "init", "--quiet");
+  git(source, "config", "--local", "core.autocrlf", "false");
   for (const file of files) {
     const path = join(source, file);
     mkdirSync(dirname(path), { recursive: true });
@@ -23,7 +26,7 @@ function snapshotFixture(t: TestContext, files: string[]) {
   }
   git(source, "add", "--", ...files);
   git(source, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Snapshot fixture");
-  git(root, "clone", "--quiet", "--shared", source, candidate);
+  git(root, "clone", "--quiet", "--shared", "--config", "core.autocrlf=false", source, candidate);
   return { source, candidate, env, git };
 }
 

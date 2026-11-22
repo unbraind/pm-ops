@@ -916,7 +916,7 @@ function defaultRunSetting(container: unknown, key: "shell" | "working-directory
 
 const IGNORE_SCRIPTS_ENV = "npm_config_ignore_scripts";
 const ENV_PATH = /^(?:"\$(?:GITHUB_ENV|\{GITHUB_ENV\})"|\$(?:GITHUB_ENV|\{GITHUB_ENV\}))(?:\s+#.*)?$/;
-const READ_ENV_FILE = /^cat\s+(?:"\$(?:GITHUB_ENV|\{GITHUB_ENV\})"|\$(?:GITHUB_ENV|\{GITHUB_ENV\}))$/;
+const READ_ENV_FILE = /^cat\s+("?)\$(?:GITHUB_ENV|\{GITHUB_ENV\})\1(?:\s+#.*)?$/;
 
 /** Decode one literal NAME=value record emitted by echo or printf. */
 function literalEnvironmentRecord(print: string, environment: Record<string, unknown> | undefined): string | undefined {
@@ -939,6 +939,7 @@ function writtenIgnoreScripts(
 ): { records: Record<string, string | undefined>; mayStopBeforeOverwrite: boolean } | undefined {
   let records: Record<string, string | undefined> | undefined = Object.create(null);
   let mayStopBeforeOverwrite = false;
+  let mayStopAtRead = false;
   let nounset = false;
   let depth = 0;
   const lines = text.split(/\r?\n/);
@@ -958,8 +959,12 @@ function writtenIgnoreScripts(
     const shellOptions = /^set -([eu]+)(?:o pipefail)?$/.exec(line);
     if (shellOptions?.[1].includes("e")) errexit = true;
     if (shellOptions?.[1].includes("u")) nounset = true;
-    if (!line || line.startsWith("#") || shellOptions || /^(?:true|:|echo [\w .-]+)$/.test(line)
-      || READ_ENV_FILE.test(line)) continue;
+    if (!line || line.startsWith("#") || shellOptions || /^(?:true|:|echo [\w .-]+)$/.test(line)) continue;
+    const readRunnerEnv = READ_ENV_FILE.exec(line);
+    if (readRunnerEnv) {
+      if (errexit && !readRunnerEnv[1]) mayStopAtRead = true;
+      continue;
+    }
     const redirect = line.indexOf(">");
     if (redirect < 0) return undefined;
     const append = line[redirect + 1] === ">";
@@ -968,7 +973,7 @@ function writtenIgnoreScripts(
     // Bash can split an unquoted runner path. Under errexit, only consumers
     // that can run after a failure can see the state before such a write.
     const unquoted = !destination.startsWith('"');
-    if (unquoted && errexit) mayStopBeforeOverwrite = true;
+    if (mayStopAtRead || (unquoted && errexit)) mayStopBeforeOverwrite = true;
     const print = line.slice(0, redirect).trimEnd();
     const record = literalEnvironmentRecord(print, environment);
     if (record === undefined) {

@@ -981,3 +981,12 @@ test("npm guards detect timed installs without treating printed arguments as com
     }
   }
 });
+
+test("npm guards distinguish redirects from executable and printed npm arguments", () => {
+  for (const prefix of ['2> install.log ', 'timeout 60 2> "install log" ', "2>&1 timeout 60 "]) {
+    const install = prefix + "npm ci --ignore-scripts";
+    assert.deepEqual(npmInstalls(install), [["npm", "ci", "--ignore-scripts"]]);
+    assert.throws(() => assertNoNpmInstalls(install), /must not install/);
+    assertNoNpmInstalls(prefix + "echo npm ci --ignore-scripts");
+  }
+});

@@ -81,7 +81,7 @@ export function npmCli(pathOnly = false): string {
   const native = win && !process.env.MSYSTEM;
   const directories = (process.env.PATH?.split(delimiter) ?? []).map(directory => win ? directory.replace(/^"(.*)"$/, "$1") : directory);
   if (pathOnly && native && process.env.NoDefaultCurrentDirectoryInExePath === undefined) directories.unshift(process.cwd());
-  const names = win ? [...(native ? [] : ["npm"]), ...windowsNpmLauncherNames()] : ["npm"];
+  const names = native ? windowsNpmLauncherNames() : ["npm"];
   for (const directory of directories) {
     if (!directory && (!pathOnly || win)) continue;
     if (pathOnly) {

@@ -876,7 +876,7 @@ function defaultRunSetting(container, key) {
 }
 const IGNORE_SCRIPTS_ENV = "npm_config_ignore_scripts";
 const ENV_PATH = /^(?:"\$(?:GITHUB_ENV|\{GITHUB_ENV\})"|\$(?:GITHUB_ENV|\{GITHUB_ENV\}))(?:\s+#.*)?$/;
-const READ_ENV_FILE = /^cat\s+(?:"\$(?:GITHUB_ENV|\{GITHUB_ENV\})"|\$(?:GITHUB_ENV|\{GITHUB_ENV\}))$/;
+const READ_ENV_FILE = /^cat\s+("?)\$(?:GITHUB_ENV|\{GITHUB_ENV\})\1(?:\s+#.*)?$/;
 /** Decode one literal NAME=value record emitted by echo or printf. */
 function literalEnvironmentRecord(print, environment) {
     const variable = /^echo "([A-Za-z_]\w*)=\$(\w+)"$/.exec(print);
@@ -897,6 +897,7 @@ function literalEnvironmentRecord(print, environment) {
 function writtenIgnoreScripts(text, conditionalStep, environment, errexit) {
     let records = Object.create(null);
     let mayStopBeforeOverwrite = false;
+    let mayStopAtRead = false;
     let nounset = false;
     let depth = 0;
     const lines = text.split(/\r?\n/);
@@ -920,9 +921,14 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit) {
             errexit = true;
         if (shellOptions?.[1].includes("u"))
             nounset = true;
-        if (!line || line.startsWith("#") || shellOptions || /^(?:true|:|echo [\w .-]+)$/.test(line)
-            || READ_ENV_FILE.test(line))
+        if (!line || line.startsWith("#") || shellOptions || /^(?:true|:|echo [\w .-]+)$/.test(line))
             continue;
+        const readRunnerEnv = READ_ENV_FILE.exec(line);
+        if (readRunnerEnv) {
+            if (errexit && !readRunnerEnv[1])
+                mayStopAtRead = true;
+            continue;
+        }
         const redirect = line.indexOf(">");
         if (redirect < 0)
             return undefined;
@@ -933,7 +939,7 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit) {
         // Bash can split an unquoted runner path. Under errexit, only consumers
         // that can run after a failure can see the state before such a write.
         const unquoted = !destination.startsWith('"');
-        if (unquoted && errexit)
+        if (mayStopAtRead || (unquoted && errexit))
             mayStopBeforeOverwrite = true;
         const print = line.slice(0, redirect).trimEnd();
         const record = literalEnvironmentRecord(print, environment);

@@ -401,8 +401,19 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
     assert.throws(() => npmCli(true), /needs an npm CLI/, "Git Bash uses the extensionless launcher");
     writeFileSync(bashLauncher, launchers.npm);
     assert.equal(npmCli(true), selected);
-    rmSync(join(bin, "npm"));
-    assert.equal(npmCli(true), selected);
+    rmSync(bashLauncher);
+    assert.throws(() => npmCli(true), /needs an npm CLI/, "Git Bash skips directories containing only npm.cmd");
+    delete process.env.MSYSTEM;
+    assert.equal(npmCli(true), selected, "native lookup still uses the stock npm.cmd");
+    process.env.MSYSTEM = "MINGW64";
+    const batchOnly = join(root, "batch-only");
+    mkdirSync(batchOnly);
+    writeFileSync(join(batchOnly, "npm.cmd"), "opaque launcher");
+    writeFileSync(bashLauncher, launchers.npm);
+    process.env.PATH = [batchOnly, bin].join(delimiter);
+    assert.equal(npmCli(true), selected, "Git Bash reaches the extensionless launcher in a later directory");
+    rmSync(bashLauncher);
+    delete process.env.MSYSTEM;
     const displaced = join(root, "displaced");
     cpSync(join(bin, "node_modules"), join(displaced, "node_modules"), { recursive: true });
     copyFileSync(join(bin, "npm.cmd"), join(displaced, "npm.cmd"));
@@ -413,6 +424,7 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
       symlinkSync(node, adjacent);
       assert.throws(() => npmCli(true), /needs an npm CLI/, "the same adjacent Node does not authorize a relocated batch launcher");
     }
+    process.env.MSYSTEM = "MINGW64";
     copyFileSync(join(dirname(local), "npm"), join(displaced, "npm"));
     if (platform.value !== "win32") {
       assert.equal(npmCli(true), selected, "a relocated Bash launcher can use a verified adjacent Node");
@@ -426,6 +438,7 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
     process.env.PATH = displaced;
     assert.throws(() => npmCli(true), /needs an npm CLI/, "a stock launcher needs an identifiable Node");
     process.env.PATH = bin;
+    writeFileSync(bashLauncher, launchers.npm);
     for (const invalidPrefix of ["", prefix + "\nrelative"]) {
       setPrefix(invalidPrefix);
       assert.throws(() => npmCli(true), /needs an npm CLI/);
@@ -435,12 +448,14 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
     assert.equal(npmCli(true), local);
     rmSync(local);
     assert.throws(() => npmCli(true), /needs an npm CLI/);
+    delete process.env.MSYSTEM;
     writeFileSync(join(bin, "npm.cmd"), "@echo off\r\nexit /b 0\r\n");
     assert.throws(() => npmCli(true), /needs an npm CLI/);
     rmSync(join(bin, "npm.cmd"));
     assert.throws(() => npmCli(true), /needs an npm CLI/);
     writeFileSync(join(bin, "npm.exe"), "");
     assert.throws(() => npmCli(true), /needs an npm CLI/);
+    process.env.MSYSTEM = "MINGW64";
     process.env.PATH = [jobLocal, otherNode, bin].join(delimiter);
     assert.throws(() => npmCli(true), /needs an npm CLI/, "a direct launcher cannot rely on an unverified Bash PATH Node");
     const directNode = join(jobLocal, "node.exe");

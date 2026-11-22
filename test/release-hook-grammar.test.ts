@@ -1497,9 +1497,12 @@ test("workspace preparation records only a resolved npm lifecycle setting", t =>
   assert.deepEqual(projectNpmLifecyclePolicy(join(root, "absent")), { active: "unknown", configured: "unknown" });
   assert.throws(() => prepare("", "", { npm_config_ignore_scripts: "true", "npm_config_ignore-scripts": "false" }), /ignore-scripts.*prehook/);
   assert.throws(() => prepare("", "", { npm_config_userconfig: root }), /ignore-scripts.*prehook/);
-  assert.throws(() => prepare("ignore-scripts=true", "", { PATH: member }), /ignore-scripts.*prehook/);
-  writeFileSync(join(member, "npm"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-  assert.throws(() => prepare("ignore-scripts=true", "", { PATH: member + delimiter + process.env.PATH }), /ignore-scripts.*prehook/);
+  const native = process.platform === "win32";
+  const pathKey = Object.keys(env).find(key => key.toLowerCase() === "path") ?? "PATH";
+  const lookup = native ? { MSYSTEM: "", PATHEXT: ".CMD" } : {};
+  assert.throws(() => prepare("ignore-scripts=true", "", { ...lookup, [pathKey]: member }), /ignore-scripts.*prehook/);
+  writeFileSync(join(member, native ? "npm.cmd" : "npm"), native ? "@exit /b 97\r\n" : "#!/bin/sh\nexit 97\n", { mode: 0o755 });
+  assert.throws(() => prepare("ignore-scripts=true", "", { ...lookup, [pathKey]: [member, env[pathKey]].join(delimiter) }), /ignore-scripts.*prehook/);
 });
 
 test("a copied Node executable in a spaced path keeps its generator and script entry point", () => {
@@ -1802,6 +1805,39 @@ test("environment-file overwrites after a failed read require a successful produ
     { ...consume, if: "${{ always() }}" }), []);
 });
 
+test("an unquoted runner environment read can stop a producer before it writes", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-env-read-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = join(root, "runner environment");
+  const overwrite = 'echo npm_config_ignore_scripts=true > "$GITHUB_ENV"';
+  for (const quoted of [false, true]) {
+    const read = quoted ? '"$GITHUB_ENV"' : '$GITHUB_ENV';
+    const run = "cat " + read + "\n" + overwrite;
+    if (process.platform !== "win32") {
+      writeFileSync(file, "");
+      const execute = () => execFileSync("bash", ["-ec", run], { cwd: root, env: { ...process.env, GITHUB_ENV: file }, stdio: "pipe" });
+      if (quoted) assert.doesNotThrow(execute);
+      else assert.throws(execute, /No such file/);
+      assert.equal(readFileSync(file, "utf8"), quoted ? "npm_config_ignore_scripts=true\n" : "");
+    }
+    const audit = (condition: string, producer = run, shell = "bash") => auditInvocations([
+      { file: "package.json", text: JSON.stringify({ scripts: {
+        "changelog:full": "pm-changelog " + standing, "prechangelog:full": "printf heading > CHANGELOG.md",
+      } }) },
+      { file: ".github/workflows/env.yml", text: stringify({ jobs: { release: {
+        "runs-on": "ubuntu-latest", env: { npm_config_ignore_scripts: "false" },
+        steps: [{ shell, run: producer }, { if: condition, run: "npm run changelog:full" }],
+      } } }) },
+    ]).failures;
+    const afterFailure = audit("always()");
+    if (quoted) assert.deepEqual(afterFailure, []);
+    else assert.match(afterFailure[0] ?? "", /Cannot determine npm ignore-scripts/);
+    assert.deepEqual(audit("success()"), []);
+    assert.deepEqual(audit("always()", run, "bash {0}"), []);
+    assert.deepEqual(audit("always()", overwrite + "\ncat " + read), []);
+  }
+});
+
 test("the step's explicit npm setting wins over unknown writes by an earlier action", () => {
   const audit = (env: unknown, action: { uses: string; if?: boolean } = { uses: "./local-action" },
     jobEnv?: string) => auditInvocations([
@@ -1855,6 +1891,49 @@ test("npm restores the configured setting after a parent overrides ignore-script
   assert.equal(resolveChangelogHooks(plain, [hook], true).has("prewriter"), true);
   assert.throws(() => resolveChangelogHooks(plain, [hook]), /Cannot determine npm ignore-scripts.*prewriter/);
   assert.equal(resolveChangelogHooks({ ...plain, [hook]: "npm --ignore-scripts=true run relay" }, [hook], true).has("prewriter"), false);
+});
+
+test("npm preserves invocation-local aliases when clearing its canonical lifecycle key", { skip: process.platform === "win32" }, t => {
+  const root = mkdtempSync(join(tmpdir(), "release-npm-local-fallback-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const npm = npmCli(true);
+  const manifest = join(root, "package.json");
+  const env = isolatedNpmConfig(root);
+  writeFileSync(join(root, ".npmrc"), "ignore-scripts=true\n");
+  const options = ["--ignore-scripts=false", "run", "--silent", "relay"];
+  const hookScripts = (assignments: string) => ({
+    hook: "env " + assignments + " npm " + options.join(" "), relay: "npm run middle", middle: "npm run writer",
+    writer: "pm-changelog " + standing, prewriter: "pm-changelog --release-version-from-package",
+  });
+  const policy = { active: false, configured: false } as const;
+  for (const [assignments, enabled] of [
+    ["NPM_CONFIG_IGNORE_SCRIPTS=false npm_config_ignore_scripts=true", true],
+    ["npm_config_ignore_scripts=true", false],
+    ["npm_config_ignore_scripts=true NPM_CONFIG_IGNORE_SCRIPTS=true", false],
+    ["NPM_CONFIG_IGNORE_SCRIPTS=false npm_config_ignore_scripts=true NPM_CONFIG_IGNORE_SCRIPTS=", false],
+  ] as const) {
+    writeFileSync(manifest, JSON.stringify({ name: "fixture", scripts: {
+      relay: "npm run --silent middle", middle: "npm run --silent writer", writer: "echo writer", prewriter: "echo prewriter",
+    } }));
+    const output = execFileSync("env", [...assignments.split(" "), process.execPath, npm, ...options], { cwd: root, env, encoding: "utf8" });
+    assert.deepEqual(output.trim().split(/\r?\n/), enabled ? ["prewriter", "writer"] : ["writer"], assignments);
+    const scripts = hookScripts(assignments);
+    const resolved = resolveChangelogHooks(scripts, ["hook"], policy);
+    assert.equal(resolved.has("prewriter"), enabled, scripts.hook);
+    const all = new Map(Object.entries(scripts));
+    const heading = () => assertReleaseHookHeadingDate(all, ["hook"], day, "2026.11.17", policy);
+    const prepare = () => rewriteReleaseHookDates(all, ["hook"], day, policy);
+    if (enabled) {
+      assert.throws(prepare, /without a date policy/);
+      assert.throws(heading, /without a date policy/);
+    } else {
+      assert.doesNotThrow(prepare);
+      assert.doesNotThrow(heading);
+    }
+  }
+  const hyphenated = (value: string) => hookScripts("npm_config_ignore-scripts=" + value + " npm_config_ignore_scripts=true");
+  assert.throws(() => resolveChangelogHooks(hyphenated("false"), ["hook"], policy), /ignore-scripts.*prewriter/);
+  assert.equal(resolveChangelogHooks(hyphenated("true"), ["hook"], policy).has("prewriter"), false);
 });
 
 test("a conditional notes hook without else keeps the preceding renderer", () => {
@@ -2226,10 +2305,13 @@ test("the pinned changelog CLI splits a separate equal-sign option passed as pm-
 test("pm-arg requires a value but a caller can forward an option-shaped value", () => {
   const writer = "pm-changelog " + standing + " --pm-arg";
   const hook = "npm run writer -- --title";
-  for (const script of [writer, writer + " ''"]) {
+  for (const script of [writer, writer + " ''", writer + "=", writer + "=''"]) {
     assert.match(auditInvocations([workflow(script)]).failures[0] ?? "", /--pm-arg requires a value/);
     assert.throws(() => rewriteReleaseHeadingDate(script, day), /--pm-arg requires a value/);
   }
+  const inline = writer + "=--title";
+  assert.deepEqual(auditInvocations([workflow(inline)]).failures, []);
+  assert.equal(rewriteReleaseHeadingDate(inline, day), inline.replace("--date-from-version", "--date-fallback " + day));
   const rewritten = rewriteReleaseHookDates(new Map([["hook", hook], ["writer", writer]]), ["hook"], day);
   assert.equal(rewritten.get("hook"), hook);
   assert.equal(rewritten.get("writer"), writer.replace("--date-from-version", "--date-fallback " + day));

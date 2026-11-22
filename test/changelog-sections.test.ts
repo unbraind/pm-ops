@@ -433,11 +433,18 @@ test("custom notes keep the saved option before shell terminators and comments",
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const manifest = join(root, "package.json");
   const env = releaseStepEnv(root, process.env);
+  const pathKey = process.platform === "win32" ? "Path" : "PATH";
+  if (process.platform === "win32") {
+    const inheritedKey = Object.keys(env).find(key => key.toLowerCase() === "path") ?? "PATH";
+    const searchPath = env[inheritedKey];
+    delete env[inheritedKey];
+    env[pathKey] = searchPath;
+  }
   const blocked = join(root, "no-launcher");
   mkdirSync(blocked);
   writeFileSync(join(blocked, "npm"), "#!/bin/sh\nexit 97\n", { mode: 0o755 });
   writeFileSync(join(blocked, "npm.cmd"), "@exit /b 97\r\n");
-  const launchEnv = { ...env, PATH: [blocked, env.PATH].join(delimiter) };
+  const launchEnv = { ...env, [pathKey]: [blocked, env[pathKey]].join(delimiter) };
   const prepare = [resolve("scripts/prepare-release-changelog.ts")];
   writeFileSync(join(root, "notes.mjs"), 'console.log(JSON.stringify(process.argv.slice(2)));\n');
   for (const suffix of [";", "\n", "; # notes end\n"]) {
@@ -577,19 +584,32 @@ test("prepare commits the heading its tag produces, for same-day and resumed rel
       // The release PR's gate runs while the candidate is untagged.
       execFileSync(process.execPath, npmRunArgs("release:check"), { cwd: root, env: releaseEnv });
       commitAndTag(root, env, `v${version}`, tagDay);
+      const changelog = join(root, "CHANGELOG.md");
+      const committed = execFileSync("git", ["show", "v" + version + ":CHANGELOG.md"], { cwd: root, env });
       // Main after tagging: the gate passes with no follow-up regeneration.
       execFileSync(process.execPath, npmRunArgs("release:check"), { cwd: root, env: releaseEnv });
-      const committed = readFileSync(join(root, "CHANGELOG.md"), "utf8");
+      assert.deepEqual(readFileSync(changelog), committed, "the post-tag gate preserves the tagged changelog bytes");
       const timestamp = execFileSync("git", ["show", "-s", "--format=%cI", `v${version}`], { cwd: root, env, encoding: "utf8" });
-      assert.ok(committed.split("\n").includes(`## ${version} - ${timestamp.slice(0, 10)}`));
+      assert.ok(committed.toString("utf8").split("\n").includes(`## ${version} - ${timestamp.slice(0, 10)}`));
       execFileSync(process.execPath, npmRunArgs("changelog:full"), { cwd: root, env: releaseEnv });
-      assert.equal(readFileSync(join(root, "CHANGELOG.md"), "utf8"), committed, `${version} ${headingDate}: post-tag regeneration must equal the prepared bytes`);
+      assert.deepEqual(readFileSync(changelog), committed, `${version} ${headingDate}: post-tag regeneration must equal the prepared bytes`);
       if (headingDate) {
-        // A later same-day release restores the standing policy, so a stale
-        // pin never survives the next release commit.
+        // The old fallback differs from the tag date. The tag must take precedence.
+        const manifest = join(root, "package.json");
+        const taggedManifest = readFileSync(manifest, "utf8");
+        const taggedPackage = JSON.parse(taggedManifest);
+        taggedPackage.scripts["changelog:full"] = taggedPackage.scripts["changelog:full"].replace(
+          tagDay.slice(0, 10), headingDate,
+        );
+        assert.ok(taggedPackage.scripts["changelog:full"].includes("--date-fallback"));
+        assert.ok(taggedPackage.scripts["changelog:full"].includes(headingDate));
+        writeFileSync(manifest, JSON.stringify(taggedPackage));
+        execFileSync(process.execPath, npmRunArgs("changelog:full"), { cwd: root, env: releaseEnv });
+        assert.deepEqual(readFileSync(changelog), committed, "the tag date takes precedence over the older fallback");
+        writeFileSync(manifest, taggedManifest);
+        // A later same-day release restores the standing policy.
         const nextVersion = "2026.10.27";
         assert.equal(execFileSync("git", ["tag", "--list", "v" + nextVersion], { cwd: root, env, encoding: "utf8" }), "");
-        const manifest = join(root, "package.json");
         writeFileSync(manifest, JSON.stringify({ ...JSON.parse(readFileSync(manifest, "utf8")), version: nextVersion }));
         const restored = runBashFixture(script, { cwd: root, env: { ...releaseEnv, RELEASE_HEADING_DATE: "" }, encoding: "utf8" });
         assert.equal(restored.status, 0, restored.stdout + restored.stderr);
