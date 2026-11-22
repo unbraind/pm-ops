@@ -2,13 +2,11 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: in_progress
+status: open
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-22T02:08:16.416Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-22T02:43:13.723Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[194]:
+comments[196]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -600,6 +598,12 @@ comments[194]:
   - created_at: "2026-11-22T02:08:16.407Z"
     author: codex-sol
     text: "Round GA implementation uses the effective npm script target for implicit start and restart checks, returns the pinned CLI JSON report with its validated prepend mode, and requires the probe Node beside a direct Windows npm launcher. The five focused checks, baseline 539-test sweep, typecheck, test build, lint, duplication, docstrings and pinned fleet scan passed. The full gates are next."
+  - created_at: "2026-11-22T02:43:08.745Z"
+    author: codex-sol
+    text: "Round GA thread map for pm-ops#295. The three open threads on 3629b43 map to 11cc1ff. PRRT_kwDOTOTl1M66epGk checks the effective npm target before skipping a missing optional script, PRRT_kwDOTOTl1M66epGo keeps JSON stdout in the pinned CLI with validated mode and resolved output, and PRRT_kwDOTOTl1M66epGr requires the same adjacent Node for a direct Windows npm launcher. Ten related historical controls were reverified. PRRT_kwDOTOTl1M650IRm and PRRT_kwDOTOTl1M650SdF map to 24d844c for allowed ordinary values and refused executable or policy selectors. PRRT_kwDOTOTl1M650SdV maps to 24d844c for fresh previews. PRRT_kwDOTOTl1M650Sda and PRRT_kwDOTOTl1M650Sdd map to accb464 for tag-signing isolation and invalid UTF-8 raw index entries. PRRT_kwDOTOTl1M66SzHi maps to f7caf9f and 27fc46f for npm lifecycle defaults. PRRT_kwDOTOTl1M658IVk maps to bdcb59a for both plain prepend spellings. PRRT_kwDOTOTl1M66YnxA maps to 8b436fe for the resolved output path. PRRT_kwDOTOTl1M66YnxE maps to 8b436fe and fdf945a for verified Node in stock Windows launchers. PRRT_kwDOTOTl1M66YnxQ maps to 8156384 for fixture-owned launcher templates."
+  - created_at: "2026-11-22T02:43:10.310Z"
+    author: codex-sol
+    text: "Round GA verification on 11cc1ff passed the 553-case reference sweep with no skips, the five targeted checks, and four environment controls with global tag signing enabled. The baseline passed 539 earlier-round cases. The pinned Round DY fleet accepted 142 hooks and 144 reachable bodies across 39 manifests before and after the fix. Typecheck, test build, lint, zero duplication, docstrings, changelog regeneration and changelog:check passed. The changelog still lists ops-b2bs under Unreleased. With npm 11.21.0, npm run coverage and node test/release-heading-full-gate.acceptance.ts each passed 2225 tests with two opt-in skips and 100 percent statements, branches, functions and lines across 54 sources. The rewritten candidate used untagged 2026.12.31 with 2026-11-17 in both generated headings. Both dependency audits returned zero vulnerabilities, and dry-run packing and the release verifiers passed."
 files[29]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
