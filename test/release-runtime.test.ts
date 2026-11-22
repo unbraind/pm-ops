@@ -19,12 +19,30 @@ function sourceFixture(root: string, name = "pm-ops", version = "9999.1.1"): str
   return source;
 }
 
+/** Remove a test-owned npm fixture after Windows releases its temporary Node executable. */
+function removeRuntimeFixture(root: string): void {
+  // Node's own maxRetries covers per-entry unlink errors, but Node 22.18.0 throws EBUSY/EPERM from the
+  // first directory removal without entering that loop, so the whole operation is retried here as well:
+  // linear backoff, about 10.5 seconds in total, after which a persistent lock still fails the test.
+  const transient = new Set(["EBUSY", "EPERM", "ENOTEMPTY"]);
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      rmSync(root, { recursive: true, force: true, maxRetries: 14, retryDelay: 100 });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? "";
+      if (!transient.has(code) || attempt >= 13) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100 * (attempt + 1));
+    }
+  }
+}
+
 /** Restore synthetic runtime identity and remove its disposable source checkout. */
 function restoreRuntimeProcess(root: string, platform: PropertyDescriptor, executable: PropertyDescriptor, restoreNpm: () => void): void {
   Object.defineProperty(process, "platform", platform);
   restoreNpm();
   Object.defineProperty(process, "execPath", executable);
-  rmSync(root, { recursive: true, force: true });
+  removeRuntimeFixture(root);
 }
 
 test("unpublished trusted source version bootstraps from exact committed planner bytes", async () => {
@@ -59,7 +77,7 @@ test("unpublished trusted source version bootstraps from exact committed planner
   } finally {
     restoreNpm();
     for (const key of keys) { const prior = saved.get(key); if (prior === undefined) Reflect.deleteProperty(process.env, key); else process.env[key] = prior; }
-    rmSync(root, { recursive: true, force: true });
+    removeRuntimeFixture(root);
   }
 });
 
@@ -78,7 +96,7 @@ test("runtime installs only locked production dependencies without lifecycle scr
     mkdirSync(join(privateRoot, "node_modules/sigstore"), { recursive: true }); writeFileSync(join(privateRoot, "node_modules/sigstore/package.json"), "{}");
     ensureReleaseRuntime(root, () => { throw new Error("already installed"); });
     assert.equal(existsSync(join(root, "node_modules")), false);
-  } finally { restoreNpm(); rmSync(root, { recursive: true, force: true }); }
+  } finally { restoreNpm(); removeRuntimeFixture(root); }
 });
 
 test("an empty native probe works with no installed runtime dependencies and never invokes npm", () => {
@@ -223,7 +241,7 @@ test("missing npm CLI refuses clearly and removes the private cache", () => {
     for (const key of tempKeys) { const prior = savedTemp.get(key); if (prior === undefined) delete process.env[key]; else process.env[key] = prior; }
     Object.defineProperty(process, "platform", platform);
     restoreNpm();
-    rmSync(root, { recursive: true, force: true });
+    removeRuntimeFixture(root);
   }
 });
 
@@ -266,5 +284,5 @@ test("POSIX npm symlink discovery does not depend on the host Node layout", { sk
     mkdirSync(join(root, ".github/release-runtime"), { recursive: true });
     ensureReleaseRuntime(root);
     assert.equal(readFileSync(join(root, ".github/release-runtime/installed"), "utf8"), "yes");
-  } finally { restoreNpm(); rmSync(root, { recursive: true, force: true }); }
+  } finally { restoreNpm(); removeRuntimeFixture(root); }
 });

@@ -1,0 +1,23 @@
+id: ops-windows-runtime-cleanup
+title: Retry release runtime fixture cleanup when Windows still locks Node
+description: "The Windows Node 22 job in pm-ops PR #295 run 44711477992 attempt 1 failed removing the test fixture Node executable with EBUSY after the runtime assertions. The job passed on attempt 2. Job: https://github.com/unbraind/pm-ops/actions/runs/44711477992/job/136203980978."
+type: Issue
+status: open
+priority: 3
+tags: []
+created_at: "2026-11-20T12:47:39.868Z"
+updated_at: "2026-11-20T13:16:05.780Z"
+author: codex-sol
+acceptance_criteria: Back off for transient EBUSY and EPERM while removing only test-owned fixture directories. Report persistent errors after a bounded retry window.
+comments[4]{created_at,author,text}:
+  "2026-11-20T12:48:01.779Z",codex-sol,The failed job identified the release-source-tools fixture root in test/release-runtime.test.ts. Reuse Node recursive rmSync linear backoff for fixture roots that create a replacement Node executable. Fourteen retries at a 100 ms increment allow up to 10.5 seconds of retry delay and still propagate a persistent error.
+  "2026-11-20T12:52:11.967Z",codex-sol,"The focused Node 22 Linux run passed all 14 reader and runtime tests, including the native Windows-runtime fixture executed on Linux and the simulated Windows launcher cases. Native Windows verification is covered by the PR Windows matrix."
+  "2026-11-20T13:06:59.228Z",codex-sol,The linked node --test --test-concurrency=2 test/release-runtime.test.ts test/release-runtime-windows.test.ts command passed all 8 tests on Linux with Node 22.23.4.
+  "2026-11-20T13:16:03.723Z",codex-sol,"The full npm run coverage gate passed on Node 24.19.0 with 1998 passed, zero failed and two opt-in real-data skips. All 50 measured source files met 100% statements, branches, functions and lines. Typecheck, test typecheck, lint, duplication and docstring gates passed."
+files[1]{path,scope}:
+  test/release-runtime.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/release-runtime.test.ts test/release-runtime-windows.test.ts,project,codex-sol,"2026-11-20T12:49:51.747Z",local_mutation,fix/test-startup-and-windows-cleanup
+docs[1]{path,scope,note}:
+  docs/dependency-contract.md,project,Native Windows proof and dependency fixture context.
+body: ""

@@ -79,6 +79,74 @@ test("shared workflow grants permissions per job, pins actions, and gates every 
   assert.match(step("Install pinned release tools").run, /node "\$CONTINUATION_SCRIPT" tools/);
 });
 
+test("both stale-base guards expose only the rejected base and a fresh attempt accepts its new exact trigger", () => {
+  const root = mkdtempSync(join(tmpdir(), "prepare-restart-guard-"));
+  const oldHead = "a".repeat(40), newHead = "b".repeat(40);
+  try {
+    writeFileSync(join(root, "git"), '#!/bin/sh\ncase "$1" in fetch|checkout) exit 0 ;; rev-parse) printf "%s\\n" "$FIXTURE_MAIN" ;; *) exit 93 ;; esac\n');
+    chmodSync(join(root, "git"), 0o755);
+    const output = join(root, "output");
+    const env = { ...process.env, PATH: `${root}:${process.env.PATH}`, FIXTURE_MAIN: newHead, TRIGGER_SHA: oldHead,
+      RELEASE_BASE_SHA: oldHead, GITHUB_OUTPUT: output };
+    const refresh = step("Refresh release base");
+    assert.equal(refresh.id, "refresh");
+    const first = runBashFixture(refresh.run, { encoding: "utf8", env });
+    assert.equal(first.status, 1);
+    assert.match(first.stdout, /Default branch advanced; retry at its current head/);
+    assert.equal(readFileSync(output, "utf8"), `restart_base=${oldHead}\n`);
+    writeFileSync(output, "");
+    const second = runBashFixture(refresh.run, { encoding: "utf8", env: { ...env, TRIGGER_SHA: newHead } });
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(readFileSync(output, "utf8"), "");
+    const request = step("Merge release metadata through protected PR").run;
+    const guard = request.slice(0, request.indexOf('release_commit="$(git rev-parse HEAD)"'));
+    const queued = runBashFixture(guard, { encoding: "utf8", env });
+    assert.equal(queued.status, 1);
+    assert.match(queued.stdout, /main advanced from .* while preparing the release/);
+    assert.equal(readFileSync(output, "utf8"), `restart_base=${oldHead}\n`);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("restart job survives failed dependencies, uses trusted tools and cannot admit recovery or retarget an artifact", () => {
+  const jobs = workflow.jobs as typeof workflow.jobs & Record<string, { outputs: Record<string, string> }>;
+  assert.equal(jobs.prepare.outputs.restart_base, "${{ steps.refresh.outputs.restart_base }}");
+  assert.equal(jobs.request.outputs.restart_base, "${{ steps.release_pr.outputs.restart_base }}");
+  const restart = jobs.restart_prepare;
+  assert.deepEqual(restart.needs, ["prepare", "request"]);
+  assert.match(restart.if, /^!cancelled\(\)/);
+  assert.match(restart.if, /inputs.release-enabled && github.ref == 'refs\/heads\/main'/);
+  assert.match(restart.if, /!inputs.reconcile-only && !inputs.retire-unpublished/);
+  assert.match(restart.if, /needs.prepare.outputs.restart_base != '' \|\| needs.request.outputs.restart_base != ''/);
+  assert.deepEqual(restart.permissions, { contents: "read", actions: "write" });
+  assert.equal(restart.env.RELEASE_CONFIG, "${{ toJSON(inputs) }}");
+  assert.equal(restart.env.RELEASE_EVENT_INPUTS, undefined);
+  assert.equal(restart.env.RESTART_BASE_SHA, "${{ needs.request.outputs.restart_base || needs.prepare.outputs.restart_base }}");
+  const checkout = restart.steps.find(s => s.name === "Checkout trusted restart tools") as Step & { with: Record<string, unknown> };
+  assert.deepEqual(checkout.with, { repository: "unbraind/pm-ops", ref: "${{ job.workflow_sha }}", "persist-credentials": false });
+  assert.equal(step("Restart complete preparation at current main").run.trim(), "node scripts/release-prepare-restart.ts");
+  assert.doesNotMatch(JSON.stringify(restart), /download-artifact|git push|npm publish|force-with-lease/);
+  assert.ok(steps.indexOf(step("Refresh release base")) < steps.indexOf(step("Update release version")));
+  assert.ok(steps.indexOf(step("Generate changelog and release notes")) < steps.indexOf(step("Run release checks")));
+  assert.ok(steps.indexOf(step("Run release checks")) < steps.indexOf(step("Record immutable release candidate")));
+});
+
+test("unchanged callers need no restart input and retain retirement defaults", () => {
+  assert.equal(workflow.on.workflow_call.inputs["prepare-restart-count"], undefined);
+  const docs = readFileSync(new URL("../docs/reusable-release.md", import.meta.url), "utf8");
+  const callers = [readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8"),
+    readFileSync(new URL("../templates/release-caller.yml", import.meta.url), "utf8"),
+    ...Array.from(docs.matchAll(/```yaml\n([\s\S]*?)```/g), match => match[1])];
+  assert.equal(callers.length, 4);
+  for (const source of callers) {
+    const caller = parse(source);
+    assert.equal(caller.on.workflow_dispatch.inputs["prepare-restart-count"], undefined);
+    assert.equal(caller.jobs.release.with["prepare-restart-count"], undefined);
+    assert.equal(caller.on.workflow_dispatch.inputs["retire-unpublished"].default, false);
+    assert.equal(caller.jobs.release.permissions.actions, "write");
+  }
+  assert.doesNotMatch(docs, /fresh preparation on the next daily run/);
+});
+
 test("planning calls the measured TypeScript module and keeps PR payloads in files", () => {
   const plan = step("Decide release");
   assert.match(plan.run, /--limit 1000/);
@@ -168,6 +236,57 @@ test("actual publication dates cap daily resumption as well as reviewed package 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("prepare registry lookup distinguishes an exact version, E404 and read failures and skips Rust/package policy", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-registry-read-"));
+  try {
+    writeFileSync(join(root, "npm"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$RUNNER_TEMP/npm-calls"
+case "$1 $2 $3" in
+  "pkg get version") echo '"2026.10.17"' ;;
+  "pkg get name") echo '"fixture-package"' ;;
+  "view fixture-package@2026.10.17 version") printf '%s' "$REGISTRY_RESPONSE"; exit "$REGISTRY_STATUS" ;;
+  *) exit 9 ;;
+esac
+`);
+    chmodSync(join(root, "npm"), 0o755);
+    const plan = step("Decide release").run;
+    const lookup = plan.slice(plan.indexOf('export RELEASE_PACKAGE_VERSION=""'), plan.indexOf("# A resumed old date"));
+    assert.match(plan, /registryHasCurrentVersion: e.RELEASE_REGISTRY_HAS_CURRENT_VERSION === 'true'/);
+    const fixtures = [
+      { response: '"2026.10.17"', status: 0, expected: "true", pass: true },
+      { response: '{"error":{"code":"E404"}}', status: 1, expected: "false", pass: true },
+      { response: '{"error":{"code":"E503"}}', status: 1, pass: false },
+      { response: '{"error":{"code":"ETIMEDOUT"}}', status: 1, pass: false },
+      { response: "", status: 1, pass: false },
+      { response: "", status: 0, pass: false },
+      { response: '"wrong-version"', status: 0, pass: false },
+      { response: '{"error":{"code":"E404"}}', status: 0, pass: false },
+    ];
+    for (const fixture of fixtures) {
+      const result = runBashFixture(lookup + '\nprintf "%s" "$RELEASE_REGISTRY_HAS_CURRENT_VERSION"', { encoding: "utf8", env: {
+        ...process.env, PATH: `${root}:${process.env.PATH}`, RUNNER_TEMP: root, NPM_PROJECT_PATH: root,
+        IS_RUST: "false", VERSION_POLICY: "daily", NPM_PUBLISH: "true", REGISTRY_RESPONSE: fixture.response, REGISTRY_STATUS: String(fixture.status),
+      } }, ["-e", "-o", "pipefail"]);
+      assert.equal(result.status === 0, fixture.pass, result.stdout + result.stderr);
+      if (fixture.pass) assert.equal(result.stdout, fixture.expected);
+      if (fixture.status !== 0 && !fixture.pass) assert.match(result.stdout, /::error::Could not read .* from npm/);
+    }
+    assert.match(readFileSync(join(root, "npm-calls"), "utf8"), /view fixture-package@2026.10.17 version --prefer-online --json/);
+    // GitHub-only callers (npm-publish: false) keep reading the package version but never query the registry,
+    // even when the registry is unreachable (REGISTRY_STATUS=1 with a non-E404 body).
+    for (const [rust, policy, publish] of [["true", "daily", "true"], ["false", "package", "true"], ["false", "daily", "false"]]) {
+      writeFileSync(join(root, "npm-calls"), "");
+      const result = runBashFixture(lookup + '\nprintf "%s|%s" "$RELEASE_CURRENT_PACKAGE_VERSION" "$RELEASE_REGISTRY_HAS_CURRENT_VERSION"', { encoding: "utf8", env: {
+        ...process.env, PATH: `${root}:${process.env.PATH}`, RUNNER_TEMP: root, NPM_PROJECT_PATH: root, IS_RUST: rust, VERSION_POLICY: policy,
+        NPM_PUBLISH: publish, REGISTRY_RESPONSE: '{"error":{"code":"E503"}}', REGISTRY_STATUS: "1",
+      } }, ["-e", "-o", "pipefail"]);
+      if (publish === "false") assert.equal(result.stdout, "2026.10.17|false", "GitHub-only callers keep the pending package version");
+      assert.equal(result.status, 0, result.stderr);
+      assert.doesNotMatch(readFileSync(join(root, "npm-calls"), "utf8"), /view/);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("completeness audit follows release and recovery even on no-change days and exposes failures to alerting", () => {
   const audit = workflow.jobs.audit;
   assert.deepEqual(audit.needs, ["prepare", "release", "recover", "verify_bun", "reconcile", "request"]);
@@ -250,7 +369,7 @@ esac
 test("every declared package input is typed and wired into executable jobs", () => {
   const jobSource = source.slice(source.indexOf("jobs:"));
   for (const [name, input] of Object.entries(workflow.on.workflow_call.inputs)) {
-    assert.ok(["string", "boolean"].includes(input.type));
+    assert.ok(["string", "boolean", "number"].includes(input.type));
     assert.equal(typeof input.default, input.type);
     assert.ok(jobSource.includes(`inputs.${name}`), `unwired input ${name}`);
   }
@@ -565,7 +684,7 @@ test("every installing reusable job pins npm while reconciliation stays installa
     const selected = job.steps[node] as Step & { with: Record<string, unknown> };
     assert.equal(selected.with["node-version"], "${{ inputs.node-version }}");
     assert.equal(selected.with["package-manager-cache"], false);
-    if (["reconcile", "request"].includes(name)) {
+    if (["reconcile", "request", "restart_prepare"].includes(name)) {
       assert.equal(setup, -1);
       for (const current of job.steps) assertNoNpmInstalls(current.run ?? "");
       continue;
@@ -582,7 +701,8 @@ test("every installing reusable job pins npm while reconciliation stays installa
       assert.equal(job.steps[setup].if, undefined);
     }
     assertPinnedNpmBootstrap(job.steps[setup].run!);
-    assert.match(job.steps[setup].run!, /npm install -g npm@11\.21\.0 --ignore-scripts --no-audit --no-fund/);
+    assert.match(job.steps[setup].run!, /npm install --prefix "\$RUNNER_TEMP\/npm-11\.21\.0" npm@11\.21\.0 --ignore-scripts --no-audit --no-fund/);
+    assert.match(job.steps[setup].run!, /echo "\$RUNNER_TEMP\/npm-11\.21\.0\/node_modules\/.bin" >> "\$GITHUB_PATH"/);
     assert.match(job.steps[setup].run!, /\[\[ "\$active" == "11\.21\.0" \]\]/);
   }
 });
@@ -592,14 +712,14 @@ test("every reusable and CI npm setup refuses failed installs and wrong active v
   try {
     const installCommands = ["npm ci", "npm install -g another-package", "npm -g i another-package", "npm add another-package", "npm it another-package", "npm install-test another-package", "npm installt another-package", "npm clean-install", "npm cit", "npm sit", "npm ic", "npm install-ci-test", "npm clean-install-test", "npm in another-package", "npm ins another-package", "npm inst another-package", "npm insta another-package", "npm instal another-package", "npm isnt another-package", "npm isnta another-package", "npm isntal another-package", "npm isntall another-package", "npm install-clean", "npm isntall-clean", "npm installTest another-package", "npm installCiTest another-package", "npm --install-strategy nested ci", "npm --cpu x64 ci", "npm --audit-level high install another-package", "npm --location global ci", "npm -L user ci", "npm exec --package another-package", "npm x --package another-package", "npm exec -p another-package", "npm exec --yes --package another-package"];
     const scenarios = installCommands.flatMap(command => [command, `if ${command}; then true; fi`, `for attempt in 1; do ${command}; done`, `NPM_CONFIG_CACHE=cache ${command}`, `env NPM_CONFIG_CACHE=cache ${command}`, `command ${command}`, command.replace(/^npm /, "npm.cmd ")]);
-    for (const name of ["reconcile", "request"]) for (const current of workflow.jobs[name].steps) for (const install of scenarios) {
+    for (const name of ["reconcile", "request", "restart_prepare"]) for (const current of workflow.jobs[name].steps) for (const install of scenarios) {
       assert.throws(() => assertNoNpmInstalls((current.run ?? "") + "\n" + install), /must not install/);
     }
     writeFileSync(join(root, "npm"), '#!/bin/sh\ncase "$1" in\ninstall) exit "$INSTALL_STATUS" ;;\n--version) echo "$ACTIVE_NPM" ;;\nesac\n', { mode: 0o755 });
     for (const [file, jobs] of [["reusable", workflow.jobs], ["CI", ci.jobs]] as const) for (const [name, job] of Object.entries(jobs)) {
       const setupName = file === "reusable" ? "Use an npm that supports trusted publishing" : "Install npm 11.21.0";
       const setups = job.steps.filter((s: Step) => s.name === setupName);
-      assert.equal(setups.length, file === "reusable" && ["reconcile", "request"].includes(name) ? 0 : 1, `${file}/${name}`);
+      assert.equal(setups.length, file === "reusable" && ["reconcile", "request", "restart_prepare"].includes(name) ? 0 : 1, `${file}/${name}`);
       for (const setup of setups) {
         assertPinnedNpmBootstrap(setup.run!);
         for (const extra of scenarios.flatMap(command => ["\n", "; ", " && "].map(separator => separator + command))) {
@@ -608,6 +728,7 @@ test("every reusable and CI npm setup refuses failed installs and wrong active v
         for (const [active, status, success] of [["11.21.0", "0", true], ["10.9.3", "0", false], ["11.22.0", "0", false], ["11.21.0", "7", false]] as const) {
           const result = runBashFixture(setup.run!, { encoding: "utf8", env: {
             PATH: `${root}:${process.env.PATH}`, ACTIVE_NPM: active, INSTALL_STATUS: status,
+            RUNNER_TEMP: root, GITHUB_PATH: join(root, "github-path"),
           } });
           assert.equal(result.status === 0, success, `${file}/${name}/${active}/${status}: ${result.stderr}`);
         }
@@ -620,6 +741,8 @@ test("failure reporting attempts its script after bootstrap or dependency instal
   const setup = workflow.jobs.alert.steps.find(s => s.id === "npm_setup")!;
   const report = step("Report release failure");
   assert.equal(setup["continue-on-error"], true);
+  const verify = workflow.jobs.alert.steps.find(s => s.name === "Verify job-local npm version")!;
+  assert.equal(verify.if, "${{ steps.npm_setup.outcome == 'success' }}");
   assert.equal(report.if, "${{ !cancelled() }}");
   assert.equal(report.env?.NPM_READY, "${{ steps.npm_setup.outcome == 'success' }}");
   const root = mkdtempSync(join(tmpdir(), "release-alert-failure-"));

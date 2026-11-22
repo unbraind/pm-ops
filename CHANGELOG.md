@@ -1,16 +1,32 @@
 # Changelog
 
-## Unreleased
+## 2026.11.22 - 2026-11-22
+
+### Dependencies
+
+- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#312](https://github.com/unbraind/pm-ops/pull/312))
+- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#311](https://github.com/unbraind/pm-ops/pull/311))
+- Bump taiki-e/install-action from 2.90.4 to 2.90.6 ([#310](https://github.com/unbraind/pm-ops/pull/310))
+
+## 2026.11.20 - 2026-11-20
+
+No tracked changes.
+
+## 2026.11.19 - 2026-11-19
+
+No tracked changes.
+
+## 2026.11.18 - 2026-11-18
 
 ### Fixed
 
-- Release and CI install Dependabot locks with the same pinned npm ([ops-release-npm-runtime](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-npm-runtime.toon))
-- Release continuation frees the runner while protected PR checks run ([ops-release-continuation](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-continuation.toon))
+- Global npm update guard mistakes comment words and redirect targets for packages ([ops-global-update-operands](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-global-update-operands.toon))
 
-### Other
+## 2026.11.17 - 2026-11-17
 
-- Split quick PR CI from exhaustive local deep gates ([ops-ci-v2](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-ci-v2.toon))
-- Release runtime discovers a non-adjacent npm CLI and pins the caller's Node for the matched CLI ([ops-3jck](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-3jck.toon))
+### Dependencies
+
+- Bump the dependencies group across 1 directory with 2 updates ([#296](https://github.com/unbraind/pm-ops/pull/296))
 
 ## 2026.11.15 - 2026-11-16
 

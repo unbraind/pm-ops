@@ -47,6 +47,8 @@ export function verifyReleaseHandoff(candidate, manifest, notes, packageBytes) {
     if (`sha512-${createHash("sha512").update(packageBytes).digest("base64")}` !== candidate.packageIntegrity)
         throw new Error("Stale package integrity");
 }
+/** Match the ten-minute npm visibility window in the daily publish workflow. */
+export const publicationSettleMs = 10 * 60_000;
 /** Bind every transition to the freshly read same-repository bot branch and exact candidate head. */
 function assertContinuationIdentity(c, e) {
     validateReleaseCandidate(c);
@@ -57,9 +59,25 @@ function assertContinuationIdentity(c, e) {
 /** Cancel owned unpublished intent even when its obsolete preparation evidence is unavailable. */
 export function decideUnpublishedRetirement(c, e) {
     assertContinuationIdentity(c, e);
-    if (e.registry === "absent" && !e.attempted && e.tagSha === null && e.releaseSha === null)
-        return "retire";
-    throw new Error("Operator retirement refused: publication evidence or an ambiguous attempt exists");
+    if (e.retireUnpublished !== true)
+        throw new Error("Operator retirement requires you to explicitly set retire-unpublished=true in a reconcile-only run.");
+    if (e.releaseSha !== null)
+        throw new Error("Operator retirement refused because a GitHub Release exists. Reconcile the existing release.");
+    if (e.tagSha !== null)
+        throw new Error("Operator retirement refused because a Git tag exists. Reconcile publication for the existing tag.");
+    if (e.registry === "unverified")
+        throw new Error("Operator retirement refused because npm registry evidence is unavailable. Retry retirement when the live version check succeeds.");
+    if (e.registry !== "absent")
+        throw new Error("Operator retirement refused because the version exists on npm. Verify provenance and reconcile publication.");
+    if (e.attempted) {
+        const timing = e.retirementTiming;
+        if (!timing)
+            throw new Error("Operator retirement refused because the attempt outcome is ambiguous. Verify the publication journal and exact npm version before retrying.");
+        if (!(timing.registryCheckedAt > timing.lastAttemptAt + publicationSettleMs)) {
+            throw new Error("Operator retirement refused while the attempt is settling. Wait until more than 10 minutes after the latest publish attempt, then rerun retirement for a fresh npm check.");
+        }
+    }
+    return "retire";
 }
 /** Plan from authoritative metadata; verifyReleaseHandoff binds bytes before executing the plan. */
 export function decideReleaseContinuation(c, e) {
@@ -79,10 +97,17 @@ export function decideReleaseContinuation(c, e) {
         return e.mainSha === c.baseSha ? "pending" : "refresh";
     if (e.pr.state !== "closed" || !e.pr.mergedSha)
         throw new Error("Merged source identity changed");
-    const changedSource = e.mergedTree !== c.tree || e.mergedParents.length !== 1 || e.mergedParents[0] !== c.baseSha || e.version !== c.version;
+    const parent = e.mergedParents.length === 1 ? e.mergedParents[0] : null;
+    const changedSource = e.mergedTree !== c.tree || parent !== c.baseSha || e.version !== c.version;
     if (e.requiredChecks.length === 0 || e.requiredChecks.some(state => state !== "SUCCESS")
         || !["APPROVED", ""].includes(e.reviewDecision))
         throw new Error("Required protection proof is missing or not green; use reconcile-only with retire-unpublished for verified untouched intent");
+    // A protected squash onto a different base can retire an unused receipt for the same occupied version.
+    const unattemptedSquash = !e.attempted && e.version === c.version && parent !== null && parent !== c.baseSha
+        && /^[a-f0-9]{40}$/.test(parent) && /^[a-f0-9]{40}$/.test(e.mergedTree);
+    if (c.npmPublish && (!changedSource || unattemptedSquash) && e.registry === "unverified" && e.registryPredatesPreparation === true
+        && e.tagSha === null && e.releaseSha === null)
+        return "occupied";
     if ((e.tagSha !== null && e.tagSha !== e.pr.mergedSha) || (e.releaseSha !== null && (e.releaseSha !== e.pr.mergedSha || e.tagSha === null))
         || e.registry === "unverified")
         throw new Error("Live publication identity disagrees");

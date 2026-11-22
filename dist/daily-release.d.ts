@@ -32,6 +32,8 @@ export interface DailyReleaseInput {
     packageVersion?: string;
     /** Current npm metadata on main; an untagged coordinate resumes across a day rollover. */
     currentPackageVersion?: string;
+    /** Exact current coordinate exists on npm and cannot be resumed as unpublished intent. */
+    registryHasCurrentVersion?: boolean;
     /** GitHub Release publication dates enforce the calendar cap even when resuming an older version. */
     publishedToday?: boolean;
 }

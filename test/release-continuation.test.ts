@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "../subprocess.ts";
 import { createHash } from "node:crypto";
-import { cargoPackageVersion, decideReleaseContinuation, ownsContinuationPr, releaseConfigDigest, releaseDigest, validateReleaseCandidate,
+import { cargoPackageVersion, decideReleaseContinuation, decideUnpublishedRetirement, ownsContinuationPr, publicationSettleMs, releaseConfigDigest, releaseDigest, validateReleaseCandidate,
   verifyReleaseHandoff, type ReleaseCandidate, type ContinuationEvidence } from "../release-continuation.ts";
 
 import { candidateFixture, evidenceFixture } from "./release-continuation-fixture.ts";
@@ -37,6 +37,23 @@ test("operator retirement admits only unpublished owned intent even when open, m
     e.attempted = true; assert.throws(() => decideReleaseContinuation(c, e), /retirement refused/); e.attempted = false;
     e.pr.headRepository = "foreign/package"; assert.throws(() => decideReleaseContinuation(c, e), /identity changed/);
   }
+});
+
+test("only explicit operator retirement can clear an attempted version absent after settlement", () => {
+  const c = candidateFixture(), e = evidenceFixture();
+  const lastAttemptAt = Date.parse("2026-11-06T04:00:00Z");
+  const boundary = lastAttemptAt + publicationSettleMs;
+  e.attempted = true;
+  e.retirementTiming = { lastAttemptAt, registryCheckedAt: boundary + 1 };
+  assert.throws(() => decideReleaseContinuation(c, e), /Publication outcome is ambiguous/);
+  assert.throws(() => decideUnpublishedRetirement(c, e), /explicitly set retire-unpublished=true/);
+  e.retireUnpublished = true;
+  assert.equal(decideReleaseContinuation(c, e), "retire");
+  for (const registryCheckedAt of [lastAttemptAt - 1, boundary]) {
+    assert.throws(() => decideReleaseContinuation(c, { ...e, retirementTiming: { lastAttemptAt, registryCheckedAt } }), /Wait until more than 10 minutes/);
+  }
+  assert.throws(() => decideReleaseContinuation(c, { ...e, registry: "verified" }), /version exists on npm\. Verify provenance/);
+  assert.throws(() => decideReleaseContinuation(c, { ...e, registry: "unverified" }), /registry evidence is unavailable\. Retry/);
 });
 
 test("CI pending beyond 30 minutes releases preparation; suppressed bot push is recovered by a later hourly pass exactly once", () => {
@@ -214,4 +231,32 @@ test("caller configuration changes retire open and merged unpublished intent but
       assert.throws(() => decideReleaseContinuation(c, { ...e, ...evidence }), /configuration changed.*operator reconciliation/);
     }
   }
+});
+
+
+test("only a proven pre-existing occupied coordinate can retire without publication", () => {
+  const c = candidateFixture(), e = evidenceFixture();
+  e.registry = "unverified"; e.registryPredatesPreparation = true;
+  for (const attempted of [false, true]) {
+    e.attempted = attempted;
+    assert.equal(decideReleaseContinuation(c, e), "occupied");
+  }
+  for (const change of [
+    { registryPredatesPreparation: false }, { tagSha: e.pr.mergedSha }, { releaseSha: e.pr.mergedSha },
+    { mergedTree: "9".repeat(40) }, { version: "2026.11.5" }, { requiredChecks: ["FAILURE"] },
+    { configDigest: "0".repeat(64) }, { artifactAvailable: false },
+  ]) assert.throws(() => decideReleaseContinuation(c, { ...e, ...change }));
+  assert.throws(() => decideReleaseContinuation({ ...c, npmPublish: false }, e), /identity disagrees/);
+});
+
+test("occupied retirement after a base change requires a single parent, the same version and no attempt", () => {
+  const c = candidateFixture(), e = evidenceFixture();
+  Object.assign(e, { registry: "unverified", registryPredatesPreparation: true, mergedParents: ["8".repeat(40)], mergedTree: "9".repeat(40) });
+  assert.equal(decideReleaseContinuation(c, e), "occupied");
+  for (const change of [
+    { attempted: true }, { mergedParents: [] }, { mergedParents: [c.baseSha, ...e.mergedParents] },
+    { mergedParents: [c.baseSha] }, { mergedParents: [""] }, { mergedTree: "" },
+    { version: "2026.11.5" }, { registryPredatesPreparation: false },
+    { tagSha: e.pr.mergedSha }, { releaseSha: e.pr.mergedSha }, { requiredChecks: ["FAILURE"] },
+  ]) assert.throws(() => decideReleaseContinuation(c, { ...e, ...change }));
 });
