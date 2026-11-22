@@ -198,7 +198,11 @@ test("prepare rejects obsolete tracked tools and leaves the candidate checkout a
   writeFileSync(join(trusted, "dist/tool.js"), "current");
   const git = (...args: string[]) => execFileSync("git", args, { cwd: trusted });
   git("init", "-q");
-  git("add", "--", "dist/tool.js");
+  const excludes = join(candidate, "global-excludes");
+  writeFileSync(excludes, "dist/\n");
+  git("config", "core.excludesFile", excludes);
+  assert.equal(git("check-ignore", "dist/tool.js").toString().trim(), "dist/tool.js");
+  git("add", "--force", "--", "dist/tool.js");
   git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--no-gpg-sign", "-qm", "Reproducible output");
   // npm exec exports its own project's allow-scripts setting. The Actions
   // step installs a separate checkout, where npm rejects that inherited flag.
@@ -209,7 +213,7 @@ test("prepare rejects obsolete tracked tools and leaves the candidate checkout a
   const clean = check();
   assert.equal(clean.status, 0, clean.stdout + clean.stderr);
   writeFileSync(join(trusted, "dist/obsolete.js"), "obsolete");
-  git("add", "--", "dist/obsolete.js");
+  git("add", "--force", "--", "dist/obsolete.js");
   const stale = check();
   assert.notEqual(stale.status, 0);
   assert.match(stale.stdout, /deleted file mode[\s\S]*obsolete/);

@@ -255,6 +255,55 @@ test("notes preparation routes options before tee and refuses an opaque pipeline
   }
 });
 
+test("background notes pipelines are refused through direct and forwarded hooks", () => {
+  for (const producer of ["pm-changelog " + standing + " --stdout", "node notes.mjs"]) {
+    for (const pipeline of [producer + " | cat &", producer + " | tee notes.md | head -n 1 &"]) {
+      for (const tail of ["", " true"]) {
+        for (const script of [pipeline + tail, "npm run writer"]) {
+          assert.throws(() => includeEmptyCustomHook(script, new Map([["writer", pipeline + tail]]), producer.startsWith("pm-changelog")),
+            /background/, script);
+        }
+      }
+    }
+    const foreground = producer + " | cat";
+    const hasGenerator = producer.startsWith("pm-changelog");
+    const expected = hasGenerator ? foreground : producer + " --include-empty | cat";
+    assert.equal(includeEmptyCustomHook(foreground, new Map(), hasGenerator), expected);
+    const quoted = producer + ' --title "&"';
+    assert.equal(includeEmptyCustomHook(quoted + " | cat", new Map(), hasGenerator),
+      quoted + (hasGenerator ? "" : " --include-empty") + " | cat");
+  }
+});
+
+test("an unversioned lifecycle generator can select CHANGELOG.md through brace expansion", () => {
+  const hooks = ["changelog:full"];
+  const inspect = (output: string, flags = "", lifecycle = npmLifecycle(undefined)) =>
+    resolveChangelogHooks({ "changelog:full": "pm-changelog " + standing,
+      "postchangelog:full": "pm-changelog " + output + flags }, hooks, lifecycle);
+  for (const option of ["--output ", "--output=", "-o "]) {
+    assert.throws(() => inspect(option + "CHANGELOG.m{d..d}"), /ignore-scripts.*postchangelog:full/);
+    assert.doesNotThrow(() => inspect(option + "'CHANGELOG.m{d..d}'"));
+    assert.doesNotThrow(() => inspect(option + "preview.md"));
+    assert.doesNotThrow(() => inspect(option + "CHANGELOG.m{d..d}", " --stdout"));
+    assert.doesNotThrow(() => inspect(option + "CHANGELOG.m{d..d}", "", npmLifecycle("ignore-scripts=false")));
+    assert.equal(inspect(option + "CHANGELOG.m{d..d}", "", npmLifecycle("ignore-scripts=true")).size, 1);
+  }
+  assert.doesNotThrow(() => inspect("--output=CHANGELOG.m{d..d} --output preview.md"));
+});
+
+test("unquoted generator operands cannot hide a runtime version option", () => {
+  const writer = "pm-changelog " + standing;
+  for (const option of ["--title ", "--title=", "--pm-arg ", "--output "]) {
+    const candidate = "pm-changelog " + option;
+    const check = (value: string) => auditInvocations([workflow(writer, candidate + value)]).failures;
+    assert.match(check("$TITLE")[0] ?? "", /Unquoted or multiword expansion.*--/);
+    assert.deepEqual(check('"$TITLE"'), []);
+    const scripts = new Map([["hook", candidate + "$TITLE"]]);
+    assert.throws(() => rewriteReleaseHookDates(scripts, ["hook"], day), /Unquoted or multiword expansion/);
+    assert.throws(() => assertReleaseHookHeadingDate(scripts, ["hook"], day, "2026.11.17"), /Unquoted or multiword expansion/);
+  }
+});
+
 test("npm lifecycle controls respect option order and stop at the argument delimiter", () => {
   const fixture = { hook: "", target: "echo main", pretarget: "echo pre", posttarget: "echo post" };
   for (const [source, enabled] of [
@@ -2009,6 +2058,23 @@ test("npm cannot forward a custom renderer flag to a trailing status command", (
 });
 
 
+test("release fixture paths preserve the inherited Windows key and executable directories", () => {
+  for (const key of ["PATH", "Path", "path"]) {
+    const env = { [key]: "system-path" };
+    prependFixturePath(env, "fixture-bin", true);
+    assert.deepEqual(env, { [key]: ["fixture-bin", "system-path"].join(delimiter) });
+  }
+  const env = { PATH: "system-path", Path: "untouched" };
+  prependFixturePath(env, "fixture-bin", false);
+  assert.deepEqual(env, { PATH: ["fixture-bin", "system-path"].join(delimiter), Path: "untouched" });
+});
+
+/** Prepend the fixture launcher while retaining the inherited lookup path. */
+function prependFixturePath(env: NodeJS.ProcessEnv, bin: string, windows = process.platform === "win32"): void {
+  const key = (windows && Object.keys(env).find(name => name.toLowerCase() === "path")) || "PATH";
+  env[key] = [bin, env[key]].join(delimiter);
+}
+
 test("preparation and real npm reload project policy when a nested override clears the inherited env setting", t => {
   const root = mkdtempSync(join(tmpdir(), "release-npm-cli-default-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -2017,7 +2083,8 @@ test("preparation and real npm reload project policy when a nested override clea
   const cli = npmCli();
   if (process.platform !== "win32") symlinkSync(cli, join(bin, "npm"));
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_config_/i.test(key)));
-  Object.assign(env, { PATH: [bin, env.PATH].join(delimiter), npm_config_ignore_scripts: "true",
+  prependFixturePath(env, bin);
+  Object.assign(env, { npm_config_ignore_scripts: "true",
     NPM_CONFIG_USERCONFIG: join(root, "user.npmrc"), NPM_CONFIG_GLOBALCONFIG: join(root, "global.npmrc"),
     CHANGELOG_SCRIPT: "hook", CHANGELOG_CHECK_SCRIPT: "hook", NOTES_SCRIPT: "hook", RELEASE_HEADING_DATE: day });
   const scripts = {
@@ -2302,8 +2369,9 @@ test("continuation independently reloads the npm fallback with only a recorded a
   mkdirSync(bin);
   if (process.platform !== "win32") symlinkSync(npmCli(), join(bin, "npm"));
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^npm_config_/i.test(name)));
+  prependFixturePath(env, bin);
   Object.assign(env, {
-    PATH: [bin, env.PATH].join(delimiter), NPM_CONFIG_USERCONFIG: join(root, "user.npmrc"), NPM_CONFIG_GLOBALCONFIG: join(root, "global.npmrc"),
+    NPM_CONFIG_USERCONFIG: join(root, "user.npmrc"), NPM_CONFIG_GLOBALCONFIG: join(root, "global.npmrc"),
     NPM_PROJECT_PATH: root, CHANGELOG_SCRIPT: "hook", CHANGELOG_CHECK_SCRIPT: "hook", NOTES_SCRIPT: "hook", PREPARED_NPM_LIFECYCLE: "true",
     GIT_AUTHOR_DATE: day + "T12:00:00Z", GIT_COMMITTER_DATE: day + "T12:00:00Z",
   });
@@ -2360,6 +2428,32 @@ test("environment-file writes reflect redirect quoting and the producer's succes
       }
     }
   }
+  const conditionalErrexit = "if test -f opt-in; then\n  set -e\nfi";
+  for (const [setup, destination, enabled] of [
+    [conditionalErrexit, "$GITHUB_ENV", false],
+    [conditionalErrexit, '"$GITHUB_ENV"', true],
+    ["set -e", "$GITHUB_ENV", false],
+  ] as const) {
+    const run = setup + "\necho npm_config_ignore_scripts=true >> " + destination + "\ntrue";
+    if (process.platform !== "win32") {
+      writeFileSync(file, "");
+      const execute = () => execFileSync("bash", ["-c", run], { cwd: root, env: { ...process.env, GITHUB_ENV: file }, stdio: "pipe" });
+      if (setup === "set -e") assert.throws(execute, /ambiguous redirect/);
+      else assert.doesNotThrow(execute);
+      assert.equal(readFileSync(file, "utf8"), enabled ? "npm_config_ignore_scripts=true\n" : "");
+    }
+    const observed = inspect([prior, { run, shell: "bash {0}" }]);
+    if (setup === conditionalErrexit && !enabled) {
+      assert.equal(observed.policy, "unknown");
+      assert.match(observed.failures[0] ?? "", /Cannot determine npm ignore-scripts/);
+    } else assert.deepEqual(observed, { policy: false, failures: [] });
+  }
+  const overwrite = {
+    shell: "bash {0}",
+    run: conditionalErrexit + '\necho OTHER=ready >> $GITHUB_ENV\necho npm_config_ignore_scripts=true >> "$GITHUB_ENV"',
+  };
+  assert.deepEqual(inspect([prior, overwrite]), { policy: false, failures: [] });
+  assert.equal(inspect([prior, overwrite], "always()").policy, "unknown");
   const run = 'echo npm_config_ignore_scripts=true >> "$GITHUB_ENV"';
   for (const condition of [undefined, true, "success()", "${{ SUCCESS ( ) }}"]) {
     assert.deepEqual(inspect([prior, { run, if: condition }]), { policy: false, failures: [] });

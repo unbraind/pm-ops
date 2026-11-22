@@ -16,14 +16,16 @@ const loopConditions = new WeakSet();
 const enclosingLoops = new WeakMap();
 const continuedDescriptors = new WeakSet();
 const braceExpansions = new WeakSet();
+const BACKGROUND_OPERATOR = "Shell background or descriptor operator &";
 const OPAQUE_PIPELINE = "Pipeline to an opaque executable";
 const BRACE_EXPANSION = /(?<!\$)\{(?:[^{}]*,[^{}]*|(?:-?\d+\.\.-?\d+|[A-Za-z]\.\.[A-Za-z])(?:\.\.-?\d+)?)\}/;
 const VARIABLE_REFERENCE = /^(?:\\\n)*(?:\{(?:\\\n)*[!#]?(?:\\\n)*)?([A-Za-z_](?:\w|\\\n)*)/;
 /** Return the producing command upstream of a supported output filter. */
 export function releaseOutputProducer(command) {
     const producer = pipelineProducers.get(command);
-    if (producer && problems.get(producer[0]) === OPAQUE_PIPELINE)
-        refuseHook(OPAQUE_PIPELINE);
+    const problem = producer && problems.get(producer[0]);
+    if (problem === OPAQUE_PIPELINE || problem === BACKGROUND_OPERATOR)
+        refuseHook(problem);
     return producer ?? command;
 }
 /** Return the separator for an AND-list, fallback, or pipeline stage. */
@@ -153,7 +155,7 @@ export function parseReleaseHook(text) {
             const opener = words;
             if (words.length) {
                 if (ch === "&" && operator !== "&&")
-                    problems.set(words[0], "Shell background or descriptor operator &");
+                    problems.set(words[0], BACKGROUND_OPERATOR);
                 if (operator === "&&")
                     followingOperators.set(words, "and");
                 if (ch === "|") {
@@ -362,7 +364,10 @@ export function parseReleaseHook(text) {
             const sink = releaseHookCommand(command)?.[0];
             const name = sink ? basename(sink.value) : "";
             pipelineProducers.set(command, upstream[0]);
-            if (sink?.unresolved || !/^(?:cat|awk|sed|grep|head|tail|cut|tr|sort|tee|uniq|wc)$/.test(name)
+            if (problems.get(command[0]) === BACKGROUND_OPERATOR) {
+                problems.set(upstream[0][0], BACKGROUND_OPERATOR);
+            }
+            else if (sink?.unresolved || !/^(?:cat|awk|sed|grep|head|tail|cut|tr|sort|tee|uniq|wc)$/.test(name)
                 || (name === "tee" && hookSyntaxProblem(command))) {
                 for (const source of upstream)
                     problems.set(source[0], OPAQUE_PIPELINE);

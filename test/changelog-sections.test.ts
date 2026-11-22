@@ -264,6 +264,7 @@ test("stdout JSON and step reports identify the selected file without changing i
 test("prepend stdout preserves JSON reports and the plain Markdown policy", t => {
   const { root, env } = tracker();
   t.after(() => rmSync(root, { recursive: true, force: true }));
+  execFileSync(process.execPath, [pm, "create", "task", "Fixture summary item", "--id", "sample-summary"], { cwd: root, env });
   const path = join(root, "preview.md");
   const history = "# Changelog\n\n## 2026.1.1 - 2026-01-01\n\nPreview history.\n";
   writeFileSync(path, history);
@@ -284,6 +285,11 @@ test("prepend stdout preserves JSON reports and the plain Markdown policy", t =>
       assert.ok(Array.isArray(JSON.parse(document).releases));
       assert.equal(run(adapter, [...mode, "-o", "preview.md", ...report]), document);
     }
+    const summaryFlags = [...mode, "--summary", "--title", "Fixture report", "--status", "open"];
+    const summary = run("node_modules/pm-changelog/dist/cli.js", [...summaryFlags, "--output", path]);
+    assert.match(summary, /Fixture summary item/);
+    assert.doesNotMatch(summary, /Preview history\./);
+    assert.equal(run(adapter, [...summaryFlags, "-o", "preview.md"]), summary);
     assert.equal(run(adapter, [...mode, "-o", "preview.md", "--format=json", "--format", " MD "]), markdown);
     assert.equal(readFileSync(path, "utf8"), history);
   }
@@ -595,6 +601,34 @@ test("custom notes receive the saved argument through npm independently of pre/p
     }
     execFileSync(process.execPath, prepare, { cwd: root, env });
     assert.equal(readFileSync(manifest, "utf8"), prepared);
+  }
+});
+
+test("preparation keeps a status-only changelog check and routes the flag to a renderer", t => {
+  const root = mkdtempSync(join(tmpdir(), "status-only-changelog-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const env = isolatedNpmReleaseEnv(root, process.env);
+  const prepare = [resolve("scripts/prepare-release-changelog.ts")];
+  const status = "git diff --check -- CHANGELOG.md";
+  const generator = "node pm-changelog.ts --release-version-from-package --date-from-version";
+  const manifest = join(root, "package.json");
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  for (const file of ["pm-changelog.ts", "check.cjs"]) {
+    writeFileSync(join(root, file), 'if (!process.argv.includes("--include-empty")) process.exitCode = 1;');
+  }
+  for (const [check, expected] of [
+    [status, status], ["npm run status", "npm run status"],
+    [generator + " && " + status, generator + " --include-empty && " + status],
+    ["node check.cjs && " + status, "node check.cjs --include-empty && " + status],
+  ]) {
+    const scripts = { "changelog:full": generator, "changelog:check": check, "release:notes": generator, status };
+    writeFileSync(manifest, JSON.stringify({ name: "fixture", version: "2026.11.17", scripts }));
+    execFileSync(process.execPath, prepare, { cwd: root, env, stdio: "pipe" });
+    const prepared = JSON.parse(readFileSync(manifest, "utf8")).scripts;
+    assert.equal(prepared["changelog:check"], expected);
+    assert.equal(prepared.status, status);
+    assert.match(prepared["changelog:full"], /--include-empty/);
+    execFileSync(process.execPath, npmRunArgs("changelog:check", "--silent"), { cwd: root, env });
   }
 });
 

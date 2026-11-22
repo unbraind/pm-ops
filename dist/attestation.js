@@ -909,6 +909,7 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windo
     let records = new Map();
     let mayStopBeforeOverwrite = false;
     let mayStopAtRead = false;
+    let mayStopOnFailure = errexit;
     let nounset = false;
     let depth = 0;
     const lines = text.split(/\r?\n/);
@@ -928,15 +929,18 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windo
             continue;
         }
         const shellOptions = /^set -([eu]+)(?:o pipefail)?$/.exec(line);
-        if (shellOptions?.[1].includes("e"))
-            errexit = true;
+        if (shellOptions?.[1].includes("e")) {
+            mayStopOnFailure = true;
+            if (depth === 0)
+                errexit = true;
+        }
         if (shellOptions?.[1].includes("u"))
             nounset = true;
         if (!line || line.startsWith("#") || shellOptions || /^(?:true|:|echo [\w .-]+)$/.test(line))
             continue;
         const readRunnerEnv = READ_ENV_FILE.exec(line);
         if (readRunnerEnv) {
-            if (errexit && !readRunnerEnv[1])
+            if (mayStopOnFailure && !readRunnerEnv[1])
                 mayStopAtRead = true;
             continue;
         }
@@ -950,7 +954,7 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windo
         // Bash can split an unquoted runner path. Under errexit, only consumers
         // that can run after a failure can see the state before such a write.
         const unquoted = !destination.startsWith('"');
-        if (mayStopAtRead || (unquoted && errexit))
+        if (mayStopAtRead || (unquoted && mayStopOnFailure))
             mayStopBeforeOverwrite = true;
         const print = line.slice(0, redirect).trimEnd();
         const record = literalEnvironmentRecord(print, environment);
@@ -962,7 +966,7 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windo
             // A failed read or an unset expansion can leave the earlier contents in place.
             const operand = echo && environment?.[echo[1]];
             const mayBeUnset = typeof operand !== "string" || operand.includes("${{");
-            if (read ? errexit : nounset && mayBeUnset)
+            if (read ? mayStopOnFailure : nounset && mayBeUnset)
                 mayStopBeforeOverwrite = true;
             records = undefined;
             continue;

@@ -86,8 +86,9 @@ type DateOption = {
     day: string;
 };
 /** Resolve the output, inspection flags, and argv consumed by the changelog adapter. */
-export declare function changelogOutputTarget(args: readonly Pick<ShellToken, "value" | "unresolved">[]): {
+export declare function changelogOutputTarget<T extends Pick<ShellToken, "value" | "unresolved">>(args: readonly T[]): {
     output: Pick<ShellToken, "unresolved" | "value">;
+    outputWord: T | undefined;
     invalidOption: string | undefined;
     check: boolean;
     stdout: boolean;
@@ -103,7 +104,7 @@ export declare function assertReleaseHookHeadingDate(scripts: ReadonlyMap<string
 /** Enable empty sections on each generator while preserving shell operators and redirections. */
 export declare function includeEmptyReleaseSections(script: string, scriptNames?: ReadonlySet<string>): string;
 /** Save the flag and any npm delimiters on the root caller, preserving shared target scripts. */
-export declare function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<string, string>, hasGenerator?: boolean): string;
+export declare function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<string, string>, hasGenerator?: boolean, allowStatusOnly?: boolean): string;
 /** Refresh the inline pins, or restore the standing policy for a current version. */
 export declare function rewriteReleaseHeadingDate(script: string, headingDate: string, scriptNames?: ReadonlySet<string>): string;
 /** Add the empty-section flag at the call site when it supplies the generator entrypoint. */

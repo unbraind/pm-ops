@@ -2,11 +2,13 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: open
+status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-22T14:41:44.732Z"
+updated_at: "2026-11-22T15:41:30.935Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -14,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[228]:
+comments[230]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -700,6 +702,12 @@ comments[228]:
   - created_at: "2026-11-22T14:41:42.781Z"
     author: codex-sol
     text: "Round GK gates passed with npm 11.21.0. The focused grammar, shell and date suites passed 228 of 228. The 30 reference suites passed 1553 with two opt-in skips. Both npm run coverage and node test/release-heading-full-gate.acceptance.ts passed 2253 of 2255 with two opt-in skips, zero failures and 100 percent statements, branches, functions and lines across 54 required sources. The initial standalone report collected counters across a source edit and was superseded by the frozen-source pass. Typecheck, test build, lint, zero duplication, docstrings, changelog check and release verifiers passed. The rewritten untagged release generated the expected 2026-11-17 heading in both outputs. The pinned fleet inventory accepted 142 hooks and 144 reachable bodies across 39 manifests. The preview, signing and invalid UTF-8 index controls passed. 9633e72 adds an accepted dynamic setup path for PRRT_kwDOTOTl1M66j9ho."
+  - created_at: "2026-11-22T15:29:22.667Z"
+    author: codex-sol
+    text: "Round GM starts at 13900ef with the PR open and main already included. Add paired regression fixtures before changing behavior, verify the prior binding and test-isolation findings, then run the pinned fleet scan and release gates."
+  - created_at: "2026-11-22T15:37:24.452Z"
+    author: codex-sol
+    text: All eight new fixtures reproduced on 13900ef. The existing inherited binding controls passed. The frozen Round DY inventory also accepts all 142 requested hooks and 144 reachable script bodies on the candidate.
 files[32]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
@@ -733,7 +741,7 @@ files[32]{path,scope}:
   test/release-runtime.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[82]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[83]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -816,6 +824,7 @@ tests[82]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-name-pattern='Round GI|configured release hooks are audited|decoded scripts retain' test/release-hook-grammar.test.ts test/verify-release-changelog-date.test.ts test/changelog-sections.test.ts,project,codex-sol,"2026-11-22T11:11:24.065Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-name-pattern='Round GI runner OS|Round GI custom notes' test/release-hook-grammar.test.ts,project,codex-sol,"2026-11-22T12:20:29.623Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-concurrency=2 test/release-hook-grammar.test.ts test/verify-release-changelog-date.test.ts test/shell-command-scan.test.ts,project,codex-sol,"2026-11-22T13:40:51.693Z",local_mutation,fix/release-hook-wrapper-options-bm
+  "node --test --test-reporter=tap --test-name-pattern=\"background notes|unversioned lifecycle generator|unquoted generator operands|environment-file writes|release fixture paths\" test/release-hook-grammar.test.ts",project,codex-sol,"2026-11-22T15:41:29.691Z",local_mutation,fix/release-hook-wrapper-options-bm
 docs[4]{path,scope}:
   CHANGELOG.md,project
   docs/reusable-release.md,project

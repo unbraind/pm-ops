@@ -588,10 +588,11 @@ export function generatedWriterProblem(
 
 /** Classify only the generator outputs that may write the changelog. */
 function writesChangelog([program, ...args]: ShellCommand): boolean {
-  const { output, invalidOption, check, stdout, positions } = changelogOutputTarget(args);
+  const { output, outputWord, invalidOption, check, stdout, positions } = changelogOutputTarget(args);
   const summary = !program.value.endsWith("pm-changelog.ts") && positions.some(index => args[index].value === "--summary");
   return !summary && !check && !stdout
-    && (invalidOption !== undefined || output.unresolved === true || /(?:^|\/)CHANGELOG\.md$/.test(posix.normalize(output.value)));
+    && (invalidOption !== undefined || output.unresolved === true || (outputWord !== undefined && hasBraceExpansion(outputWord))
+      || /(?:^|\/)CHANGELOG\.md$/.test(posix.normalize(output.value)));
 }
 
 /** Project selectors on runners precede the delimiter that separates generator arguments. */
@@ -758,6 +759,7 @@ function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<stri
     if (args.some(hasBraceExpansion) && (hasVersionInput(args) || args.some(({ value }) => /^--date(?:[-=]|$)/.test(value)))) {
       refuseHook("Unquoted brace expansion in versioned generator options" + SCRIPT_FILE_ADVICE);
     }
+    assertSingleWordGeneratorOperands(args);
     return generator;
   }
   if (name === "npm" && subcommand?.value === "exec" && mentions) {
@@ -1156,9 +1158,22 @@ function optionPositions(args: readonly Pick<ShellToken, "value">[]): number[] {
   return positions;
 }
 
+/** A split option operand could inject a release option even in an otherwise unversioned invocation. */
+function assertSingleWordGeneratorOperands(args: readonly ShellToken[]): void {
+  for (const index of optionPositions(args)) {
+    const token = args[index];
+    const flag = token.value.split("=", 1)[0];
+    if (flag === "--version" || flag === "--release-version") continue; // The date-policy reader has a dedicated diagnostic.
+    if (VALUE_OPTIONS.has(flag) && (token.value === flag ? args[index + 1] : token)?.multipleWords) {
+      refuseHook("Unquoted or multiword expansion in the operand of " + flag);
+    }
+  }
+}
+
 /** Resolve the output, inspection flags, and argv consumed by the changelog adapter. */
-export function changelogOutputTarget(args: readonly Pick<ShellToken, "value" | "unresolved">[]) {
+export function changelogOutputTarget<T extends Pick<ShellToken, "value" | "unresolved">>(args: readonly T[]) {
   let output: Pick<ShellToken, "value" | "unresolved"> = { value: "CHANGELOG.md" };
+  let outputWord: T | undefined;
   let invalidOption: string | undefined;
   let check = false;
   let stdout = false;
@@ -1180,10 +1195,11 @@ export function changelogOutputTarget(args: readonly Pick<ShellToken, "value" | 
       continue;
     }
     output = target;
+    outputWord = match[2] === undefined ? args[index + 1] : word;
     consumed.add(index);
     if (match[2] === undefined) consumed.add(index + 1);
   }
-  return { output, invalidOption, check, stdout, consumed, positions };
+  return { output, outputWord, invalidOption, check, stdout, consumed, positions };
 }
 
 /** Decode literal date options and retain their shell words for edits. */
@@ -1210,9 +1226,6 @@ export function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[
     if (flag === "--version" || flag === "--release-version") {
       const value = token.value === flag ? args[index + 1]?.value : token.value.slice(flag.length + 1);
       if (!value || value.startsWith("--")) refuseHook(flag + " requires a value");
-    }
-    if (VALUE_OPTIONS.has(token.value) && args[index + 1]?.multipleWords) {
-      refuseHook(`Unquoted or multiword expansion in the operand of ${token.value}`);
     }
     if (token.unresolved) {
       const name = literalOptionName(token);
@@ -1509,7 +1522,9 @@ function rendererShellTerminator(words: ShellCommand): "exec" | "exit" | undefin
 }
 
 /** Alternatives need no custom argument when all of their terminal generators receive the flag directly. */
-function finalHookCommand(commands: ShellCommand[], hasGenerator: boolean, scripts: ReadonlyMap<string, string>): ShellCommand {
+function finalHookCommand(
+  commands: ShellCommand[], hasGenerator: boolean, scripts: ReadonlyMap<string, string>, allowStatusOnly: boolean,
+): ShellCommand | undefined {
   const last = finalHookCommands(commands);
   if (last.length > 1 && !(hasGenerator && allGeneratorRenderers(last, scripts, new Set(scripts.keys()), 0))) {
     refuseHook("Custom hook has alternative renderers. Use a single script entry point");
@@ -1528,13 +1543,16 @@ function finalHookCommand(commands: ShellCommand[], hasGenerator: boolean, scrip
   const list = new Set(commands.slice(start, end).map(releaseOutputProducer));
   const listRenderers = candidates.filter(words => list.has(words));
   const renderers = listRenderers.length === 0 ? candidates : listRenderers;
+  if (renderers.length === 0 && allowStatusOnly) return undefined;
   if (renderers.length === 1) return renderers[0];
   if (hasGenerator && allGeneratorRenderers(renderers, scripts, new Set(scripts.keys()), 0)) return terminal;
   refuseHook("Cannot identify one renderer before the trailing status command. Use a single script entry point");
 }
 
 /** Count npm option boundaries between a configured custom hook and its final executable. */
-function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<string, string>, hasGenerator: boolean): { count: number; terminator?: ShellToken; hasOption?: boolean } | undefined {
+function customForwardDelimiters(
+  invocation: ShellCommand, scripts: ReadonlyMap<string, string>, hasGenerator: boolean, allowStatusOnly: boolean,
+): { count: number; terminator?: ShellToken; hasOption?: boolean } | undefined {
   const names = new Set(scripts.keys());
   let count = 0;
   let blockedTarget: string | undefined;
@@ -1555,7 +1573,8 @@ function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<
     if (!text) return hasGenerator ? undefined : { count }; // An optional missing target runs no command.
     const { commands, spans } = parseReleaseHook(text);
     const recipient = commandReceivingArguments(text, commands, spans);
-    const terminal = finalHookCommand(commands, hasGenerator, scripts);
+    const terminal = finalHookCommand(commands, hasGenerator, scripts, allowStatusOnly);
+    if (!terminal) return undefined;
     const producer = releaseOutputProducer(recipient && releaseHookCommand(recipient) && !rendererStatusCommand(recipient) ? recipient : terminal);
     if (producer !== recipient) blockedTarget = forward.target;
     const next = releaseHookCommand(producer === recipient ? [...producer, ...forward.args] : producer);
@@ -1566,14 +1585,17 @@ function customForwardDelimiters(invocation: ShellCommand, scripts: ReadonlyMap<
 }
 
 /** Save the flag and any npm delimiters on the root caller, preserving shared target scripts. */
-export function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<string, string>, hasGenerator = false): string {
+export function includeEmptyCustomHook(
+  script: string, scripts: ReadonlyMap<string, string>, hasGenerator = false, allowStatusOnly = false,
+): string {
   const { commands, spans } = parseReleaseHook(script);
-  const invocation = releaseHookCommand(releaseOutputProducer(finalHookCommand(commands, hasGenerator, scripts)));
+  const terminal = finalHookCommand(commands, hasGenerator, scripts, allowStatusOnly);
+  const invocation = terminal && releaseHookCommand(releaseOutputProducer(terminal));
   if (!invocation) return script;
   const [program, ...args] = invocation;
   const separator = scriptForward(basename(program.value), args)?.npmSeparator;
   const boundary = separator ? args.indexOf(separator) : -1;
-  const route = customForwardDelimiters(invocation, scripts, hasGenerator);
+  const route = customForwardDelimiters(invocation, scripts, hasGenerator, allowStatusOnly);
   if (!route) return script; // The generator receives the flag in its own script.
   const { count, terminator } = route;
   if (terminator && !spans.has(terminator)) {
