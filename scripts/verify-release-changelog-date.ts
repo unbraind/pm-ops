@@ -151,8 +151,9 @@ function isRootProject(directory: unknown): boolean {
 
 /** Include literal hook overrides from callers of the reusable daily release workflow. */
 function addConfiguredHooks(text: string, entries: Set<string>): void {
-  const workflow = parse(text) as { jobs?: Record<string, { uses?: string; with?: Record<string, unknown> } | null> } | null;
+  const workflow = parse(text) as { jobs?: Record<string, { if?: unknown; uses?: string; with?: Record<string, unknown> } | null> } | null;
   for (const job of Object.values(workflow?.jobs ?? {})) {
+    if (job?.if === false) continue;
     if (typeof job?.uses !== "string" || !/(?:^|\/)\.github\/workflows\/daily-release\.ya?ml(?:@[^\s]+)?$/.test(job.uses)) continue;
     if (!isRootProject(job.with?.["npm-project-dir"])) continue;
     for (const [input] of HOOK_INPUTS) {
@@ -197,7 +198,7 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
           continue;
         }
         const key = "\0run" + origins.size;
-        origins.set(key, { file: source.file });
+        origins.set(key, { file: source.file, line });
         scripts.set(key, text);
         workflowSteps.set(key, {
           active: npmLifecycle(projectConfig, environment),

@@ -216,6 +216,12 @@ test("configured release hooks are audited when called without another script's 
     const text = project === undefined ? caller.text : caller.text + "\n      npm-project-dir: " + project;
     assert.match(auditInvocations([source("render"), { ...caller, text }]).failures[0], /neither --date-from-version/);
   }
+  for (const [condition, checked] of [["false", false], ["true", true], ["${{ inputs.release }}", true]] as const) {
+    const text = caller.text.replace("  release:\n", "  release:\n    if: " + condition + "\n");
+    const failures = auditInvocations([source("render"), { ...caller, text }]).failures;
+    if (checked) assert.match(failures[0] ?? "", /neither --date-from-version/);
+    else assert.deepEqual(failures, []);
+  }
   for (const project of ["docs", "${{ inputs.project }}"]) {
     assert.deepEqual(auditInvocations([source("render"), { ...caller, text: caller.text + "\n      npm-project-dir: " + project }]).failures, []);
   }
@@ -547,8 +553,13 @@ test("decoded scripts retain multiline quoted arguments and report the JSON scri
   assert.match(auditInvocations([missing]).failures[0], /^package\.json:1 \(script "changelog"\): .*neither/);
   const unclosed = { ...source, text: manifest(`echo ready\n${FLAGGED} "line one\nline two`) };
   assert.match(auditInvocations([unclosed]).failures[0], /^package\.json:1 \(script "changelog"\): malformed/);
-  const malformedWorkflow = { file: ".github/workflows/release.yml", text: workflowRun(FLAGGED + ' "unclosed') };
-  assert.match(auditInvocations([malformedWorkflow]).failures[0], /release\.yml: malformed/);
+  const firstStep = workflowRun(FLAGGED);
+  const malformedWorkflow = { file: ".github/workflows/release.yml",
+    text: firstStep + '\n      - name: Another generator\n        run: |\n          ' + FLAGGED + ' "unclosed' };
+  const workflowAudit = auditInvocations([malformedWorkflow]);
+  assert.equal(workflowAudit.failures.length, 1);
+  assert.match(workflowAudit.failures[0], /release\.yml:8: malformed/);
+  assert.deepEqual(auditInvocations([{ ...malformedWorkflow, text: firstStep }]).failures, []);
 });
 
 test("the date verifier uses the generator arguments supplied by package script forwards", () => {

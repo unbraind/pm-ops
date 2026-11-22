@@ -2,7 +2,8 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
-import { mergeChangelog } from "pm-changelog";
+import { parseBootstrapGlobalOptions, resolveImplicitPmRoot, resolvePmRoot } from "@unbrained/pm-cli/sdk";
+import { buildPmListArgs, checkItemLinks, mergeChangelog } from "pm-changelog";
 import { changelogOutputTarget } from "../release-changelog-options.ts";
 import { execFileSync, spawnSync } from "../subprocess.ts";
 import { isMainInvocation } from "./main-invocation.ts";
@@ -12,6 +13,26 @@ export function describeEmptyReleases(markdown: string): string {
   return markdown
     .replace(/^## Unreleased\n\nNo changes\.\n\n(?=## \d)/m, "")
     .replace(/(^## [^\n]+\n\n)No changes\.\n(?=\n## |$)/gm, "$1No tracked changes.\n");
+}
+
+/** Validate the merged bytes using the same tracker selection as pm-changelog. */
+function checkMergedLinks(markdown: string, args: readonly string[], positions: readonly number[], cwd: string, env: NodeJS.ProcessEnv): void {
+  const options: Record<string, string> = {};
+  const pmArgs: string[] = [];
+  for (const index of positions) {
+    const arg = args[index]!;
+    const flag = arg.split("=", 1)[0]!;
+    const value = arg === flag ? args[index + 1] : arg.slice(flag.length + 1);
+    if (value === undefined) continue;
+    if (flag === "--pm-arg") pmArgs.push(value);
+    else if (flag === "--pm-root" || flag === "--pm-cwd" || flag === "--item-url-base") options[flag] = value;
+  }
+  const selectedPath = parseBootstrapGlobalOptions(buildPmListArgs({ pmRoot: options["--pm-root"], pmArgs })).path?.trim()
+    || env.PM_PATH?.trim();
+  const trackerCwd = resolve(cwd, options["--pm-cwd"] ?? ".");
+  const trackerRoot = selectedPath ? resolvePmRoot(trackerCwd, selectedPath) : resolveImplicitPmRoot(trackerCwd);
+  // The child validates that --item-url-base is present and nonempty.
+  checkItemLinks(markdown, trackerRoot, options["--item-url-base"]!);
 }
 
 /** Generate once, then use identical normalized bytes for writes, checks and notes. */
@@ -51,6 +72,9 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
   const existing = !report && existsSync(destination) ? readFileSync(destination, "utf8") : "";
   const markdown = report ? rendered : describeEmptyReleases(rendered);
   const result = !report && mode === "prepend" ? mergeChangelog(existing, markdown).markdown : markdown;
+  if (!report && mode === "prepend" && positions.some(index => args[index] === "--check-links")) {
+    checkMergedLinks(result, args, positions, cwd, env);
+  }
   if (summary) appendFileSync(env.GITHUB_STEP_SUMMARY!, result);
   if (stdout) process.stdout.write(result);
   else if (check) {

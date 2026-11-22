@@ -14,7 +14,7 @@ import {
 } from "./shell-scan.ts";
 import {
   describeReleaseContextChange, followingReleaseOperator, hasBraceExpansion, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand,
-  isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, releaseOutputProducer,
+  isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, releaseLoopScope, releaseOutputProducer,
 } from "./release-hook-grammar.ts";
 
 /** The flag that makes an untagged heading version-derived. */
@@ -440,7 +440,7 @@ function redirectsChangelog(words: ShellCommand, traversalOnly = false): boolean
     const redirect = shellRedirection(word);
     if (!redirect?.operator.includes(">")) return false;
     const target = redirect.joined ? word : words[index + 1];
-    if (target?.unresolved) return !traversalOnly;
+    if (target && (target.unresolved || hasBraceExpansion(target))) return !traversalOnly;
     const destination = redirect.joined ? word.value.slice(redirect.operator.length) : target?.value ?? "";
     return posix.normalize(destination) === "CHANGELOG.md"
       && (!traversalOnly || destination.split("/").includes(".."));
@@ -507,22 +507,39 @@ function executedHookFile(words: ShellCommand, written: ReadonlySet<string>): st
   return undefined;
 }
 
-/** Refuse a redirect-to-execution path within one hook, regardless of the written text. */
-function generatedHookProblem(words: ShellCommand, written: Set<string>, recordWrites = true): string | undefined {
-  if (written.size) {
+/** Refuse a redirect-to-execution path, including paths spanning loop iterations. */
+function generatedHookProblem(words: ShellCommand, written: Set<string>, recordWrites = true, loopReads?: Set<string>): string | undefined {
+  const problem = (file: string) => "Cannot execute generated release hook file " + JSON.stringify(file) + ". Commit the script to the repository instead";
+  if (written.size || loopReads) {
     const file = executedHookFile(words, written);
-    if (file !== undefined && written.has(file)) {
-      return "Cannot execute generated release hook file " + JSON.stringify(file) + ". Commit the script to the repository instead";
+    if (file !== undefined) {
+      if (written.has(file)) return problem(file);
+      loopReads?.add(file);
     }
   }
   if (!recordWrites) return undefined;
   for (const { operator, path } of hookRedirects(words)) {
-    if (/^(?:\d*(?:>>?|>\||<>)|&>>?)$/.test(operator) || (operator === ">&" && !/^(?:\d+|-)$/.test(path))) written.add(path);
+    if (/^(?:\d*(?:>>?|>\||<>)|&>>?)$/.test(operator) || (operator === ">&" && !/^(?:\d+|-)$/.test(path))) {
+      if (loopReads?.has(path)) return problem(path);
+      written.add(path);
+    }
   }
   return undefined;
 }
 
 type HookWriteBranch = { condition: Set<string>; completed: Set<string> };
+
+/** Executions in one loop can follow writes from any of its iterations. */
+function repeatedHookReads(words: ShellCommand, loops: Map<ShellToken, Set<string>>): Set<string> | undefined {
+  const scope = releaseLoopScope(words);
+  if (!scope) return undefined;
+  let reads = loops.get(scope);
+  if (!reads) {
+    reads = new Set();
+    loops.set(scope, reads);
+  }
+  return reads;
+}
 
 /** Keep alternative bodies independent while retaining condition and joined writes. */
 function advanceHookWriteBranches(words: ShellCommand, written: Set<string>, branches: HookWriteBranch[]): void {
@@ -900,8 +917,8 @@ export function visitChangelogScriptCommands(
   const knownWriters = new HookScriptNames(scripts, false);
   const targeted = new Set<string>();
   const parsed = new Map([...scripts].map(([name, text]) => {
-    const { commands, spans, hasLoop } = parseReleaseHook(text);
-    return [name, { text, commands, spans, hasLoop }];
+    const { commands, spans } = parseReleaseHook(text);
+    return [name, { text, commands, spans }];
   }));
 
   /** Read the local script target, arguments, and command-prefix assignments. */
@@ -931,7 +948,7 @@ export function visitChangelogScriptCommands(
     name: string, args: readonly ShellToken[], parents: readonly string[], policy: NpmLifecyclePolicy, releasePath: boolean,
     bindings: ReadonlySet<string> = new Set(), uncertainLifecycle = false,
     config: NpmConfigState = { reloadable: activeNpmLifecycle(policy) !== false, mayHaveChanged: false },
-    written = new Set<string>(),
+    written = new Set<string>(), inheritedLoopReads?: Set<string>,
   ): void {
     const lifecycle = activeNpmLifecycle(policy);
     const configured = configuredNpmLifecycle(policy);
@@ -947,7 +964,7 @@ export function visitChangelogScriptCommands(
       refuseHook(parents.length === 0 ? "Missing changelog hook: " + name
         : "Cannot resolve changelog script forward " + chain + ": missing or empty package.json script");
     }
-    const { text, commands, spans, hasLoop } = script;
+    const { text, commands, spans } = script;
     let recipient: ShellCommand | undefined;
     if (args.length > 0) {
       if (!recipients.has(name)) recipients.set(name, commandReceivingArguments(text, commands, spans));
@@ -956,7 +973,7 @@ export function visitChangelogScriptCommands(
     const checkContext = releasePath || knownWriters.canGenerate(name)
       || (recipient !== undefined && canReachGenerator([...recipient, ...args], knownWriters));
     const writtenCount = written.size;
-    const cacheKey = args.length === 0
+    const cacheKey = args.length === 0 && !inheritedLoopReads
       ? JSON.stringify([checkContext, lifecycle, configured, uncertainLifecycle, config, name, [...bindings].sort(), [...written].sort()])
       : undefined;
     let memo: CachedVisit | undefined;
@@ -984,9 +1001,11 @@ export function visitChangelogScriptCommands(
     let preceding: ReleaseContextChange | undefined;
     let mayHaveChanged = config.mayHaveChanged;
     const branches: HookWriteBranch[] = [];
+    const loops = new Map<ShellToken, Set<string>>();
     for (const words of commands) {
       // Different branches can both run across separate loop iterations.
-      if (checkContext && !hasLoop) advanceHookWriteBranches(words, written, branches);
+      const loopReads = checkContext ? inheritedLoopReads ?? repeatedHookReads(words, loops) : undefined;
+      if (checkContext && !loopReads) advanceHookWriteBranches(words, written, branches);
       const previouslyRan = mayHaveChanged;
       const effective = words === recipient ? [...words, ...args] : words;
       mayHaveChanged ||= mayChangeNpmConfig(effective);
@@ -994,7 +1013,7 @@ export function visitChangelogScriptCommands(
       // pnpm passes its delimiter through verbatim. A nested runner can consume
       // it, but the generator only accepts named options.
       const separators = effective.filter(token => forwardedSeparators.has(token));
-      const contextProblem = (checkContext ? generatedHookProblem(effective, written) : undefined)
+      const contextProblem = (checkContext ? generatedHookProblem(effective, written, true, loopReads) : undefined)
         ?? forwardedBindingProblem(effective, bindings)
         ?? (checkContext ? releaseContextProblem(effective, names, preceding) : undefined);
       if (checkContext) preceding = nextShellContext(words, preceding, effective);
@@ -1034,7 +1053,8 @@ export function visitChangelogScriptCommands(
           ? clearsCanonical === true || (forward.lifecycle === true && ambient !== true) || (inheritsSetting && config.reloadable)
           : config.reloadable;
         visitSequence(forward.target, [...parents, name], policy, checkContext, isNpm, forward.args,
-          isNpm && forward.bindings.length ? new Set([...bindings, ...forward.bindings]) : bindings, { reloadable, mayHaveChanged: previouslyRan }, written);
+          isNpm && forward.bindings.length ? new Set([...bindings, ...forward.bindings]) : bindings,
+          { reloadable, mayHaveChanged: previouslyRan }, written, loopReads);
       }
     }
     // A cached visit must still leave its possible writes visible to the caller.
@@ -1046,12 +1066,12 @@ export function visitChangelogScriptCommands(
     target: string, parents: readonly string[], policy: InvocationLifecycle,
     releasePath: boolean, isNpm: boolean, args: readonly ShellToken[] = [], bindings?: ReadonlySet<string>,
     config: NpmConfigState = { reloadable: policy.nested !== false, mayHaveChanged: false },
-    written = new Set<string>(),
+    written = new Set<string>(), loopReads?: Set<string>,
   ): void {
     for (const name of names.sequence(target, !npm.mainOnly && (!isNpm || policy.enabled !== false))) {
       const main = name === target;
       visit(name, main ? args : [], parents, { active: policy.nested, configured: policy.configured }, releasePath, bindings,
-        isNpm && !main && policy.enabled === "unknown", config, written);
+        isNpm && !main && policy.enabled === "unknown", config, written, loopReads);
       if ((main && args.length > 0) || parsed.get(name)!.commands.some(mayChangeNpmConfig)) config = { ...config, mayHaveChanged: true };
     }
   }
@@ -1088,8 +1108,12 @@ function* standaloneHookCommands(commands: ShellCommand[], names?: ReadonlySet<s
   const hookPath = commands.some(words => needsReleaseProject(words, names));
   let preceding: ReleaseContextChange | undefined;
   const written = new Set<string>();
+  const branches: HookWriteBranch[] = [];
+  const loops = new Map<ShellToken, Set<string>>();
   for (const words of commands) {
-    const problem = generatedHookProblem(words, written) ?? releaseContextProblem(words, names, preceding, hookPath);
+    const loopReads = repeatedHookReads(words, loops);
+    if (!loopReads) advanceHookWriteBranches(words, written, branches);
+    const problem = generatedHookProblem(words, written, true, loopReads) ?? releaseContextProblem(words, names, preceding, hookPath);
     if (problem) refuseHook(problem);
     yield words;
     preceding = nextShellContext(words, preceding);
@@ -1369,9 +1393,10 @@ function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
     }
     const following = followingReleaseOperator(words);
     if (following === "pipe") continue;
-    const isStatus = rendererStatusCommand(releaseOutputProducer(words));
+    const status = rendererStatusName(releaseOutputProducer(words));
+    const isStatus = status !== undefined;
     const redirectOnly = literalRedirectOnly(words);
-    if (afterOr && (redirectOnly || (isStatus && words[0].value !== "false"))) {
+    if (afterOr && (redirectOnly || (isStatus && status !== "false"))) {
       last = [...new Set([...last, ...skipped])];
     }
     if ((!words[0].releaseKeyword || words.length > 1)
@@ -1411,14 +1436,37 @@ function allGeneratorRenderers(
 
 const RENDERER_STATUS_COMMANDS = new Set(["git", "test", "[", "[[", "true", "false", ":"]);
 
+/** Read the actual status command name through its wrappers. */
+function rendererStatusName(words: ShellCommand): string | undefined {
+  const command = releaseHookCommand(words);
+  const name = command && basename(command[0].value);
+  return name && RENDERER_STATUS_COMMANDS.has(name) ? name : undefined;
+}
+
 /** Identify a shell status check or repository bookkeeping after rendering. */
 function rendererStatusCommand(words: ShellCommand): boolean {
-  const command = releaseHookCommand(words);
-  return Boolean(command && RENDERER_STATUS_COMMANDS.has(basename(command[0].value)));
+  return rendererStatusName(words) !== undefined;
+}
+
+/** Only a shell builtin with a target can replace the current shell. */
+function replacesRendererShell(words: ShellCommand): boolean {
+  if (isIsolatedReleaseCommand(words) || !releaseHookCommand(words)) return false;
+  const argv = withoutRedirections(words);
+  let index = argv.findIndex(word => !word.releaseKeyword && (word.startsQuoted || !/^[A-Za-z_]\w*\+?=/.test(word.value)));
+  while (argv[index]?.value === "command") {
+    index++;
+    if (argv[index]?.value === "-p") index++;
+    if (argv[index]?.value === "--") index++;
+  }
+  return argv[index]?.value === "exec" && !argv[index].unresolved;
 }
 
 /** Alternatives need no custom argument when all of their terminal generators receive the flag directly. */
 function finalHookCommand(commands: ShellCommand[], hasGenerator: boolean, scripts: ReadonlyMap<string, string>): ShellCommand {
+  const executables = commands.filter(words => releaseHookCommand(words));
+  if (executables.slice(0, -1).some(replacesRendererShell)) {
+    refuseHook("Cannot select a later renderer after exec replaces the shell. Use a single script entry point");
+  }
   const last = finalHookCommands(commands);
   if (last.length > 1 && !(hasGenerator && allGeneratorRenderers(last, scripts, new Set(scripts.keys()), 0))) {
     refuseHook("Custom hook has alternative renderers. Use a single script entry point");

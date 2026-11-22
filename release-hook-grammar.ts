@@ -17,6 +17,7 @@ const isolatedCommands = new WeakSet<ShellToken>();
 const pipelineProducers = new WeakMap<ShellCommand, ShellCommand>();
 const followingOperators = new WeakMap<ShellCommand, "and" | "or" | "pipe">();
 const loopConditions = new WeakSet<ShellToken>();
+const enclosingLoops = new WeakMap<ShellToken, ShellToken>();
 const continuedDescriptors = new WeakSet<ShellToken>();
 const braceExpansions = new WeakSet<ShellToken>();
 const OPAQUE_PIPELINE = "Pipeline to an opaque executable";
@@ -43,6 +44,11 @@ export function isIsolatedReleaseCommand(words: ShellCommand): boolean {
 /** Whether the command belongs to the condition list of a while or until loop. */
 export function isReleaseLoopCondition(words: ShellCommand): boolean {
   return loopConditions.has(words[0]);
+}
+
+/** Find the outermost loop that can execute this command again. */
+export function releaseLoopScope(words: ShellCommand): ShellToken | undefined {
+  return enclosingLoops.get(words[0]);
 }
 
 /** Whether the shell joined source lines inside a descriptor redirection. */
@@ -110,8 +116,7 @@ export function parseReleaseHook(text: string) {
   const bindings = new Set<string>();
   let words: ShellCommand = [];
   const piped = new Set<ShellCommand>();
-  const loops: boolean[] = [];
-  let hasLoop = false;
+  const loops: Array<{ head: ShellToken; condition: boolean }> = [];
   let subshellDepth = 0;
   let inSubshell = false;
   let heredoc = -1;
@@ -125,15 +130,15 @@ export function parseReleaseHook(text: string) {
         if (word.quoted || !/^(?:while|until|for|select|do|done|if|then|elif|else|fi|\}|\{|!)$/.test(word.value)) break;
         const span = spans.get(word)!;
         if (text.slice(span.start, span.end).replaceAll("\\\n", "") !== word.value) break;
-        if (/^(?:if|then|elif|else|fi|done|\})$/.test(word.value)) word.releaseKeyword = true;
+        if (/^(?:if|then|elif|else|fi|do|done|while|until|\})$/.test(word.value)) word.releaseKeyword = true;
         if (/^(?:while|until|for|select)$/.test(word.value)) {
-          hasLoop = true;
-          loops.push(/^(?:while|until)$/.test(word.value));
+          loops.push({ head: word, condition: /^(?:while|until)$/.test(word.value) });
         }
-        if (word.value === "do" && loops.length) loops[loops.length - 1] = false;
+        if (word.value === "do" && loops.length) loops.at(-1)!.condition = false;
         if (word.value === "done") loops.pop();
       }
-      if (loops.includes(true)) loopConditions.add(words[0]);
+      if (loops.some(loop => loop.condition)) loopConditions.add(words[0]);
+      if (loops.length) enclosingLoops.set(words[0], loops[0].head);
       if (inSubshell) {
         isolatedCommands.add(words[0]);
         if (!hookSyntaxProblem(words)) problems.set(words[0], "Shell grouping or substitution");
@@ -320,5 +325,5 @@ export function parseReleaseHook(text: string) {
     if (piped.has(command)) upstream.push(command);
     else upstream = [];
   }
-  return { commands, spans, heredocBodies, hasLoop };
+  return { commands, spans, heredocBodies };
 }

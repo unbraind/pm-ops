@@ -7,6 +7,8 @@ export declare function followingReleaseOperator(command: ShellCommand): "and" |
 export declare function isIsolatedReleaseCommand(words: ShellCommand): boolean;
 /** Whether the command belongs to the condition list of a while or until loop. */
 export declare function isReleaseLoopCondition(words: ShellCommand): boolean;
+/** Find the outermost loop that can execute this command again. */
+export declare function releaseLoopScope(words: ShellCommand): ShellToken | undefined;
 /** Whether the shell joined source lines inside a descriptor redirection. */
 export declare function isContinuedDescriptor(word: ShellToken): boolean;
 /** Whether this word includes unquoted shell brace expansion. */
@@ -28,6 +30,5 @@ export declare function parseReleaseHook(text: string): {
     commands: ShellCommand[];
     spans: WeakMap<ShellToken, ShellTokenSpan>;
     heredocBodies: Map<ShellCommand, ShellToken>;
-    hasLoop: boolean;
 };
 //# sourceMappingURL=release-hook-grammar.d.ts.map

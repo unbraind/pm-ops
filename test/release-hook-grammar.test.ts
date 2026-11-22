@@ -2543,3 +2543,140 @@ test("preparation uses npm's parsed lifecycle boolean for one environment spelli
   assert.equal(readFileSync(output, "utf8"), "");
   assert.equal(readFileSync(manifest, "utf8"), prepared);
 });
+
+
+test("Round GI forwarded writes can reach another branch on a later loop iteration", () => {
+  const entry = ["changelog:full"];
+  const writer = "pm-changelog " + standing;
+  const choose = "if test -f marker; then npm run emit; else npm run execute; fi";
+  const reason = /generated release hook file "generate\.sh"/;
+  const inspect = (forward: string, accepted: boolean, branch = choose) => {
+    const scripts = new Map(Object.entries({
+      "changelog:full": forward + "; " + writer,
+      relay: "npm run choose",
+      choose: branch,
+      emit: "printf '%s\\n' 'pm-changelog " + standing + "' >generate.sh; rm marker",
+      execute: "sh generate.sh",
+    }));
+    const checks = [
+      () => resolveChangelogHooks(Object.fromEntries(scripts), entry, true),
+      () => rewriteReleaseHookDates(scripts, entry, day, true),
+      () => assertReleaseHookHeadingDate(scripts, entry, day, "2026.11.17", true),
+    ];
+    for (const check of checks) {
+      if (accepted) assert.doesNotThrow(check);
+      else assert.throws(check, reason);
+    }
+    const manifest = { file: "package.json", text: JSON.stringify({ scripts: Object.fromEntries(scripts) }) };
+    const failures = auditInvocations([manifest]).failures;
+    if (accepted) assert.deepEqual(failures, []);
+    else assert.match(failures[0] ?? "", reason);
+  };
+  inspect("npm run relay", true);
+  inspect("for turn in first second; do true; done; npm run relay", true);
+  inspect("for turn in first second; do npm run relay; done", false);
+  const reversed = "if test -f marker; then npm run execute; else npm run emit; fi";
+  inspect("npm run relay", true, reversed);
+  inspect("for turn in first second; do npm run relay; done", false, reversed);
+  inspect("while npm run relay; do true; done", false);
+});
+
+test("Round GI standalone preparation separates alternatives and checks their joined writes", () => {
+  const conditional = "if test -f marker; then printf preview >preview.sh; else sh preview.sh; fi";
+  const writer = "pm-changelog " + standing;
+  const safe = conditional + "; " + writer;
+  assert.equal(includeEmptyReleaseSections(safe), safe + " --include-empty");
+  assert.doesNotThrow(() => rewriteReleaseHeadingDate(safe, day));
+  assert.doesNotThrow(() => assertReleaseHeadingDate([safe], day, "2026.11.17"));
+  const joined = conditional + "; sh preview.sh; " + writer;
+  const recurring = "for turn in first second; do " + conditional + "; done; " + writer;
+  for (const source of [joined, recurring]) {
+    const reason = /generated release hook file "preview\.sh"/;
+    assert.throws(() => includeEmptyReleaseSections(source), reason);
+    assert.throws(() => rewriteReleaseHeadingDate(source, day), reason);
+    assert.throws(() => assertReleaseHeadingDate([source], day, "2026.11.17"), reason);
+  }
+});
+
+test("Round GI uncertain lifecycle accounts for unquoted brace-expanded redirects", () => {
+  const hook = "pm-changelog " + standing;
+  for (const destination of [" > CHANGELOG.m{d..d}", ">./CHANGELOG.m{d..d}"]) {
+    assert.throws(() => resolveChangelogHooks({ hook, posthook: "printf heading " + destination }, ["hook"]),
+      /ignore-scripts.*posthook/, destination);
+  }
+  for (const destination of [" > 'CHANGELOG.m{d..d}'", '> "./CHANGELOG.m{d..d}"', " > CHANGELOG.m\\{d..d\\}"]) {
+    assert.ok(resolveChangelogHooks({ hook, posthook: "printf heading " + destination }, ["hook"]).has("posthook"), destination);
+  }
+  assert.throws(() => resolveChangelogHooks({ hook, posthook: 'printf heading > "previews/$SUBDIR/../CHANGELOG.md"' }, ["hook"]),
+    error => /ignore-scripts/.test(String(error)) && !/traversal/.test(String(error)));
+});
+
+test("Round GI runner OS controls case-equivalent lifecycle environment precedence", () => {
+  const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
+    "changelog:full": "pm-changelog " + standing, "prechangelog:full": "printf heading >CHANGELOG.md",
+  } }) };
+  const source = (runner: string | string[], value: string) => ({ file: ".github/workflows/case.yml", text: stringify({
+    env: { NpM_CoNfIg_IgNoRe_ScRiPtS: "false" },
+    jobs: { release: {
+      "runs-on": runner, env: { npm_config_ignore_scripts: "false" },
+      steps: [{ env: { NPM_CONFIG_IGNORE_SCRIPTS: value }, run: "npm run changelog:full" }],
+    } },
+  }) });
+  for (const runner of ["windows-latest", ["self-hosted", "Windows", "X64"]]) {
+    const one = source(runner, "true");
+    assert.deepEqual(auditInvocations([manifest, one]).failures, []);
+    assert.equal(npmLifecycle(undefined, executableShellBodies(source(runner, "false"))[0].environment), true);
+  }
+  assert.match(auditInvocations([manifest, source("ubuntu-latest", "true")]).failures[0] ?? "", /ignore-scripts.*prechangelog:full/);
+  const exported = { file: ".github/workflows/exported.yml", text: stringify({ jobs: { release: {
+    "runs-on": "windows-latest", env: { NPM_CONFIG_IGNORE_SCRIPTS: "false" },
+    steps: [
+      { shell: "bash", run: 'echo NPM_CONFIG_IGNORE_SCRIPTS=false >> "$GITHUB_ENV"\necho npm_config_ignore_scripts=true >> "$GITHUB_ENV"' },
+      { run: "npm run changelog:full" },
+      { env: { NPM_CONFIG_IGNORE_SCRIPTS: "false" }, run: "npm run changelog:full" },
+    ],
+  } } }) };
+  assert.deepEqual(executableShellBodies(exported).map(body => npmLifecycle(undefined, body.environment)), [true, false, true]);
+});
+
+test("Round GI ordinary inherited argv stays valid with literal release policy", () => {
+  const hook = "TITLE=Release npm run writer";
+  const inspect = (writer: string) => {
+    const scripts = { "changelog:full": hook, writer };
+    const entry = ["changelog:full"];
+    const resolved = resolveChangelogHooks(scripts, entry, true);
+    const prepared = rewriteReleaseHookDates(resolved, entry, day, true);
+    assertReleaseHookHeadingDate(prepared, entry, day, "2026.11.17", true);
+    assert.deepEqual(auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts }) }]).failures, []);
+  };
+  const writer = "pm-changelog " + standing;
+  assert.doesNotThrow(() => inspect(writer + ' --title "$TITLE" --item-url-base "$TITLE"'));
+  for (const selected of ['node "$TITLE" ' + standing, writer.replace("--date-from-version", '--date-fallback "$TITLE"'),
+    writer + ' --all-release-tags --until="$TITLE"']) {
+    assert.throws(() => inspect(selected), /binding through variable assignment TITLE/i);
+  }
+});
+
+test("Round GI wrapped false keeps the successful renderer requirement", () => {
+  const hook = "node primary.mjs && test -f use-secondary && node secondary.mjs";
+  for (const status of ["false", "command false", "command -- false"]) {
+    assert.equal(includeEmptyCustomHook(hook + " || " + status, new Map()), hook + " --include-empty || " + status);
+  }
+  for (const status of ["true", "command true"]) {
+    assert.throws(() => includeEmptyCustomHook(hook + " || " + status, new Map()), /alternative renderers/);
+  }
+});
+
+test("Round GI custom notes refuse a later renderer after shell replacement", () => {
+  for (const prefix of ["exec", "command exec", "command -- exec", "command -p exec", "exec -a notes"]) {
+    const hook = prefix + " node notes.mjs; node cleanup.mjs";
+    assert.throws(() => includeEmptyCustomHook(hook, new Map()), /exec replaces the shell/);
+    assert.throws(() => includeEmptyCustomHook("npm run render", new Map([["render", hook]])), /exec replaces the shell/);
+    assert.equal(includeEmptyCustomHook(prefix + " node notes.mjs", new Map()), prefix + " node notes.mjs --include-empty");
+  }
+  for (const hook of ["node setup.mjs; node notes.mjs", "exec >notes.log; node notes.mjs"]) {
+    assert.equal(includeEmptyCustomHook(hook, new Map()), hook + " --include-empty");
+  }
+  const piped = "exec node setup.mjs | cat; node notes.mjs";
+  assert.equal(includeEmptyCustomHook(piped, new Map()), piped + " --include-empty");
+});

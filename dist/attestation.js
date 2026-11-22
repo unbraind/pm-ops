@@ -877,6 +877,17 @@ function defaultRunSetting(container, key) {
 const IGNORE_SCRIPTS_ENV = "npm_config_ignore_scripts";
 const ENV_PATH = /^(?:"\$(?:GITHUB_ENV|\{GITHUB_ENV\})"|\$(?:GITHUB_ENV|\{GITHUB_ENV\}))(?:\s+#.*)?$/;
 const READ_ENV_FILE = /^cat\s+("?)\$(?:GITHUB_ENV|\{GITHUB_ENV\})\1(?:\s+#.*)?$/;
+/** Merge runner environment layers, retaining the winning spelling for shell reads. */
+function mergeWorkflowEnvironment(windows, ...layers) {
+    if (!windows)
+        return Object.fromEntries(layers.flatMap(layer => Object.entries(layer ?? {})));
+    const entries = new Map();
+    for (const layer of layers) {
+        for (const [key, value] of Object.entries(layer ?? {}))
+            entries.set(key.toLowerCase(), [key, value]);
+    }
+    return Object.fromEntries(entries.values());
+}
 /** Decode one literal NAME=value record emitted by echo or printf. */
 function literalEnvironmentRecord(print, environment) {
     const variable = /^echo "([A-Za-z_]\w*)=\$(\w+)"$/.exec(print);
@@ -894,7 +905,7 @@ function literalEnvironmentRecord(print, environment) {
     return format ? format[2] + format[4] : undefined;
 }
 /** Model one runner environment file, which starts empty for each step. */
-function writtenIgnoreScripts(text, conditionalStep, environment, errexit) {
+function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windows) {
     let records = Object.create(null);
     let mayStopBeforeOverwrite = false;
     let mayStopAtRead = false;
@@ -967,8 +978,10 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit) {
                 records = Object.create(null);
         }
         const [name, value] = record.split("=");
-        if (records && !/^(?:GITHUB_|RUNNER_|NODE_OPTIONS$)/i.test(name))
-            records[name] = conditional ? uncertainEnvironmentRecord(name) : value;
+        if (records && !/^(?:GITHUB_|RUNNER_|NODE_OPTIONS$)/i.test(name)) {
+            const key = windows ? name.toLowerCase() : name;
+            records[key] = conditional ? uncertainEnvironmentRecord(name) : value;
+        }
     }
     return records && { records, mayStopBeforeOverwrite };
 }
@@ -1020,6 +1033,7 @@ export function executableShellBodies(source) {
             continue;
         const runner = job["runs-on"];
         const posixRunner = [runner].flat().some(label => typeof label === "string" && /^(?:ubuntu-|macos-|linux$|macos$)/i.test(label));
+        const windowsRunner = [runner].flat().some(label => typeof label === "string" && /^windows(?:-|$)/i.test(label));
         const defaultShell = defaultRunSetting(job, "shell") ?? defaultRunSetting(data, "shell");
         const inherited = Object.create(null);
         let unknownNames = false;
@@ -1035,15 +1049,19 @@ export function executableShellBodies(source) {
             const directory = step["working-directory"] ?? defaultRunSetting(job, "working-directory") ?? defaultRunSetting(data, "working-directory");
             if (directory !== undefined)
                 body.workingDirectory = directory;
-            const stepEnv = mapping(step.env);
-            const environment = { ...mapping(data?.env), ...mapping(job.env), ...inherited, ...stepEnv };
+            const stepEnv = mergeWorkflowEnvironment(windowsRunner, mapping(step.env));
+            const environment = mergeWorkflowEnvironment(windowsRunner, mapping(data?.env), mapping(job.env), inherited, stepEnv);
             const priorUncertain = unknownNames || (uncertainOnFailure && canRunAfterFailure(step.if))
                 || [data?.env, job.env, step.env].some(layer => typeof layer === "string");
-            const stepLifecycle = Object.entries(stepEnv ?? {}).some(([key, value]) => /^npm_config_ignore[-_]scripts$/i.test(key) && [true, false, "true", "false"].includes(value));
+            const stepLifecycle = Object.entries(stepEnv).some(([key, value]) => /^npm_config_ignore[-_]scripts$/i.test(key) && [true, false, "true", "false"].includes(value));
             const producerEnvironment = priorUncertain ? stepEnv : environment;
+            // npm's canonical key must also be the key the audit clears when it
+            // computes the configured fallback. Bash reads still use the winning case.
+            body.environment = windowsRunner
+                ? Object.fromEntries(Object.entries(environment).map(([key, value]) => [key.toLowerCase(), value]))
+                : environment;
             if (!stepLifecycle && priorUncertain)
-                environment[IGNORE_SCRIPTS_ENV] = "unknown";
-            body.environment = environment;
+                body.environment = { ...body.environment, [IGNORE_SCRIPTS_ENV]: "unknown" };
             if (job.if === false || step.if === false)
                 body.disabled = true;
             else {
@@ -1053,7 +1071,7 @@ export function executableShellBodies(source) {
                 const conditional = (condition !== undefined && condition !== true && !(typeof condition === "string" && isSuccessCondition(condition)))
                     || Boolean(step["continue-on-error"]);
                 const errexit = shell !== "bash {0}" && shell !== "sh {0}";
-                const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, producerEnvironment, errexit) : undefined;
+                const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, producerEnvironment, errexit, windowsRunner) : undefined;
                 if (writes === undefined)
                     unknownNames = true;
                 else {

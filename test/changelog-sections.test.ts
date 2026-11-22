@@ -82,6 +82,7 @@ function changelogStepScript(source = readFileSync(resolve(".github/workflows/da
   const generation = steps.find(step => step.name === "Generate changelog and release notes");
   assert.ok(preparation?.id && preparation.run);
   assert.ok(generation?.run);
+  assert.equal(preparation.env?.RELEASE_HEADING_DATE, "${{ steps.decide.outputs.heading_date }}", "RELEASE_HEADING_DATE");
   for (const [key, output] of [["PREPARED_NPM_LIFECYCLE", "npm_lifecycle"],
     ["PREPARED_NPM_LIFECYCLE_CONFIGURED", "npm_lifecycle_configured"]]) {
     assert.equal(generation.env?.[key], "${{ steps." + preparation.id + ".outputs." + output + " }}", key);
@@ -302,6 +303,39 @@ test("inline and separate prepend mode preserve the selected output history", ()
     }
     assert.throws(() => runChangelog(["--mode="], root, env), /--mode requires a value/);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Round GI prepend checks retained links before writing, while replace checks its own output", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const base = "https://example.invalid/tracker";
+  const path = join(root, "preview.md");
+  const history = "# Changelog\n\n## 2026.1.1 - 2026-01-01\n\n[history](" + base + "/sample-history.toon)\n";
+  const cliArgs = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22",
+    "--date-from-version", "--item-url-base", base, "--check-links", "-o", "preview.md"];
+  writeFileSync(path, history);
+  assert.throws(() => runChangelog([...cliArgs, "--mode=prepend"], root, env), /sample-history\.toon/);
+  assert.equal(readFileSync(path, "utf8"), history);
+  assert.equal(runChangelog([...cliArgs, "--mode=replace"], root, env), 0);
+  assert.doesNotMatch(readFileSync(path, "utf8"), /sample-history/);
+  writeFileSync(join(root, ".agents/pm/sample-history.toon"), "fixture link target\n");
+  writeFileSync(path, history);
+  assert.equal(runChangelog([...cliArgs, "--mode", "prepend"], root, env), 0);
+  assert.match(readFileSync(path, "utf8"), /sample-history\.toon/);
+  const implicitEnv = { ...env };
+  delete implicitEnv.PM_PATH;
+  const implicitArgs = cliArgs.slice(2);
+  assert.equal(runChangelog([...implicitArgs, "--mode=prepend", "--check"], root, implicitEnv), 0);
+  assert.equal(runChangelog([...implicitArgs, "--mode=prepend", "--check", "--pm-cwd=.", "--pm-arg=--pm-path=.agents/pm"], root, implicitEnv), 0);
+});
+
+test("Round GI the resumed heading fixture depends on the workflow's planner mapping", () => {
+  const source = readFileSync(resolve(".github/workflows/daily-release.yml"), "utf8");
+  const mapping = "RELEASE_HEADING_DATE: ${{ steps.decide.outputs.heading_date }}";
+  assert.doesNotThrow(() => changelogStepScript(source));
+  assert.ok(source.includes(mapping));
+  assert.throws(() => changelogStepScript(source.replace(mapping, "UNUSED_HEADING_DATE: ''")), /RELEASE_HEADING_DATE/);
+  assert.throws(() => changelogStepScript(source.replace(mapping, mapping.replace("heading_date", "other_date"))), /RELEASE_HEADING_DATE/);
 });
 
 test("each explicit adapter mode must be valid before the last valid mode wins", () => {

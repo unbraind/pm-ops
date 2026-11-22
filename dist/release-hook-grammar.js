@@ -13,6 +13,7 @@ const isolatedCommands = new WeakSet();
 const pipelineProducers = new WeakMap();
 const followingOperators = new WeakMap();
 const loopConditions = new WeakSet();
+const enclosingLoops = new WeakMap();
 const continuedDescriptors = new WeakSet();
 const braceExpansions = new WeakSet();
 const OPAQUE_PIPELINE = "Pipeline to an opaque executable";
@@ -36,6 +37,10 @@ export function isIsolatedReleaseCommand(words) {
 /** Whether the command belongs to the condition list of a while or until loop. */
 export function isReleaseLoopCondition(words) {
     return loopConditions.has(words[0]);
+}
+/** Find the outermost loop that can execute this command again. */
+export function releaseLoopScope(words) {
+    return enclosingLoops.get(words[0]);
 }
 /** Whether the shell joined source lines inside a descriptor redirection. */
 export function isContinuedDescriptor(word) {
@@ -99,7 +104,6 @@ export function parseReleaseHook(text) {
     let words = [];
     const piped = new Set();
     const loops = [];
-    let hasLoop = false;
     let subshellDepth = 0;
     let inSubshell = false;
     let heredoc = -1;
@@ -114,19 +118,20 @@ export function parseReleaseHook(text) {
                 const span = spans.get(word);
                 if (text.slice(span.start, span.end).replaceAll("\\\n", "") !== word.value)
                     break;
-                if (/^(?:if|then|elif|else|fi|done|\})$/.test(word.value))
+                if (/^(?:if|then|elif|else|fi|do|done|while|until|\})$/.test(word.value))
                     word.releaseKeyword = true;
                 if (/^(?:while|until|for|select)$/.test(word.value)) {
-                    hasLoop = true;
-                    loops.push(/^(?:while|until)$/.test(word.value));
+                    loops.push({ head: word, condition: /^(?:while|until)$/.test(word.value) });
                 }
                 if (word.value === "do" && loops.length)
-                    loops[loops.length - 1] = false;
+                    loops.at(-1).condition = false;
                 if (word.value === "done")
                     loops.pop();
             }
-            if (loops.includes(true))
+            if (loops.some(loop => loop.condition))
                 loopConditions.add(words[0]);
+            if (loops.length)
+                enclosingLoops.set(words[0], loops[0].head);
             if (inSubshell) {
                 isolatedCommands.add(words[0]);
                 if (!hookSyntaxProblem(words))
@@ -368,6 +373,6 @@ export function parseReleaseHook(text) {
         else
             upstream = [];
     }
-    return { commands, spans, heredocBodies, hasLoop };
+    return { commands, spans, heredocBodies };
 }
 //# sourceMappingURL=release-hook-grammar.js.map
