@@ -1021,6 +1021,11 @@ function uncertainEnvironmentRecord(name: string): string | undefined {
   return /^npm_config_ignore[-_]scripts$/i.test(name) ? "unknown" : undefined;
 }
 
+/** Keep the names an opaque step may have left in the runner environment. */
+function invalidateWorkflowExports(...layers: Array<Readonly<Record<string, unknown>>>): Record<string, unknown> {
+  return Object.fromEntries(layers.flatMap(layer => Object.keys(layer).map(name => [name, uncertainEnvironmentRecord(name)])));
+}
+
 /** Recognize the explicit spelling of the runner's implicit success condition. */
 function isSuccessCondition(condition: string): boolean {
   return /^\s*success\s*\(\s*\)\s*$/i.test(condition.trim().replace(/^\$\{\{([\s\S]*)\}\}$/, "$1"));
@@ -1065,7 +1070,8 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
     const posixRunner = [runner].flat().some(label => typeof label === "string" && /^(?:ubuntu-|macos-|linux$|macos$)/i.test(label));
     const windowsRunner = [runner].flat().some(label => typeof label === "string" && /^windows(?:-|$)/i.test(label));
     const defaultShell = defaultRunSetting(job, "shell") ?? defaultRunSetting(data, "shell");
-    let inherited: Record<string, unknown> | undefined;
+    const baseEnvironment = mergeWorkflowEnvironment(windowsRunner, mapping(data?.env), mapping(job!.env));
+    let inherited: Record<string, unknown> = Object.create(null);
     let unknownNames = false;
     let definiteLifecycleWrite = false;
     let uncertainOnFailure = false;
@@ -1073,7 +1079,7 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
       const step = mapping(value);
       if (step === undefined || !Object.hasOwn(step, "run")) {
         if (step?.if !== false) {
-          inherited = undefined;
+          inherited = invalidateWorkflowExports(baseEnvironment, inherited);
           unknownNames = true;
           definiteLifecycleWrite = false;
         }
@@ -1083,14 +1089,14 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
       const directory = step["working-directory"] ?? defaultRunSetting(job, "working-directory") ?? defaultRunSetting(data, "working-directory");
       if (directory !== undefined) body.workingDirectory = directory;
       const stepEnv = mergeWorkflowEnvironment(windowsRunner, mapping(step.env));
-      const environment = mergeWorkflowEnvironment(windowsRunner, mapping(data?.env), mapping(job!.env), inherited, stepEnv);
+      const environment = mergeWorkflowEnvironment(windowsRunner, baseEnvironment, inherited, stepEnv);
       const afterFailure = canRunAfterFailure(step.if);
       const priorUncertain = (uncertainOnFailure && afterFailure)
         || [data?.env, job!.env, step.env].some(layer => typeof layer === "string");
       const stepLifecycle = Object.entries(stepEnv).some(([key, value]) =>
         /^npm_config_ignore[-_]scripts$/i.test(key) && [true, false, "true", "false"].includes(value as string | boolean));
-      // Opaque steps clear inherited values, but later definite writes can
-      // restore individual names on the successful path.
+      // Later definite writes can restore individual names on the successful path.
+      // Other spellings of the same npm setting may still be present.
       const producerEnvironment = priorUncertain || (unknownNames && afterFailure) ? stepEnv
         : unknownNames ? mergeWorkflowEnvironment(windowsRunner, inherited, stepEnv) : environment;
       // npm's canonical key must also be the key the audit clears when it
@@ -1113,7 +1119,7 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
         const errexit = shell !== "bash {0}" && shell !== "sh {0}";
         const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, producerEnvironment, errexit, windowsRunner) : undefined;
         if (writes === undefined) {
-          inherited = undefined;
+          inherited = invalidateWorkflowExports(baseEnvironment, inherited);
           unknownNames = true;
           definiteLifecycleWrite = false;
         } else {

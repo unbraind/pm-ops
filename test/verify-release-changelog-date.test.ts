@@ -223,7 +223,8 @@ test("configured release hooks are audited when called without another script's 
     "    with:",
     "      changelog-script: render",
   ].join("\n") };
-  for (const project of [undefined, ".", "././", ".//", ".//.///", "${{ inputs.project }}"]) {
+  for (const project of [undefined, ".", "././", ".//", ".//.///", "${{ inputs.project }}", "./${{ inputs.project }}",
+    "${{ inputs.project }}/", "${{ inputs.project || '.' }}"]) {
     const text = project === undefined ? caller.text : caller.text + "\n      npm-project-dir: " + project;
     assert.match(auditInvocations([source("render"), { ...caller, text }]).failures[0], /neither --date-from-version/);
     assert.deepEqual(auditInvocations([source("render", " --date-from-version"), { ...caller, text }]).failures, []);
@@ -239,7 +240,8 @@ test("configured release hooks are audited when called without another script's 
     if (checked) assert.match(failures[0] ?? "", /neither --date-from-version/);
     else assert.deepEqual(failures, []);
   }
-  for (const project of ["docs", ".//docs", "/"]) {
+  for (const project of ["docs", ".//docs", "/", "tools/${{ inputs.package }}", "./tools/${{ inputs.package }}", "tools-${{ inputs.package }}",
+    "${{ inputs.namespace }}/tools", "./${{ inputs.namespace }}/tools-${{ inputs.package }}"]) {
     assert.deepEqual(auditInvocations([source("render"), { ...caller, text: caller.text + "\n      npm-project-dir: " + project }]).failures, []);
   }
 });

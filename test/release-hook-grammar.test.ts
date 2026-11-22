@@ -2388,9 +2388,9 @@ test("runner exports restore only the names definitely written after an opaque s
   const pkg = { file: "package.json", text: JSON.stringify({ scripts: {
     "changelog:full": "pm-changelog " + standing, "prechangelog:full": "echo preview > CHANGELOG.md",
   } }) };
-  const inspect = (steps: object[]) => {
+  const inspect = (steps: object[], env = {}, jobEnv = {}) => {
     const workflow = { file: ".github/workflows/release.yml", text: stringify({
-      jobs: { release: { "runs-on": "ubuntu-latest", steps: [...steps, consume] } },
+      env, jobs: { release: { "runs-on": "ubuntu-latest", env: jobEnv, steps: [...steps, consume] } },
     }) };
     return {
       policy: npmLifecycle(undefined, executableShellBodies(workflow).at(-1)?.environment),
@@ -2408,6 +2408,24 @@ test("runner exports restore only the names definitely written after an opaque s
     const observed = inspect(steps);
     assert.equal(observed.policy, "unknown");
     assert.match(observed.failures[0] ?? "", /ignore-scripts.*prechangelog:full/);
+  }
+  const exportAlias = (value: string) => ({ run: `echo "NPM_CONFIG_IGNORE_SCRIPTS=${value}" >> "$GITHUB_ENV"` });
+  for (const step of [opaque, { run: "node helper.js" }]) {
+    const steps = [exportAlias("false"), step, setting, copy];
+    const conflict = inspect(steps);
+    assert.equal(conflict.policy, "unknown");
+    assert.match(conflict.failures[0] ?? "", /ignore-scripts.*prechangelog:full/);
+    for (const alias of ["", "true"]) {
+      assert.deepEqual(inspect([...steps, exportAlias(alias)]), { policy: false, failures: [] });
+    }
+    const declaredAlias = { NPM_CONFIG_IGNORE_SCRIPTS: "true" };
+    for (const [env, jobEnv] of [[declaredAlias, {}], [{}, declaredAlias]]) {
+      const steps = [step, setting, copy];
+      const conflict = inspect(steps, env, jobEnv);
+      assert.equal(conflict.policy, "unknown");
+      assert.match(conflict.failures[0] ?? "", /ignore-scripts.*prechangelog:full/);
+      assert.deepEqual(inspect([...steps, exportAlias("true")], env, jobEnv), { policy: false, failures: [] });
+    }
   }
 });
 

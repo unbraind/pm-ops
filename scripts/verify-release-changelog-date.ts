@@ -149,6 +149,13 @@ function isRootProject(directory: unknown): boolean {
   return directory === undefined || (typeof directory === "string" && /^(?:\.\/+)*\.?$/.test(directory));
 }
 
+/** A named path component stays nested because the workflow rejects parent-directory components. */
+function maySelectRootProject(directory: unknown): boolean {
+  if (typeof directory !== "string") return isRootProject(directory);
+  const [prefix, ...remaining] = directory.split(/\$\{\{(?:'[^']*'|[^'}])*\}\}/);
+  return isRootProject(prefix) && remaining.every(part => !/[^./]|\.\./.test(part));
+}
+
 /** Include literal hook overrides from callers of the reusable daily release workflow. */
 function addConfiguredHooks(text: string, entries: Set<string>): void {
   const workflow = parse(text) as { jobs?: Record<string, { if?: unknown; uses?: string; with?: Record<string, unknown> } | null> } | null;
@@ -156,9 +163,7 @@ function addConfiguredHooks(text: string, entries: Set<string>): void {
     if (job?.if === false) continue;
     if (typeof job?.uses !== "string" || !/(?:^|\/)\.github\/workflows\/daily-release\.ya?ml(?:@[^\s]+)?$/.test(job.uses)) continue;
     if (job.with?.rust === true) continue;
-    const directory = job.with?.["npm-project-dir"];
-    const dynamicDirectory = typeof directory === "string" && directory.includes("${{");
-    if (!isRootProject(directory) && !dynamicDirectory) continue;
+    if (!maySelectRootProject(job.with?.["npm-project-dir"])) continue;
     for (const [input] of HOOK_INPUTS) {
       const name = job.with?.[input];
       if (typeof name === "string" && /^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$/.test(name)) entries.add(name);
