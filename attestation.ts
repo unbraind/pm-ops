@@ -947,7 +947,7 @@ function literalEnvironmentRecord(print: string, environment: Record<string, unk
 function writtenIgnoreScripts(
   text: string, conditionalStep: boolean, environment: Record<string, unknown> | undefined, errexit: boolean, windows: boolean,
 ): { records: Record<string, string | undefined>; mayStopBeforeOverwrite: boolean } | undefined {
-  let records: Record<string, string | undefined> | undefined = Object.create(null);
+  let records: Map<string, [string, string | undefined]> | undefined = new Map();
   let mayStopBeforeOverwrite = false;
   let mayStopAtRead = false;
   let nounset = false;
@@ -1000,16 +1000,16 @@ function writtenIgnoreScripts(
     const conditional = conditionalStep || depth > 0 || (unquoted && !errexit);
     if (!append) {
       if (conditional) {
-        if (records) for (const key of Object.keys(records)) records[key] = uncertainEnvironmentRecord(key);
-      } else records = Object.create(null);
+        if (records) for (const [key, [name]] of records) records.set(key, [name, uncertainEnvironmentRecord(name)]);
+      } else records = new Map();
     }
     const [name, value] = record.split("=");
     if (records && !/^(?:GITHUB_|RUNNER_|NODE_OPTIONS$)/i.test(name)) {
       const key = windows ? name.toLowerCase() : name;
-      records[key] = conditional ? uncertainEnvironmentRecord(name) : value;
+      records.set(key, [name, conditional ? uncertainEnvironmentRecord(name) : value]);
     }
   }
-  return records && { records, mayStopBeforeOverwrite };
+  return records && { records: Object.fromEntries(records.values()), mayStopBeforeOverwrite };
 }
 
 /** Preserve uncertainty without treating a possibly unset expansion as a literal. */
@@ -1061,7 +1061,7 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
     const posixRunner = [runner].flat().some(label => typeof label === "string" && /^(?:ubuntu-|macos-|linux$|macos$)/i.test(label));
     const windowsRunner = [runner].flat().some(label => typeof label === "string" && /^windows(?:-|$)/i.test(label));
     const defaultShell = defaultRunSetting(job, "shell") ?? defaultRunSetting(data, "shell");
-    const inherited: Record<string, string | undefined> = Object.create(null);
+    let inherited: Record<string, unknown> = Object.create(null);
     let unknownNames = false;
     let uncertainOnFailure = false;
     for (const [index, value] of (steps as unknown[]).entries()) {
@@ -1083,7 +1083,9 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
       // npm's canonical key must also be the key the audit clears when it
       // computes the configured fallback. Bash reads still use the winning case.
       body.environment = windowsRunner
-        ? Object.fromEntries(Object.entries(environment).map(([key, value]) => [key.toLowerCase(), value]))
+        ? Object.fromEntries(Object.entries(environment).map(([key, value]) => [
+          key.toLowerCase() === IGNORE_SCRIPTS_ENV ? IGNORE_SCRIPTS_ENV : key, value,
+        ]))
         : environment;
       if (!stepLifecycle && priorUncertain) body.environment = { ...body.environment, [IGNORE_SCRIPTS_ENV]: "unknown" };
       if (job!.if === false || step.if === false) body.disabled = true;
@@ -1097,7 +1099,7 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
         const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, producerEnvironment, errexit, windowsRunner) : undefined;
         if (writes === undefined) unknownNames = true;
         else {
-          Object.assign(inherited, writes.records);
+          inherited = mergeWorkflowEnvironment(windowsRunner, inherited, writes.records);
           if (writes.mayStopBeforeOverwrite) uncertainOnFailure = true;
         }
       }

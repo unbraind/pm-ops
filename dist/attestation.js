@@ -906,7 +906,7 @@ function literalEnvironmentRecord(print, environment) {
 }
 /** Model one runner environment file, which starts empty for each step. */
 function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windows) {
-    let records = Object.create(null);
+    let records = new Map();
     let mayStopBeforeOverwrite = false;
     let mayStopAtRead = false;
     let nounset = false;
@@ -971,19 +971,19 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windo
         if (!append) {
             if (conditional) {
                 if (records)
-                    for (const key of Object.keys(records))
-                        records[key] = uncertainEnvironmentRecord(key);
+                    for (const [key, [name]] of records)
+                        records.set(key, [name, uncertainEnvironmentRecord(name)]);
             }
             else
-                records = Object.create(null);
+                records = new Map();
         }
         const [name, value] = record.split("=");
         if (records && !/^(?:GITHUB_|RUNNER_|NODE_OPTIONS$)/i.test(name)) {
             const key = windows ? name.toLowerCase() : name;
-            records[key] = conditional ? uncertainEnvironmentRecord(name) : value;
+            records.set(key, [name, conditional ? uncertainEnvironmentRecord(name) : value]);
         }
     }
-    return records && { records, mayStopBeforeOverwrite };
+    return records && { records: Object.fromEntries(records.values()), mayStopBeforeOverwrite };
 }
 /** Preserve uncertainty without treating a possibly unset expansion as a literal. */
 function uncertainEnvironmentRecord(name) {
@@ -1035,7 +1035,7 @@ export function executableShellBodies(source) {
         const posixRunner = [runner].flat().some(label => typeof label === "string" && /^(?:ubuntu-|macos-|linux$|macos$)/i.test(label));
         const windowsRunner = [runner].flat().some(label => typeof label === "string" && /^windows(?:-|$)/i.test(label));
         const defaultShell = defaultRunSetting(job, "shell") ?? defaultRunSetting(data, "shell");
-        const inherited = Object.create(null);
+        let inherited = Object.create(null);
         let unknownNames = false;
         let uncertainOnFailure = false;
         for (const [index, value] of steps.entries()) {
@@ -1058,7 +1058,9 @@ export function executableShellBodies(source) {
             // npm's canonical key must also be the key the audit clears when it
             // computes the configured fallback. Bash reads still use the winning case.
             body.environment = windowsRunner
-                ? Object.fromEntries(Object.entries(environment).map(([key, value]) => [key.toLowerCase(), value]))
+                ? Object.fromEntries(Object.entries(environment).map(([key, value]) => [
+                    key.toLowerCase() === IGNORE_SCRIPTS_ENV ? IGNORE_SCRIPTS_ENV : key, value,
+                ]))
                 : environment;
             if (!stepLifecycle && priorUncertain)
                 body.environment = { ...body.environment, [IGNORE_SCRIPTS_ENV]: "unknown" };
@@ -1075,7 +1077,7 @@ export function executableShellBodies(source) {
                 if (writes === undefined)
                     unknownNames = true;
                 else {
-                    Object.assign(inherited, writes.records);
+                    inherited = mergeWorkflowEnvironment(windowsRunner, inherited, writes.records);
                     if (writes.mayStopBeforeOverwrite)
                         uncertainOnFailure = true;
                 }

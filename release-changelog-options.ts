@@ -1371,26 +1371,38 @@ function literalRedirectOnly(words: ShellCommand): boolean {
 
 /** Find possible final renderers, including those retained when an OR fallback masks a failed AND-list. */
 function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
-  const alternatives: Array<{ before: ShellCommand[]; branches: ShellCommand[]; hasElse: boolean }> = [];
+  const alternatives: Array<{
+    before: ShellCommand[]; branches: ShellCommand[]; hasElse: boolean; beforeReplacement: boolean; branchReplacement: boolean;
+  }> = [];
   let last: ShellCommand[] = [];
   let skipped: ShellCommand[] = [];
   let afterOr = false;
   let afterAnd = false;
+  let replaced = false;
   for (const words of commands) {
     for (const word of words) {
       if (!word.releaseKeyword) break;
-      if (word.value === "if") alternatives.push({ before: last, branches: [], hasElse: false });
+      if (word.value === "if") alternatives.push({
+        before: last, branches: [], hasElse: false, beforeReplacement: replaced, branchReplacement: false,
+      });
       const branch = alternatives.at(-1);
       if (branch && (word.value === "elif" || word.value === "else")) {
         branch.branches.push(...last);
         branch.hasElse = word.value === "else";
         last = branch.before;
+        branch.branchReplacement ||= replaced;
+        replaced = branch.beforeReplacement;
       }
       if (branch && word.value === "fi") {
         alternatives.pop();
         last = [...new Set([...branch.branches, ...last, ...(branch.hasElse ? [] : branch.before)])];
+        replaced ||= branch.branchReplacement;
       }
     }
+    if (replaced && releaseHookCommand(words)) {
+      refuseHook("Cannot select a later renderer after exec replaces the shell. Use a single script entry point");
+    }
+    replaced ||= replacesRendererShell(words);
     const following = followingReleaseOperator(words);
     if (following === "pipe") continue;
     const status = rendererStatusName(releaseOutputProducer(words));
@@ -1463,10 +1475,6 @@ function replacesRendererShell(words: ShellCommand): boolean {
 
 /** Alternatives need no custom argument when all of their terminal generators receive the flag directly. */
 function finalHookCommand(commands: ShellCommand[], hasGenerator: boolean, scripts: ReadonlyMap<string, string>): ShellCommand {
-  const executables = commands.filter(words => releaseHookCommand(words));
-  if (executables.slice(0, -1).some(replacesRendererShell)) {
-    refuseHook("Cannot select a later renderer after exec replaces the shell. Use a single script entry point");
-  }
   const last = finalHookCommands(commands);
   if (last.length > 1 && !(hasGenerator && allGeneratorRenderers(last, scripts, new Set(scripts.keys()), 0))) {
     refuseHook("Custom hook has alternative renderers. Use a single script entry point");

@@ -1342,23 +1342,33 @@ function finalHookCommands(commands) {
     let skipped = [];
     let afterOr = false;
     let afterAnd = false;
+    let replaced = false;
     for (const words of commands) {
         for (const word of words) {
             if (!word.releaseKeyword)
                 break;
             if (word.value === "if")
-                alternatives.push({ before: last, branches: [], hasElse: false });
+                alternatives.push({
+                    before: last, branches: [], hasElse: false, beforeReplacement: replaced, branchReplacement: false,
+                });
             const branch = alternatives.at(-1);
             if (branch && (word.value === "elif" || word.value === "else")) {
                 branch.branches.push(...last);
                 branch.hasElse = word.value === "else";
                 last = branch.before;
+                branch.branchReplacement ||= replaced;
+                replaced = branch.beforeReplacement;
             }
             if (branch && word.value === "fi") {
                 alternatives.pop();
                 last = [...new Set([...branch.branches, ...last, ...(branch.hasElse ? [] : branch.before)])];
+                replaced ||= branch.branchReplacement;
             }
         }
+        if (replaced && releaseHookCommand(words)) {
+            refuseHook("Cannot select a later renderer after exec replaces the shell. Use a single script entry point");
+        }
+        replaced ||= replacesRendererShell(words);
         const following = followingReleaseOperator(words);
         if (following === "pipe")
             continue;
@@ -1433,10 +1443,6 @@ function replacesRendererShell(words) {
 }
 /** Alternatives need no custom argument when all of their terminal generators receive the flag directly. */
 function finalHookCommand(commands, hasGenerator, scripts) {
-    const executables = commands.filter(words => releaseHookCommand(words));
-    if (executables.slice(0, -1).some(replacesRendererShell)) {
-        refuseHook("Cannot select a later renderer after exec replaces the shell. Use a single script entry point");
-    }
     const last = finalHookCommands(commands);
     if (last.length > 1 && !(hasGenerator && allGeneratorRenderers(last, scripts, new Set(scripts.keys()), 0))) {
         refuseHook("Custom hook has alternative renderers. Use a single script entry point");

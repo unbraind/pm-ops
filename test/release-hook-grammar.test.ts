@@ -2637,6 +2637,16 @@ test("Round GI runner OS controls case-equivalent lifecycle environment preceden
     ],
   } } }) };
   assert.deepEqual(executableShellBodies(exported).map(body => npmLifecycle(undefined, body.environment)), [true, false, true]);
+  const indirect = (variable: string) => ({ file: ".github/workflows/indirect.yml", text: stringify({ jobs: { release: {
+    "runs-on": "windows-latest",
+    steps: [
+      { shell: "bash", run: 'echo SETTING=true >> "$GITHUB_ENV"' },
+      { shell: "bash", run: 'echo "npm_config_ignore_scripts=$' + variable + '" >> "$GITHUB_ENV"' },
+      { run: "npm run changelog:full" },
+    ],
+  } } }) });
+  assert.deepEqual(auditInvocations([manifest, indirect("SETTING")]).failures, []);
+  assert.match(auditInvocations([manifest, indirect("setting")]).failures[0] ?? "", /ignore-scripts.*prechangelog:full/);
 });
 
 test("Round GI ordinary inherited argv stays valid with literal release policy", () => {
@@ -2679,4 +2689,10 @@ test("Round GI custom notes refuse a later renderer after shell replacement", ()
   }
   const piped = "exec node setup.mjs | cat; node notes.mjs";
   assert.equal(includeEmptyCustomHook(piped, new Map()), piped + " --include-empty");
+  const generator = "exec pm-changelog " + standing + " --stdout";
+  const prepare = (body: string) => includeEmptyCustomHook(includeEmptyReleaseSections(body), new Map(), true);
+  const exclusive = "if test -f marker; then " + generator + "; else " + generator + "; fi";
+  assert.equal(prepare(exclusive), exclusive.replaceAll(generator, generator + " --include-empty"));
+  assert.throws(() => prepare(exclusive.replace("; else", "; node cleanup.mjs; else")), /exec replaces the shell/);
+  assert.throws(() => prepare(exclusive + "; node cleanup.mjs"), /exec replaces the shell/);
 });
