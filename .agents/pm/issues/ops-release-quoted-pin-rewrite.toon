@@ -2,13 +2,11 @@ id: ops-release-quoted-pin-rewrite
 title: Refresh and verify quoted release changelog option names
 description: "Follow-up to ops-release-1115-heading-drift and pm-ops PR #295. The changelog verifier reads shell option tokens. The reusable prepare workflow and continuation guard still pattern-match raw hook strings, so they can overlook the same option when its name is quoted."
 type: Issue
-status: in_progress
+status: open
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-22T11:39:23.263Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-22T12:10:46.695Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -16,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[219]:
+comments[220]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -675,6 +673,9 @@ comments[219]:
   - created_at: "2026-11-22T11:39:23.262Z"
     author: codex-sol
     text: "The reference sweep passed 1252 tests across 17 files. The first complete run passed 2247 tests with two opt-in skips and identified one uncovered optional-location branch after workflow origins acquired line numbers. The formatter now renders the same optional source location, and the focused test asserts both physical workflow step lines. Both full gates are rerunning."
+  - created_at: "2026-11-22T12:10:42.945Z"
+    author: codex-sol
+    text: "Round GI final verification on 9f1ce85. Thread PRRT_kwDOTOTl1M66i1tx also maps to ba91c77 for the tracker-selection and stdout fixtures. PRRT_kwDOTOTl1M66i1t0 also maps to 9f1ce85 for physical step locations. The 17 reference suites passed 1252 tests, the focused grammar and date run passed 195 tests, the final date suite passed 47 tests, and five hostile signing, raw-index and preview checks passed. The pinned inventory accepted all 142 hooks and 144 bodies across 39 manifests. Typecheck, test build, lint, zero duplication, docstrings, changelog:check and the release verifiers passed. With npm 11.21.0, both npm run coverage and node test/release-heading-full-gate.acceptance.ts passed 2247 tests with two opt-in skips and 100 percent statements, branches, functions and lines over 54 sources. The release acceptance passed package audits and dry-run packing. The changelog lists ops-b2bs under Unreleased."
 files[32]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
