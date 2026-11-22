@@ -293,7 +293,7 @@ test("an unversioned lifecycle generator can select CHANGELOG.md through brace e
 
 test("unquoted generator operands cannot hide a runtime version option", () => {
   const writer = "pm-changelog " + standing;
-  for (const option of ["--title ", "--title=", "--pm-arg ", "--output "]) {
+  for (const option of ["--title ", "--section-by ", "--pm-arg ", "--output "]) {
     const candidate = "pm-changelog " + option;
     const check = (value: string) => auditInvocations([workflow(writer, candidate + value)]).failures;
     assert.match(check("$TITLE")[0] ?? "", /Unquoted or multiword expansion.*--/);
@@ -302,6 +302,9 @@ test("unquoted generator operands cannot hide a runtime version option", () => {
     assert.throws(() => rewriteReleaseHookDates(scripts, ["hook"], day), /Unquoted or multiword expansion/);
     assert.throws(() => assertReleaseHookHeadingDate(scripts, ["hook"], day, "2026.11.17"), /Unquoted or multiword expansion/);
   }
+  assert.deepEqual(auditInvocations([workflow(writer, "pm-changelog --stdout --section-by=$SECTION")]).failures, []);
+  assert.match(auditInvocations([workflow(writer + " --title=$TITLE")]).failures[0] ?? "", /Unresolved option word/);
+  assert.deepEqual(auditInvocations([workflow(writer + ' --title="$TITLE"')]).failures, []);
 });
 
 test("npm lifecycle controls respect option order and stop at the argument delimiter", () => {

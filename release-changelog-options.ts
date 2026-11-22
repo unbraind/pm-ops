@@ -1161,10 +1161,9 @@ function optionPositions(args: readonly Pick<ShellToken, "value">[]): number[] {
 /** A split option operand could inject a release option even in an otherwise unversioned invocation. */
 function assertSingleWordGeneratorOperands(args: readonly ShellToken[]): void {
   for (const index of optionPositions(args)) {
-    const token = args[index];
-    const flag = token.value.split("=", 1)[0];
+    const flag = args[index].value;
     if (flag === "--version" || flag === "--release-version") continue; // The date-policy reader has a dedicated diagnostic.
-    if (VALUE_OPTIONS.has(flag) && (token.value === flag ? args[index + 1] : token)?.multipleWords) {
+    if (VALUE_OPTIONS.has(flag) && args[index + 1]?.multipleWords) {
       refuseHook("Unquoted or multiword expansion in the operand of " + flag);
     }
   }

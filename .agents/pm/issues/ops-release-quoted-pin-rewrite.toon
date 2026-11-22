@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-22T15:41:30.935Z"
+updated_at: "2026-11-22T16:37:39.893Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -16,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[230]:
+comments[232]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -708,6 +708,12 @@ comments[230]:
   - created_at: "2026-11-22T15:37:24.452Z"
     author: codex-sol
     text: All eight new fixtures reproduced on 13900ef. The existing inherited binding controls passed. The frozen Round DY inventory also accepts all 142 requested hooks and 144 reachable script bodies on the candidate.
+  - created_at: "2026-11-22T15:44:03.871Z"
+    author: codex-sol
+    text: "Round GM thread map for PR #295. bd9c6e5: PRRT_kwDOTOTl1M66k8Zt conditional errexit, PRRT_kwDOTOTl1M66k8Zu brace-expanded output, PRRT_kwDOTOTl1M66k8Zy background notes pipelines, PRRT_kwDOTOTl1M66k8Z1 text summaries, PRRT_kwDOTOTl1M66k8Z3 status-only checks, PRRT_kwDOTOTl1M66k8Z4 multiword generator operands, PRRT_kwDOTOTl1M66k8Z6 ignored dist staging, PRRT_kwDOTOTl1M66k8Z9 inherited Windows Path. Verified existing 24d844c: PRRT_kwDOTOTl1M650IRm and PRRT_kwDOTOTl1M650SdF accept ordinary quoted inherited values and refuse executable and policy selectors, and PRRT_kwDOTOTl1M650SdV requires a fresh lifecycle preview. Verified existing accb464: PRRT_kwDOTOTl1M650Sda isolates tag signing and PRRT_kwDOTOTl1M650Sdd injects invalid UTF-8 into the index without creating an invalid filesystem name. The prior preview, signing and index controls passed with ambient tag signing enabled."
+  - created_at: "2026-11-22T16:37:39.881Z"
+    author: codex-sol
+    text: "The first broad pass caught two existing inline operand contracts. The refinement keeps the historical unversioned inline inspection and versioned unresolved-option diagnostics. It checks separate operands before a generator can be skipped as unversioned. The affected old controls, the new separate-operand cases and quoted binding controls pass."
 files[32]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
@@ -741,7 +747,7 @@ files[32]{path,scope}:
   test/release-runtime.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[83]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[84]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -825,6 +831,7 @@ tests[83]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-name-pattern='Round GI runner OS|Round GI custom notes' test/release-hook-grammar.test.ts,project,codex-sol,"2026-11-22T12:20:29.623Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-concurrency=2 test/release-hook-grammar.test.ts test/verify-release-changelog-date.test.ts test/shell-command-scan.test.ts,project,codex-sol,"2026-11-22T13:40:51.693Z",local_mutation,fix/release-hook-wrapper-options-bm
   "node --test --test-reporter=tap --test-name-pattern=\"background notes|unversioned lifecycle generator|unquoted generator operands|environment-file writes|release fixture paths\" test/release-hook-grammar.test.ts",project,codex-sol,"2026-11-22T15:41:29.691Z",local_mutation,fix/release-hook-wrapper-options-bm
+  "node --test --test-reporter=tap --test-name-pattern=\"prepend stdout preserves|status-only changelog check|prepare rejects obsolete\" test/changelog-sections.test.ts test/daily-release-workflow.test.ts",project,codex-sol,"2026-11-22T15:44:12.481Z",local_mutation,fix/release-hook-wrapper-options-bm
 docs[4]{path,scope}:
   CHANGELOG.md,project
   docs/reusable-release.md,project
