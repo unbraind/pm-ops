@@ -31,13 +31,18 @@ try {
   const manifest = JSON.parse(readFileSync(join(candidate, "package.json"), "utf8")) as { scripts: Record<string, string> };
   assert.match(manifest.scripts["release:check"]!, /npm run coverage/);
   const definition = parse(readFileSync(join(candidate, ".github/workflows/daily-release.yml"), "utf8"));
+  // The extension suite expects a 2026 coordinate. Keep the candidate
+  // untagged even when the cloned repository already has this release day.
+  const fixtureVersion = "2026.12.31";
+  const tags = new Set(execFileSync("git", ["tag", "--list"], { cwd: candidate, env, encoding: "utf8" })
+    .split(/\r?\n/).map(tag => tag.replace(/^v/i, "")));
+  let version = fixtureVersion;
+  for (let suffix = 1; tags.has(version); suffix++) version = `${fixtureVersion}-${suffix}`;
   const releaseEnv = {
     ...env, IS_RUST: "false", CHANGELOG_SCRIPT: "changelog:full", CHANGELOG_CHECK_SCRIPT: "changelog:check",
     NOTES_SCRIPT: "release:notes", RELEASE_HEADING_DATE: "2026-11-17", RUNNER_TEMP: root,
     GITHUB_STEP_SUMMARY: join(root, "summary.md"), CONTINUATION_SCRIPT: join(candidate, "scripts/release-continuation.ts"),
-    // Reserve a fixture coordinate beyond the real tag history and stamp it
-    // through the same workflow step used for the manifest and extension.
-    NPM_VERSION: "2099.11.30", VERSION_POLICY: "daily", PREPARE_SCRIPT: "", BUILD_SCRIPT: "", PM_OPS_MODULE: join(candidate, "dist/daily-release.js"),
+    NPM_VERSION: version, VERSION_POLICY: "daily", PREPARE_SCRIPT: "", BUILD_SCRIPT: "", PM_OPS_MODULE: join(candidate, "dist/daily-release.js"),
   };
   const outputs = join(root, "prepare.out");
   for (const name of ["Update release version", "Prepare npm changelog hooks", "Generate changelog and release notes"]) {
@@ -51,7 +56,7 @@ try {
   const rewritten = JSON.parse(readFileSync(join(candidate, "package.json"), "utf8")) as { version: string; scripts: Record<string, string> };
   assert.equal(rewritten.version, releaseEnv.NPM_VERSION);
   assert.match(rewritten.scripts["changelog:full"]!, /--date-fallback 2026-11-17/);
-  const versionDay = rewritten.version.split(".").map(part => part.padStart(2, "0")).join("-");
+  const versionDay = fixtureVersion.replaceAll(".", "-");
   assert.notEqual(versionDay, releaseEnv.RELEASE_HEADING_DATE);
   assert.equal(execFileSync("git", ["tag", "--list", rewritten.version, "v" + rewritten.version], { cwd: candidate, env, encoding: "utf8" }), "");
   const heading = `## ${rewritten.version} - ${releaseEnv.RELEASE_HEADING_DATE}`;

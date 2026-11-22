@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-22T00:18:04.104Z"
+updated_at: "2026-11-22T00:50:20.343Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
@@ -16,7 +16,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[189]:
+comments[190]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -585,6 +585,9 @@ comments[189]:
   - created_at: "2026-11-22T00:17:56.512Z"
     author: codex-sol
     text: "The reference suite caught two prior refusals for multiple renderers within one AND-list. The correction limits the trailing-status fallback to the same command list, preserves refusal for multiple renderers there, and accepts setup commands from an earlier list. Eight renderer regressions passed."
+  - created_at: "2026-11-22T00:50:20.340Z"
+    author: codex-sol
+    text: The full acceptance gate caught the existing extension shape test requiring a 2026 coordinate. The fixture now chooses an unused 2026 release version from the cloned tag inventory and keeps the version-stamp and both rendered fallback-heading assertions.
 files[29]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
