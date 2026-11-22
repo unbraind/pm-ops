@@ -274,12 +274,12 @@ test("prepend stdout preserves JSON reports and the plain Markdown policy", t =>
     assert.equal(JSON.parse(expected).mode, "prepend");
     assert.match(JSON.parse(expected).markdown, /Preview history\./);
     assert.equal(run(adapter, [...mode, "-o", "preview.md", "--json"]), expected);
-    for (const report of [["--changelog-json"], ["--format=json"], ["--format", "json"]]) {
+    for (const report of [["--changelog-json"], ["--format=json"], ["--format", "json"], ["--format", " JSON "], ["--format= Json "]]) {
       const document = run("node_modules/pm-changelog/dist/cli.js", [...mode, "--output", path, ...report]);
       assert.ok(Array.isArray(JSON.parse(document).releases));
       assert.equal(run(adapter, [...mode, "-o", "preview.md", ...report]), document);
     }
-    assert.equal(run(adapter, [...mode, "-o", "preview.md", "--format=json", "--format", "md"]), markdown);
+    assert.equal(run(adapter, [...mode, "-o", "preview.md", "--format=json", "--format", " MD "]), markdown);
     assert.equal(readFileSync(path, "utf8"), history);
   }
 });
@@ -820,9 +820,57 @@ test("preparation refuses a stale all-tags cutoff without writing any hooks", ()
     const compatible = Object.fromEntries(Object.entries(hooks).map(([name, command]) => [name, command.replace(stale, day)]));
     writeFileSync(filename, JSON.stringify({ version, scripts: compatible }));
     execFileSync(process.execPath, prepare, { cwd: root, env: releaseEnv });
+
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env, encoding: "utf8" }).trim();
+    const create = (id: string, title: string, hour: string) => execFileSync(process.execPath, [
+      pm, "create", "task", title, "--id", id, "--status", "closed", "--close-reason", "Fixture complete",
+      "--completed-at", day + "T" + hour + ":00:00Z",
+    ], { cwd: root, env });
+    create("sample-ready", "Included before preparation", "09");
     execFileSync(process.execPath, npmRunArgs("changelog:full"), { cwd: root, env: releaseEnv });
     execFileSync(process.execPath, npmRunArgs("changelog:check"), { cwd: root, env: releaseEnv });
-    assert.match(readFileSync(changelog, "utf8"), /^## 2026\.11\.16 - 2026-11-17$/m);
+    const prepared = readFileSync(changelog, "utf8");
+    assert.match(prepared, /^## 2026\.11\.16 - 2026-11-17$/m);
+    assert.match(committedReleaseNotes(prepared, version), /Included before preparation/);
+    git("add", "--", ".agents/pm");
+    commitPreparedRelease(root, env, day + "T10:00:00Z");
+    const candidate = git("rev-parse", "HEAD");
+    const tree = git("rev-parse", "HEAD^{tree}");
+
+    create("sample-late", "Completed after preparation", "11");
+    git("add", "--", ".agents/pm");
+    const tagTime = day + "T12:00:00Z";
+    const dated = { ...env, GIT_AUTHOR_DATE: tagTime, GIT_COMMITTER_DATE: tagTime };
+    const commit = (message: string) => execFileSync("git",
+      ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--no-gpg-sign", "--allow-empty", "-qm", message], { cwd: root, env: dated });
+    commit("Release tree changed after preparation");
+    const changed = git("rev-parse", "HEAD");
+    const remote = join(root, "origin.git");
+    git("init", "--quiet", "--bare", remote);
+    git("remote", "add", "origin", remote);
+    git("-c", "push.gpgSign=false", "push", "--quiet", "origin", "HEAD:refs/heads/main");
+
+    const workflow = parse(readFileSync(resolve(".github/workflows/daily-release.yml"), "utf8"));
+    const verify = workflow.jobs.release.steps.find((step: { name?: string }) => step.name === "Verify merged release");
+    const verifyTree = (sha: string) => runBashFixture(verify.run, { cwd: root, encoding: "utf8",
+      env: { ...env, MERGED_SHA: sha, VERIFIED_TREE: tree } });
+    assert.equal(verifyTree(changed).status, 1, "a tracked update after preparation changes the verified tree");
+    git("tag", "--no-sign", "v" + version);
+    execFileSync(process.execPath, npmRunArgs("changelog:full"), { cwd: root, env: releaseEnv });
+    assert.match(committedReleaseNotes(readFileSync(changelog, "utf8"), version), /Completed after preparation/);
+    git("tag", "-d", "v" + version);
+
+    git("checkout", "--detach", "--force", candidate);
+    commit("Release merge retains the prepared tree");
+    const merged = git("rev-parse", "HEAD");
+    const verification = verifyTree(merged);
+    assert.equal(verification.status, 0, verification.stdout + verification.stderr);
+    git("tag", "--no-sign", "v" + version);
+    const committed = git("show", "v" + version + ":CHANGELOG.md");
+    execFileSync(process.execPath, npmRunArgs("changelog:check"), { cwd: root, env: releaseEnv });
+    execFileSync(process.execPath, npmRunArgs("changelog:full"), { cwd: root, env: releaseEnv });
+    assert.equal(committedReleaseNotes(readFileSync(changelog, "utf8"), version), committedReleaseNotes(committed, version));
+    assert.doesNotMatch(committedReleaseNotes(committed, version), /Completed after preparation/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

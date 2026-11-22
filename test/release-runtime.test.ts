@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cpSync, chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { spawnSync } from "../subprocess.ts";
+import { execFileSync, spawnSync } from "../subprocess.ts";
 import { devNull, tmpdir } from "node:os";
 import { delimiter, dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -305,7 +305,7 @@ test("lifecycle discovery skips a non-executable npm and stops at an executable 
   const launcher = join(root, "npm");
   writeFileSync(launcher, "#!/bin/sh\nexit 9\n", { mode: 0o644 });
   for (const first of [root, ""]) {
-    env.PATH = [first, fallback].join(delimiter);
+    env.PATH = [first, fallback, dirname(process.execPath)].join(delimiter);
     for (const [mode, expected] of [[0o644, "false"], [0o755, "unknown"]] as const) {
       chmodSync(launcher, mode);
       const result = spawnSync(process.execPath, [probe], { cwd: root, env, encoding: "utf8" });
@@ -320,6 +320,37 @@ test("lifecycle discovery skips a non-executable npm and stops at an executable 
   }
 });
 
+
+test("lifecycle probing uses the Node interpreter selected by a POSIX npm launcher", { skip: process.platform === "win32" }, t => {
+  const root = mkdtempSync(join(tmpdir(), "release-npm-interpreter-"));
+  t.after(() => removeRuntimeFixture(root));
+  const caller = join(root, "caller/bin"), selected = join(root, "selected/bin"), project = join(root, "project");
+  const cli = npmCli();
+  for (const [bin, ignore] of [[caller, true], [selected, false]] as const) {
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(join(bin, "../etc"));
+    copyFileSync(process.execPath, join(bin, "node"));
+    chmodSync(join(bin, "node"), 0o755);
+    writeFileSync(join(bin, "../etc/npmrc"), `ignore-scripts=${ignore}\n`);
+    symlinkSync(cli, join(bin, "npm"));
+  }
+  mkdirSync(project);
+  writeFileSync(join(project, "package.json"), JSON.stringify({ name: "fixture", scripts: { prewriter: "echo before", writer: "echo main" } }));
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_config_/i.test(key) && key !== "PREFIX" && key !== "DESTDIR"));
+  const probe = join(workflowToolsRoot, "scripts/project-npm-lifecycle.ts");
+  for (const [bin, enabled] of [[caller, false], [selected, true]] as const) {
+    const options = { cwd: project, env: { ...env, PATH: [bin, env.PATH].join(delimiter), NPM_CONFIG_USERCONFIG: devNull }, encoding: "utf8" as const };
+    const output = execFileSync(join(bin, "npm"), ["run", "--silent", "writer"], options);
+    assert.deepEqual(output.trim().split(/\r?\n/), enabled ? ["before", "main"] : ["main"]);
+    assert.equal(execFileSync(join(caller, "node"), [probe, "--policy"], options), `${enabled}:${enabled}`);
+  }
+  const unknown = join(root, "npm-cli.js");
+  writeFileSync(unknown, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  rmSync(join(selected, "npm"));
+  symlinkSync(unknown, join(selected, "npm"));
+  assert.equal(execFileSync(join(caller, "node"), [probe, "--policy"],
+    { cwd: project, env: { ...env, PATH: selected }, encoding: "utf8" }), "unknown:unknown");
+});
 
 // A generated Bash shim for a project-local npm package.
 const windowsDirectNpm = [

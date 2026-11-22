@@ -1392,16 +1392,25 @@ jobs:
           PREPARED_NPM_LIFECYCLE: ${{ steps.continue.outputs.npmLifecycle }}
           PREPARED_NPM_LIFECYCLE_CONFIGURED: ${{ steps.continue.outputs.npmLifecycleConfigured }}
           RELEASE_TAG: ${{ needs.reconcile.outputs.tag }}
+          MERGED_SHA: ${{ needs.reconcile.outputs.merged_sha }}
         run: |
           set -euo pipefail
           release_tag="$RELEASE_TAG"
           git fetch origin --force --tags
           remote_tag_sha="$(git ls-remote --refs --tags origin "refs/tags/${release_tag}" | awk 'NR == 1 { print $1 }')"
-          current_sha="$(git rev-parse HEAD)"
+          require_verified_head() {
+            local current_sha
+            current_sha="$(git rev-parse HEAD)"
+            if [[ "$current_sha" != "$MERGED_SHA" ]]; then
+              echo "::error::HEAD ${current_sha} differs from verified merge commit ${MERGED_SHA}; refusing to tag."
+              exit 1
+            fi
+          }
+          require_verified_head
           if [[ -n "$remote_tag_sha" ]]; then
             remote_commit="$(git rev-list -n 1 "$remote_tag_sha")"
-            if [[ "$remote_commit" != "$current_sha" ]]; then
-              echo "::error::${release_tag} already exists on origin at ${remote_commit}, not verified main ${current_sha}."
+            if [[ "$remote_commit" != "$MERGED_SHA" ]]; then
+              echo "::error::${release_tag} already exists on origin at ${remote_commit}, not verified main ${MERGED_SHA}."
               exit 1
             fi
             echo "::notice::${release_tag} is already on origin at the verified commit; nothing to push."
@@ -1412,15 +1421,15 @@ jobs:
           if [[ "$IS_RUST" != true ]] && ! node "$CONTINUATION_SCRIPT" heading-date; then
             echo "::warning::Published release heading differs from its verified merge day; continuing to tag the accepted artifact."
           fi
+          require_verified_head
           if git rev-parse --verify --quiet "refs/tags/${release_tag}" > /dev/null; then
             existing_sha="$(git rev-list -n 1 "$release_tag")"
-            current_sha="$(git rev-parse HEAD)"
-            if [[ "$existing_sha" != "$current_sha" ]]; then
-              echo "::error::${release_tag} already points to ${existing_sha}, not verified main ${current_sha}."
+            if [[ "$existing_sha" != "$MERGED_SHA" ]]; then
+              echo "::error::${release_tag} already points to ${existing_sha}, not verified main ${MERGED_SHA}."
               exit 1
             fi
           else
-            git tag "$release_tag"
+            git tag "$release_tag" "$MERGED_SHA"
           fi
           git push origin "refs/tags/${release_tag}"
       - name: Create GitHub release

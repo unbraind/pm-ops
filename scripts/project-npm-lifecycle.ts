@@ -1,18 +1,18 @@
 /** Resolve the effective, explicitly configured lifecycle policy in npm's project context. */
+import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { npmLifecycle, npmLifecycleEnvironmentValues, type NpmLifecycle } from "../release-changelog-options.ts";
 import { spawnSync } from "../subprocess.ts";
 import { isMainInvocation } from "./main-invocation.ts";
-import { npmCli } from "./release-runtime.ts";
+import { npmLauncherRuntime } from "./release-runtime.ts";
 
 const WORKSPACE_SELECTION_EXIT = 2;
 const WORKSPACE_SELECTION = "Release hooks cannot use npm workspace selectors. Clear workspace or workspaces settings that select another manifest";
 
 /** Use npm's own workspace and npmrc loader, without running any package scripts. */
-async function readLifecycle(env: NodeJS.ProcessEnv): Promise<NpmLifecycle | "workspace"> {
-  const cli = npmCli(true);
+async function readLifecycle(cli: string, env: NodeJS.ProcessEnv): Promise<NpmLifecycle | "workspace"> {
   const fromNpm = createRequire(cli);
   const Config = fromNpm("@npmcli/config");
   const config = new Config({ ...fromNpm("@npmcli/config/lib/definitions"), npmPath: dirname(dirname(cli)),
@@ -62,15 +62,43 @@ export function npmLifecycleFallbackEnvironment(env: NodeJS.ProcessEnv, platform
   return fallback;
 }
 
-if (isMainInvocation(process.argv, import.meta.url)) {
-  const active = await readLifecycle(process.env).catch(() => "unknown");
+/** Print the policy from the chosen npm installation under its own Node runtime. */
+async function printPolicy(bundle: boolean, cli?: string): Promise<void> {
+  const active = cli === undefined ? "unknown" : await readLifecycle(cli, process.env).catch(() => "unknown");
   if (active === "workspace") {
     console.error(WORKSPACE_SELECTION);
     process.exitCode = WORKSPACE_SELECTION_EXIT;
-  } else if (process.argv[2] === "--policy") {
-    const configured = process.env.npm_config_ignore_scripts
-      ? await readLifecycle(npmLifecycleFallbackEnvironment(process.env)).catch(() => "unknown")
+  } else if (bundle) {
+    const configured = cli !== undefined && process.env.npm_config_ignore_scripts
+      ? await readLifecycle(cli, npmLifecycleFallbackEnvironment(process.env)).catch(() => "unknown")
       : active;
     process.stdout.write(active + ":" + configured);
   } else process.stdout.write(String(active));
+}
+
+/** Use Node from the stock npm shebang, whose executable path sets the default npmrc. */
+async function probeLauncher(bundle: boolean): Promise<void> {
+  let cli: string | undefined;
+  try {
+    const runtime = npmLauncherRuntime();
+    if (realpathSync(runtime.node) !== realpathSync(process.execPath)) {
+      const result = spawnSync(runtime.node, [fileURLToPath(import.meta.url), process.argv[2] ?? "", runtime.cli], { encoding: "utf8" });
+      if (result.status !== null) {
+        process.stdout.write(result.stdout);
+        process.stderr.write(result.stderr);
+        process.exitCode = result.status;
+        return;
+      }
+    } else cli = runtime.cli;
+  } catch {
+    // An unrecognized launcher cannot supply a definite policy.
+  }
+  await printPolicy(bundle, cli);
+}
+
+if (isMainInvocation(process.argv, import.meta.url)) {
+  const bundle = process.argv[2] === "--policy";
+  const cli = process.argv[3];
+  if (cli === undefined) await probeLauncher(bundle);
+  else await printPolicy(bundle, cli);
 }

@@ -1014,17 +1014,21 @@ test("decision checks the expected commit day even when the configured release c
 test("continuation enforces the merge day before publish and still tags after midnight or during recovery", () => {
   const steps = workflow.jobs.release.steps;
   const check = step("Check prepared heading day before publication");
+  assert.ok(steps.includes(check));
+  assert.equal(check["continue-on-error"], undefined);
   assert.ok(steps.indexOf(check) < steps.indexOf(step("Publish npm package")));
   assert.ok(steps.indexOf(check) < steps.indexOf(step("Push release tag")));
   assert.equal(check.if, "steps.continue.outputs.action == 'publish' && !inputs.rust");
   assert.equal(check.run, 'node "$CONTINUATION_SCRIPT" heading-date');
-  const tag = step("Push release tag").run;
-  for (const [action, mergeDay, pinDay, allowed] of [
-    ["publish", "2026-10-24", "2026-10-24", true],
-    ["recover", "2026-10-25", "2026-10-24", true],
-    ["publish", "2026-10-25", "2026-10-24", false],
-    ["publish", "2026-10-23", null, true],
-    ["publish", "2026-10-24", null, false],
+  const tagStep = step("Push release tag");
+  const tag = tagStep.run;
+  for (const [action, mergeDay, pinDay, allowed, movesHead] of [
+    ["publish", "2026-10-24", "2026-10-24", true, false],
+    ["publish", "2026-10-24", "2026-10-24", true, true],
+    ["recover", "2026-10-25", "2026-10-24", true, false],
+    ["publish", "2026-10-25", "2026-10-24", false, false],
+    ["publish", "2026-10-23", null, true, false],
+    ["publish", "2026-10-24", null, false, false],
   ] as const) {
     const root = mkdtempSync(join(tmpdir(), "release-heading-tag-"));
     try {
@@ -1066,13 +1070,27 @@ test("continuation enforces the merge day before publish and still tags after mi
           continue;
         }
       }
-      const result = runBashFixture(tag, { cwd: project, encoding: "utf8", env });
+      if (movesHead) {
+        // An extra publisher may move to a different commit with the same tree and date.
+        git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--no-gpg-sign", "--allow-empty", "-qm", "Moved by publish hook");
+        assert.notEqual(git("rev-parse", "HEAD"), verified);
+        assert.equal(git("rev-parse", "HEAD^{tree}"), git("rev-parse", verified + "^{tree}"));
+      }
+      const result = runBashFixture(tag, { cwd: project, encoding: "utf8", env: { ...env, MERGED_SHA: verified } });
+      if (movesHead) {
+        assert.equal(result.status, 1, result.stdout + result.stderr);
+        assert.match(result.stdout, /HEAD.*verified merge commit/);
+        assert.equal(git("tag", "--list"), "");
+        assert.equal(git("ls-remote", "--tags", "origin"), "");
+        continue;
+      }
       assert.equal(result.status, 0, result.stdout + result.stderr);
       assert.equal(git("rev-list", "-n", "1", env.RELEASE_TAG), verified);
       assert.match(git("ls-remote", "--tags", "origin"), new RegExp(`^${verified}\\s+refs/tags/${env.RELEASE_TAG}$`));
       if (action === "recover") assert.match(result.stdout, /::warning::.*continuing to tag/);
     } finally { rmSync(root, { recursive: true, force: true }); }
   }
+  assert.equal(tagStep.env?.MERGED_SHA, "${{ needs.reconcile.outputs.merged_sha }}");
 });
 
 test("both heading checks receive the active and configured lifecycle values recorded for the verified candidate", () => {

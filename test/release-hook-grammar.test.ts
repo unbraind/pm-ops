@@ -1082,6 +1082,32 @@ test("release hooks refuse to execute a file written by an earlier redirect", ()
   }
 });
 
+test("forwarded release hooks share possible writes across the call and lifecycle sequence", () => {
+  const writer = "sh generate.sh; pm-changelog " + standing;
+  const write = "printf 'fixture script' >./generate.sh";
+  const cases: [string, Record<string, string>][] = [
+    [write + "; npm run writer", { writer }],
+    ["npm run relay; npm run writer", { relay: write, writer }],
+    ["npm run writer; " + write + "; npm run writer", { writer }],
+    ["npm run writer", { prewriter: write, writer }],
+    ["npm run relay; " + writer, { relay: write }],
+    [write + "; npm run relay", { relay: "npm run writer", writer }],
+  ];
+  for (const [hook, scripts] of cases) {
+    const manifest = new Map(Object.entries({ "changelog:full": hook, ...scripts }));
+    const entry = ["changelog:full"];
+    const refuse = /generated release hook file "generate\.sh"/;
+    assert.throws(() => resolveChangelogHooks(Object.fromEntries(manifest), entry, true), refuse, hook);
+    assert.throws(() => rewriteReleaseHookDates(manifest, entry, day, true), refuse, hook);
+    assert.throws(() => assertReleaseHookHeadingDate(manifest, entry, day, "2026.11.17", true), refuse, hook);
+  }
+  for (const hook of ["npm run writer", "printf 'fixture data' >preview.txt; npm run writer"]) {
+    const scripts = new Map([["changelog:full", hook], ["writer", writer]]);
+    assert.equal(resolveChangelogHooks(Object.fromEntries(scripts), ["changelog:full"], true).get("writer"), writer);
+    assert.doesNotThrow(() => assertReleaseHookHeadingDate(scripts, ["changelog:full"], day, "2026.11.17", true));
+  }
+});
+
 test("only release hook paths may refuse a script that executes redirected output", () => {
   const smoke = "printf 'console.log(1)' >smoke.js; node smoke.js";
   const writer = "pm-changelog " + standing;
@@ -1975,8 +2001,11 @@ test("preparation and real npm reload project policy when a nested override clea
   const manifest = join(root, "package.json");
   const prepare = () => execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env, stdio: "pipe" });
   writeFileSync(join(root, "pm-changelog.ts"), String.raw`require("node:fs").appendFileSync("calls", process.argv.includes("--stdout") ? "writer\n" : "prewriter\n");`);
-  for (const ignore of [false, true]) {
-    writeFileSync(manifest, JSON.stringify({ name: "fixture", scripts }));
+  for (const hook of [
+    scripts.hook, "env npm_config_ignore_scripts= npm run relay",
+    "npm_config_ignore_scripts='' npm run relay",
+  ]) for (const ignore of [false, true]) {
+    writeFileSync(manifest, JSON.stringify({ name: "fixture", scripts: { ...scripts, hook } }));
     writeFileSync(join(root, ".npmrc"), "ignore-scripts=" + ignore + "\n");
     const calls = join(root, "calls");
     rmSync(calls, { force: true });
@@ -1985,8 +2014,26 @@ test("preparation and real npm reload project policy when a nested override clea
     if (ignore) assert.doesNotThrow(prepare);
     else assert.throws(prepare, /without a date policy/);
   }
+  const writer = { hook: "env npm_config_ignore_scripts= npm run writer", writer: "pm-changelog " + standing,
+    prewriter: "pm-changelog " + standing };
+  assert.throws(() => resolveChangelogHooks(writer, ["hook"], { active: false, configured: "unknown" }), /ignore-scripts.*prewriter/);
+  assert.equal(resolveChangelogHooks({ ...writer, hook: "env npm_config_ignore_scripts=true npm run writer" }, ["hook"],
+    { active: false, configured: "unknown" }).has("prewriter"), false);
 });
 
+
+test("empty npm settings preserve remaining aliases and refuse a fallback that may have changed", () => {
+  const writer = "pm-changelog " + standing;
+  const policy = { active: false, configured: false } as const;
+  const inspect = (hook: string, prewriter = writer) => resolveChangelogHooks({ hook, writer, prewriter }, ["hook"], policy);
+  assert.equal(inspect("env npm_config_ignore_scripts= NPM_CONFIG_IGNORE_SCRIPTS=false npm run writer").get("prewriter"), writer);
+  assert.equal(inspect("env npm_config_ignore_scripts= NPM_CONFIG_IGNORE_SCRIPTS=true npm run writer").has("prewriter"), false);
+  assert.throws(() => inspect("env NPM_CONFIG_IGNORE_SCRIPTS= npm run writer"), /ignore-scripts.*prewriter/);
+  assert.doesNotThrow(() => inspect("env NPM_CONFIG_IGNORE_SCRIPTS= npm run writer", "true"));
+  const prefix = "node refresh.mjs; env npm_config_ignore_scripts= npm";
+  assert.throws(() => inspect(prefix + " run writer"), /ignore-scripts.*prewriter/);
+  assert.equal(inspect(prefix + " --ignore-scripts=true run writer").has("prewriter"), false);
+});
 
 test("conditional status checks preserve the previous notes renderer", () => {
   const status = "if test -f notes.txt; then test -s notes.txt; fi";
@@ -2038,13 +2085,15 @@ test("directory-form copies audit the source basename at the effective destinati
   for (const copy of ["cp -t . generated/CHANGELOG.md", "cp --target-directory ./ generated/CHANGELOG.md",
     "cp --target-directory=generated/.. generated/preview.md generated/CHANGELOG.md", "cp -ft. -- generated/CHANGELOG.md",
     'cp -t "$TARGET" generated/CHANGELOG.md', 'cp -t . "generated/$FILE"', "cp -t . generated/CHANGE{LOG,X}.md",
+    "cp --target-dir=. generated/CHANGELOG.md", "cp --targ ./ generated/CHANGELOG.md",
     "cp generated/CHANGELOG.md ."]) {
     assert.throws(() => audit(copy), /ignore-scripts.*posthook/, copy);
   }
   for (const copy of ["cp -t . generated/preview.md", "cp --target-directory=previews generated/CHANGELOG.md",
     'cp -t previews "generated/$FILE"', "cp generated/CHANGELOG.md previews", "cp -S-t. generated/CHANGELOG.md preview.md",
     "cp -T generated/CHANGELOG.md .", "cp --no-target-directory generated/CHANGELOG.md .", "cp --target-directory= generated/CHANGELOG.md",
-    "cp -t", "cp -t . --suffix backup.txt generated/preview.md"]) {
+    "cp -t", "cp -t . --suffix backup.txt generated/preview.md",
+    "cp --target-dir=previews generated/CHANGELOG.md", "cp --targ . generated/preview.md"]) {
     assert.doesNotThrow(() => audit(copy), copy);
   }
 });

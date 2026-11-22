@@ -45,7 +45,7 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
   if (summary && !env.GITHUB_STEP_SUMMARY) throw new Error("--github-step-summary requires GITHUB_STEP_SUMMARY");
   const generator = createRequire(import.meta.url).resolve("pm-changelog/cli");
   const destination = resolve(cwd, output);
-  const report = stdout && (format === "json" || positions.some(index => args[index] === "--json" || args[index] === "--changelog-json"));
+  const report = stdout && (format?.trim().toLowerCase() === "json" || positions.some(index => args[index] === "--json" || args[index] === "--changelog-json"));
   if (report) forwarded.push("--mode", mode);
   const rendered = execFileSync(process.execPath, [generator, ...forwarded, "--output", destination, "--stdout"], { cwd, env, encoding: "utf8" });
   const existing = !report && existsSync(destination) ? readFileSync(destination, "utf8") : "";

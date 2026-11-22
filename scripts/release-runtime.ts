@@ -75,8 +75,18 @@ function windowsNpmLauncherNames(): string[] {
 
 /** Locate an npm CLI without executing a shell or switching the selected Node. */
 export function npmCli(pathOnly = false): string {
+  return findNpmRuntime(pathOnly).cli;
+}
+
+/** Find npm as the project's shell sees it and identify the interpreter it uses. */
+export function npmLauncherRuntime(): { cli: string; node: string } {
+  return findNpmRuntime(true);
+}
+
+/** Search configured Node installations or resolve the shell's first npm launcher. */
+function findNpmRuntime(pathOnly: boolean): { cli: string; node: string } {
   const adjacent = join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js");
-  if (!pathOnly && existsSync(adjacent)) return adjacent;
+  if (!pathOnly && existsSync(adjacent)) return { cli: adjacent, node: process.execPath };
   const win = process.platform === "win32";
   const native = win && !process.env.MSYSTEM;
   const directories = (process.env.PATH?.split(delimiter) ?? []).map(directory => win ? directory.replace(/^"(.*)"$/, "$1") : directory);
@@ -88,19 +98,23 @@ export function npmCli(pathOnly = false): string {
       const launcher = names.map(name => join(directory, name)).find(file => isExecutableFile(file, process.platform));
       if (!launcher) continue;
       const target = realpathSync(launcher);
-      if (basename(target) === "npm-cli.js") return target;
-      const windowsCli = win ? windowsNpmCli(launcher) : undefined;
-      if (windowsCli) return windowsCli;
+      if (win) {
+        const cli = windowsNpmCli(launcher);
+        if (cli) return { cli, node: process.execPath };
+      } else if (basename(target) === "npm-cli.js" && readFileSync(target, "utf8").startsWith("#!/usr/bin/env node\n")) {
+        const node = directories.map(directory => resolve(directory, "node")).find(file => isExecutableFile(file, process.platform));
+        if (node) return { cli: target, node };
+      }
       // An unrecognized shim ahead of npm may select another installation.
       break;
     }
     for (const candidate of [join(directory, "node_modules/npm/bin/npm-cli.js"), join(directory, "../lib/node_modules/npm/bin/npm-cli.js")]) {
-      if (existsSync(candidate)) return resolve(candidate);
+      if (existsSync(candidate)) return { cli: resolve(candidate), node: process.execPath };
     }
     const launcher = join(directory, "npm");
     if (existsSync(launcher)) {
       const target = realpathSync(launcher);
-      if (target.endsWith("npm-cli.js")) return target;
+      if (target.endsWith("npm-cli.js")) return { cli: target, node: process.execPath };
     }
   }
   throw new Error("Release runtime needs an npm CLI beside Node or in a PATH npm installation; install npm before retrying");

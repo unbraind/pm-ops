@@ -242,22 +242,29 @@ function lifecycleEnvironment(assignments: readonly ShellToken[]) {
   // skips empty entries and then normalizes the spelling of each key.
   const ordered = [...entries].reverse();
   const active = ordered.find(([, value]) => value !== "");
-  if (!active) return undefined;
+  if (entries.size === 0) return undefined;
   const aliases = ordered.filter(([name, value]) => name !== "npm_config_ignore_scripts" && value !== "");
   const portable = aliases.find(([name]) => !name.includes("-"));
-  return { active: lifecycleSetting(active[1]), alias: aliases[0] && lifecycleSetting(aliases[0][1]),
-    portableAlias: portable && lifecycleSetting(portable[1]) };
+  return {
+    active: active && lifecycleSetting(active[1]),
+    clearsCanonical: entries.get("npm_config_ignore_scripts") === "",
+    clearsAlias: ordered.some(([name, value]) => name !== "npm_config_ignore_scripts" && value === ""),
+    alias: aliases[0] && lifecycleSetting(aliases[0][1]),
+    portableAlias: portable && lifecycleSetting(portable[1]),
+  };
 }
 
 /** Resolve this npm command and the environment it exports to its scripts. */
 function forwardedLifecycle(
-  override: NpmLifecycle | undefined, ambient: NpmLifecycle, inheritedFallback: NpmLifecycle,
+  override: NpmLifecycle | undefined, inherited: NpmLifecycle, inheritedFallback: NpmLifecycle,
   environment?: ReturnType<typeof lifecycleEnvironment>,
 ): { enabled: NpmLifecycle; nested: NpmLifecycle; configured: NpmLifecycle } {
   // Some script shells drop environment names containing hyphens.
-  const retained = environment?.alias ?? inheritedFallback;
-  const portable = environment?.portableAlias ?? inheritedFallback;
+  const fallback = environment?.clearsAlias ? "unknown" : inheritedFallback;
+  const retained = environment?.alias ?? fallback;
+  const portable = environment?.portableAlias ?? fallback;
   const configured = retained === portable ? portable : "unknown";
+  const ambient = environment?.active ?? (environment?.clearsCanonical ? configured : environment?.clearsAlias ? "unknown" : inherited);
   // npm exports ignore-scripts=true. An override back to false writes
   // an empty value unless the environment already supplied false.
   if (override !== true || ambient === true) return { enabled: override ?? ambient, nested: override ?? ambient, configured };
@@ -357,7 +364,9 @@ function copyWritesChangelog(args: ShellCommand): boolean {
       const name = equals < 0 ? word.value : word.value.slice(0, equals);
       const suffixOption = name.startsWith("--su") && "--suffix".startsWith(name);
       const backupOption = name.startsWith("--b") && "--backup".startsWith(name);
-      const directoryOption = /^--target-directory(?:=|$)/.exec(word.value)?.[0] ?? (operandOption?.endsWith("t") ? operandOption : undefined);
+      const directoryOption = name.startsWith("--t") && "--target-directory".startsWith(name)
+        ? (equals < 0 ? name : word.value.slice(0, equals + 1))
+        : (operandOption?.endsWith("t") ? operandOption : undefined);
       if (directoryOption) {
         const inline = directoryOption.endsWith("=") || directoryOption.length < word.value.length;
         directory = inline ? word : args[++index];
@@ -414,7 +423,7 @@ function canReachGenerator(
   if (forward?.target && names instanceof HookScriptNames) {
     const isNpm = forward.runner === "npm";
     const environment = isNpm ? lifecycleEnvironment(assignments) : undefined;
-    const policy = forwardedLifecycle(forward.lifecycle, environment?.active ?? lifecycle, configured, environment);
+    const policy = forwardedLifecycle(forward.lifecycle, lifecycle, configured, environment);
     return names.sequence(forward.target, !isNpm || policy.enabled !== false).some(target =>
       names.canGenerate(target, seen, writing, target === forward.target ? forward.args : [], policy.nested, policy.configured))
       || (!writing && forward.args.some(mentionsGenerator));
@@ -895,6 +904,7 @@ export function visitChangelogScriptCommands(
     name: string, args: readonly ShellToken[], parents: readonly string[], policy: NpmLifecyclePolicy, releasePath: boolean,
     bindings: ReadonlySet<string> = new Set(), uncertainLifecycle = false,
     config: NpmConfigState = { reloadable: activeNpmLifecycle(policy) !== false, mayHaveChanged: false },
+    written = new Set<string>(),
   ): void {
     const lifecycle = activeNpmLifecycle(policy);
     const configured = configuredNpmLifecycle(policy);
@@ -918,12 +928,12 @@ export function visitChangelogScriptCommands(
     }
     const checkContext = releasePath || knownWriters.canGenerate(name)
       || (recipient !== undefined && canReachGenerator([...recipient, ...args], knownWriters));
-    if (args.length === 0) {
-      const key = JSON.stringify([checkContext, lifecycle, configured, uncertainLifecycle, config, name, [...bindings].sort()]);
-      const depth = hooks ? parents.length : 0;
-      if ((withoutArgs.get(key) ?? -1) >= depth) return;
-      withoutArgs.set(key, depth);
-    }
+    // Cache only visits that can be replayed without passing along file writes.
+    const cacheKey = args.length === 0 && written.size === 0
+      ? JSON.stringify([checkContext, lifecycle, configured, uncertainLifecycle, config, name, [...bindings].sort()])
+      : undefined;
+    const depth = hooks ? parents.length : 0;
+    if (cacheKey !== undefined && (withoutArgs.get(cacheKey) ?? -1) >= depth) return;
     visited.add(name);
     const invocationNames = checkContext ? names : knownWriters;
     if (uncertainLifecycle && knownWriters.canGenerate(name, undefined, true, [], lifecycle, configured)) {
@@ -937,7 +947,6 @@ export function visitChangelogScriptCommands(
     resolved?.set(name, text);
     let preceding: ReleaseContextChange | undefined;
     let mayHaveChanged = config.mayHaveChanged;
-    const written = new Set<string>();
     for (const words of commands) {
       const previouslyRan = mayHaveChanged;
       const effective = words === recipient ? [...words, ...args] : words;
@@ -964,8 +973,9 @@ export function visitChangelogScriptCommands(
         if (!names.has(forward.target) && (forward.optional || !hooks)) continue;
         if (forward.forwardedSeparator) forwardedSeparators.add(forward.forwardedSeparator);
         const isNpm = forward.runner === "npm";
-        const ambient = forward.environment?.active ?? lifecycle;
-        const policy = forwardedLifecycle(forward.lifecycle, ambient, configured, forward.environment);
+        const clearsCanonical = forward.environment?.clearsCanonical;
+        const fallback = clearsCanonical && previouslyRan ? "unknown" : configured;
+        const policy = forwardedLifecycle(forward.lifecycle, lifecycle, fallback, forward.environment);
         const inheritsSetting = forward.lifecycle === undefined && forward.environment === undefined;
         // An implicit reload can enable a sibling that preparation skipped.
         if (isNpm && checkContext && !npm.mainOnly && lifecycle === false && config.reloadable && previouslyRan && inheritsSetting
@@ -980,11 +990,15 @@ export function visitChangelogScriptCommands(
           settings.push(policy);
           entryLifecycles.set(forward.target, settings);
         }
-        const reloadable = isNpm ? (forward.lifecycle === true && ambient !== true) || (inheritsSetting && config.reloadable) : config.reloadable;
+        const ambient = forward.environment?.active ?? lifecycle;
+        const reloadable = isNpm
+          ? clearsCanonical === true || (forward.lifecycle === true && ambient !== true) || (inheritsSetting && config.reloadable)
+          : config.reloadable;
         visitSequence(forward.target, [...parents, name], policy, checkContext, isNpm, forward.args,
-          isNpm && forward.bindings.length ? new Set([...bindings, ...forward.bindings]) : bindings, { reloadable, mayHaveChanged: previouslyRan });
+          isNpm && forward.bindings.length ? new Set([...bindings, ...forward.bindings]) : bindings, { reloadable, mayHaveChanged: previouslyRan }, written);
       }
     }
+    if (cacheKey !== undefined && written.size === 0) withoutArgs.set(cacheKey, depth);
   }
 
   /** Take the implicit siblings from this invocation, and pass its exported policy into their bodies. */
@@ -992,11 +1006,12 @@ export function visitChangelogScriptCommands(
     target: string, parents: readonly string[], policy: InvocationLifecycle,
     releasePath: boolean, isNpm: boolean, args: readonly ShellToken[] = [], bindings?: ReadonlySet<string>,
     config: NpmConfigState = { reloadable: policy.nested !== false, mayHaveChanged: false },
+    written = new Set<string>(),
   ): void {
     for (const name of names.sequence(target, !npm.mainOnly && (!isNpm || policy.enabled !== false))) {
       const main = name === target;
       visit(name, main ? args : [], parents, { active: policy.nested, configured: policy.configured }, releasePath, bindings,
-        isNpm && !main && policy.enabled === "unknown", config);
+        isNpm && !main && policy.enabled === "unknown", config, written);
       if ((main && args.length > 0) || parsed.get(name)!.commands.some(mayChangeNpmConfig)) config = { ...config, mayHaveChanged: true };
     }
   }
