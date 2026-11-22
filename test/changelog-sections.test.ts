@@ -1160,6 +1160,15 @@ test("prepared lifecycle and notes hooks pass include-empty to a caller-supplied
       assert.deepEqual(argv.sort(), [...generator.split(" ").slice(1), "--include-empty"].sort(), hook);
     }
   }
+  const commented = { ...hooks, "changelog:check": "# intentionally empty" };
+  writeFileSync(manifest, JSON.stringify({ scripts: commented }));
+  prepare();
+  assert.equal(JSON.parse(readFileSync(manifest, "utf8")).scripts["changelog:check"], commented["changelog:check"]);
+  const { "changelog:check": _absent, ...missing } = commented;
+  const incomplete = JSON.stringify({ scripts: missing });
+  writeFileSync(manifest, incomplete);
+  assert.throws(prepare, /Missing changelog hook: changelog:check/);
+  assert.equal(readFileSync(manifest, "utf8"), incomplete);
 });
 
 test("generation refuses lifecycle drift and preserves nested npm behavior under a stable policy", t => {

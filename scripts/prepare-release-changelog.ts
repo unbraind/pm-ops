@@ -25,7 +25,8 @@ try {
   const scriptNames = new Set(resolved.keys());
   const allScripts = new Map(Object.entries(pkg.scripts).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
   const datedHooks = rewriteReleaseHookDates(allScripts, hooks, headingDate, lifecycle, pkg.version);
-  const forwardedHooks = includeEmptyForwardedGenerators(datedHooks, hooks, lifecycle);
+  // The date visitor has no commands to edit in a comment-only hook.
+  const forwardedHooks = includeEmptyForwardedGenerators(new Map([...allScripts, ...datedHooks]), hooks, lifecycle);
   for (const [name, script] of resolved) {
     const dated = datedHooks.get(name) ?? script;
     if (dated !== script) {
