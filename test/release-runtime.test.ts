@@ -343,7 +343,16 @@ test("lifecycle probing uses the Node interpreter selected by a POSIX npm launch
     const output = execFileSync(join(bin, "npm"), ["run", "--silent", "writer"], options);
     assert.deepEqual(output.trim().split(/\r?\n/), enabled ? ["before", "main"] : ["main"]);
     assert.equal(execFileSync(join(caller, "node"), [probe, "--policy"], options), `${enabled}:${enabled}`);
+    assert.equal(execFileSync(join(caller, "node"), [probe], options), String(enabled));
   }
+  const launcherOnly = join(root, "launcher-only");
+  mkdirSync(launcherOnly);
+  symlinkSync(cli, join(launcherOnly, "npm"));
+  const probePolicy = () => execFileSync(join(caller, "node"), [probe, "--policy"],
+    { cwd: project, env: { ...env, PATH: launcherOnly }, encoding: "utf8" });
+  assert.equal(probePolicy(), "unknown:unknown", "no Node on PATH");
+  writeFileSync(join(launcherOnly, "node"), "#!/bin/sh\nkill -TERM $$\n", { mode: 0o755 });
+  assert.equal(probePolicy(), "unknown:unknown", "the selected interpreter terminated without a result");
   const unknown = join(root, "npm-cli.js");
   writeFileSync(unknown, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   rmSync(join(selected, "npm"));
