@@ -75,15 +75,32 @@ function quoteFixtureArgument(argument: string): string {
 }
 
 /** The workflow step this suite executes, read straight from the YAML so reverting its policy breaks the proof. */
-function changelogStepScript(): string {
-  const workflow = parse(readFileSync(resolve(".github/workflows/daily-release.yml"), "utf8")) as { jobs: { prepare: { steps: { name?: string; run?: string }[] } } };
-  return ["Prepare npm changelog hooks", "Generate changelog and release notes"].map(name => {
-    const script = workflow.jobs.prepare.steps.find(step => step.name === name)?.run;
-    assert.ok(script, name);
-    return script;
-  }).join(`\nexport PREPARED_NPM_LIFECYCLE="$(sed -n 's/^npm_lifecycle=//p' "$GITHUB_OUTPUT" | tail -n 1)"
-export PREPARED_NPM_LIFECYCLE_CONFIGURED="$(sed -n 's/^npm_lifecycle_configured=//p' "$GITHUB_OUTPUT" | tail -n 1)"\n`);
+function changelogStepScript(source = readFileSync(resolve(".github/workflows/daily-release.yml"), "utf8")): string {
+  const workflow = parse(source) as { jobs: { prepare: { steps: { name?: string; id?: string; run?: string; env?: Record<string, string> }[] } } };
+  const steps = workflow.jobs.prepare.steps;
+  const preparation = steps.find(step => step.name === "Prepare npm changelog hooks");
+  const generation = steps.find(step => step.name === "Generate changelog and release notes");
+  assert.ok(preparation?.id && preparation.run);
+  assert.ok(generation?.run);
+  for (const [key, output] of [["PREPARED_NPM_LIFECYCLE", "npm_lifecycle"],
+    ["PREPARED_NPM_LIFECYCLE_CONFIGURED", "npm_lifecycle_configured"]]) {
+    assert.equal(generation.env?.[key], "${{ steps." + preparation.id + ".outputs." + output + " }}", key);
+  }
+  return preparation.run + `\nexport PREPARED_NPM_LIFECYCLE="$(sed -n 's/^npm_lifecycle=//p' "$GITHUB_OUTPUT" | tail -n 1)"
+export PREPARED_NPM_LIFECYCLE_CONFIGURED="$(sed -n 's/^npm_lifecycle_configured=//p' "$GITHUB_OUTPUT" | tail -n 1)"\n` + generation.run;
 }
+
+test("the generation fixture requires both lifecycle outputs to be wired in the workflow", () => {
+  const source = readFileSync(resolve(".github/workflows/daily-release.yml"), "utf8");
+  assert.doesNotThrow(() => changelogStepScript(source));
+  for (const [key, output] of [["PREPARED_NPM_LIFECYCLE", "npm_lifecycle"],
+    ["PREPARED_NPM_LIFECYCLE_CONFIGURED", "npm_lifecycle_configured"]]) {
+    const mapping = key + ": ${{ steps.changelog.outputs." + output + " }}";
+    assert.ok(source.includes(mapping));
+    assert.throws(() => changelogStepScript(source.replace(mapping, mapping.replace(key, "UNUSED_POLICY"))), new RegExp(key));
+    assert.throws(() => changelogStepScript(source.replace(mapping, mapping.replace(output + " }}", "another_output }}"))), new RegExp(key));
+  }
+});
 
 /** Fixture npm scripts that call this repository's generator with the standing policy. */
 function releaseCommands(generator = resolve("scripts/pm-changelog.ts"), node = process.execPath): Record<string, string> {
@@ -257,6 +274,12 @@ test("prepend stdout preserves JSON reports and the plain Markdown policy", t =>
     assert.equal(JSON.parse(expected).mode, "prepend");
     assert.match(JSON.parse(expected).markdown, /Preview history\./);
     assert.equal(run(adapter, [...mode, "-o", "preview.md", "--json"]), expected);
+    for (const report of [["--changelog-json"], ["--format=json"], ["--format", "json"]]) {
+      const document = run("node_modules/pm-changelog/dist/cli.js", [...mode, "--output", path, ...report]);
+      assert.ok(Array.isArray(JSON.parse(document).releases));
+      assert.equal(run(adapter, [...mode, "-o", "preview.md", ...report]), document);
+    }
+    assert.equal(run(adapter, [...mode, "-o", "preview.md", "--format=json", "--format", "md"]), markdown);
     assert.equal(readFileSync(path, "utf8"), history);
   }
 });
@@ -1099,6 +1122,43 @@ test("mixed generation and check hooks deliver the saved option to their finishi
     assert.deepEqual(JSON.parse(lines[0]), ["--release-version-from-package", "--date-from-version", "--include-empty"]);
     if (name !== "release:notes") assert.deepEqual(JSON.parse(lines[1]), ["--include-empty"]);
     else assert.equal(lines.length, 1);
+  }
+});
+
+test("prepared lifecycle and notes hooks pass include-empty to a caller-supplied generator entrypoint", t => {
+  const root = mkdtempSync(join(tmpdir(), "forwarded-generator-entry-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const manifest = join(root, "package.json");
+  const env = { ...isolatedNpmReleaseEnv(root, process.env), npm_config_ignore_scripts: "false" };
+  mkdirSync(join(root, "scripts"));
+  writeFileSync(join(root, "scripts", "pm-changelog.ts"), "console.log(JSON.stringify(process.argv.slice(2)))");
+  const generator = "scripts/pm-changelog.ts --release-version-from-package --date-from-version --stdout";
+  const hooks = {
+    "changelog:full": "npm run complete",
+    "changelog:check": "npm run writer -- " + generator + " --include-empty",
+    "prerelease:notes": "npm run relay -- " + generator,
+    "release:notes": "npm run writer -- " + generator,
+    complete: "node " + generator,
+    relay: "npm run writer --",
+    writer: "node",
+  };
+  writeFileSync(manifest, JSON.stringify({ scripts: hooks }));
+  const prepare = () => execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env });
+  prepare();
+  const prepared = readFileSync(manifest, "utf8");
+  assert.equal(JSON.parse(prepared).scripts.writer, "node");
+  assert.equal(JSON.parse(prepared).scripts["changelog:full"], hooks["changelog:full"]);
+  assert.equal(JSON.parse(prepared).scripts.complete, hooks.complete + " --include-empty");
+  assert.equal(JSON.parse(prepared).scripts["changelog:check"], hooks["changelog:check"]);
+  prepare();
+  assert.equal(readFileSync(manifest, "utf8"), prepared);
+  for (const hook of ["changelog:full", "changelog:check", "release:notes"]) {
+    const lines = execFileSync(process.execPath, npmRunArgs(hook, "--silent"), { cwd: root, env, encoding: "utf8" }).trim().split(/\r?\n/);
+    assert.equal(lines.length, hook === "release:notes" ? 2 : 1);
+    for (const line of lines) {
+      const argv = JSON.parse(line) as string[];
+      assert.deepEqual(argv.sort(), [...generator.split(" ").slice(1), "--include-empty"].sort(), hook);
+    }
   }
 });
 

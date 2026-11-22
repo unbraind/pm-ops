@@ -22,6 +22,8 @@ export type NpmLifecyclePolicy = NpmLifecycle | {
 };
 /** Read the active setting from either a simple policy or the richer npm environment. */
 export declare function activeNpmLifecycle(policy: NpmLifecyclePolicy): NpmLifecycle;
+/** Collect the nonempty environment aliases npm can read as ignore-scripts. */
+export declare function npmLifecycleEnvironmentValues(environment: Readonly<Record<string, unknown>>): unknown[];
 /** Resolve CLI-independent npm configuration from the workflow env and project .npmrc. */
 export declare function npmLifecycle(projectConfig: string | undefined, environment?: Readonly<Record<string, unknown>>): NpmLifecycle;
 /** Resolve the same graph used by preparation and continuation, including comment-only hooks. */
@@ -104,6 +106,8 @@ export declare function includeEmptyReleaseSections(script: string, scriptNames?
 export declare function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<string, string>, hasGenerator?: boolean): string;
 /** Refresh the inline pins, or restore the standing policy for a current version. */
 export declare function rewriteReleaseHeadingDate(script: string, headingDate: string, scriptNames?: ReadonlySet<string>): string;
+/** Add the empty-section flag at the call site when it supplies the generator entrypoint. */
+export declare function includeEmptyForwardedGenerators(scripts: ReadonlyMap<string, string>, hooks: readonly string[], lifecycle: NpmLifecyclePolicy): Map<string, string>;
 /** Rewrite all heading options received by the manifest's resolved release hooks. */
 export declare function rewriteReleaseHookDates(scripts: ReadonlyMap<string, string>, hooks: readonly string[], headingDate: string, lifecycle?: NpmLifecyclePolicy, packageVersion?: string): Map<string, string>;
 export {};

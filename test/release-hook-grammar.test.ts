@@ -2049,6 +2049,30 @@ test("directory-form copies audit the source basename at the effective destinati
   }
 });
 
+test("copy lifecycle auditing includes possible simple backup destinations", () => {
+  const audit = (copy: string) => resolveChangelogHooks({ hook: "pm-changelog " + standing, posthook: copy }, ["hook"]);
+  for (const copy of [
+    "cp --backup=simple --suffix=LOG.md draft.md CHANGE",
+    "cp --back=simple --su=LOG.md draft.md CHANGE",
+    "cp --backup --suffix LOG.md draft.md ./CHANGE",
+    "cp --backup=simple -SLOG.md -t . generated/CHANGE",
+    "cp -fS LOG.md generated/CHANGE .",
+    "cp --suffix=LOG.md draft.md CHANGE",
+    "cp --backup=simple draft.md CHANGE",
+    "cp -b draft.md CHANGE",
+    'cp -S "$SUFFIX" draft.md CHANGE',
+  ]) assert.throws(() => audit(copy), /ignore-scripts.*posthook/, copy);
+  for (const copy of [
+    "cp --backup=numbered --suffix=LOG.md draft.md CHANGE",
+    "cp --suffix=LOG.md --backup=off draft.md CHANGE",
+    "cp --backup=simple --suffix=.bak draft.md CHANGE",
+    "cp --suffix= draft.md CHANGE",
+    "cp CHANGE draft.md -S",
+    "cp --backup=simple --suffix=LOG.md -t elsewhere generated/CHANGE",
+    "cp draft.md CHANGE",
+  ]) assert.doesNotThrow(() => audit(copy), copy);
+});
+
 test("an AND-list status check retains either possible notes renderer", () => {
   const preferred = "node preferred.mjs && test -s notes.txt";
   const alternative = preferred + " || node fallback.mjs";
@@ -2060,6 +2084,29 @@ test("an AND-list status check retains either possible notes renderer", () => {
   assert.equal(includeEmptyCustomHook(alternative + " && node notes.mjs", new Map()), alternative + " && node notes.mjs --include-empty");
   const generators = `pm-changelog ${standing} --stdout && test -s notes.txt || node dist/cli.js ${standing} --stdout`;
   assert.equal(includeEmptyCustomHook(generators, new Map(), true), generators);
+});
+
+test("an OR-list status fallback cannot hide a renderer skipped by an AND-list", () => {
+  const primary = "node primary.mjs";
+  const secondary = "node secondary.mjs";
+  const list = primary + " && test -f use-secondary && " + secondary;
+  for (const fallback of [" || true", " || : && true", " || false || true", " || > status.log"]) {
+    const hook = list + fallback;
+    assert.throws(() => includeEmptyCustomHook(hook, new Map()), /single script entry point/, hook);
+    assert.throws(() => includeEmptyCustomHook("npm run render", new Map([["render", hook]])), /single script entry point/);
+  }
+  assert.equal(includeEmptyCustomHook(list, new Map()), list + " --include-empty");
+  assert.equal(includeEmptyCustomHook(list + " || false", new Map()), list + " --include-empty || false");
+  assert.equal(includeEmptyCustomHook(primary + " && test -f marker || true", new Map()),
+    primary + " --include-empty && test -f marker || true");
+  const prepared = "pm-changelog --stdout --include-empty";
+  const generators = prepared + " && test -f use-secondary && " + prepared + " || true";
+  assert.equal(includeEmptyCustomHook(generators, new Map(), true), generators);
+  const scripts = new Map([["relay", "npm run writer --"], ["writer", "node"]]);
+  const forwarded = generators.replace("&& " + prepared, "&& npm run relay -- scripts/" + prepared.replace("pm-changelog", "pm-changelog.ts"));
+  assert.equal(includeEmptyCustomHook(forwarded, scripts, true), forwarded);
+  assert.throws(() => includeEmptyCustomHook(forwarded.replace("scripts/pm-changelog.ts", "notes.mjs"), scripts, true),
+    /alternative renderers/);
 });
 
 test("env passes hyphenated npm lifecycle keys but shell prefixes require identifiers", () => {
@@ -2347,7 +2394,7 @@ test("preparation rejects npm configuration that selects workspace hooks", t => 
   for (const [config, override, expected] of [
     ["workspace=member", {}, "member"], ["workspaces=true", {}, "member"], ["", { npm_config_workspace: "member" }, "member"],
     ["workspace=member\nworkspaces=false", {}, /Cannot use.*at the same time/], ["workspace=", {}, /No workspaces found/],
-    ["workspaces=false", {}, "root"], ["", {}, "root"],
+    ["workspaces=false", {}, "root"], ["include-workspace-root=true", {}, "root"], ["", {}, "root"],
   ] as const) {
     writeFileSync(manifest, source);
     writeFileSync(join(root, ".npmrc"), config + "\nignore-scripts=true\n");
@@ -2366,5 +2413,47 @@ test("preparation rejects npm configuration that selects workspace hooks", t => 
       assert.doesNotThrow(run);
       assert.match(readFileSync(manifest, "utf8"), /echo root --include-empty/);
     }
+  }
+});
+
+test("implicit member selection rejects root inclusion while allowing a member-only run", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-implicit-workspace-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const member = join(root, "member");
+  mkdirSync(member);
+  const manifest = join(member, "package.json");
+  const source = JSON.stringify({ name: "member", scripts: { hook: "echo member" } });
+  writeFileSync(manifest, source);
+  writeFileSync(join(root, "package.json"), JSON.stringify({ name: "root", workspaces: ["member"], scripts: { hook: "echo root" } }));
+  const env = { ...isolatedNpmConfig(root), CHANGELOG_SCRIPT: "hook", CHANGELOG_CHECK_SCRIPT: "hook", NOTES_SCRIPT: "hook" };
+  const options = { cwd: member, env, encoding: "utf8" as const, stdio: "pipe" as const };
+  const run = () => execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], options);
+  const npm = () => execFileSync(process.execPath, [npmCli(true), "run", "--silent", "hook"], options).trim().split(/\r?\n/);
+  writeFileSync(join(root, ".npmrc"), "include-workspace-root=true\nignore-scripts=true\n");
+  assert.deepEqual(npm(), ["root", "member"]);
+  assert.throws(run, /npm workspace selectors/);
+  assert.equal(readFileSync(manifest, "utf8"), source);
+  writeFileSync(join(root, ".npmrc"), "include-workspace-root=false\nignore-scripts=true\n");
+  assert.deepEqual(npm(), ["member"]);
+  assert.doesNotThrow(run);
+  assert.deepEqual(npm(), ["member --include-empty"]);
+});
+
+test("preparation uses npm's parsed lifecycle boolean for one environment spelling", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-npm-parsed-boolean-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const manifest = join(root, "package.json");
+  const scripts = { hook: "echo main", posthook: "cp draft.md CHANGELOG.md" };
+  writeFileSync(manifest, JSON.stringify({ name: "fixture", scripts }));
+  writeFileSync(join(root, "draft.md"), "post-hook output");
+  const env = { ...isolatedNpmConfig(root), CHANGELOG_SCRIPT: "hook", CHANGELOG_CHECK_SCRIPT: "hook", NOTES_SCRIPT: "hook" };
+  for (const [value, lifecycle] of [[" true ", false], [" false ", true]] as const) {
+    const options = { cwd: root, env: { ...env, npm_config_ignore_scripts: value }, encoding: "utf8" as const };
+    const output = join(root, "outputs");
+    writeFileSync(output, "");
+    assert.equal(execFileSync(process.execPath, [npmCli(true), "config", "get", "ignore-scripts"], options).trim(), String(!lifecycle));
+    execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts"), output], options);
+    assert.equal(readFileSync(output, "utf8"), "npm_lifecycle=" + lifecycle + "\nnpm_lifecycle_configured=unknown\n");
+    assert.equal(JSON.parse(readFileSync(manifest, "utf8")).scripts.posthook, scripts.posthook);
   }
 });

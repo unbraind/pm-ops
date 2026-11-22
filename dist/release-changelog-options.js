@@ -188,11 +188,14 @@ function lifecycleSetting(value) {
         return true;
     return "unknown";
 }
+/** Collect the nonempty environment aliases npm can read as ignore-scripts. */
+export function npmLifecycleEnvironmentValues(environment) {
+    return Object.entries(environment).filter(([name, value]) => /^npm_config_ignore[-_]scripts$/i.test(name) && value !== "")
+        .map(([, value]) => value);
+}
 /** Resolve CLI-independent npm configuration from the workflow env and project .npmrc. */
 export function npmLifecycle(projectConfig, environment = {}) {
-    const settings = Object.entries(environment)
-        .filter(([name, value]) => /^npm_config_ignore[-_]scripts$/i.test(name) && value !== "")
-        .map(([, value]) => lifecycleSetting(value));
+    const settings = npmLifecycleEnvironmentValues(environment).map(lifecycleSetting);
     if (settings.length > 0)
         return settings.every(setting => setting === settings[0]) ? settings[0] : "unknown";
     let setting = "unknown";
@@ -314,6 +317,9 @@ function copyWritesChangelog(args) {
     let directory;
     let directoryValue = "";
     let noTargetDirectory = false;
+    let backups = false;
+    let backupMode;
+    let suffix;
     for (let index = 0; index < args.length; index++) {
         const word = args[index];
         if (options && /^-.+/.test(word.value)) {
@@ -321,6 +327,10 @@ function copyWritesChangelog(args) {
                 options = false;
             // The first short option that takes a value consumes the rest of its word.
             const operandOption = /^-[^-St]*[St]/.exec(word.value)?.[0];
+            const equals = word.value.indexOf("=");
+            const name = equals < 0 ? word.value : word.value.slice(0, equals);
+            const suffixOption = name.startsWith("--su") && "--suffix".startsWith(name);
+            const backupOption = name.startsWith("--b") && "--backup".startsWith(name);
             const directoryOption = /^--target-directory(?:=|$)/.exec(word.value)?.[0] ?? (operandOption?.endsWith("t") ? operandOption : undefined);
             if (directoryOption) {
                 const inline = directoryOption.endsWith("=") || directoryOption.length < word.value.length;
@@ -329,25 +339,41 @@ function copyWritesChangelog(args) {
                     return false;
                 directoryValue = inline ? word.value.slice(directoryOption.length) : directory.value;
             }
-            else if (word.value === "--suffix" || operandOption === word.value)
-                index++;
+            else if (suffixOption || operandOption?.endsWith("S")) {
+                backups = true;
+                const offset = operandOption?.length ?? (equals < 0 ? word.value.length : equals + 1);
+                const inline = (suffixOption && equals >= 0) || word.value.length > offset;
+                const value = inline ? word : args[++index];
+                if (!value)
+                    return false;
+                suffix = value.unresolved || hasBraceExpansion(value) ? undefined
+                    : inline ? word.value.slice(offset) : value.value;
+            }
+            if (backupOption || /^-[^-]*b/.test(operandOption ?? word.value))
+                backups = true;
+            if (backupOption && equals >= 0)
+                backupMode = word.value.slice(equals + 1);
             if (word.value === "--no-target-directory" || /^-[^-St]*T/.test(operandOption ?? word.value))
                 noTargetDirectory = true;
         }
         else
             operands.push(word);
     }
+    const simpleBackup = backups && !/^(?:none|off|numbered|t)$/.test(backupMode ?? "");
+    const writes = (path) => posix.normalize(path) === "CHANGELOG.md"
+        || (simpleBackup && (suffix === undefined ? "CHANGELOG.md".startsWith(posix.normalize(path))
+            : posix.normalize(path + (suffix || "~")) === "CHANGELOG.md"));
     if (directory)
-        return copyDirectoryWritesChangelog(directory, directoryValue, operands);
+        return copyDirectoryWritesChangelog(directory, directoryValue, operands, writes);
     const destination = operands.at(-1);
     return operands.length >= 2 && (destination.unresolved || hasBraceExpansion(destination)
-        || posix.normalize(destination.value) === "CHANGELOG.md"
-        || (!noTargetDirectory && copyDirectoryWritesChangelog(destination, destination.value, operands.slice(0, -1))));
+        || writes(destination.value)
+        || (!noTargetDirectory && copyDirectoryWritesChangelog(destination, destination.value, operands.slice(0, -1), writes)));
 }
 /** A directory copy uses each source basename under its target directory. */
-function copyDirectoryWritesChangelog(directory, value, sources) {
+function copyDirectoryWritesChangelog(directory, value, sources, writes) {
     return (directory.unresolved || hasBraceExpansion(directory) || (value !== "" && posix.join(value, "CHANGELOG.md") === "CHANGELOG.md"))
-        && sources.some(source => source.unresolved || hasBraceExpansion(source) || posix.basename(source.value) === "CHANGELOG.md");
+        && sources.some(source => source.unresolved || hasBraceExpansion(source) || writes(posix.basename(source.value)));
 }
 /** Look for a reachable generator without interpreting an opaque command as executable argv. */
 function canReachGenerator(words, names, seen, writing = false, lifecycle = "unknown", configured = lifecycle) {
@@ -1226,10 +1252,11 @@ function literalRedirectOnly(words) {
     }
     return true;
 }
-/** Find the possible final renderers on conditional and OR-list paths. */
+/** Find possible final renderers, including those retained when an OR fallback masks a failed AND-list. */
 function finalHookCommands(commands) {
     const alternatives = [];
     let last = [];
+    let skipped = [];
     let afterOr = false;
     let afterAnd = false;
     for (const words of commands) {
@@ -1252,28 +1279,46 @@ function finalHookCommands(commands) {
         const following = followingReleaseOperator(words);
         if (following === "pipe")
             continue;
+        const isStatus = rendererStatusCommand(releaseOutputProducer(words));
+        const redirectOnly = literalRedirectOnly(words);
+        if (afterOr && (redirectOnly || (isStatus && words[0].value !== "false"))) {
+            last = [...new Set([...last, ...skipped])];
+        }
         if ((!words[0].releaseKeyword || words.length > 1)
-            && !literalRedirectOnly(words)
-            && !((alternatives.length > 0 || afterOr || (afterAnd && following !== undefined)) && rendererStatusCommand(releaseOutputProducer(words)))) {
+            && !redirectOnly
+            && !((alternatives.length > 0 || afterOr || (afterAnd && following !== undefined)) && isStatus)) {
             const prior = afterOr ? last.filter(command => !rendererStatusCommand(releaseOutputProducer(command))) : [];
+            if (afterAnd)
+                skipped.push(...last.filter(command => !rendererStatusCommand(releaseOutputProducer(command))));
+            if (afterOr)
+                skipped = [];
             last = [...prior, words];
         }
+        if (following === undefined)
+            skipped = [];
         afterOr = following === "or";
         afterAnd = following === "and";
     }
     return last;
 }
 /** Follow terminal script forwards without treating a custom, missing or cyclic renderer as a generator. */
-function allGeneratorRenderers(last, scripts, names, depth) {
+function allGeneratorRenderers(last, scripts, names, depth, recipient, args = []) {
     return depth <= MAX_SCRIPT_FORWARDS && last.length > 0 && last.every(words => {
-        const command = releaseHookCommand(releaseOutputProducer(words));
+        const producer = releaseOutputProducer(words);
+        const command = releaseHookCommand(producer === recipient ? [...producer, ...args] : producer);
         if (!command)
             return false;
         if (generatorCommand(command))
             return true;
         const forward = scriptForward(basename(command[0].value), command.slice(1), names);
-        const body = forward?.target && scripts.get(forward.target);
-        return Boolean(body && allGeneratorRenderers(finalHookCommands(parseReleaseHook(body).commands), scripts, names, depth + 1));
+        if (!forward?.target)
+            return false;
+        const body = scripts.get(forward.target);
+        if (!body)
+            return false;
+        const { commands, spans } = parseReleaseHook(body);
+        const nextRecipient = forward.args.length ? commandReceivingArguments(body, commands, spans) : undefined;
+        return allGeneratorRenderers(finalHookCommands(commands), scripts, names, depth + 1, nextRecipient, forward.args);
     });
 }
 const RENDERER_STATUS_COMMANDS = new Set(["git", "test", "[", "[[", "true", "false", ":"]);
@@ -1394,6 +1439,27 @@ export function rewriteReleaseHeadingDate(script, headingDate, scriptNames) {
     const options = [...standaloneHookCommands(commands, scriptNames)].flatMap(words => hookDateOptions(changelogInvocation(words, scriptNames)?.slice(1) ?? []));
     rewriteDateOptions(options, headingDate, () => source);
     return applyHookEdits(script, source.edits.values());
+}
+/** Add the empty-section flag at the call site when it supplies the generator entrypoint. */
+export function includeEmptyForwardedGenerators(scripts, hooks, lifecycle) {
+    const sources = new Map();
+    const owners = new WeakMap();
+    visitChangelogScriptCommands(scripts, ({ name, names, text, spans, words, effective }) => {
+        const source = sources.get(name) ?? { text, spans, edits: new Map() };
+        sources.set(name, source);
+        for (const word of words)
+            owners.set(word, source);
+        const invocation = changelogInvocation(effective, names);
+        if (!invocation)
+            return;
+        const [entry, ...args] = invocation;
+        const caller = owners.get(entry);
+        if (caller === source || optionPositions(args).some(index => args[index].value === INCLUDE_EMPTY_FLAG))
+            return;
+        const { end } = caller.spans.get(entry);
+        caller.edits.set(end, { start: end, end, text: " " + INCLUDE_EMPTY_FLAG });
+    }, hooks, undefined, undefined, { lifecycle });
+    return new Map([...sources].map(([name, { text, edits }]) => [name, applyHookEdits(text, edits.values())]));
 }
 /** Pin or restore the original words, even when a caller supplied the date operand. */
 function rewriteDateOptions(options, headingDate, sourceOf) {

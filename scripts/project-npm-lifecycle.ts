@@ -2,7 +2,7 @@
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { npmLifecycle, type NpmLifecycle } from "../release-changelog-options.ts";
+import { npmLifecycle, npmLifecycleEnvironmentValues, type NpmLifecycle } from "../release-changelog-options.ts";
 import { spawnSync } from "../subprocess.ts";
 import { isMainInvocation } from "./main-invocation.ts";
 import { npmCli } from "./release-runtime.ts";
@@ -18,9 +18,14 @@ async function readLifecycle(env: NodeJS.ProcessEnv): Promise<NpmLifecycle | "wo
   const config = new Config({ ...fromNpm("@npmcli/config/lib/definitions"), npmPath: dirname(dirname(cli)),
     argv: [process.execPath, cli, "run"], env: { ...env } });
   await config.load();
-  if (config.get("workspaces") === true || config.find("workspace") !== "default") return "workspace";
+  if (config.get("workspaces") === true || config.find("workspace") !== "default"
+    || (config.get("include-workspace-root") === true && config.get("workspace").length > 0)) return "workspace";
   const key = "ignore-scripts";
-  if (config.find(key) === "env") return npmLifecycle(undefined, env);
+  if (config.find(key) === "env") {
+    if (npmLifecycleEnvironmentValues(env).length > 1) return npmLifecycle(undefined, env);
+    const value = config.get(key, "env");
+    return typeof value === "boolean" ? !value : "unknown";
+  }
   for (const source of ["project", "user", "global", "builtin"]) {
     const layer = config.data.get(source);
     if (layer.loadError && layer.loadError.code !== "ENOENT") return "unknown";

@@ -412,6 +412,14 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
     writeFileSync(bashLauncher, launchers.npm);
     process.env.PATH = [batchOnly, bin].join(delimiter);
     assert.equal(npmCli(true), selected, "Git Bash reaches the extensionless launcher in a later directory");
+    const exeOnly = join(batchOnly, "npm.exe");
+    writeFileSync(exeOnly, "opaque MSYS executable");
+    assert.throws(() => npmCli(true), /needs an npm CLI/, "an earlier npm.exe blocks the later stock launcher");
+    process.env.PATH = [bin, batchOnly].join(delimiter);
+    writeFileSync(join(bin, "npm.exe"), "opaque MSYS executable");
+    assert.equal(npmCli(true), selected, "Git Bash prefers a stock extensionless launcher in the same directory");
+    rmSync(exeOnly);
+    rmSync(join(bin, "npm.exe"));
     rmSync(bashLauncher);
     delete process.env.MSYSTEM;
     const displaced = join(root, "displaced");

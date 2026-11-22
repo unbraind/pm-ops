@@ -1,7 +1,7 @@
 /** Persist the date and empty-section policies used by release changelog hooks. */
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import {
-  changelogArguments, includeEmptyCustomHook, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHookDates,
+  changelogArguments, includeEmptyCustomHook, includeEmptyForwardedGenerators, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHookDates,
   visitChangelogScriptCommands,
 } from "../release-changelog-options.ts";
 import { projectNpmLifecyclePolicy } from "./project-npm-lifecycle.ts";
@@ -25,13 +25,14 @@ try {
   const scriptNames = new Set(resolved.keys());
   const allScripts = new Map(Object.entries(pkg.scripts).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
   const datedHooks = rewriteReleaseHookDates(allScripts, hooks, headingDate, lifecycle, pkg.version);
+  const forwardedHooks = includeEmptyForwardedGenerators(datedHooks, hooks, lifecycle);
   for (const [name, script] of resolved) {
     const dated = datedHooks.get(name) ?? script;
     if (dated !== script) {
       const policy = headingDate ? "pins the heading to " + headingDate : "restores the version-derived heading policy";
       console.log(`::notice::Release commit ${policy} in package.json script "${name}".`);
     }
-    let prepared = includeEmptyReleaseSections(dated, scriptNames);
+    let prepared = includeEmptyReleaseSections(forwardedHooks.get(name) ?? dated, scriptNames);
     if (prepared !== dated) {
       console.log(`::notice::Release commit adds --include-empty to generator invocations in package.json script "${name}" so later changelog checks agree with this dependency-only release.`);
     }

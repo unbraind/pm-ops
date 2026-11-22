@@ -19,6 +19,7 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
   const { output: { value: output }, invalidOption, check, stdout, consumed, positions } = changelogOutputTarget(args.map(value => ({ value })));
   if (invalidOption) throw new Error(`${invalidOption} requires a value`);
   let mode = "replace";
+  let format: string | undefined;
   let summary = false;
   for (const index of positions) {
     const arg = args[index]!;
@@ -33,7 +34,8 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
     } else if (arg === "--github-step-summary") {
       summary = true;
       consumed.add(index);
-    }
+    } else if (arg === "--format") format = args[index + 1];
+    else if (arg.startsWith("--format=")) format = arg.slice("--format=".length);
   }
   const forwarded = args.filter((_, index) => !consumed.has(index));
   if (forwarded.some(arg => ["--all-release-tags", "--since-previous-tag", "--until-release-tag"].includes(arg))
@@ -43,7 +45,7 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
   if (summary && !env.GITHUB_STEP_SUMMARY) throw new Error("--github-step-summary requires GITHUB_STEP_SUMMARY");
   const generator = createRequire(import.meta.url).resolve("pm-changelog/cli");
   const destination = resolve(cwd, output);
-  const report = stdout && positions.some(index => args[index] === "--json");
+  const report = stdout && (format === "json" || positions.some(index => args[index] === "--json" || args[index] === "--changelog-json"));
   if (report) forwarded.push("--mode", mode);
   const rendered = execFileSync(process.execPath, [generator, ...forwarded, "--output", destination, "--stdout"], { cwd, env, encoding: "utf8" });
   const existing = !report && existsSync(destination) ? readFileSync(destination, "utf8") : "";
