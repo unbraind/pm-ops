@@ -1243,7 +1243,7 @@ function finalHookCommands(commands) {
             continue;
         if ((!words[0].releaseKeyword || words.length > 1)
             && !literalRedirectOnly(words)
-            && !((alternatives.length > 0 || afterOr || afterAnd) && rendererStatusCommand(releaseOutputProducer(words)))) {
+            && !((alternatives.length > 0 || afterOr || (afterAnd && following !== undefined)) && rendererStatusCommand(releaseOutputProducer(words)))) {
             const prior = afterOr ? last.filter(command => !rendererStatusCommand(releaseOutputProducer(command))) : [];
             last = [...prior, words];
         }
@@ -1281,9 +1281,18 @@ function finalHookCommand(commands, hasGenerator, scripts) {
     if (!rendererStatusCommand(terminal))
         return terminal;
     const candidates = [...new Set(commands.map(releaseOutputProducer))].filter(words => releaseHookCommand(words) && !rendererStatusCommand(words));
-    if (candidates.length === 1)
-        return candidates[0];
-    if (hasGenerator && allGeneratorRenderers(candidates, scripts, new Set(scripts.keys()), 0))
+    // A trailing status command can belong to the same list as its renderer.
+    // A separate status-only list still needs the rest of the hook for context.
+    const end = commands.indexOf(terminal);
+    let start = end;
+    while (start > 0 && followingReleaseOperator(commands[start - 1]) !== undefined)
+        start--;
+    const list = new Set(commands.slice(start, end).map(releaseOutputProducer));
+    const listRenderers = candidates.filter(words => list.has(words));
+    const renderers = listRenderers.length === 0 ? candidates : listRenderers;
+    if (renderers.length === 1)
+        return renderers[0];
+    if (hasGenerator && allGeneratorRenderers(renderers, scripts, new Set(scripts.keys()), 0))
         return terminal;
     refuseHook("Cannot identify one renderer before the trailing status command. Use a single script entry point");
 }

@@ -2228,9 +2228,15 @@ test("a final AND-list status check keeps the terminal notes renderer", () => {
     assert.equal(includeEmptyCustomHook(hook, new Map()), hook.replace("notes.mjs", "notes.mjs --include-empty"));
   }
   for (const hook of [
+    "node setup.mjs && node check.mjs; node notes.mjs && test -s notes.txt",
+    "node setup.mjs; node notes.mjs | cat && test -s notes.txt",
+    "node notes.mjs; true && test -s notes.txt",
+  ]) assert.equal(includeEmptyCustomHook(hook, new Map()), hook.replace("notes.mjs", "notes.mjs --include-empty"));
+  for (const hook of [
     "node setup.mjs; node preferred.mjs || node fallback.mjs && test -s notes.txt",
     "node setup.mjs; node preferred.mjs && test -s notes.txt || node fallback.mjs",
-  ]) assert.throws(() => includeEmptyCustomHook(hook, new Map()), /alternative renderers/);
+    "node setup.mjs; node first.mjs && node second.mjs && test -s notes.txt",
+  ]) assert.throws(() => includeEmptyCustomHook(hook, new Map()), /single script entry point/);
 });
 
 test("preparation rejects npm configuration that selects workspace hooks", t => {
