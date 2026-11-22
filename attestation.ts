@@ -1065,7 +1065,7 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
     const posixRunner = [runner].flat().some(label => typeof label === "string" && /^(?:ubuntu-|macos-|linux$|macos$)/i.test(label));
     const windowsRunner = [runner].flat().some(label => typeof label === "string" && /^windows(?:-|$)/i.test(label));
     const defaultShell = defaultRunSetting(job, "shell") ?? defaultRunSetting(data, "shell");
-    let inherited: Record<string, unknown> = Object.create(null);
+    let inherited: Record<string, unknown> | undefined;
     let unknownNames = false;
     let definiteLifecycleWrite = false;
     let uncertainOnFailure = false;
@@ -1073,6 +1073,7 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
       const step = mapping(value);
       if (step === undefined || !Object.hasOwn(step, "run")) {
         if (step?.if !== false) {
+          inherited = undefined;
           unknownNames = true;
           definiteLifecycleWrite = false;
         }
@@ -1088,7 +1089,10 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
         || [data?.env, job!.env, step.env].some(layer => typeof layer === "string");
       const stepLifecycle = Object.entries(stepEnv).some(([key, value]) =>
         /^npm_config_ignore[-_]scripts$/i.test(key) && [true, false, "true", "false"].includes(value as string | boolean));
-      const producerEnvironment = priorUncertain || unknownNames ? stepEnv : environment;
+      // Opaque steps clear inherited values, but later definite writes can
+      // restore individual names on the successful path.
+      const producerEnvironment = priorUncertain || (unknownNames && afterFailure) ? stepEnv
+        : unknownNames ? mergeWorkflowEnvironment(windowsRunner, inherited, stepEnv) : environment;
       // npm's canonical key must also be the key the audit clears when it
       // computes the configured fallback. Bash reads still use the winning case.
       body.environment = windowsRunner
@@ -1109,6 +1113,7 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
         const errexit = shell !== "bash {0}" && shell !== "sh {0}";
         const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, producerEnvironment, errexit, windowsRunner) : undefined;
         if (writes === undefined) {
+          inherited = undefined;
           unknownNames = true;
           definiteLifecycleWrite = false;
         } else {

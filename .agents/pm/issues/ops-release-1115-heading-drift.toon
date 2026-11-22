@@ -3,14 +3,14 @@ title: Release 2026.11.15 changelog heading drifts after rollover publication
 description: "Baseline origin/main fails npm run changelog:check. CHANGELOG.md says 2026.11.15 - 2026-11-15, while tag v2026.11.15 points at the November 16 release commit. The pinned generator derives the tagged heading from commit time, regenerating 2026-11-16. Confirmed on unchanged origin/main while fixing #290."
 type: Issue
 pm_format_version: 2
-status: open
+status: in_progress
 priority: 2
 tags[3]: "area:release","gh:unbraind/pm-ops#292","gh:unbraind/pm-ops#295"
 created_at: "2026-11-16T19:17:51.165Z"
-updated_at: "2026-11-22T17:14:37.882Z"
+updated_at: "2026-11-22T19:32:12.660Z"
 author: codex-sol
 acceptance_criteria: "Resolve the existing tagged release-heading date policy mismatch; npm run changelog:check and release date checks agree before and after rollover without changing historical tags."
-comments[261]{created_at,author,text}:
+comments[266]{created_at,author,text}:
   "2026-11-16T19:18:50.836Z",codex-sol,"Verified npm run changelog:check fails on untouched origin/main c29fe88 as well as the fix branch. Tag v2026.11.15 targets c29fe88 with commit time 2026-11-16T17:43:01Z. Regeneration changes only the first heading date from 2026-11-15 to 2026-11-16. No historical tags or changelog content were changed for #290."
   "2026-11-16T19:24:41.440Z","harness:claude-code","2026-11-16 20:0xZ (orchestrator): root cause filed as unbraind/pm-ops#292. v2026.11.15 was prepared and tagged on 11-16, prepare rendered the heading from the version (2026-11-15), and after tagging pm-changelog uses the real tag date (2026-11-16, by design per pm-changelog#120). Regenerated CHANGELOG.md in PR #291 so 'npm run changelog:check' passes on this branch (exit 0); main stays red until #291 or another regeneration merges."
   "2026-11-16T22:58:09.756Z",pi-ops-292,"Root cause (issue #292): prepare renders the pending version's heading with --date-from-version, so a resumed candidate (version day before today) is stamped with its version day. The release step then tags it today; pm-changelog by design derives a tagged window's heading from the tag commit date (pm-changelog#120), so post-tag regeneration on unchanged main renders a different day and changelog:check is red on main. The release PR's own CI passes (candidate still untagged), so the failure only appears after the merge.\n\nDesign: use the generator's existing --date-fallback flag (applies only while no release tag exists; ignored once the tag exists, so it matches post-tag invocations byte-for-byte). decideDailyRelease now outputs heading_date: today in RELEASE_TIMEZONE, padded ISO, when the version's calendar day is before today; empty for a same-day release, which is therefore unchanged. The 'Generate changelog and release notes' step, in the same in-place package.json policy rewrite that already appends --include-empty, swaps --date-from-version for --date-fallback <heading_date> in the three changelog scripts when resumed, refreshes a stale pin when a candidate is re-prepared on a later day, and restores --date-from-version when the pending version is current again. The release commit carries the pinned spelling, so the release PR's CI (untagged candidate), prepare's nested release:check and post-tag checks on main all regenerate the same bytes with no follow-up regeneration. The date verifier accepts a pinned --date-fallback day (explicit ISO day only) as an equally clock-free alternative to --date-from-version. Rust/justfile releases (CHANGELOG_DATE derived from the tag name) keep their own spelling and are not touched."
@@ -272,7 +272,12 @@ comments[261]{created_at,author,text}:
   "2026-11-22T15:43:41.441Z",codex-sol,"Round GM thread map for PR #295. bd9c6e5: PRRT_kwDOTOTl1M66k8Zt conditional errexit, PRRT_kwDOTOTl1M66k8Zu brace-expanded output, PRRT_kwDOTOTl1M66k8Zy background notes pipelines, PRRT_kwDOTOTl1M66k8Z1 text summaries, PRRT_kwDOTOTl1M66k8Z3 status-only checks, PRRT_kwDOTOTl1M66k8Z4 multiword generator operands, PRRT_kwDOTOTl1M66k8Z6 ignored dist staging, PRRT_kwDOTOTl1M66k8Z9 inherited Windows Path. Verified existing 24d844c: PRRT_kwDOTOTl1M650IRm and PRRT_kwDOTOTl1M650SdF accept ordinary quoted inherited values and refuse executable and policy selectors, and PRRT_kwDOTOTl1M650SdV requires a fresh lifecycle preview. Verified existing accb464: PRRT_kwDOTOTl1M650Sda isolates tag signing and PRRT_kwDOTOTl1M650Sdd injects invalid UTF-8 into the index without creating an invalid filesystem name. The prior preview, signing and index controls passed with ambient tag signing enabled."
   "2026-11-22T16:37:24.174Z",codex-sol,"The first broad pass caught two existing inline operand contracts. The refinement keeps the historical unversioned inline inspection and versioned unresolved-option diagnostics. It checks separate operands before a generator can be skipped as unversioned. The affected old controls, the new separate-operand cases and quoted binding controls pass."
   "2026-11-22T17:14:36.222Z",codex-sol,"Round GM final thread map for PR #295. bd9c6e5: PRRT_kwDOTOTl1M66k8Zt conditional errexit, PRRT_kwDOTOTl1M66k8Zu brace-expanded output, PRRT_kwDOTOTl1M66k8Zy background notes pipelines, PRRT_kwDOTOTl1M66k8Z1 text summaries, PRRT_kwDOTOTl1M66k8Z3 status-only checks, PRRT_kwDOTOTl1M66k8Z6 ignored dist staging, PRRT_kwDOTOTl1M66k8Z9 inherited Windows Path. bd9c6e5 and c6c64c3: PRRT_kwDOTOTl1M66k8Z4 refuses a split separate operand and preserves the previously accepted inline inspection and the unresolved-option diagnostic. Verified existing 24d844c: PRRT_kwDOTOTl1M650IRm and PRRT_kwDOTOTl1M650SdF, inherited ordinary quoted data versus executable and policy selectors, and PRRT_kwDOTOTl1M650SdV, fresh lifecycle preview output. Verified existing accb464: PRRT_kwDOTOTl1M650Sda, tag signing isolation, and PRRT_kwDOTOTl1M650Sdd, invalid UTF-8 injected directly into the Git index. Real npm passed TITLE=Release as a quoted title and preparation refused the inherited date-policy value. The prior preview, signing and index test subset passed all four tests with ambient tag signing enabled. Round GM final local gates on c6c64c3 with npm 11.21.0. The grammar, shell, and date suites passed 232 of 232. All directly referenced test files ran in the complete suite. Both npm run coverage and node test/release-heading-full-gate.acceptance.ts passed 2258 tests with zero failures, two opt-in skips and 100 percent statements, branches, functions and lines across 54 required sources. Typecheck, test build, lint, zero duplication, docstrings, changelog:check, and the release verifiers passed. Tag-fetched regeneration is byte-identical and preserves ops-b2bs under Unreleased. The pinned fleet inventory accepted 142 hooks and 144 reachable bodies from 39 manifests."
-files[44]{path,scope}:
+  "2026-11-22T18:22:52.898Z",codex-agent,"Round GO on 486bbaa. Add paired regression and acceptance fixtures before editing runtime code, preserve all earlier fixtures, and rerun the fleet hook scan. The review threads remain open for the orchestrator."
+  "2026-11-22T18:28:15.843Z",codex-agent,"Fetched all 309 threads with pagination and all comments on the nine unresolved threads. The latest CodeRabbit body contains no outside-diff findings. On 486bbaa, all nine focused paired test groups fail, and the isolated expression case returns no diagnostic. The pinned fleet baseline accepts 142 hooks and 144 bodies across 39 manifests. The acceptance harness already removed its directory after ordinary errors, but SIGTERM during clone bypassed finally and left the test-owned checkout."
+  "2026-11-22T18:47:16.110Z",codex-agent,"Round GO fleet verification: pinned inventory remains 39 manifests, 142 configured hooks, and 144 reachable bodies with zero refusals. The comparison across 265 workflow files and 1062 run bodies found zero audit diagnostic deltas. The checkout and GITHUB_ENV fixture independently proves the newly accepted case and the invalidation controls. Strict health passes in an isolated home. The default home reported a local extension host version skew."
+  "2026-11-22T18:53:03.794Z",codex-agent,"Round GO focused tracker-linked tests are green. The runtime, Git, custom fallback and temporary-directory proofs passed 4 of 4. The heading, renderer and workflow lifecycle proofs passed 7 of 7. The acceptance closure test covers ordinary subprocess failure, SIGTERM and SIGINT. The previous run of the grammar corpus exposed a mixed-renderer compatibility regression, corrected before this focused pass. Both updated histories preserve their starting bytes and the history present on main for the existing heading item."
+  "2026-11-22T19:32:08.059Z",codex-agent,"Round GO local gates passed on Node 26.13.0 and npm 11.21.0. Full-depth npm run release:check passed 2266 of 2268 tests with two opt-in skips and no failures. Coverage met the unchanged 100 percent statements, branches, functions, and lines across 54 sources. Typecheck, test build, lint, zero duplication, 491 documented declarations, both production audits and the release verifiers passed. The runtime linked suite passed 60 of 60 and the focused linked suites passed 11 of 11. The full npm gate took about 37 minutes, so the duplicate Bun command was stopped under the local runtime budget. The acceptance cleanup regression passed and no run-owned release-heading directory survived. CI evidence for the new commit is on the pull request checks page."
+files[45]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
   CHANGELOG.md,project
@@ -317,7 +322,8 @@ files[44]{path,scope}:
   test/release-workflow.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[86]:
+  test/release-heading-full-gate.test.ts,project
+tests[88]:
   - command: npm run typecheck
     scope: project
     provenance:
@@ -924,6 +930,20 @@ tests[86]:
     provenance:
       author: codex-sol
       created_at: "2026-11-22T17:14:35.375Z"
+      source_kind: local_mutation
+      source_ref: fix/release-hook-wrapper-options-bm
+  - command: node --test --test-concurrency=2 test/changelog-sections.test.ts test/release-runtime.test.ts test/release-heading-full-gate.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-22T18:32:20.591Z"
+      source_kind: local_mutation
+      source_ref: fix/release-hook-wrapper-options-bm
+  - command: node --test --test-reporter=tap --test-concurrency=1 --test-name-pattern='stale all-tags cutoff|custom fallback renderers|Node interpreter selected|acceptance removes its checkout' test/changelog-sections.test.ts test/release-runtime.test.ts test/release-heading-full-gate.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-22T18:48:43.760Z"
       source_kind: local_mutation
       source_ref: fix/release-hook-wrapper-options-bm
 docs[4]{path,scope}:

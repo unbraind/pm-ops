@@ -210,9 +210,9 @@ test("the date verifier audits a declared generator script and refuses ambiguous
 });
 
 test("configured release hooks are audited when called without another script's arguments", () => {
-  const source = (name: string) => ({ file: "package.json", text: JSON.stringify({ scripts: {
+  const source = (name: string, policy = "") => ({ file: "package.json", text: JSON.stringify({ scripts: {
     preview: `npm run ${name} -- --date-from-version`,
-    [name]: "pm-changelog --release-version-from-package",
+    [name]: "pm-changelog --release-version-from-package" + policy,
   } }) });
   assert.match(auditInvocations([source("changelog:full")]).failures[0], /neither --date-from-version/);
   assert.deepEqual(auditInvocations([source("render")]).failures, []);
@@ -223,9 +223,10 @@ test("configured release hooks are audited when called without another script's 
     "    with:",
     "      changelog-script: render",
   ].join("\n") };
-  for (const project of [undefined, ".", "././"]) {
+  for (const project of [undefined, ".", "././", ".//", ".//.///", "${{ inputs.project }}"]) {
     const text = project === undefined ? caller.text : caller.text + "\n      npm-project-dir: " + project;
     assert.match(auditInvocations([source("render"), { ...caller, text }]).failures[0], /neither --date-from-version/);
+    assert.deepEqual(auditInvocations([source("render", " --date-from-version"), { ...caller, text }]).failures, []);
   }
   for (const rust of ["true", "false", "${{ inputs.rust }}"]) {
     const failures = auditInvocations([source("render"), { ...caller, text: caller.text + "\n      rust: " + rust }]).failures;
@@ -238,8 +239,22 @@ test("configured release hooks are audited when called without another script's 
     if (checked) assert.match(failures[0] ?? "", /neither --date-from-version/);
     else assert.deepEqual(failures, []);
   }
-  for (const project of ["docs", "${{ inputs.project }}"]) {
+  for (const project of ["docs", ".//docs", "/"]) {
     assert.deepEqual(auditInvocations([source("render"), { ...caller, text: caller.text + "\n      npm-project-dir: " + project }]).failures, []);
+  }
+});
+
+test("a direct workflow generator accepts repeated current-directory separators", () => {
+  for (const directory of [".//", ".//.///", "docs", "/"]) {
+    const workflow = { file: ".github/workflows/release.yml", text: `jobs:
+  release:
+    steps:
+      - working-directory: ${directory}
+        run: ${FLAGGED}
+` };
+    const failures = auditInvocations([workflow]).failures;
+    if (directory.startsWith(".")) assert.deepEqual(failures, []);
+    else assert.match(failures[0] ?? "", /working-directory/);
   }
 });
 

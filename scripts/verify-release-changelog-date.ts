@@ -146,7 +146,7 @@ const HOOK_INPUTS = [
 
 /** A root project can be omitted or spelled with only current-directory components. */
 function isRootProject(directory: unknown): boolean {
-  return directory === undefined || (typeof directory === "string" && /^(?:\.\/)*\.?$/.test(directory));
+  return directory === undefined || (typeof directory === "string" && /^(?:\.\/+)*\.?$/.test(directory));
 }
 
 /** Include literal hook overrides from callers of the reusable daily release workflow. */
@@ -156,7 +156,9 @@ function addConfiguredHooks(text: string, entries: Set<string>): void {
     if (job?.if === false) continue;
     if (typeof job?.uses !== "string" || !/(?:^|\/)\.github\/workflows\/daily-release\.ya?ml(?:@[^\s]+)?$/.test(job.uses)) continue;
     if (job.with?.rust === true) continue;
-    if (!isRootProject(job.with?.["npm-project-dir"])) continue;
+    const directory = job.with?.["npm-project-dir"];
+    const dynamicDirectory = typeof directory === "string" && directory.includes("${{");
+    if (!isRootProject(directory) && !dynamicDirectory) continue;
     for (const [input] of HOOK_INPUTS) {
       const name = job.with?.[input];
       if (typeof name === "string" && /^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$/.test(name)) entries.add(name);

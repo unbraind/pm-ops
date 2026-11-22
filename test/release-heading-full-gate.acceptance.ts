@@ -1,6 +1,7 @@
 /** Run the real release gate after the workflow rewrites a disposable candidate's date policy.
  * Kept outside the unit-test glob because release:check itself runs that suite. */
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { execFileSync } from "../subprocess.ts";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,16 +19,50 @@ const env: NodeJS.ProcessEnv = {
   PM_TEST_TIME_SCALE: process.env.PM_TEST_TIME_SCALE,
   PM_TELEMETRY_DISABLED: "1", NPM_CONFIG_USERCONFIG: "/dev/null",
 };
+const cancellation = new AbortController();
+const interrupt = () => cancellation.abort(130);
+const terminate = () => cancellation.abort(143);
+process.on("SIGINT", interrupt);
+process.on("SIGTERM", terminate);
+
+/** Let the parent handle cancellation while a child owns files in the candidate. */
+async function runGateCommand(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<void> {
+  cancellation.signal.throwIfAborted();
+  await new Promise<void>((resolve, reject) => {
+    const detached = process.platform !== "win32";
+    const child = spawn(command, args, { cwd, env, detached, stdio: "inherit" });
+    /** Stop npm and its descendants together before removing their checkout. */
+    function stopChild(): void {
+      if (!detached || child.pid === undefined) {
+        child.kill();
+        return;
+      }
+      try {
+        process.kill(-child.pid, "SIGTERM");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") child.kill();
+      }
+    }
+    cancellation.signal.addEventListener("abort", stopChild, { once: true });
+    child.once("error", reject);
+    child.once("close", (code, signal) => {
+      cancellation.signal.removeEventListener("abort", stopChild);
+      if (code === 0) resolve();
+      else reject(new Error(`${command} exited with ${code ?? signal}`));
+    });
+  });
+  cancellation.signal.throwIfAborted();
+}
 
 try {
-  execFileSync("git", ["clone", "--quiet", "--shared", source, candidate], { env });
+  await runGateCommand("git", ["clone", "--quiet", "--shared", source, candidate], source, env);
   const origin = execFileSync("git", ["remote", "get-url", "origin"], { cwd: source, env, encoding: "utf8" }).trim();
   execFileSync("git", ["remote", "set-url", "origin", origin], { cwd: candidate, env });
   // Include the current, reviewable source and tracker edits rather than testing
   // only the last commit. Generated output is rebuilt by the gate.
   mirrorTrackedSnapshot(source, candidate, env);
-  execFileSync("npm", ["ci", "--include=dev", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: candidate, env, stdio: "inherit" });
-  execFileSync("npm", ["run", "changelog:check"], { cwd: candidate, env, stdio: "inherit" });
+  await runGateCommand("npm", ["ci", "--include=dev", "--ignore-scripts", "--no-audit", "--no-fund"], candidate, env);
+  await runGateCommand("npm", ["run", "changelog:check"], candidate, env);
   const manifest = JSON.parse(readFileSync(join(candidate, "package.json"), "utf8")) as { scripts: Record<string, string> };
   assert.match(manifest.scripts["release:check"]!, /npm run coverage/);
   const definition = parse(readFileSync(join(candidate, ".github/workflows/daily-release.yml"), "utf8"));
@@ -65,8 +100,13 @@ try {
     assert.ok(lines.includes(heading), `${heading} must be rendered`);
     assert.ok(!lines.includes(`## ${rewritten.version} - ${versionDay}`));
   }
-  execFileSync("npm", ["run", "release:check"], { cwd: candidate, env: releaseEnv, stdio: "inherit" });
+  await runGateCommand("npm", ["run", "release:check"], candidate, releaseEnv);
   console.log("rewritten release:check (including coverage): PASS");
+} catch (error) {
+  if (!cancellation.signal.aborted) throw error;
+  process.exitCode = cancellation.signal.reason;
 } finally {
   rmSync(root, { recursive: true, force: true });
+  process.off("SIGINT", interrupt);
+  process.off("SIGTERM", terminate);
 }

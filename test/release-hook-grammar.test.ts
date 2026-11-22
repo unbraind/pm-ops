@@ -2257,6 +2257,52 @@ test("an OR-list status fallback cannot hide a renderer skipped by an AND-list",
     /alternative renderers/);
 });
 
+test("a pipeline after OR can recover a skipped notes renderer", () => {
+  const primary = "node primary.mjs";
+  const list = primary + " && test -f use-secondary && node secondary.mjs";
+  for (const pipeline of ["false | cat", "false | cat | cat", "true | cat"]) {
+    assert.throws(() => includeEmptyCustomHook(list + " || " + pipeline, new Map()), /alternative renderers/);
+    assert.equal(includeEmptyCustomHook(primary + " || " + pipeline, new Map()),
+      primary + " --include-empty || " + pipeline);
+  }
+  assert.equal(includeEmptyCustomHook(list + " || false", new Map()), list + " --include-empty || false");
+});
+
+test("trailing status pipelines keep the notes renderer", () => {
+  const notes = "node notes.mjs";
+  for (const suffix of ["; false | cat", " && test -s notes.md | cat"]) {
+    assert.equal(includeEmptyCustomHook(notes + suffix, new Map()), notes + " --include-empty" + suffix);
+  }
+  assert.equal(includeEmptyCustomHook(notes + " | cat", new Map()), notes + " --include-empty | cat");
+});
+
+test("a for header is not a notes renderer", () => {
+  const notes = "node notes.mjs";
+  for (const trailing of ["for turn in first second; do true; done", "for turn; do :; done",
+    "for turn in first second; do true; done; test -s notes.md"]) {
+    assert.equal(includeEmptyCustomHook(notes + "; " + trailing, new Map()), notes + " --include-empty; " + trailing);
+  }
+  const writer = "pm-changelog " + standing;
+  for (const kind of ["while", "until"]) {
+    const loop = kind + " " + writer + "; do true; done";
+    assert.equal(includeEmptyCustomHook(includeEmptyReleaseSections(loop), new Map(), true),
+      kind + " " + writer + " --include-empty; do true; done");
+  }
+  const ordinary = 'node notes.mjs "for"';
+  assert.equal(includeEmptyCustomHook(ordinary, new Map()), ordinary + " --include-empty");
+});
+
+test("existing options on forwarded custom alternatives need no new arguments", () => {
+  const scripts = new Map([["fallback", "node fallback.mjs"]]);
+  const notes = "node primary.mjs --include-empty || npm run fallback --";
+  assert.equal(includeEmptyCustomHook(notes + " --include-empty", scripts), notes + " --include-empty");
+  for (const missing of [notes, notes + " -- --include-empty", notes + " --pm-arg --include-empty"]) {
+    assert.throws(() => includeEmptyCustomHook(missing, scripts), /alternative renderers/);
+  }
+  assert.throws(() => includeEmptyCustomHook(notes.replace("fallback", '"$TARGET"') + " --include-empty", scripts),
+    /alternative renderers/);
+});
+
 test("env passes hyphenated npm lifecycle keys but shell prefixes require identifiers", () => {
   const scripts = { hook: "", prewriter: "pm-changelog " + standing + " --title before", writer: "pm-changelog " + standing };
   const audit = (command: string) => resolveChangelogHooks({ ...scripts, hook: command }, ["hook"], true);
@@ -2332,6 +2378,37 @@ test("GITHUB_ENV writes expand the producer's effective literal environment", ()
     assert.equal(inspect({}, [store, expand]).policy, "unknown");
   }
   assert.equal(inspect({ env: { SETTING: "false" } }, [write]).policy, true);
+});
+
+test("runner exports restore only the names definitely written after an opaque step", () => {
+  const opaque = { uses: "actions/checkout@v4" };
+  const setting = { run: 'echo "SETTING=true" >> "$GITHUB_ENV"' };
+  const copy = { run: 'echo "npm_config_ignore_scripts=$SETTING" >> "$GITHUB_ENV"' };
+  const consume = { run: "npm run changelog:full" };
+  const pkg = { file: "package.json", text: JSON.stringify({ scripts: {
+    "changelog:full": "pm-changelog " + standing, "prechangelog:full": "echo preview > CHANGELOG.md",
+  } }) };
+  const inspect = (steps: object[]) => {
+    const workflow = { file: ".github/workflows/release.yml", text: stringify({
+      jobs: { release: { "runs-on": "ubuntu-latest", steps: [...steps, consume] } },
+    }) };
+    return {
+      policy: npmLifecycle(undefined, executableShellBodies(workflow).at(-1)?.environment),
+      failures: auditInvocations([pkg, workflow]).failures,
+    };
+  };
+  assert.deepEqual(inspect([opaque, setting, { run: 'echo OTHER=true >> "$GITHUB_ENV"' }, copy]), { policy: false, failures: [] });
+  const enabled = inspect([opaque, setting, { ...copy, env: { SETTING: "false" } }]);
+  assert.equal(enabled.policy, true);
+  assert.deepEqual(enabled.failures, []);
+  for (const steps of [[setting, opaque, copy], [opaque, setting, { run: "node helper.js" }, copy],
+    [opaque, { ...setting, if: "${{ inputs.write }}" }, copy],
+    [opaque, setting, { run: copy.run.replace("$SETTING", "$OTHER") }],
+    [opaque, setting, { ...copy, if: "always()" }]]) {
+    const observed = inspect(steps);
+    assert.equal(observed.policy, "unknown");
+    assert.match(observed.failures[0] ?? "", /ignore-scripts.*prechangelog:full/);
+  }
 });
 
 test("copy backup suffixes are consumed before identifying the last file operand", () => {

@@ -1,13 +1,13 @@
 /** Bootstrap exact source tools without relying on publication of their declared package version. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cpSync, chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync, spawnSync } from "../subprocess.ts";
 import { devNull, tmpdir } from "node:os";
 import { delimiter, dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { npmLifecycleFallbackEnvironment } from "../scripts/project-npm-lifecycle.ts";
-import { ensureReleaseRuntime, installReleaseTools, npmCli, workflowToolsRoot } from "../scripts/release-runtime.ts";
+import { ensureReleaseRuntime, installReleaseTools, npmCli, npmLauncherRuntime, workflowToolsRoot } from "../scripts/release-runtime.ts";
 import { interceptRuntimeNpm } from "./runtime-npm-fixture.ts";
 import { runReleaseContinuation } from "../scripts/release-continuation.ts";
 
@@ -338,11 +338,16 @@ test("lifecycle probing uses the Node interpreter selected by a POSIX npm launch
   writeFileSync(join(project, "package.json"), JSON.stringify({ name: "fixture", scripts: { prewriter: "echo before", writer: "echo main" } }));
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_config_/i.test(key) && key !== "PREFIX" && key !== "DESTDIR"));
   const probe = join(workflowToolsRoot, "scripts/project-npm-lifecycle.ts");
-  for (const [bin, enabled] of [[caller, false], [selected, true]] as const) {
+  mkdirSync(join(root, "selected/current"));
+  symlinkSync(join(root, "selected/current"), join(root, "caller/link"));
+  const throughLink = join(root, "caller/link") + "/../bin";
+  symlinkSync(join(selected, "npm"), join(project, "npm"));
+  symlinkSync(join(selected, "node"), join(project, "node"));
+  for (const [bin, enabled] of [[caller, false], [selected, true], [throughLink, true], ["", true]] as const) {
     const options = { cwd: project, env: { ...env, PATH: [bin, env.PATH].join(delimiter), NPM_CONFIG_USERCONFIG: devNull }, encoding: "utf8" as const };
-    const output = execFileSync(join(bin, "npm"), ["run", "--silent", "writer"], options);
+    const output = execFileSync("npm", ["run", "--silent", "writer"], options);
     assert.deepEqual(output.trim().split(/\r?\n/), enabled ? ["before", "main"] : ["main"]);
-    assert.equal(execFileSync(join(caller, "node"), [probe, "--policy"], options), `${enabled}:${enabled}`);
+    assert.equal(execFileSync(join(caller, "node"), [probe, "--policy"], options), `${enabled}:${enabled}`, bin || "<cwd>");
     assert.equal(execFileSync(join(caller, "node"), [probe], options), String(enabled));
   }
   const launcherOnly = join(root, "launcher-only");
@@ -359,6 +364,23 @@ test("lifecycle probing uses the Node interpreter selected by a POSIX npm launch
   symlinkSync(unknown, join(selected, "npm"));
   assert.equal(execFileSync(join(caller, "node"), [probe, "--policy"],
     { cwd: project, env: { ...env, PATH: selected }, encoding: "utf8" }), "unknown:unknown");
+  // Give each PATH entry a different stock launcher target as well as a different Node.
+  for (const bin of [caller, selected]) {
+    rmSync(join(bin, "npm"));
+    writeFileSync(join(bin, "npm-cli.js"), "#!/usr/bin/env node\n", { mode: 0o755 });
+    symlinkSync(join(bin, "npm-cli.js"), join(bin, "npm"));
+  }
+  const savedPath = process.env.PATH;
+  try {
+    for (const [entry, actual] of [[caller, caller], [throughLink, selected]] as const) {
+      process.env.PATH = entry;
+      const canonical = realpathSync(actual);
+      assert.deepEqual(npmLauncherRuntime(), { cli: join(canonical, "npm-cli.js"), node: join(canonical, "node") });
+    }
+  } finally {
+    if (savedPath === undefined) delete process.env.PATH;
+    else process.env.PATH = savedPath;
+  }
 });
 
 // A generated Bash shim for a project-local npm package.

@@ -7,6 +7,8 @@ export declare function followingReleaseOperator(command: ShellCommand): "and" |
 export declare function isIsolatedReleaseCommand(words: ShellCommand): boolean;
 /** Whether the command belongs to the condition list of a while or until loop. */
 export declare function isReleaseLoopCondition(words: ShellCommand): boolean;
+/** Whether these words supply loop values without invoking a command. */
+export declare function isReleaseIterationHeader(words: ShellCommand): boolean;
 /** Find the outermost loop that can execute this command again. */
 export declare function releaseLoopScope(words: ShellCommand): ShellToken | undefined;
 /** Whether the shell joined source lines inside a descriptor redirection. */

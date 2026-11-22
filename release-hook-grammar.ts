@@ -17,6 +17,7 @@ const isolatedCommands = new WeakSet<ShellToken>();
 const pipelineProducers = new WeakMap<ShellCommand, ShellCommand>();
 const followingOperators = new WeakMap<ShellCommand, "and" | "or" | "pipe">();
 const loopConditions = new WeakSet<ShellToken>();
+const iterationHeaders = new WeakSet<ShellToken>();
 const enclosingLoops = new WeakMap<ShellToken, ShellToken>();
 const continuedDescriptors = new WeakSet<ShellToken>();
 const braceExpansions = new WeakSet<ShellToken>();
@@ -46,6 +47,11 @@ export function isIsolatedReleaseCommand(words: ShellCommand): boolean {
 /** Whether the command belongs to the condition list of a while or until loop. */
 export function isReleaseLoopCondition(words: ShellCommand): boolean {
   return loopConditions.has(words[0]);
+}
+
+/** Whether these words supply loop values without invoking a command. */
+export function isReleaseIterationHeader(words: ShellCommand): boolean {
+  return iterationHeaders.has(words[0]);
 }
 
 /** Find the outermost loop that can execute this command again. */
@@ -134,7 +140,9 @@ export function parseReleaseHook(text: string) {
         if (text.slice(span.start, span.end).replaceAll("\\\n", "") !== word.value) break;
         if (/^(?:if|then|elif|else|fi|do|done|while|until|\})$/.test(word.value)) word.releaseKeyword = true;
         if (/^(?:while|until|for|select)$/.test(word.value)) {
-          loops.push({ head: word, condition: /^(?:while|until)$/.test(word.value) });
+          const condition = word.value === "while" || word.value === "until";
+          if (!condition) iterationHeaders.add(words[0]);
+          loops.push({ head: word, condition });
         }
         if (word.value === "do" && loops.length) loops.at(-1)!.condition = false;
         if (word.value === "done") loops.pop();

@@ -83,6 +83,12 @@ export function npmLauncherRuntime(): { cli: string; node: string } {
   return findNpmRuntime(true);
 }
 
+/** Preserve POSIX symlink traversal through parent components in shell PATH lookups. */
+function posixPathCandidate(directory: string, name: string): string {
+  const entry = directory.startsWith("/") ? directory : process.cwd() + "/" + (directory || ".");
+  return entry.replace(/\/?$/, "/") + name;
+}
+
 /** Search configured Node installations or resolve the shell's first npm launcher. */
 function findNpmRuntime(pathOnly: boolean): { cli: string; node: string } {
   const adjacent = join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js");
@@ -95,15 +101,19 @@ function findNpmRuntime(pathOnly: boolean): { cli: string; node: string } {
   for (const directory of directories) {
     if (!directory && (!pathOnly || win)) continue;
     if (pathOnly) {
-      const launcher = names.map(name => join(directory, name)).find(file => isExecutableFile(file, process.platform));
+      const launcher = names.map(name => win ? join(directory, name) : posixPathCandidate(directory, name))
+        .find(file => isExecutableFile(file, process.platform));
       if (!launcher) continue;
-      const target = realpathSync(launcher);
       if (win) {
         const cli = windowsNpmCli(launcher);
         if (cli) return { cli, node: process.execPath };
-      } else if (basename(target) === "npm-cli.js" && readFileSync(target, "utf8").startsWith("#!/usr/bin/env node\n")) {
-        const node = directories.map(directory => resolve(directory, "node")).find(file => isExecutableFile(file, process.platform));
-        if (node) return { cli: target, node };
+      } else {
+        // The JavaScript realpath implementation normalizes away parent components.
+        const target = realpathSync.native(launcher);
+        if (basename(target) === "npm-cli.js" && readFileSync(target, "utf8").startsWith("#!/usr/bin/env node\n")) {
+          const node = directories.map(directory => posixPathCandidate(directory, "node")).find(file => isExecutableFile(file, process.platform));
+          if (node) return { cli: target, node: realpathSync.native(node) };
+        }
       }
       // An unrecognized shim ahead of npm may select another installation.
       break;

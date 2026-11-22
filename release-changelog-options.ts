@@ -14,7 +14,7 @@ import {
 } from "./shell-scan.ts";
 import {
   describeReleaseContextChange, followingReleaseOperator, hasBraceExpansion, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand,
-  isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, releaseLoopScope, releaseOutputProducer,
+  isReleaseIterationHeader, isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, releaseLoopScope, releaseOutputProducer,
 } from "./release-hook-grammar.ts";
 
 /** The flag that makes an untagged heading version-derived. */
@@ -1436,6 +1436,7 @@ function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
         terminated ??= branch.branchExit;
       }
     }
+    if (isReleaseIterationHeader(words)) continue;
     if (terminated && releaseHookCommand(words)) {
       const effect = terminated === "exec" ? "exec replaces" : "exit terminates";
       refuseHook("Cannot select a later renderer after " + effect + " the shell. Use a single script entry point");
@@ -1444,10 +1445,11 @@ function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
     terminated ??= terminator;
     const following = followingReleaseOperator(words);
     if (following === "pipe") continue;
-    const status = rendererStatusName(releaseOutputProducer(words));
+    const producer = releaseOutputProducer(words);
+    const status = rendererStatusName(producer);
     const isStatus = status !== undefined;
     const redirectOnly = literalRedirectOnly(words);
-    if (afterOr && (redirectOnly || (isStatus && status !== "false"))) {
+    if (afterOr && (redirectOnly || (isStatus && (status !== "false" || producer !== words)))) {
       last = [...new Set([...last, ...skipped])];
     }
     if ((!words[0].releaseKeyword || words.length > 1)
@@ -1467,24 +1469,33 @@ function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
   return last;
 }
 
-/** Follow terminal script forwards without treating a custom, missing or cyclic renderer as a generator. */
-function allGeneratorRenderers(
-  last: ShellCommand[], scripts: ReadonlyMap<string, string>, names: ReadonlySet<string>, depth: number,
+/** Check whether all terminal renderers receive the flag without editing their caller. */
+function allPreparedRenderers(
+  last: ShellCommand[], scripts: ReadonlyMap<string, string>, names: ReadonlySet<string>, hasGenerator: boolean, depth: number,
   recipient?: ShellCommand, args: readonly ShellToken[] = [],
 ): boolean {
   return depth <= MAX_SCRIPT_FORWARDS && last.length > 0 && last.every(words => {
     const producer = releaseOutputProducer(words);
     const command = releaseHookCommand(producer === recipient ? [...producer, ...args] : producer);
     if (!command) return false;
-    if (generatorCommand(command)) return true;
+    if (hasGenerator && generatorCommand(command)) return true;
     const forward = scriptForward(basename(command[0].value), command.slice(1), names);
-    if (!forward?.target) return false;
+    if (!forward) return !hasGenerator && hasCustomIncludeEmpty(command);
+    if (!forward.target) return false;
     const body = scripts.get(forward.target);
     if (!body) return false;
     const { commands, spans } = parseReleaseHook(body);
     const nextRecipient = forward.args.length ? commandReceivingArguments(body, commands, spans) : undefined;
-    return allGeneratorRenderers(finalHookCommands(commands), scripts, names, depth + 1, nextRecipient, forward.args);
+    return allPreparedRenderers(finalHookCommands(commands), scripts, names, hasGenerator, depth + 1, nextRecipient, forward.args);
   });
+}
+
+/** Find an empty-section option among the custom executable's own arguments. */
+function hasCustomIncludeEmpty(invocation: ShellCommand): boolean {
+  const args = invocation.slice(generatorEntryIndex(invocation) + 1);
+  const terminator = args.find(word => word.value === "--");
+  const options = terminator ? args.slice(0, args.indexOf(terminator)) : args;
+  return optionPositions(options).some(i => options[i].value === INCLUDE_EMPTY_FLAG);
 }
 
 const RENDERER_STATUS_COMMANDS = new Set(["git", "test", "[", "[[", "true", "false", ":"]);
@@ -1525,15 +1536,17 @@ function finalHookCommand(
   commands: ShellCommand[], hasGenerator: boolean, scripts: ReadonlyMap<string, string>, allowStatusOnly: boolean,
 ): ShellCommand | undefined {
   const last = finalHookCommands(commands);
-  if (last.length > 1 && !(hasGenerator && allGeneratorRenderers(last, scripts, new Set(scripts.keys()), 0))) {
+  if (last.length > 1) {
+    if (allPreparedRenderers(last, scripts, new Set(scripts.keys()), hasGenerator, 0)) return undefined;
     refuseHook("Custom hook has alternative renderers. Use a single script entry point");
   }
   const terminal = last.at(-1) ?? [];
   if (isIsolatedReleaseCommand(terminal) && hookSyntaxProblem(terminal) === "Shell grouping or substitution") {
     refuseHook("Cannot edit a renderer inside shell grouping. Use a single script entry point");
   }
-  if (!rendererStatusCommand(terminal)) return terminal;
-  const candidates = [...new Set(commands.map(releaseOutputProducer))].filter(words => releaseHookCommand(words) && !rendererStatusCommand(words));
+  if (!rendererStatusCommand(releaseOutputProducer(terminal))) return terminal;
+  const candidates = [...new Set(commands.map(releaseOutputProducer))].filter(words =>
+    !isReleaseIterationHeader(words) && releaseHookCommand(words) && !rendererStatusCommand(words));
   // A trailing status command can belong to the same list as its renderer.
   // A separate status-only list still needs the rest of the hook for context.
   const end = commands.indexOf(terminal);
@@ -1544,7 +1557,7 @@ function finalHookCommand(
   const renderers = listRenderers.length === 0 ? candidates : listRenderers;
   if (renderers.length === 0 && allowStatusOnly) return undefined;
   if (renderers.length === 1) return renderers[0];
-  if (hasGenerator && allGeneratorRenderers(renderers, scripts, new Set(scripts.keys()), 0)) return terminal;
+  if (allPreparedRenderers(renderers, scripts, new Set(scripts.keys()), hasGenerator, 0)) return undefined;
   refuseHook("Cannot identify one renderer before the trailing status command. Use a single script entry point");
 }
 
@@ -1565,7 +1578,7 @@ function customForwardDelimiters(
       if (blockedTarget) refuseHook("Custom script " + JSON.stringify(blockedTarget) + " cannot receive forwarded arguments. Move the logic into a script file");
       const args = invocation.slice(generatorEntryIndex(invocation) + 1);
       const boundary = args.findIndex(word => word.value === "--");
-      return { count, terminator: args[boundary], hasOption: args.slice(0, boundary).some(word => word.value === INCLUDE_EMPTY_FLAG) };
+      return { count, terminator: args[boundary], hasOption: hasCustomIncludeEmpty(invocation) };
     }
     if (forward.runner === "npm" && !forward.npmSeparator) count++;
     const text = scripts.get(forward.target!);

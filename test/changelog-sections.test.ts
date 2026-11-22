@@ -889,8 +889,16 @@ test("prepare pins forwarded options and continuation refuses their stale merge 
 });
 
 test("preparation refuses a stale all-tags cutoff without writing any hooks", () => {
-  const { root, env } = tracker();
+  const { root, env: trackerEnv } = tracker();
   try {
+    const hooksPath = join(root, "hostile-hooks");
+    const config = join(root, "hostile.gitconfig");
+    mkdirSync(hooksPath);
+    for (const name of ["pre-push", "pre-receive"]) {
+      writeFileSync(join(hooksPath, name), "#!/bin/sh\necho unexpected fixture hook >&2\nexit 79\n", { mode: 0o755 });
+    }
+    execFileSync("git", ["config", "--file", config, "core.hooksPath", hooksPath]);
+    const env = { ...trackerEnv, GIT_CONFIG_GLOBAL: config };
     releaseTags(root, env);
     const day = "2026-11-17";
     const stale = "2026-11-16";
@@ -943,8 +951,13 @@ test("preparation refuses a stale all-tags cutoff without writing any hooks", ()
     const changed = git("rev-parse", "HEAD");
     const remote = join(root, "origin.git");
     git("init", "--quiet", "--bare", remote);
+    const emptyHooks = join(root, "empty-hooks");
+    mkdirSync(emptyHooks);
+    git("config", "--local", "core.hooksPath", emptyHooks);
+    git("--git-dir", remote, "config", "--local", "core.hooksPath", emptyHooks);
     git("remote", "add", "origin", remote);
     git("-c", "push.gpgSign=false", "push", "--quiet", "origin", "HEAD:refs/heads/main");
+    assert.equal(git("ls-remote", "--heads", "origin", "main"), changed + "\trefs/heads/main");
 
     const workflow = parse(readFileSync(resolve(".github/workflows/daily-release.yml"), "utf8"));
     const verify = workflow.jobs.release.steps.find((step: { name?: string }) => step.name === "Verify merged release");
@@ -968,6 +981,36 @@ test("preparation refuses a stale all-tags cutoff without writing any hooks", ()
     assert.equal(committedReleaseNotes(readFileSync(changelog, "utf8"), version), committedReleaseNotes(committed, version));
     assert.doesNotMatch(committedReleaseNotes(committed, version), /Completed after preparation/);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("preparation keeps custom fallback renderers with an existing empty-section option", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-prepared-fallback-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const env = isolatedNpmReleaseEnv(root, process.env);
+  const manifest = join(root, "package.json");
+  const prepare = [resolve("scripts/prepare-release-changelog.ts")];
+  const primary = "node primary.mjs --include-empty";
+  const fallback = "node fallback.mjs";
+  writeFileSync(join(root, "primary.mjs"), "console.log(JSON.stringify(process.argv.slice(2))); process.exit(1);");
+  writeFileSync(join(root, "fallback.mjs"), "console.log(JSON.stringify(process.argv.slice(2)));");
+  for (const [notes, accepted] of [
+    [primary + " || " + fallback + ' "--include-empty" > result', true],
+    [primary + " || " + fallback + " -- --include-empty", false],
+    [primary + " || " + fallback, false],
+    ["node primary.mjs || " + fallback + " --include-empty", false],
+  ] as const) {
+    const original = JSON.stringify({ scripts: { "changelog:full": "# skip", "changelog:check": "# skip", "release:notes": notes } });
+    writeFileSync(manifest, original);
+    const result = spawnSync(process.execPath, prepare, { cwd: root, env, encoding: "utf8" });
+    assert.equal(result.status, accepted ? 0 : 1, result.stderr);
+    assert.equal(readFileSync(manifest, "utf8"), original);
+    if (!accepted) {
+      assert.match(result.stderr, /alternative renderers/);
+      continue;
+    }
+    assert.equal(execFileSync(process.execPath, npmRunArgs("release:notes", "--silent"), { cwd: root, env, encoding: "utf8" }).trim(), '["--include-empty"]');
+    assert.equal(readFileSync(join(root, "result"), "utf8").trim(), '["--include-empty"]');
+  }
 });
 
 test("date edits retain source ownership when a caller supplies the fallback operand", () => {
