@@ -441,8 +441,13 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
     assert.throws(() => npmCli(true), /needs an npm CLI/);
     writeFileSync(join(bin, "npm.exe"), "");
     assert.throws(() => npmCli(true), /needs an npm CLI/);
-    process.env.PATH = [jobLocal, bin].join(delimiter);
-    assert.equal(npmCli(true), direct);
+    process.env.PATH = [jobLocal, otherNode, bin].join(delimiter);
+    assert.throws(() => npmCli(true), /needs an npm CLI/, "a direct launcher cannot rely on an unverified Bash PATH Node");
+    const directNode = join(jobLocal, "node.exe");
+    try { linkSync(node, directNode); } catch { cpSync(node, directNode); chmodSync(directNode, 0o755); }
+    assert.throws(() => npmCli(true), /needs an npm CLI/, "a direct launcher with a different adjacent Node is ambiguous");
+    Object.defineProperty(process, "execPath", { ...executable, value: directNode });
+    assert.equal(npmCli(true), direct, "a direct launcher with the probe's adjacent Node remains supported");
     const shim = join(jobLocal, "npm");
     const original = readFileSync(shim, "utf8");
     writeFileSync(shim, original.replace("case", "exit 91\ncase"));

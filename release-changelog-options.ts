@@ -174,7 +174,7 @@ function scriptForward(program: string, parameters: readonly ShellToken[], scrip
   const flags = separator < 0 ? (legacyFlag ? tail.slice(0, -1) : tail)
     : tail.slice(0, separator).filter(token => token.value !== INCLUDE_EMPTY_FLAG);
   const settings = afterNpmRunOptions(flags, 0, entry.optional, entry.lifecycle);
-  return { target, runner: program, lifecycle: settings.lifecycle, optional: settings.optional && subcommand !== "start" && subcommand !== "restart", unsupported: flags[settings.index]?.value,
+  return { target, runner: program, lifecycle: settings.lifecycle, optional: settings.optional && target !== "start" && target !== "restart", unsupported: flags[settings.index]?.value,
     args: separator < 0 ? [] : tail.slice(separator + 1), npmSeparator: tail[separator] };
 }
 

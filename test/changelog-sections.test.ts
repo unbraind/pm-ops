@@ -239,6 +239,28 @@ test("stdout JSON and step reports identify the selected file without changing i
   }
 });
 
+test("prepend stdout preserves JSON reports and the plain Markdown policy", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const path = join(root, "preview.md");
+  const history = "# Changelog\n\n## 2026.1.1 - 2026-01-01\n\nPreview history.\n";
+  writeFileSync(path, history);
+  const common = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22", "--stdout"];
+  const run = (cli: string, flags: string[]) => execFileSync(process.execPath, [resolve(cli), ...common, ...flags],
+    { cwd: root, env, encoding: "utf8" });
+  for (const mode of [["--mode", "prepend"], ["--mode=prepend"]]) {
+    const adapter = "scripts/pm-changelog.ts";
+    const markdown = run(adapter, [...mode, "-o", "preview.md"]);
+    assert.match(markdown, /No tracked changes\./);
+    assert.match(markdown, /Preview history\./);
+    const expected = run("node_modules/pm-changelog/dist/cli.js", [...mode, "--output", path, "--json"]);
+    assert.equal(JSON.parse(expected).mode, "prepend");
+    assert.match(JSON.parse(expected).markdown, /Preview history\./);
+    assert.equal(run(adapter, [...mode, "-o", "preview.md", "--json"]), expected);
+    assert.equal(readFileSync(path, "utf8"), history);
+  }
+});
+
 test("inline and separate prepend mode preserve the selected output history", () => {
   const { root, env } = tracker();
   try {

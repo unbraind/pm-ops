@@ -1699,6 +1699,19 @@ test("npm start cannot skip its implicit server entry when the manifest has no s
   assert.doesNotThrow(() => resolveChangelogHooks({ hook: "npm --if-present run missing" }, ["hook"]));
 });
 
+test("npm run cannot skip an implicit start or restart target", () => {
+  const start = "pm-changelog " + standing;
+  for (const command of ["run", "run-script"]) {
+    const hook = "npm " + command + " --if-present ";
+    for (const target of ["start", "restart"]) {
+      const scripts = target === "restart" ? { start } : {};
+      assert.throws(() => resolveChangelogHooks({ ...scripts, hook: hook + target }, ["hook"]), /missing or empty/);
+      assert.equal(resolveChangelogHooks({ hook: hook + target, [target]: start }, ["hook"]).get(target), start);
+    }
+    assert.deepEqual([...resolveChangelogHooks({ hook: hook + "missing", start }, ["hook"]).keys()], ["hook"]);
+  }
+});
+
 test("standalone literal script writes retain local generator forwards until the file is executed", () => {
   const scripts = { writer: "pm-changelog " + standing, smoke: "echo ready" };
   const manifest = { file: "package.json", text: JSON.stringify({ scripts }) };
