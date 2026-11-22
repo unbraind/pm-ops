@@ -1396,7 +1396,6 @@ test("intervening actions and environment file replacements invalidate the lifec
   const conditionalReplace = 'echo npm_config_ignore_scripts=false >> "$GITHUB_ENV"\nif test -f optional; then\necho OTHER=yes > "$GITHUB_ENV"\nfi';
   assert.equal(observed({ run: conditionalReplace }), "unknown");
   assert.equal(observed({ run: 'echo "$RECORD" >> "$GITHUB_ENV"' }), "unknown");
-  assert.equal(observed({ uses: "./example" }, { run: 'echo npm_config_ignore_scripts=true >> "$GITHUB_ENV"' }), "unknown");
   for (const run of ['cat "$GITHUB_ENV"', "echo ready", "true"]) assert.equal(observed({ run }), false);
 });
 
@@ -2695,4 +2694,87 @@ test("Round GI custom notes refuse a later renderer after shell replacement", ()
   assert.equal(prepare(exclusive), exclusive.replaceAll(generator, generator + " --include-empty"));
   assert.throws(() => prepare(exclusive.replace("; else", "; node cleanup.mjs; else")), /exec replaces the shell/);
   assert.throws(() => prepare(exclusive + "; node cleanup.mjs"), /exec replaces the shell/);
+});
+
+test("a definite lifecycle export supersedes an earlier opaque action", () => {
+  const exportTrue = { run: 'echo "npm_config_ignore_scripts=true" >> "$GITHUB_ENV"' };
+  const action = { uses: "./example" };
+  const consume = { run: "npm run hook" };
+  const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
+    hook: "pm-changelog " + standing,
+    prehook: "pm-changelog " + standing,
+  } }) };
+  const observe = (steps: object[]) => ({
+    file: ".github/workflows/env.yml", text: stringify({ jobs: { release: {
+      "runs-on": "ubuntu-latest", steps,
+    } } }),
+  });
+  const definite = observe([action, exportTrue, consume]);
+  assert.equal(npmLifecycle(undefined, executableShellBodies(definite).at(-1)!.environment), false);
+  assert.deepEqual(auditInvocations([manifest, definite]).failures, []);
+  const enable = observe([action, { run: exportTrue.run.replace("=true", "=false") }, consume]);
+  assert.equal(npmLifecycle(undefined, executableShellBodies(enable).at(-1)!.environment), true);
+  for (const steps of [[exportTrue, action, consume], [action, { ...exportTrue, if: "${{ inputs.write }}" }, consume],
+    [action, { run: 'echo OTHER=true >> "$GITHUB_ENV"' }, consume], [action, exportTrue, { ...consume, if: "always()" }]]) {
+    const source = observe(steps);
+    assert.equal(npmLifecycle(undefined, executableShellBodies(source).at(-1)!.environment), "unknown");
+    assert.match(auditInvocations([manifest, source]).failures[0] ?? "", /ignore-scripts.*prehook/);
+  }
+});
+
+test("Bash declarations of lifecycle variables cannot hide implicit npm writers", () => {
+  const writer = "pm-changelog " + standing;
+  const audit = (declaration: string, main = writer) => auditInvocations([
+    { file: "package.json", text: JSON.stringify({ scripts: { forward: declaration + "; npm run writer", writer: main, prewriter: writer } }) },
+    { file: ".npmrc", text: "ignore-scripts=true" },
+  ]).failures;
+  for (const declaration of ["declare -x npm_config_ignore_scripts=false", "builtin typeset -x npm_config_ignore_scripts=false",
+    "readonly npm_config_ignore_scripts=false", "declare -x NPM_CONFIG_IGNORE_SCRIPTS"]) {
+    assert.match(audit(declaration)[0] ?? "", /context change .*npm_config_ignore_scripts/i, declaration);
+  }
+  assert.match(audit("declare -x npm_config_ignore_scripts=false", "echo done")[0] ?? "", /context change declare npm_config_ignore_scripts/);
+  for (const declaration of ["declare -x TITLE=Release", "declare -p npm_config_ignore_scripts", "echo declare -x npm_config_ignore_scripts=false"]) {
+    assert.deepEqual(audit(declaration), [], declaration);
+  }
+});
+
+test("loop conditions preserve the renderer that can run before a zero-iteration body", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-loop-renderer-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(join(root, "fallback.mjs"), 'console.log("fallback");');
+  writeFileSync(join(root, "notes.mjs"), 'import { unlinkSync } from "node:fs"; unlinkSync("marker"); console.log("notes");');
+  for (const condition of ["while test -f marker", "until test ! -f marker"]) {
+    const hook = "node fallback.mjs; " + condition + "; do node notes.mjs --include-empty; done";
+    assert.throws(() => includeEmptyCustomHook(hook, new Map()), /alternative renderers/);
+    if (process.platform !== "win32") {
+      assert.equal(execFileSync("bash", ["-ec", hook], { cwd: root, encoding: "utf8" }), "fallback\n");
+      writeFileSync(join(root, "marker"), "");
+      assert.equal(execFileSync("bash", ["-ec", hook], { cwd: root, encoding: "utf8" }), "fallback\nnotes\n");
+    }
+    const after = hook + "; node final.mjs";
+    assert.equal(includeEmptyCustomHook(after, new Map()), after + " --include-empty");
+    const generator = "pm-changelog " + standing;
+    const known = generator + "; " + condition + "; do " + generator + "; test ! -f marker; done";
+    assert.equal(includeEmptyCustomHook(includeEmptyReleaseSections(known), new Map(), true),
+      known.replaceAll(generator, generator + " --include-empty"));
+  }
+  const sequential = "node fallback.mjs; node notes.mjs";
+  assert.equal(includeEmptyCustomHook(sequential, new Map()), sequential + " --include-empty");
+});
+
+test("terminal exit keeps its argv and refuses a later reachable renderer candidate", () => {
+  for (const exit of ["exit 0", "command -- exit 0", "builtin exit 0"]) {
+    assert.equal(includeEmptyCustomHook("node notes.mjs; " + exit, new Map()), "node notes.mjs --include-empty; " + exit);
+    assert.throws(() => includeEmptyCustomHook(exit + "; node notes.mjs", new Map()), /exit terminates the shell/);
+    assert.throws(() => includeEmptyCustomHook("if test -f marker; then " + exit + "; fi; node notes.mjs", new Map()),
+      /exit terminates the shell/);
+  }
+  assert.equal(includeEmptyCustomHook("node notes.mjs exit 0", new Map()), "node notes.mjs exit 0 --include-empty");
+  assert.equal(includeEmptyCustomHook("node old.mjs; node notes.mjs; exit 0", new Map()), "node old.mjs; node notes.mjs --include-empty; exit 0");
+  assert.throws(() => includeEmptyCustomHook("node notes.mjs; (exit 0)", new Map()), /renderer inside shell grouping/);
+  assert.equal(includeEmptyCustomHook("(exit 0); node notes.mjs", new Map()), "(exit 0); node notes.mjs --include-empty");
+  assert.equal(includeEmptyCustomHook("npm run render", new Map([["render", "pm-changelog --stdout --include-empty; exit 0"]]), true),
+    "npm run render");
+  assert.throws(() => includeEmptyCustomHook("npm run render", new Map([["render", "node notes.mjs; exit 0"]])),
+    /cannot receive forwarded arguments/);
 });

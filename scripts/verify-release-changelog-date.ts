@@ -155,6 +155,7 @@ function addConfiguredHooks(text: string, entries: Set<string>): void {
   for (const job of Object.values(workflow?.jobs ?? {})) {
     if (job?.if === false) continue;
     if (typeof job?.uses !== "string" || !/(?:^|\/)\.github\/workflows\/daily-release\.ya?ml(?:@[^\s]+)?$/.test(job.uses)) continue;
+    if (job.with?.rust === true) continue;
     if (!isRootProject(job.with?.["npm-project-dir"])) continue;
     for (const [input] of HOOK_INPUTS) {
       const name = job.with?.[input];

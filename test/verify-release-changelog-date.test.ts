@@ -163,6 +163,17 @@ test("the verifier refuses unresolved option words even with a literal date poli
   }
 });
 
+test("an unresolved version option name cannot bypass the date audit", () => {
+  const audit = (command: string) => auditInvocations([{ file: "package.json", text: manifest(command + "; " + FLAGGED) }]);
+  for (const name of ['--release-$SELECTOR=2026.11.16', '--ver${SUFFIX} 2026.11.16', '--release-$(printf version)=2026.11.16']) {
+    assert.match(audit(`pm-changelog ${name}`).failures[0] ?? "", /unresolved option.*--(?:release-|ver).*--date-from-version.*--date-fallback <YYYY-MM-DD>/i);
+  }
+  for (const command of ['pm-changelog --title "$TITLE"', 'pm-changelog --release-version=2026.11.16 --date-from-version --title "$TITLE"',
+    'echo --release-$SELECTOR=2026.11.16']) {
+    assert.deepEqual(audit(command).failures, [], command);
+  }
+});
+
 test("package administration and quoted values on fixed non-date options are accepted", () => {
   const text = [
     'npm install --save-dev pm-changelog',
@@ -215,6 +226,11 @@ test("configured release hooks are audited when called without another script's 
   for (const project of [undefined, ".", "././"]) {
     const text = project === undefined ? caller.text : caller.text + "\n      npm-project-dir: " + project;
     assert.match(auditInvocations([source("render"), { ...caller, text }]).failures[0], /neither --date-from-version/);
+  }
+  for (const rust of ["true", "false", "${{ inputs.rust }}"]) {
+    const failures = auditInvocations([source("render"), { ...caller, text: caller.text + "\n      rust: " + rust }]).failures;
+    if (rust === "true") assert.deepEqual(failures, []);
+    else assert.match(failures[0] ?? "", /neither --date-from-version/);
   }
   for (const [condition, checked] of [["false", false], ["true", true], ["${{ inputs.release }}", true]] as const) {
     const text = caller.text.replace("  release:\n", "  release:\n    if: " + condition + "\n");

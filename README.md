@@ -692,8 +692,9 @@ can contain spaces, newlines, a literal `#`, or an operator.
 - Forward to a literal local script with `npm run [--if-present] <script> -- <args>`,
   the npm or pnpm `run-script` alias, `bun run`, or `pnpm run`. npm runs enabled,
   nonempty `pre<script>` and `post<script>` around the main script. Only the main
-  script receives the forwarded arguments. An explicit npm `--ignore-scripts`
-  disables its lifecycle siblings, including in nested npm calls. Bun forwards also cover
+  script receives the forwarded arguments. An explicit npm `--ignore-scripts=true`
+  skips that invocation's lifecycle siblings. Nested npm calls inherit the setting and
+  can override it, for example with `--ignore-scripts=false`. Bun forwards also cover
   declared pre/post writers. A pnpm forward with an implicit generator writer
   requires an explicit npm forward because pnpm lifecycle execution is configurable.
   Place forwarded npm arguments after `--`.

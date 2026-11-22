@@ -41,6 +41,7 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
   if (invalidOption) throw new Error(`${invalidOption} requires a value`);
   let mode = "replace";
   let format: string | undefined;
+  let title: string | undefined;
   let summary = false;
   for (const index of positions) {
     const arg = args[index]!;
@@ -57,6 +58,8 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
       consumed.add(index);
     } else if (arg === "--format") format = args[index + 1];
     else if (arg.startsWith("--format=")) format = arg.slice("--format=".length);
+    else if (arg === "--title") title = args[index + 1];
+    else if (arg.startsWith("--title=")) title = arg.slice("--title=".length);
   }
   const forwarded = args.filter((_, index) => !consumed.has(index));
   if (forwarded.some(arg => ["--all-release-tags", "--since-previous-tag", "--until-release-tag"].includes(arg))
@@ -71,7 +74,7 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
   const rendered = execFileSync(process.execPath, [generator, ...forwarded, "--output", destination, "--stdout"], { cwd, env, encoding: "utf8" });
   const existing = !report && existsSync(destination) ? readFileSync(destination, "utf8") : "";
   const markdown = report ? rendered : describeEmptyReleases(rendered);
-  const result = !report && mode === "prepend" ? mergeChangelog(existing, markdown).markdown : markdown;
+  const result = !report && mode === "prepend" ? mergeChangelog(existing, markdown, { title }).markdown : markdown;
   if (!report && mode === "prepend" && positions.some(index => args[index] === "--check-links")) {
     checkMergedLinks(result, args, positions, cwd, env);
   }

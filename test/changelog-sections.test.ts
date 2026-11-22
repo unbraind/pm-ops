@@ -64,8 +64,12 @@ function fallbackDateIndex(command: readonly string[]): number {
 
 /** Restore the standing date policy while each option is still a separate argument. */
 function restoreFixtureDatePolicy(command: string[]): string[] {
-  const fallback = fallbackDateIndex(command);
-  if (fallback >= 0) command.splice(fallback, command[fallback] === "--date-fallback" ? 2 : 1, "--date-from-version");
+  const first = fallbackDateIndex(command);
+  if (first < 0) return command;
+  for (let fallback = first; fallback >= 0; fallback = fallbackDateIndex(command)) {
+    command.splice(fallback, command[fallback] === "--date-fallback" ? 2 : 1);
+  }
+  if (!command.includes("--date-from-version")) command.splice(first, 0, "--date-from-version");
   return command;
 }
 
@@ -303,6 +307,23 @@ test("inline and separate prepend mode preserve the selected output history", ()
     }
     assert.throws(() => runChangelog(["--mode="], root, env), /--mode requires a value/);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("prepend uses the last requested title when history has no level-one heading", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const path = join(root, "CHANGELOG.md");
+  const history = "## 2026.1.1 - 2026-01-01\n\nExisting history.\n";
+  const cli = ["--mode=prepend", "--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22"];
+  for (const option of [["--title", "Release Notes"], ["--title=Release Notes"]]) {
+    for (const heading of ["", "# Existing title\n\n"]) {
+      writeFileSync(path, heading + history);
+      assert.equal(runChangelog([...cli, "--title=Earlier title", ...option], root, env), 0);
+      const markdown = readFileSync(path, "utf8");
+      assert.ok(markdown.startsWith(heading || "# Release Notes\n\n"), markdown);
+      assert.match(markdown, /Existing history\./);
+    }
+  }
 });
 
 test("Round GI prepend checks retained links before writing, while replace checks its own output", t => {
@@ -945,6 +966,8 @@ test("fixture heading days use the explicitly selected date policy", () => {
   for (const policy of [["--date-fallback", "2026-10-24"], ["--date-fallback=2026-10-24"], ["--date-from-version"]]) {
     assert.deepEqual(restoreFixtureDatePolicy([...policy, "--stdout"]), ["--date-from-version", "--stdout"]);
   }
+  assert.deepEqual(restoreFixtureDatePolicy(["--date-fallback", "2026-10-24", "--stdout", "--date-fallback=2026-10-25"]),
+    ["--date-from-version", "--stdout"]);
 });
 
 test("preparation rewrites every date policy without consuming a following flag", () => {

@@ -3,14 +3,16 @@ title: Release 2026.11.15 changelog heading drifts after rollover publication
 description: "Baseline origin/main fails npm run changelog:check. CHANGELOG.md says 2026.11.15 - 2026-11-15, while tag v2026.11.15 points at the November 16 release commit. The pinned generator derives the tagged heading from commit time, regenerating 2026-11-16. Confirmed on unchanged origin/main while fixing #290."
 type: Issue
 pm_format_version: 2
-status: open
+status: in_progress
 priority: 2
 tags[3]: "area:release","gh:unbraind/pm-ops#292","gh:unbraind/pm-ops#295"
 created_at: "2026-11-16T19:17:51.165Z"
-updated_at: "2026-11-22T12:38:48.195Z"
+updated_at: "2026-11-22T13:42:19.761Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: "Resolve the existing tagged release-heading date policy mismatch; npm run changelog:check and release date checks agree before and after rollover without changing historical tags."
-comments[250]{created_at,author,text}:
+comments[253]{created_at,author,text}:
   "2026-11-16T19:18:50.836Z",codex-sol,"Verified npm run changelog:check fails on untouched origin/main c29fe88 as well as the fix branch. Tag v2026.11.15 targets c29fe88 with commit time 2026-11-16T17:43:01Z. Regeneration changes only the first heading date from 2026-11-15 to 2026-11-16. No historical tags or changelog content were changed for #290."
   "2026-11-16T19:24:41.440Z","harness:claude-code","2026-11-16 20:0xZ (orchestrator): root cause filed as unbraind/pm-ops#292. v2026.11.15 was prepared and tagged on 11-16, prepare rendered the heading from the version (2026-11-15), and after tagging pm-changelog uses the real tag date (2026-11-16, by design per pm-changelog#120). Regenerated CHANGELOG.md in PR #291 so 'npm run changelog:check' passes on this branch (exit 0); main stays red until #291 or another regeneration merges."
   "2026-11-16T22:58:09.756Z",pi-ops-292,"Root cause (issue #292): prepare renders the pending version's heading with --date-from-version, so a resumed candidate (version day before today) is stamped with its version day. The release step then tags it today; pm-changelog by design derives a tagged window's heading from the tag commit date (pm-changelog#120), so post-tag regeneration on unchanged main renders a different day and changelog:check is red on main. The release PR's own CI passes (candidate still untagged), so the failure only appears after the merge.\n\nDesign: use the generator's existing --date-fallback flag (applies only while no release tag exists; ignored once the tag exists, so it matches post-tag invocations byte-for-byte). decideDailyRelease now outputs heading_date: today in RELEASE_TIMEZONE, padded ISO, when the version's calendar day is before today; empty for a same-day release, which is therefore unchanged. The 'Generate changelog and release notes' step, in the same in-place package.json policy rewrite that already appends --include-empty, swaps --date-from-version for --date-fallback <heading_date> in the three changelog scripts when resumed, refreshes a stale pin when a candidate is re-prepared on a later day, and restores --date-from-version when the pending version is current again. The release commit carries the pinned spelling, so the release PR's CI (untagged candidate), prepare's nested release:check and post-tag checks on main all regenerate the same bytes with no follow-up regeneration. The date verifier accepts a pinned --date-fallback day (explicit ISO day only) as an equally clock-free alternative to --date-from-version. Rust/justfile releases (CHANGELOG_DATE derived from the tag name) keep their own spelling and are not touched."
@@ -261,6 +263,9 @@ comments[250]{created_at,author,text}:
   "2026-11-22T12:10:37.223Z",codex-sol,"Round GI final verification on 9f1ce85. Thread PRRT_kwDOTOTl1M66i1tx also maps to ba91c77 for the tracker-selection and stdout fixtures. PRRT_kwDOTOTl1M66i1t0 also maps to 9f1ce85 for physical step locations. The 17 reference suites passed 1252 tests, the focused grammar and date run passed 195 tests, the final date suite passed 47 tests, and five hostile signing, raw-index and preview checks passed. The pinned inventory accepted all 142 hooks and 144 bodies across 39 manifests. Typecheck, test build, lint, zero duplication, docstrings, changelog:check and the release verifiers passed. With npm 11.21.0, both npm run coverage and node test/release-heading-full-gate.acceptance.ts passed 2247 tests with two opt-in skips and 100 percent statements, branches, functions and lines over 54 sources. The release acceptance passed package audits and dry-run packing. The changelog lists ops-b2bs under Unreleased."
   "2026-11-22T12:20:13.585Z",codex-sol,Greptile reported PRRT_kwDOTOTl1M66jkbU and PRRT_kwDOTOTl1M66jkbX on pushed head 97ef2f1. Paired fixtures first reproduced both regressions. The local correction keeps exec sequencing scoped to each branch and preserves the winning spelling of Windows runner environment records for subsequent Bash reads. Both paired fixtures pass and the package gates are rerunning.
   "2026-11-22T12:38:40.182Z",codex-sol,"Round GI follow-up mapping. Local commit f6bbca2 addresses PRRT_kwDOTOTl1M66jkbU by preserving mutually exclusive exec renderers and PRRT_kwDOTOTl1M66jkbX by preserving Windows environment spelling for Bash reads. Both fixtures were red on 97ef2f1 and pass locally. The 195 focused tests, typecheck, lint, zero duplication, docstrings, changelog:check and the pinned fleet inventory of 142 hooks and 144 bodies pass. The follow-up full gates have no completion receipt yet. Hosted CI on 97ef2f1 passed its Node, Windows consumer, lock compatibility and CodeQL checks. Greptile returned 3 out of 5 with a required 5, and CodeRabbit skipped automatic review."
+  "2026-11-22T13:29:14.911Z",codex-sol,"Round GK started on 6dcdecf. I will reproduce the review examples and their valid inverses, then run the release fixtures and pinned fleet inventory before pushing."
+  "2026-11-22T13:32:24.859Z",codex-sol,Eight code and fixture groups reproduced on the starting head. The existing npm override fixture also verifies the README correction. The nine current thread IDs and five inherited controls will all be recorded.
+  "2026-11-22T13:42:19.694Z",codex-sol,"The paired fixtures, typecheck, test build, lint, zero duplication, docstrings, and changelog check passed. A pinned npm run confirmed that the nested explicit setting restores the inner prehook. The pinned inventory accepts 142 hooks and 144 reachable bodies across 39 manifests. Full verification is running."
 files[44]{path,scope}:
   .github/workflows/daily-release.yml,project
   attestation.ts,project
@@ -306,7 +311,7 @@ files[44]{path,scope}:
   test/release-workflow.test.ts,project
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
-tests[82]:
+tests[83]:
   - command: npm run typecheck
     scope: project
     provenance:
@@ -885,6 +890,13 @@ tests[82]:
     provenance:
       author: codex-sol
       created_at: "2026-11-22T12:20:04.383Z"
+      source_kind: local_mutation
+      source_ref: fix/release-hook-wrapper-options-bm
+  - command: node --test --test-concurrency=2 test/release-hook-grammar.test.ts test/verify-release-changelog-date.test.ts test/shell-command-scan.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-22T13:40:21.169Z"
       source_kind: local_mutation
       source_ref: fix/release-hook-wrapper-options-bm
 docs[4]{path,scope}:

@@ -1037,12 +1037,15 @@ export function executableShellBodies(source) {
         const defaultShell = defaultRunSetting(job, "shell") ?? defaultRunSetting(data, "shell");
         let inherited = Object.create(null);
         let unknownNames = false;
+        let definiteLifecycleWrite = false;
         let uncertainOnFailure = false;
         for (const [index, value] of steps.entries()) {
             const step = mapping(value);
             if (step === undefined || !Object.hasOwn(step, "run")) {
-                if (step?.if !== false)
+                if (step?.if !== false) {
                     unknownNames = true;
+                    definiteLifecycleWrite = false;
+                }
                 continue;
             }
             const body = bodyAt([...container.path, "steps", index, "run"], step.run);
@@ -1051,10 +1054,11 @@ export function executableShellBodies(source) {
                 body.workingDirectory = directory;
             const stepEnv = mergeWorkflowEnvironment(windowsRunner, mapping(step.env));
             const environment = mergeWorkflowEnvironment(windowsRunner, mapping(data?.env), mapping(job.env), inherited, stepEnv);
-            const priorUncertain = unknownNames || (uncertainOnFailure && canRunAfterFailure(step.if))
+            const afterFailure = canRunAfterFailure(step.if);
+            const priorUncertain = (uncertainOnFailure && afterFailure)
                 || [data?.env, job.env, step.env].some(layer => typeof layer === "string");
             const stepLifecycle = Object.entries(stepEnv).some(([key, value]) => /^npm_config_ignore[-_]scripts$/i.test(key) && [true, false, "true", "false"].includes(value));
-            const producerEnvironment = priorUncertain ? stepEnv : environment;
+            const producerEnvironment = priorUncertain || unknownNames ? stepEnv : environment;
             // npm's canonical key must also be the key the audit clears when it
             // computes the configured fallback. Bash reads still use the winning case.
             body.environment = windowsRunner
@@ -1062,8 +1066,9 @@ export function executableShellBodies(source) {
                     key.toLowerCase() === IGNORE_SCRIPTS_ENV ? IGNORE_SCRIPTS_ENV : key, value,
                 ]))
                 : environment;
-            if (!stepLifecycle && priorUncertain)
+            if (!stepLifecycle && (priorUncertain || (unknownNames && (!definiteLifecycleWrite || afterFailure)))) {
                 body.environment = { ...body.environment, [IGNORE_SCRIPTS_ENV]: "unknown" };
+            }
             if (job.if === false || step.if === false)
                 body.disabled = true;
             else {
@@ -1074,10 +1079,17 @@ export function executableShellBodies(source) {
                     || Boolean(step["continue-on-error"]);
                 const errexit = shell !== "bash {0}" && shell !== "sh {0}";
                 const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, producerEnvironment, errexit, windowsRunner) : undefined;
-                if (writes === undefined)
+                if (writes === undefined) {
                     unknownNames = true;
+                    definiteLifecycleWrite = false;
+                }
                 else {
                     inherited = mergeWorkflowEnvironment(windowsRunner, inherited, writes.records);
+                    for (const [key, record] of Object.entries(writes.records)) {
+                        if ((windowsRunner ? key.toLowerCase() : key) === IGNORE_SCRIPTS_ENV) {
+                            definiteLifecycleWrite = record === "true" || record === "false";
+                        }
+                    }
                     if (writes.mayStopBeforeOverwrite)
                         uncertainOnFailure = true;
                 }

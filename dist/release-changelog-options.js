@@ -23,11 +23,23 @@ const GENERATOR_TARGET = /^pm-changelog@[^/]+$|(?:^|\/)(?:pm-changelog(?:\.ts)?|
 /** The three generator inputs that bind a heading to a release. */
 export const VERSION_INPUTS = [PACKAGE_VERSION_FLAG, "--release-version", "--version"];
 const INDIRECT_RELEASE_OPTIONS = new Set([...VERSION_INPUTS, DATE_FLAG, FALLBACK_DATE_FLAG, UNTIL_FLAG]);
+/** Detect option expansions whose literal prefix could name a version input. */
+function unresolvedVersionOption(word) {
+    if (!word.unresolved || !word.value.startsWith("-"))
+        return false;
+    const prefix = word.value.split(/[$`*?[]/, 1)[0];
+    return VERSION_INPUTS.some(flag => flag.startsWith(prefix));
+}
+/** Explain the version and date policy required in place of an expanded option name. */
+function refuseUnresolvedVersionOption(word) {
+    refuseHook(`Unresolved option name ${JSON.stringify(word.value)} could select a release version. Spell the version input literally and use ${DATE_FLAG} or ${FALLBACK_DATE_FLAG} <YYYY-MM-DD>`);
+}
 /** True when a command supplies an explicit release version. */
 export function hasVersionInput(args) {
     return optionPositions(args).some(index => {
         const word = args[index];
         return (word.unresolved && !word.value.startsWith("-"))
+            || unresolvedVersionOption(word)
             || VERSION_INPUTS.some(flag => word.value === flag || word.value.startsWith(flag + "="));
     });
 }
@@ -653,7 +665,9 @@ function shellContextChange(words) {
     const name = basename(program.value);
     if (/^(?:cd|pushd|popd)$/.test(name))
         return { construct: name, directory: true };
-    if (name === "export" || name === "unset") {
+    if (/^(?:export|unset|declare|typeset|readonly|local)$/.test(name)) {
+        if (/^(?:declare|typeset|readonly|local)$/.test(name) && args.some(word => /^-[a-zA-Z]*p[a-zA-Z]*$/.test(word.value)))
+            return undefined;
         const variable = args.map(word => RELEASE_CONTEXT_VARIABLE.exec(word.value)?.[0]).find(Boolean);
         if (variable)
             return { construct: name + " " + variable };
@@ -721,6 +735,10 @@ function changelogInvocation(words, scriptNames, audit = false) {
     const mentions = words.some(mentionsGenerator);
     const problem = hookSyntaxProblem(words);
     if (problem && (mentions || referencesWriter(words, scriptNames))) {
+        const generatorArgs = invocation && generatorCommand(invocation)?.slice(1);
+        const versionName = generatorArgs && optionPositions(generatorArgs).map(index => generatorArgs[index]).find(unresolvedVersionOption);
+        if (versionName)
+            refuseUnresolvedVersionOption(versionName);
         const dynamicOption = words.some(word => word.unresolved && word.value.startsWith("-"));
         if (dynamicOption && invocation && GENERATOR_TARGET.test(invocation[0].value) && !hasVersionInput(invocation.slice(1))
             && !words.some(word => word.value.startsWith("--date-")))
@@ -1141,6 +1159,8 @@ export function readReleaseDateOptions(args) {
     const options = [];
     for (const index of optionPositions(args)) {
         const token = args[index];
+        if (unresolvedVersionOption(token))
+            refuseUnresolvedVersionOption(token);
         const flag = token.value.split("=", 1)[0];
         if (flag === "--pm-arg") {
             const separate = token.value === flag;
@@ -1338,37 +1358,47 @@ function literalRedirectOnly(words) {
 /** Find possible final renderers, including those retained when an OR fallback masks a failed AND-list. */
 function finalHookCommands(commands) {
     const alternatives = [];
+    const loopEntries = [];
     let last = [];
     let skipped = [];
     let afterOr = false;
     let afterAnd = false;
-    let replaced = false;
+    let terminated;
     for (const words of commands) {
         for (const word of words) {
             if (!word.releaseKeyword)
                 break;
+            if (word.value === "do")
+                loopEntries.push(last);
+            if (word.value === "done") {
+                const before = loopEntries.pop();
+                if (before)
+                    last = [...new Set([...before, ...last])];
+            }
             if (word.value === "if")
                 alternatives.push({
-                    before: last, branches: [], hasElse: false, beforeReplacement: replaced, branchReplacement: false,
+                    before: last, branches: [], hasElse: false, beforeExit: terminated, branchExit: undefined,
                 });
             const branch = alternatives.at(-1);
             if (branch && (word.value === "elif" || word.value === "else")) {
                 branch.branches.push(...last);
                 branch.hasElse = word.value === "else";
                 last = branch.before;
-                branch.branchReplacement ||= replaced;
-                replaced = branch.beforeReplacement;
+                branch.branchExit ??= terminated;
+                terminated = branch.beforeExit;
             }
             if (branch && word.value === "fi") {
                 alternatives.pop();
                 last = [...new Set([...branch.branches, ...last, ...(branch.hasElse ? [] : branch.before)])];
-                replaced ||= branch.branchReplacement;
+                terminated ??= branch.branchExit;
             }
         }
-        if (replaced && releaseHookCommand(words)) {
-            refuseHook("Cannot select a later renderer after exec replaces the shell. Use a single script entry point");
+        if (terminated && releaseHookCommand(words)) {
+            const effect = terminated === "exec" ? "exec replaces" : "exit terminates";
+            refuseHook("Cannot select a later renderer after " + effect + " the shell. Use a single script entry point");
         }
-        replaced ||= replacesRendererShell(words);
+        const terminator = rendererShellTerminator(words);
+        terminated ??= terminator;
         const following = followingReleaseOperator(words);
         if (following === "pipe")
             continue;
@@ -1379,8 +1409,10 @@ function finalHookCommands(commands) {
             last = [...new Set([...last, ...skipped])];
         }
         if ((!words[0].releaseKeyword || words.length > 1)
+            && terminator !== "exit"
             && !redirectOnly
-            && !((alternatives.length > 0 || afterOr || (afterAnd && following !== undefined)) && isStatus)) {
+            && !((alternatives.length > 0 || loopEntries.length > 0 || isReleaseLoopCondition(words)
+                || afterOr || (afterAnd && following !== undefined)) && isStatus)) {
             const prior = afterOr ? last.filter(command => !rendererStatusCommand(releaseOutputProducer(command))) : [];
             if (afterAnd)
                 skipped.push(...last.filter(command => !rendererStatusCommand(releaseOutputProducer(command))));
@@ -1418,6 +1450,8 @@ function allGeneratorRenderers(last, scripts, names, depth, recipient, args = []
 const RENDERER_STATUS_COMMANDS = new Set(["git", "test", "[", "[[", "true", "false", ":"]);
 /** Read the actual status command name through its wrappers. */
 function rendererStatusName(words) {
+    if (rendererShellTerminator(words) === "exit")
+        return "exit";
     const command = releaseHookCommand(words);
     const name = command && basename(command[0].value);
     return name && RENDERER_STATUS_COMMANDS.has(name) ? name : undefined;
@@ -1426,20 +1460,28 @@ function rendererStatusName(words) {
 function rendererStatusCommand(words) {
     return rendererStatusName(words) !== undefined;
 }
-/** Only a shell builtin with a target can replace the current shell. */
-function replacesRendererShell(words) {
+/** Identify a builtin that can prevent the rest of the current shell from running. */
+function rendererShellTerminator(words) {
     if (isIsolatedReleaseCommand(words) || !releaseHookCommand(words))
-        return false;
+        return undefined;
     const argv = withoutRedirections(words);
     let index = argv.findIndex(word => !word.releaseKeyword && (word.startsQuoted || !/^[A-Za-z_]\w*\+?=/.test(word.value)));
-    while (argv[index]?.value === "command") {
+    while (argv[index]?.value === "command" || argv[index]?.value === "builtin") {
+        const command = argv[index].value === "command";
         index++;
-        if (argv[index]?.value === "-p")
+        if (command && argv[index]?.value === "-p")
             index++;
         if (argv[index]?.value === "--")
             index++;
     }
-    return argv[index]?.value === "exec" && !argv[index].unresolved;
+    const builtin = argv[index];
+    if (builtin?.unresolved)
+        return undefined;
+    if (builtin?.value === "exit")
+        return "exit";
+    if (builtin?.value === "exec" && argv.length > index + 1)
+        return "exec";
+    return undefined;
 }
 /** Alternatives need no custom argument when all of their terminal generators receive the flag directly. */
 function finalHookCommand(commands, hasGenerator, scripts) {
@@ -1448,6 +1490,9 @@ function finalHookCommand(commands, hasGenerator, scripts) {
         refuseHook("Custom hook has alternative renderers. Use a single script entry point");
     }
     const terminal = last.at(-1) ?? [];
+    if (isIsolatedReleaseCommand(terminal) && hookSyntaxProblem(terminal) === "Shell grouping or substitution") {
+        refuseHook("Cannot edit a renderer inside shell grouping. Use a single script entry point");
+    }
     if (!rendererStatusCommand(terminal))
         return terminal;
     const candidates = [...new Set(commands.map(releaseOutputProducer))].filter(words => releaseHookCommand(words) && !rendererStatusCommand(words));
