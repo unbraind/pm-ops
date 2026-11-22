@@ -13,6 +13,8 @@ import { verify as verifySections } from "../scripts/verify-release-changelog-se
 import { parse } from "yaml";
 import { decideDailyRelease } from "../daily-release.ts";
 import { runBashFixture } from "./bash-fixture.ts";
+import { parseReleaseHook } from "../release-hook-grammar.ts";
+import { withoutRedirections } from "../shell-scan.ts";
 import { assertReleaseHeadingDate, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHeadingDate, rewriteReleaseHookDates } from "../release-changelog-options.ts";
 
 /** Read the actual repository commands so reverting their policy breaks the proof. */
@@ -46,8 +48,10 @@ function releaseTags(root: string, env: NodeJS.ProcessEnv): void {
 }
 
 /** Reuse configured generator arguments while locating the pinned CLI in the source checkout. */
-function args(name: string): string[] {
-  return scripts[name]!.split(" ").slice(2).map(arg => arg === "./node_modules/.bin/pm" ? pm : arg);
+function args(name: string, command = scripts[name]!): string[] {
+  const { commands } = parseReleaseHook(command);
+  assert.equal(commands.length, 1, name + " must be one direct generator command");
+  return withoutRedirections(commands[0]!).slice(2).map(({ value }) => value === "./node_modules/.bin/pm" ? pm : value);
 }
 
 /** Match fixture tag and completion days to the date policy selected by preparation. */
@@ -1468,5 +1472,81 @@ test("notes preparation requires a definite nested lifecycle after a helper runs
     const { result } = prepare(bridge);
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.equal(readFileSync(notes, "utf8").trim(), output);
+  }
+});
+
+test("Round GQ fixture commands decode quoted flags and operands", () => {
+  const entry = "node scripts/pm-changelog.ts ";
+  for (const options of [
+    `"--date-fallback" '2026-10-24' --title "Release notes" "./node_modules/.bin/pm"`,
+    `--date-fallback=2026-10-24 --title Release\\ notes ./node_modules/.bin/pm`,
+  ]) {
+    const decoded = args("release:notes", entry + options);
+    assert.equal(headingDay("2026.10.23", decoded), "2026-10-24");
+    assert.deepEqual(restoreFixtureDatePolicy(decoded), ["--date-from-version", "--title", "Release notes", pm]);
+  }
+});
+
+test("Round GQ GitHub file outputs report the written changelog", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const destination = join(root, "CHANGELOG.md");
+  const step = join(root, "step-outputs");
+  const history = "# Changelog\n\n## 2026.1.1 - 2026-01-01\n\nRetained history.\n";
+  const cli = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22"];
+  for (const [mode, flag] of [["replace", "--github-output"], ["prepend", "--github-output"], ["prepend", "--set-output"]]) {
+    writeFileSync(destination, history);
+    writeFileSync(step, "");
+    assert.equal(runChangelog([...cli, "--mode=" + mode, flag], root, { ...env, GITHUB_OUTPUT: step }), 0);
+    const markdown = readFileSync(destination, "utf8");
+    assert.equal(markdown.includes("Retained history."), mode === "prepend");
+    assert.deepEqual(Object.fromEntries(readFileSync(step, "utf8").trim().split("\n").map(line => line.split("="))), {
+      output: destination, mode, action: mode === "prepend" ? "inserted" : "replaced",
+      changed: "true", item_count: "0", excluded_non_change_count: "0", bytes: String(Buffer.byteLength(markdown)),
+    });
+  }
+  const previous = readFileSync(destination, "utf8");
+  const report = execFileSync(process.execPath, [resolve("scripts/pm-changelog.ts"), ...cli, "--mode=prepend",
+    "--json", "--github-output", "--check"], { cwd: root, env: { ...env, GITHUB_OUTPUT: step }, encoding: "utf8" });
+  const { mode, action, changed, bytes, check } = JSON.parse(report);
+  assert.deepEqual({ mode, action, changed, bytes, check }, {
+    mode: "prepend", action: "unchanged", changed: false, bytes: Buffer.byteLength(previous), check: true,
+  });
+  assert.match(readFileSync(step, "utf8"), /mode=prepend\naction=unchanged\nchanged=false/);
+  const { GITHUB_OUTPUT: _output, ...withoutOutput } = env;
+  assert.throws(() => runChangelog([...cli, "--github-output"], root, withoutOutput), /requires GITHUB_OUTPUT/);
+  assert.equal(readFileSync(destination, "utf8"), previous);
+  const created = execFileSync(process.execPath, [resolve("scripts/pm-changelog.ts"), ...cli,
+    "--json", "--output", "new.md"], { cwd: root, env: withoutOutput, encoding: "utf8" });
+  assert.equal(JSON.parse(created).action, "created");
+  assert.match(readFileSync(join(root, "new.md"), "utf8"), /No tracked changes\./);
+});
+
+test("Round GQ forwarded custom renderers receive exactly one include-empty option", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-custom-renderer-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const manifest = join(root, "package.json");
+  const env = isolatedNpmReleaseEnv(root, process.env);
+  writeFileSync(join(root, "notes.mjs"), 'const flags = process.argv.slice(2); if (flags.length !== 1 || flags[0] !== "--include-empty") process.exit(1);');
+  const prepare = () => {
+    execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env });
+    return readFileSync(manifest, "utf8");
+  };
+  for (const [writerSuffix, callerSuffix, preparedSuffix] of [
+    ["", "", " -- --include-empty"],
+    [" --include-empty", "", ""],
+    [" --include-empty", " --include-empty", " --include-empty"],
+    [" --include-empty && true", "", ""],
+  ]) {
+    const writer = "node notes.mjs" + writerSuffix;
+    const original = "npm run writer" + callerSuffix;
+    writeFileSync(manifest, JSON.stringify({ scripts: {
+      "changelog:full": "echo generated", "changelog:check": "true", "release:notes": original, writer,
+    } }));
+    const prepared = prepare();
+    assert.equal(JSON.parse(prepared).scripts["release:notes"], "npm run writer" + preparedSuffix);
+    assert.equal(JSON.parse(prepared).scripts.writer, writer);
+    execFileSync(process.execPath, npmRunArgs("release:notes", "--silent"), { cwd: root, env });
+    assert.equal(prepare(), prepared);
   }
 });

@@ -43,6 +43,8 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
   let format: string | undefined;
   let title: string | undefined;
   let summary = false;
+  let json = false;
+  const githubOutputPositions: number[] = [];
   for (const index of positions) {
     const arg = args[index]!;
     if (arg === "--mode" || arg.startsWith("--mode=")) {
@@ -56,11 +58,19 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
     } else if (arg === "--github-step-summary") {
       summary = true;
       consumed.add(index);
-    } else if (arg === "--format") format = args[index + 1];
+    } else if (arg === "--github-output" || arg === "--set-output") githubOutputPositions.push(index);
+    else if (arg === "--json") json = true;
+    else if (arg === "--format") format = args[index + 1];
     else if (arg.startsWith("--format=")) format = arg.slice("--format=".length);
     else if (arg === "--title") title = args[index + 1];
     else if (arg.startsWith("--title=")) title = arg.slice("--title=".length);
   }
+  const separateReport = format?.trim().toLowerCase() === "json"
+    || positions.some(index => ["--summary", "--changelog-json", "--suggest-semver", "--audit-evidence"].includes(args[index]!))
+    || args[0] === "audit";
+  const stepOutput = !stdout && !separateReport && githubOutputPositions.length > 0;
+  if (stepOutput && !env.GITHUB_OUTPUT) throw new Error("--github-output requires GITHUB_OUTPUT");
+  if (stepOutput) for (const index of githubOutputPositions) consumed.add(index);
   const forwarded = args.filter((_, index) => !consumed.has(index));
   if (forwarded.some(arg => ["--all-release-tags", "--since-previous-tag", "--until-release-tag"].includes(arg))
     && spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, env, encoding: "utf8" }).status !== 0) {
@@ -69,26 +79,39 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
   if (summary && !env.GITHUB_STEP_SUMMARY) throw new Error("--github-step-summary requires GITHUB_STEP_SUMMARY");
   const generator = createRequire(import.meta.url).resolve("pm-changelog/cli");
   const destination = resolve(cwd, output);
-  const report = stdout && (format?.trim().toLowerCase() === "json"
-    || positions.some(index => ["--summary", "--json", "--changelog-json"].includes(args[index]!)));
+  const report = stdout && (separateReport || json);
   if (report) forwarded.push("--mode", mode);
+  const fileReport = !stdout && !separateReport && (stepOutput || json);
+  if (fileReport && !json) forwarded.push("--json");
   const rendered = execFileSync(process.execPath, [generator, ...forwarded, "--output", destination, "--stdout"], { cwd, env, encoding: "utf8" });
+  // Read the generator's item counts once and report the adapter's final bytes.
+  const generation = fileReport ? JSON.parse(rendered) as {
+    markdown: string; itemCount: number; excluded_non_change_count: number;
+  } : undefined;
   const existing = !report && existsSync(destination) ? readFileSync(destination, "utf8") : "";
-  const markdown = report ? rendered : describeEmptyReleases(rendered);
-  const result = !report && mode === "prepend" ? mergeChangelog(existing, markdown, { title }).markdown : markdown;
+  const markdown = report ? rendered : describeEmptyReleases(generation?.markdown ?? rendered);
+  const merged = !report && mode === "prepend" ? mergeChangelog(existing, markdown, { title }) : undefined;
+  const result = merged?.markdown ?? markdown;
   if (!report && mode === "prepend" && positions.some(index => args[index] === "--check-links")) {
     checkMergedLinks(result, args, positions, cwd, env);
   }
+  const changed = existing !== result;
   if (summary) appendFileSync(env.GITHUB_STEP_SUMMARY!, result);
   if (stdout) process.stdout.write(result);
-  else if (check) {
-    if (existing !== result) {
-      console.error(`Changelog is out of date: ${output}`);
-      return 1;
+  else if (check) console.error(`Changelog is ${changed ? "out of date" : "up to date"}: ${output}`);
+  else writeFileSync(destination, result);
+  if (generation) {
+    const action = changed ? merged?.action ?? (existing.trimEnd() ? "replaced" : "created") : "unchanged";
+    const { itemCount, excluded_non_change_count } = generation;
+    const bytes = Buffer.byteLength(result);
+    if (stepOutput) appendFileSync(env.GITHUB_OUTPUT!,
+      `output=${destination}\nmode=${mode}\naction=${action}\nchanged=${changed}\nitem_count=${itemCount}\nexcluded_non_change_count=${excluded_non_change_count}\nbytes=${bytes}\n`);
+    if (json) {
+      const { markdown: _markdown, ...receipt } = generation;
+      process.stdout.write(JSON.stringify({ ...receipt, mode, action, changed, bytes, check }) + "\n");
     }
-    console.error(`Changelog is up to date: ${output}`);
-  } else writeFileSync(destination, result);
-  return 0;
+  }
+  return !stdout && check && changed ? 1 : 0;
 }
 
 if (isMainInvocation(process.argv, import.meta.url)) process.exitCode = runChangelog(process.argv.slice(2));

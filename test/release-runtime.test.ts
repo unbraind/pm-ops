@@ -550,3 +550,48 @@ test("Windows lifecycle discovery follows the stock launcher prefix and refuses 
     else process.env.PATHEXT = PATHEXT;
   }
 });
+
+test("Round GQ npm's selected interpreter can probe without TypeScript support", { skip: process.platform === "win32" }, t => {
+  const root = mkdtempSync(join(tmpdir(), "release-npm-js-probe-"));
+  t.after(() => removeRuntimeFixture(root));
+  const cli = npmCli();
+  const probe = join(workflowToolsRoot, "scripts/project-npm-lifecycle.ts");
+  const wrapper = join(root, "node");
+  writeFileSync(wrapper, `#!/bin/sh\nexec "${process.execPath}" --no-experimental-strip-types "$@"\n`, { mode: 0o755 });
+  symlinkSync(cli, join(root, "npm"));
+  writeFileSync(join(root, "package.json"), '{"name":"fixture","workspaces":["child"]}');
+  mkdirSync(join(root, "child"));
+  writeFileSync(join(root, "child/package.json"), '{"name":"fixture-child"}');
+  writeFileSync(join(root, ".npmrc"), "ignore-scripts=true\n");
+  const base = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_config_/i.test(key)));
+  const env = { ...base, PATH: [root, base.PATH].join(delimiter), NPM_CONFIG_USERCONFIG: devNull, NPM_CONFIG_GLOBALCONFIG: join(root, "global.npmrc") };
+  const run = (extra: NodeJS.ProcessEnv = {}, flags = ["--policy"]) =>
+    spawnSync(process.execPath, [probe, ...flags], { cwd: root, env: { ...env, ...extra }, encoding: "utf8" });
+  for (const [flags, expected] of [[["--policy"], "false:false"], [[], "false"]] as const) {
+    const result = run({}, [...flags]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, expected);
+  }
+  const direct = run({}, ["--policy", cli]);
+  assert.equal(direct.status, 0, direct.stderr);
+  assert.equal(direct.stdout, "false:false");
+  const override = run({ npm_config_ignore_scripts: "false" });
+  assert.equal(override.status, 0, override.stderr);
+  assert.equal(override.stdout, "true:false");
+  const workspace = run({ npm_config_workspace: "fixture-child" });
+  assert.equal(workspace.status, 2, workspace.stderr);
+  assert.match(workspace.stderr, /cannot use npm workspace selectors/);
+});
+
+test("Round GQ failed npm workers emit the same unknown policy in both probe modes", { skip: process.platform === "win32" }, t => {
+  const root = mkdtempSync(join(tmpdir(), "release-npm-failed-probe-"));
+  t.after(() => removeRuntimeFixture(root));
+  symlinkSync(npmCli(), join(root, "npm"));
+  const probe = join(workflowToolsRoot, "scripts/project-npm-lifecycle.ts");
+  const options = { cwd: root, env: { ...process.env, PATH: root }, encoding: "utf8" as const };
+  for (const body of ["exit 9", "printf 'unexpected policy'"]) {
+    writeFileSync(join(root, "node"), "#!/bin/sh\n" + body + "\n", { mode: 0o755 });
+    assert.equal(execFileSync(process.execPath, [probe, "--policy"], options), "unknown:unknown");
+    assert.equal(execFileSync(process.execPath, [probe], options), "unknown");
+  }
+});

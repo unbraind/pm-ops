@@ -1575,10 +1575,11 @@ function customForwardDelimiters(
       // Preserve a generator's trailing status checks, logging and Git steps.
       if (hasGenerator && (generatorCommand(invocation) || DATA_CONSUMERS.has(program)
         || [":", "true", "false", "git"].includes(program))) return undefined;
-      if (blockedTarget) refuseHook("Custom script " + JSON.stringify(blockedTarget) + " cannot receive forwarded arguments. Move the logic into a script file");
+      const hasOption = hasCustomIncludeEmpty(invocation);
+      if (blockedTarget && !hasOption) refuseHook("Custom script " + JSON.stringify(blockedTarget) + " cannot receive forwarded arguments. Move the logic into a script file");
       const args = invocation.slice(generatorEntryIndex(invocation) + 1);
       const boundary = args.findIndex(word => word.value === "--");
-      return { count, terminator: args[boundary], hasOption: hasCustomIncludeEmpty(invocation) };
+      return { count, terminator: args[boundary], hasOption };
     }
     if (forward.runner === "npm" && !forward.npmSeparator) count++;
     const text = scripts.get(forward.target!);
@@ -1609,12 +1610,7 @@ export function includeEmptyCustomHook(
   const boundary = separator ? args.indexOf(separator) : -1;
   const route = customForwardDelimiters(invocation, scripts, hasGenerator, allowStatusOnly);
   if (!route) return script; // The generator receives the flag in its own script.
-  const { count, terminator } = route;
-  if (terminator && !spans.has(terminator)) {
-    if (route.hasOption) return script;
-    refuseHook("Custom renderer ends option parsing in a shared script. Use a single script entry point");
-  }
-  const flag = args.slice(boundary + 1, terminator ? args.indexOf(terminator) : undefined).find(word => word.value === INCLUDE_EMPTY_FLAG);
+  const { count, terminator, hasOption } = route;
   const edits: HookEdit[] = [];
   for (const word of args.slice(0, Math.max(0, boundary))) {
     if (word.value !== INCLUDE_EMPTY_FLAG) continue;
@@ -1622,13 +1618,18 @@ export function includeEmptyCustomHook(
     const padding = /^[ \t]*/.exec(script.slice(end))![0].length;
     edits.push({ start, end: end + padding, text: "" });
   }
-  if (!flag || count > 0) {
-    const before = flag ?? terminator;
-    const offset = before ? spans.get(before)!.start : spans.get(invocation.at(-1)!)!.end;
-    const option = "-- ".repeat(count) + INCLUDE_EMPTY_FLAG;
-    const text = flag ? "-- ".repeat(count) : terminator ? option + " " : " " + option;
-    edits.push({ start: offset, end: offset, text });
+  if (hasOption) return applyHookEdits(script, edits);
+  if (terminator && !spans.has(terminator)) {
+    refuseHook("Custom renderer ends option parsing in a shared script. Use a single script entry point");
   }
+  // Reuse a saved flag still blocked by an npm boundary. If all boundaries are
+  // open, the effective argv already showed that this text is only an operand.
+  const flag = count > 0 ? args.slice(boundary + 1).find(word => word.value === INCLUDE_EMPTY_FLAG) : undefined;
+  const before = flag ?? terminator;
+  const offset = before ? spans.get(before)!.start : spans.get(invocation.at(-1)!)!.end;
+  const option = "-- ".repeat(count) + INCLUDE_EMPTY_FLAG;
+  const text = flag ? "-- ".repeat(count) : terminator ? option + " " : " " + option;
+  edits.push({ start: offset, end: offset, text });
   return applyHookEdits(script, edits);
 }
 

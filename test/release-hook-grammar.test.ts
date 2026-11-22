@@ -2972,3 +2972,38 @@ test("terminal exit keeps its argv and refuses a later reachable renderer candid
   assert.throws(() => includeEmptyCustomHook("npm run render", new Map([["render", "node notes.mjs; exit 0"]])),
     /cannot receive forwarded arguments/);
 });
+
+test("Round GQ here-string operands stay off the generator argv", () => {
+  const command = "pm-changelog " + standing;
+  for (const operator of ["<<< ", "<<<", "0<<< "]) {
+    const hook = command + " " + operator + "--date-fallback";
+    const [words] = parseReleaseHook(hook).commands;
+    const redirect = words.find(word => shellRedirection(word));
+    assert.equal(shellRedirection(redirect!)?.operator, operator.trim());
+    assert.deepEqual(auditInvocations([workflow(hook)]).failures, []);
+    assert.equal(rewriteReleaseHeadingDate(hook, day),
+      "pm-changelog --release-version-from-package --date-fallback " + day + " " + operator + "--date-fallback");
+  }
+});
+
+test("Round GQ actual date arguments and both here-document forms retain their meaning", () => {
+  const command = "pm-changelog " + standing;
+  assert.throws(() => rewriteReleaseHeadingDate(command + " --date-fallback 2026-10-24", day),
+    /Mutually exclusive --date-from-version and --date-fallback/);
+  for (const [operator, indent] of [["<<", ""], ["<<-", "\t"]]) {
+    const data = "cat " + operator + "EOF > notes.txt\n" + indent + "--date-fallback\n" + indent + "EOF\n";
+    assert.equal(rewriteReleaseHeadingDate(data + command, day),
+      data + "pm-changelog --release-version-from-package --date-fallback " + day);
+  }
+});
+
+test("Round GQ option-shaped operands do not satisfy custom renderer policy", () => {
+  const quotedOperand = "node notes.mjs --pm-arg --include-empty";
+  const prepared = quotedOperand + " --include-empty";
+  assert.equal(includeEmptyCustomHook(quotedOperand, new Map()), prepared);
+  assert.equal(includeEmptyCustomHook(prepared, new Map()), prepared);
+  const forwarded = "npm run writer -- --include-empty";
+  const scripts = new Map([["writer", "node notes.mjs --pm-arg"]]);
+  assert.equal(includeEmptyCustomHook(forwarded, scripts), forwarded + " --include-empty");
+  assert.equal(includeEmptyCustomHook(forwarded + " --include-empty", scripts), forwarded + " --include-empty");
+});

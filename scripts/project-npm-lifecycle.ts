@@ -82,8 +82,11 @@ async function probeLauncher(bundle: boolean): Promise<void> {
   try {
     const runtime = npmLauncherRuntime();
     if (realpathSync(runtime.node) !== realpathSync(process.execPath)) {
-      const result = spawnSync(runtime.node, [fileURLToPath(import.meta.url), process.argv[2] ?? "", runtime.cli], { encoding: "utf8" });
-      if (result.status !== null) {
+      // npm supports Node versions that cannot load this TypeScript entry point.
+      const worker = fileURLToPath(new URL("../dist/scripts/project-npm-lifecycle.js", import.meta.url));
+      const result = spawnSync(runtime.node, [worker, process.argv[2] ?? "", runtime.cli], { encoding: "utf8" });
+      const policy = bundle ? /^(true|false|unknown):(true|false|unknown)$/ : /^(true|false|unknown)$/;
+      if (result.status === WORKSPACE_SELECTION_EXIT || (result.status === 0 && policy.test(result.stdout))) {
         process.stdout.write(result.stdout);
         process.stderr.write(result.stderr);
         process.exitCode = result.status;
