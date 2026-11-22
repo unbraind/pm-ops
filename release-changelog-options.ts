@@ -260,7 +260,8 @@ function forwardedLifecycle(
   environment?: ReturnType<typeof lifecycleEnvironment>,
 ): { enabled: NpmLifecycle; nested: NpmLifecycle; configured: NpmLifecycle } {
   // Some script shells drop environment names containing hyphens.
-  const fallback = environment?.clearsAlias ? "unknown" : inheritedFallback;
+  const clearsFallback = environment?.clearsAlias && (environment.clearsCanonical || environment.active === undefined);
+  const fallback = clearsFallback ? "unknown" : inheritedFallback;
   const retained = environment?.alias ?? fallback;
   const portable = environment?.portableAlias ?? fallback;
   const configured = retained === portable ? portable : "unknown";
@@ -895,7 +896,8 @@ export function visitChangelogScriptCommands(
   type InvocationLifecycle = ReturnType<typeof forwardedLifecycle>;
   const entryLifecycles = new Map<string, InvocationLifecycle[]>();
   const visited = new Set<string>();
-  const withoutArgs = new Map<string, number>();
+  type CachedVisit = { depth: number; written: readonly string[] };
+  const withoutArgs = new Map<string, CachedVisit>();
   const recipients = new Map<string, ShellCommand | undefined>();
   const forwardedSeparators = new WeakSet<ShellToken>();
 
@@ -928,12 +930,21 @@ export function visitChangelogScriptCommands(
     }
     const checkContext = releasePath || knownWriters.canGenerate(name)
       || (recipient !== undefined && canReachGenerator([...recipient, ...args], knownWriters));
-    // Cache only visits that can be replayed without passing along file writes.
-    const cacheKey = args.length === 0 && written.size === 0
-      ? JSON.stringify([checkContext, lifecycle, configured, uncertainLifecycle, config, name, [...bindings].sort()])
+    const writtenCount = written.size;
+    const cacheKey = args.length === 0
+      ? JSON.stringify([checkContext, lifecycle, configured, uncertainLifecycle, config, name, [...bindings].sort(), [...written].sort()])
       : undefined;
-    const depth = hooks ? parents.length : 0;
-    if (cacheKey !== undefined && (withoutArgs.get(cacheKey) ?? -1) >= depth) return;
+    let memo: CachedVisit | undefined;
+    if (cacheKey !== undefined) {
+      const depth = hooks ? parents.length : 0;
+      const cached = withoutArgs.get(cacheKey);
+      if (cached && cached.depth >= depth) {
+        for (const file of cached.written) written.add(file);
+        return;
+      }
+      memo = { depth, written: [] };
+      withoutArgs.set(cacheKey, memo);
+    }
     visited.add(name);
     const invocationNames = checkContext ? names : knownWriters;
     if (uncertainLifecycle && knownWriters.canGenerate(name, undefined, true, [], lifecycle, configured)) {
@@ -998,7 +1009,8 @@ export function visitChangelogScriptCommands(
           isNpm && forward.bindings.length ? new Set([...bindings, ...forward.bindings]) : bindings, { reloadable, mayHaveChanged: previouslyRan }, written);
       }
     }
-    if (cacheKey !== undefined && written.size === 0) withoutArgs.set(cacheKey, depth);
+    // A cached visit must still leave its possible writes visible to the caller.
+    if (memo && written.size !== writtenCount) memo.written = [...written];
   }
 
   /** Take the implicit siblings from this invocation, and pass its exported policy into their bodies. */

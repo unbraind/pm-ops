@@ -1101,6 +1101,9 @@ test("forwarded release hooks share possible writes across the call and lifecycl
     assert.throws(() => rewriteReleaseHookDates(manifest, entry, day, true), refuse, hook);
     assert.throws(() => assertReleaseHookHeadingDate(manifest, entry, day, "2026.11.17", true), refuse, hook);
   }
+  const shared = { check: "npm run relay", "changelog:full": "npm run relay; " + writer, relay: write };
+  assert.throws(() => resolveChangelogHooks(shared, ["check", "changelog:full"], true), /generated release hook file/);
+  assert.doesNotThrow(() => resolveChangelogHooks({ ...shared, relay: "printf data >preview.txt" }, ["check", "changelog:full"], true));
   for (const hook of ["npm run writer", "printf 'fixture data' >preview.txt; npm run writer"]) {
     const scripts = new Map([["changelog:full", hook], ["writer", writer]]);
     assert.equal(resolveChangelogHooks(Object.fromEntries(scripts), ["changelog:full"], true).get("writer"), writer);
@@ -2030,6 +2033,8 @@ test("empty npm settings preserve remaining aliases and refuse a fallback that m
   assert.equal(inspect("env npm_config_ignore_scripts= NPM_CONFIG_IGNORE_SCRIPTS=true npm run writer").has("prewriter"), false);
   assert.throws(() => inspect("env NPM_CONFIG_IGNORE_SCRIPTS= npm run writer"), /ignore-scripts.*prewriter/);
   assert.doesNotThrow(() => inspect("env NPM_CONFIG_IGNORE_SCRIPTS= npm run writer", "true"));
+  assert.throws(() => inspect("env npm_config_ignore_scripts= NPM_CONFIG_IGNORE_SCRIPTS= npm run writer"), /ignore-scripts.*prewriter/);
+  assert.doesNotThrow(() => inspect("env npm_config_ignore_scripts= NPM_CONFIG_IGNORE_SCRIPTS= npm run writer", "true"));
   const prefix = "node refresh.mjs; env npm_config_ignore_scripts= npm";
   assert.throws(() => inspect(prefix + " run writer"), /ignore-scripts.*prewriter/);
   assert.equal(inspect(prefix + " --ignore-scripts=true run writer").has("prewriter"), false);
