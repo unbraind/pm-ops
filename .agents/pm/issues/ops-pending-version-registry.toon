@@ -6,9 +6,10 @@ status: in_progress
 priority: 1
 tags[2]: "area:release","gh:unbraind/pm-ops#290"
 created_at: "2026-11-16T19:12:48.646Z"
-updated_at: "2026-11-16T22:24:16.061Z"
+updated_at: "2026-11-23T20:44:25.340Z"
 author: codex-sol
 acceptance_criteria: "An untagged version already on npm selects today; a truly unpublished pending version resumes after rollover; tagged versions, calendar cap, package policy, hasChanges and recovery_tag retain their behavior; registry read errors fail closed; stale merged candidates retire with a clear notice or an explicit safe owner action; targeted gates pass."
+repro_steps: "Give the package a calendar version that already exists on npm but has no git tag and no GitHub Release (a hand-published coordinate). Run the daily release prepare step: the planner equates the untagged version with unpublished intent and never reads the registry, so the registry-held version is selected as the pending candidate; prepare and reconcile then trap on the unpublishable candidate, and its merged candidates can never publish until the coordinate is retired by hand."
 comments[10]{created_at,author,text}:
   "2026-11-16T19:13:57.337Z",codex-sol,"Root cause: decideDailyRelease equates an untagged calendar version with unpublished intent; prepare never reads npm. Existing explicit retirement refuses every occupied npm coordinate and any attempt journal. Plan: fail-closed prepare lookup; separate automatic occupied-candidate retirement only when npm publication predates the trusted preparation run, with no tag or GitHub Release, preserving the exact retired receipt and requiring a current-main probe. This also safely handles failed attempts against a pre-existing immutable coordinate."
   "2026-11-16T19:17:10.947Z",codex-sol,"Implementation: optional registryHasCurrentVersion preserves all other planner rules; prepare accepts only an exact successful npm version response or authoritative E404, refusing errors. Occupied retirement additionally requires registry time predating preparation, unchanged merged source, green protection, no tag/Release, and a current-main probe. Receipt retirement is confirmed before clearing pending; publication modes reject this action. Focused suite now passes 157 tests; typecheck passes. Changelog check currently reports a pre-existing release-heading date mismatch, under baseline verification."

@@ -6,9 +6,10 @@ status: open
 priority: 1
 tags[3]: coverage,release,tests
 created_at: "2026-11-10T16:27:14.620Z"
-updated_at: "2026-11-10T17:20:57.591Z"
+updated_at: "2026-11-23T20:44:22.425Z"
 author: claude-orchestrator
 acceptance_criteria: "The continuation fixture starts every test with NPM_PROJECT_PATH cleared, like POST_RELEASE_SCRIPT; The coverage gate reaches 100% with NPM_PROJECT_PATH set in the ambient environment"
+repro_steps: "In the daily release job, NPM_PROJECT_PATH is exported through GITHUB_ENV before the release coverage gate runs (observed in release run 42807281840, 2026-11-10). Run the release coverage gate inside that job: the continuation adapter test inherits the exported NPM_PROJECT_PATH, so the default-cwd branch of scripts/release-continuation.ts is never taken, branch coverage of that script falls to 99.81 percent, and the gate fails with \"Coverage for branches (99.81%) does not meet threshold (100%)\". The same gate reports 100 percent in PR CI, which does not export the variable."
 actual_result: "Run release checks: ERROR: Coverage for branches (99.81%) does not meet threshold (100%) for scripts/release-continuation.ts (line 375)."
 comments[2]{created_at,author,text}:
   "2026-11-10T16:27:16.932Z",claude-orchestrator,"Fix: the fixture now deletes NPM_PROJECT_PATH next to POST_RELEASE_SCRIPT. Evidence with NPM_PROJECT_PATH exported as in the release job: adapter test alone 62/0, branch coverage of release-continuation.ts 99.62% before and 99.81% after (the other test files cover the remaining branches). Full npm run coverage with the variable set: 1651 tests, 1649 pass, 0 fail; release-continuation.ts 100/100/100/100; all 48 files meet thresholds. Without the fix, the daily release reported 99.81% (line 375)."
