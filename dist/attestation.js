@@ -17,14 +17,13 @@
  *
  * @packageDocumentation
  */
-import { describeUnsupportedReleaseHook, unsupportedReleaseConstruct } from "./release-shell-constructs.js";
-import { parseReleaseHook } from "./release-hook-grammar.js";
+import { describeUnsupportedReleaseHook, releaseCommandConstructs, unsupportedReleaseConstruct } from "./release-shell-constructs.js";
 import { readRegularText } from "./regular-input.js";
 import { execFileSync } from "./subprocess.js";
 import { closeSync, constants, fstatSync, statSync, openSync, readSync } from "node:fs";
 import { resolve } from "node:path";
 import { isNode, parse, parseDocument } from "yaml";
-import { bashArrayDeclarations, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, declarationPrefixLength, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, isolateShellChildren, joinContinuations, releaseHookConstructProblem, scalarAssignmentEvents, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
+import { bashArrayDeclarations, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, declarationPrefixLength, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, isolateShellChildren, joinContinuations, scalarAssignmentEvents, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
 import { tallyFlaggedInvocations } from "./invocation-audit.js";
 import { inspectReleaseCaller } from "./release-caller.js";
 /** The flag that attaches a build attestation to the published tarball. */
@@ -352,9 +351,10 @@ function startsIfSiblingArm(segment) {
  * @param raw - Shell body before lexical child isolation and continuation folding.
  * @param depth - Shared bounded child-recursion depth.
  * @param arithmetic - Inspect only executable children of arithmetic operands.
+ * @param workflowHook - A workflow location where publish commands must use supported shell forms.
  * @returns The publish invocations found, in file order.
  */
-function publishInvocationsInShell(source, raw, depth = 0, arithmetic = false) {
+function publishInvocationsInShell(source, raw, depth = 0, arithmetic = false, workflowHook) {
     if (depth > 8)
         return [];
     /** Child lexical state is audited separately before parent bindings are expanded. */
@@ -543,16 +543,19 @@ function publishInvocationsInShell(source, raw, depth = 0, arithmetic = false) {
         }
         return rendered.join("");
     }).join("\n");
-    const found = classifyPublishCommands(source, tokenizeCommands(expanded));
+    const found = classifyPublishCommands(source, tokenizeCommands(expanded), workflowHook);
     for (const child of isolated.children) {
-        found.push(...publishInvocationsInShell(source, child.text, depth + 1, child.arithmetic));
+        found.push(...publishInvocationsInShell(source, child.text, depth + 1, child.arithmetic, workflowHook));
     }
     return found;
 }
 /** Classify already separated command words without reinterpreting argv as shell source. */
-function classifyPublishCommands(source, commands) {
+function classifyPublishCommands(source, commands, workflowHook) {
     const found = [];
+    const constructs = workflowHook === undefined ? undefined : releaseCommandConstructs(commands, "workflow");
     for (const command of commands) {
+        const construct = constructs?.get(command);
+        const constructProblem = construct && describeUnsupportedReleaseHook(construct, workflowHook);
         // Every reading, not just the command's own: a wrapper option that takes a
         // value (`sudo -u root npm publish`) moves the program past where naming it
         // once would look. Missing a publish is a failed audit; offering one that no
@@ -591,7 +594,7 @@ function classifyPublishCommands(source, commands) {
             // cannot disprove.
             const wrapper = dependencyPublishWrapper(candidate, spawnedAsCommand(command) || spawnedAsCommand(candidate));
             if (wrapper !== undefined) {
-                found.push({ file: source.file, program: wrapper, command: candidate, wrapper });
+                found.push({ file: source.file, program: wrapper, command: candidate, wrapper, ...(constructProblem ? { constructProblem } : {}) });
                 continue;
             }
             const args = commandArguments(candidate);
@@ -657,7 +660,7 @@ function classifyPublishCommands(source, commands) {
             // collapsing them would report one of them as if the other did not exist.
             const unresolvedReason = unresolvedProgram ? "executable expansion"
                 : unresolvedArguments ? "publisher arguments from expansion or spawning input" : undefined;
-            found.push({ file: source.file, program, command: candidate, unresolved: unresolvedReason });
+            found.push({ file: source.file, program, command: candidate, unresolved: unresolvedReason, ...(constructProblem ? { constructProblem } : {}) });
         }
     }
     return found;
@@ -914,7 +917,7 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windo
     let mayStopOnFailure = errexit;
     let nounset = false;
     let uncertainShellOptions = false;
-    const branchFailures = [];
+    const branches = [];
     let mayFailAtEnd = false;
     const lines = text.split(/\r?\n/);
     const bodies = heredocBodyLines(lines);
@@ -927,18 +930,25 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windo
             continue;
         }
         if (/^if test -f [\w.-]+; then$/.test(line)) {
-            branchFailures.push(false);
+            branches.push({ incomingNounset: nounset, nounset: false, incomingErrexit: mayStopOnFailure, errexit: false, failed: false });
             mayFailAtEnd = false;
             continue;
         }
-        if (branchFailures.length && (line === "else" || /^elif test -f [\w.-]+; then$/.test(line))) {
-            if (mayFailAtEnd)
-                branchFailures[branchFailures.length - 1] = true;
+        const branch = branches.at(-1);
+        if (branch && (line === "else" || /^elif test -f [\w.-]+; then$/.test(line))) {
+            branch.failed ||= mayFailAtEnd;
+            branch.nounset ||= nounset;
+            nounset = branch.incomingNounset;
+            branch.errexit ||= mayStopOnFailure;
+            mayStopOnFailure = branch.incomingErrexit;
             mayFailAtEnd = false;
             continue;
         }
-        if (branchFailures.length && line === "fi") {
-            mayFailAtEnd = branchFailures.pop() || mayFailAtEnd;
+        if (branch && line === "fi") {
+            branches.pop();
+            mayFailAtEnd ||= branch.failed;
+            nounset ||= branch.nounset;
+            mayStopOnFailure ||= branch.errexit;
             continue;
         }
         if (!line || line.startsWith("#"))
@@ -952,7 +962,7 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windo
         }
         if (optionFlags.includes("e")) {
             mayStopOnFailure = true;
-            if (branchFailures.length === 0)
+            if (branches.length === 0)
                 errexit = true;
         }
         if (optionFlags.includes("u"))
@@ -994,7 +1004,7 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windo
             records = undefined;
             continue;
         }
-        const conditional = conditionalStep || uncertainShellOptions || branchFailures.length > 0 || (unquoted && !errexit);
+        const conditional = conditionalStep || uncertainShellOptions || branches.length > 0 || (unquoted && !errexit);
         if (!append) {
             if (conditional) {
                 if (records)
@@ -1099,7 +1109,8 @@ export function executableShellBodies(source) {
             const afterFailure = canRunAfterFailure(step.if);
             const priorUncertain = (uncertainOnFailure && afterFailure)
                 || [data?.env, job.env, step.env].some(layer => typeof layer === "string");
-            const stepLifecycle = Object.entries(stepEnv).some(([key, value]) => /^npm_config_ignore[-_]scripts$/i.test(key) && [true, false, "true", "false"].includes(value));
+            const stepLifecycle = Object.entries(stepEnv).some(([key, value]) => (windowsRunner ? key.toLowerCase() : key) === IGNORE_SCRIPTS_ENV
+                && [true, false, "true", "false"].includes(value));
             // Later definite writes can restore individual names on the successful path.
             // Other spellings of the same npm setting may still be present.
             const producerEnvironment = priorUncertain || (unknownNames && afterFailure) ? stepEnv
@@ -1231,20 +1242,12 @@ function opaquePublishInvocations(source, body) {
 export function publishInvocationsIn(source) {
     return executableShellBodies(source).flatMap((body) => {
         const cursors = new Map();
+        const hook = !body.disabled && isWorkflowYaml(source.file) ? body.containerJob ?? source.file + ":" + body.line : undefined;
         const invocations = body.argv === undefined
-            ? [...publishInvocationsInShell(source, body.text), ...opaquePublishInvocations(source, body.text)]
+            ? [...publishInvocationsInShell(source, body.text, 0, false, hook), ...opaquePublishInvocations(source, body.text)]
             : publishInvocationsInArgv(source, body.argv);
-        const hook = body.containerJob ?? source.file + ":" + body.line;
-        let constructProblem;
-        if (!body.disabled && invocations.length > 0 && isWorkflowYaml(source.file)) {
-            if (body.containerJob !== undefined) {
-                constructProblem = describeUnsupportedReleaseHook("container job", hook);
-            }
-            else {
-                const { commands, spans } = parseReleaseHook(body.text, "workflow");
-                constructProblem = releaseHookConstructProblem(commands, body.text, spans, hook, "workflow")?.problem;
-            }
-        }
+        const constructProblem = hook !== undefined && body.containerJob !== undefined
+            ? describeUnsupportedReleaseHook("container job", hook) : undefined;
         return invocations.map((invocation) => ({
             ...invocation,
             ...(constructProblem ? { constructProblem } : {}),

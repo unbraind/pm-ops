@@ -143,3 +143,18 @@ test("a sparse source snapshot does not delete omitted workflows from the candid
   assert.equal(existsSync(join(candidate, workflow)), false);
   assert.equal(readFileSync(join(candidate, "src/main.txt"), "utf8"), "working edit\n");
 });
+
+test("Round HA candidate refuses an indexed symlink represented by a regular file", t => {
+  const { source, candidate, env, git } = snapshotFixture(t, ["link.txt"]);
+  git(source, "config", "core.symlinks", "false");
+  writeFileSync(join(source, "link.txt"), "target.txt");
+  git(source, "add", "link.txt");
+  const object = git(source, "rev-parse", ":link.txt").toString().trim();
+  git(source, "update-index", "--cacheinfo", "120000," + object + ",link.txt");
+  assert.equal(readFileSync(join(source, "link.txt"), "utf8"), "target.txt");
+  assert.throws(() => mirrorTrackedSnapshot(source, candidate, env), /tracked symbolic link.*link.txt/);
+  assert.equal(readFileSync(join(candidate, "link.txt"), "utf8"), "committed\n");
+  git(source, "update-index", "--cacheinfo", "100644," + object + ",link.txt");
+  mirrorTrackedSnapshot(source, candidate, env);
+  assert.equal(readFileSync(join(candidate, "link.txt"), "utf8"), "target.txt");
+});

@@ -2,7 +2,7 @@
 /** Identify a construct outside the grammar in its current execution context. */
 export function unsupportedReleaseConstruct(construct, scope, shell = "bash") {
     if (construct === "pipefail")
-        return scope === "workflow" && shell === "sh";
+        return shell === "sh";
     return construct === "time prefix" || (construct === "container job" ? scope === "workflow" : scope === "hook");
 }
 /** Stable diagnostic code for package hook grammar refusals. */
@@ -48,10 +48,37 @@ export function readShellCaseWord(stack, value, literal, commandStart) {
     }
     return undefined;
 }
+const literalWords = new WeakMap();
+const pipedToNext = new WeakSet();
+/** Preserve physical words even for commands reconstructed inside an evaluator. */
+export function recordReleaseShellWord(word, raw) {
+    literalWords.set(word, raw);
+}
+/** Record when the next command is a stage of the same shell pipeline. */
+export function recordReleasePipeline(words) {
+    pipedToNext.add(words);
+}
+/** Apply the same construct rules and pipeline scope to every shell reader. */
+export function releaseCommandConstructs(commands, scope, rawWord) {
+    const problems = new Map();
+    let pipelineProblem;
+    for (const command of commands) {
+        const source = command.filter(word => !word.releaseKeyword);
+        const physical = rawWord && source.map(rawWord);
+        const words = physical?.every(word => word !== undefined) ? physical : source.map(word => literalWords.get(word));
+        const construct = pipelineProblem ?? unsupportedReleaseCommand(words, scope);
+        if (construct)
+            problems.set(command, construct);
+        pipelineProblem = pipedToNext.has(command) ? construct : undefined;
+    }
+    return problems;
+}
 /** Find an unsupported reserved word in unquoted command position. */
-export function unsupportedReleaseCommand(words, scope) {
+function unsupportedReleaseCommand(words, scope) {
     let negation;
     for (const word of words) {
+        if (word === undefined)
+            break;
         const raw = word.replaceAll("\\\n", "");
         if (/^\(*time$/.test(raw) && unsupportedReleaseConstruct("time prefix", scope))
             return "time prefix";

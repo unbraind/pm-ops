@@ -3,10 +3,11 @@ import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { npmLifecycle, npmLifecycleEnvironmentValues, type NpmLifecycle } from "../release-changelog-options.ts";
+import { npmLifecycle, npmLifecycleEnvironmentValues, releaseHookUsingPipefail, type NpmLifecycle } from "../release-changelog-options.ts";
 import { spawnSync } from "../subprocess.ts";
 import { isMainInvocation } from "./main-invocation.ts";
 import { npmLauncherRuntime } from "./release-runtime.ts";
+import { describeUnsupportedReleaseHook, unsupportedReleaseConstruct } from "../release-shell-constructs.ts";
 
 const WORKSPACE_SELECTION_EXIT = 2;
 const WORKSPACE_SELECTION = "Release hooks cannot use npm workspace selectors. Clear workspace or workspaces settings that select another manifest";
@@ -50,6 +51,39 @@ export function projectNpmLifecyclePolicy(cwd: string): { active: NpmLifecycle; 
   if (result.status === WORKSPACE_SELECTION_EXIT) throw new Error(WORKSPACE_SELECTION);
   const [active, configured] = result.status === 0 ? result.stdout.split(":") : [];
   return { active: parseNpmLifecycle(active), configured: parseNpmLifecycle(configured) };
+}
+
+/** Resolve npm's string setting or its platform default shell name. */
+export function npmScriptShell(setting: string, platform: NodeJS.Platform, comSpec?: string): string {
+  if (setting !== "null") return setting;
+  return platform === "win32" ? comSpec || "cmd.exe" : "sh";
+}
+
+/** Check the npm-selected script shell only when a reachable hook uses pipefail. */
+export function assertProjectNpmScriptShell(cwd: string, hooks: ReadonlyMap<string, string>): void {
+  const hook = releaseHookUsingPipefail(hooks);
+  if (hook === undefined) return;
+  let supported = false;
+  try {
+    const { node, cli } = npmLauncherRuntime();
+    const config = spawnSync(node, [cli, "config", "get", "script-shell"], { cwd, encoding: "utf8", timeout: 10_000 });
+    const configured = config.stdout?.trim();
+    if (config.status === 0 && configured && !/[\r\n]/.test(configured)) {
+      const shell = npmScriptShell(configured, process.platform, process.env.ComSpec);
+      if (/(?:^|[\\/])(?:bash|sh|dash|ash|ksh|mksh|zsh|yash|posh)(?:\.exe)?$/i.test(shell)) {
+        // npm resolves the shell using the script PATH, including project bin directories.
+        const fromRunScript = createRequire(createRequire(cli).resolve("@npmcli/run-script"));
+        const setPath: (path: string, bins: undefined, env: NodeJS.ProcessEnv) => NodeJS.ProcessEnv = fromRunScript("./set-path.js");
+        const env = setPath(realpathSync(cwd), undefined, { ...process.env, BASH_ENV: "", ENV: "" });
+        supported = spawnSync(shell, ["-c", "set -o pipefail"], { cwd, stdio: "ignore", timeout: 5000, env }).status === 0;
+      }
+    }
+  } catch {
+    // Unknown launchers cannot prove support for a shell option.
+  }
+  if (unsupportedReleaseConstruct("pipefail", "hook", supported ? "bash" : "sh")) {
+    throw new Error(describeUnsupportedReleaseHook("pipefail in npm's selected script shell", hook));
+  }
 }
 
 /** Model clearing npm's canonical key before a nested invocation reloads configuration. */

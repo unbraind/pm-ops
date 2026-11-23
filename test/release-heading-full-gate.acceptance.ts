@@ -2,60 +2,91 @@
  * Kept outside the unit-test glob because release:check itself runs that suite. */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { execFileSync } from "../subprocess.ts";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { execFileSync, spawnSync } from "../subprocess.ts";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { parse } from "yaml";
-import { runBashFixture, stepOutputs } from "./bash-fixture.ts";
+import { stepOutputs } from "./bash-fixture.ts";
 import { mirrorTrackedSnapshot } from "./release-heading-snapshot-fixture.ts";
 
 const source = process.cwd();
-const root = mkdtempSync(join(tmpdir(), "release-heading-full-gate-"));
-const candidate = join(root, "candidate");
 const env: NodeJS.ProcessEnv = {
   PATH: process.env.PATH, HOME: process.env.HOME, NODE_OPTIONS: process.env.NODE_OPTIONS,
+  SystemRoot: process.env.SystemRoot, ComSpec: process.env.ComSpec,
+  GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: "1",
   PM_TEST_DEPTH: process.env.PM_TEST_DEPTH,
   PM_TEST_TIME_SCALE: process.env.PM_TEST_TIME_SCALE,
-  PM_TELEMETRY_DISABLED: "1", NPM_CONFIG_USERCONFIG: "/dev/null",
+  PM_TELEMETRY_DISABLED: "1", NPM_CONFIG_USERCONFIG: devNull,
 };
 const cancellation = new AbortController();
 const interrupt = () => cancellation.abort(130);
 const terminate = () => cancellation.abort(143);
 process.on("SIGINT", interrupt);
 process.on("SIGTERM", terminate);
+const root = mkdtempSync(join(tmpdir(), "release-heading-full-gate-"));
+const candidate = join(root, "candidate");
 
-/** Let the parent handle cancellation while a child owns files in the candidate. */
+/** Signal the owned POSIX process group, returning false when it has already gone. */
+function signalGroup(pid: number, signal: NodeJS.Signals | 0): boolean {
+  try {
+    process.kill(-pid, signal);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    return false;
+  }
+}
+
+/** Give descendants time to release the checkout before forcing the group to stop. */
+async function terminateGroup(pid: number): Promise<void> {
+  if (!signalGroup(pid, "SIGTERM")) return;
+  const deadline = Date.now() + 2000;
+  while (signalGroup(pid, 0) && Date.now() < deadline) await delay(25);
+  if (!signalGroup(pid, "SIGKILL")) return;
+  const forced = Date.now() + 500;
+  while (signalGroup(pid, 0) && Date.now() < forced) await delay(25);
+}
+
+/** Run each command in an owned process group and wait for cancellation before cleanup. */
 async function runGateCommand(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<void> {
   cancellation.signal.throwIfAborted();
-  await new Promise<void>((resolve, reject) => {
-    const detached = process.platform !== "win32";
-    const child = spawn(command, args, { cwd, env, detached, stdio: "inherit" });
-    /** Stop npm and its descendants together before removing their checkout. */
-    function stopChild(): void {
-      if (!detached || child.pid === undefined) {
+  const windows = process.platform === "win32";
+  const batch = windows && command === "npm";
+  const child = spawn(batch ? "npm.cmd" : command, args, { cwd, env, detached: !windows, shell: batch, stdio: "inherit" });
+  let stopping: Promise<void> | undefined;
+  /** Start shutdown while the direct child still identifies the owned tree. */
+  function stopChild(): void {
+    if (child.pid === undefined) return;
+    if (windows) {
+      const kill = spawnSync("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], { stdio: "ignore", windowsHide: true });
+      if (kill.status !== 0) child.kill();
+    } else {
+      stopping = terminateGroup(child.pid).catch(error => {
         child.kill();
-        return;
-      }
-      try {
-        process.kill(-child.pid, "SIGTERM");
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ESRCH") child.kill();
-      }
+        console.error("Could not stop the release gate process group: " + (error as Error).message);
+      });
     }
-    cancellation.signal.addEventListener("abort", stopChild, { once: true });
-    child.once("error", reject);
-    child.once("close", (code, signal) => {
-      cancellation.signal.removeEventListener("abort", stopChild);
-      if (code === 0) resolve();
-      else reject(new Error(`${command} exited with ${code ?? signal}`));
+  }
+  cancellation.signal.addEventListener("abort", stopChild, { once: true });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", (code, signal) => {
+        if (code === 0) resolve();
+        else reject(new Error(command + " exited with " + (code ?? signal)));
+      });
     });
-  });
-  cancellation.signal.throwIfAborted();
+    cancellation.signal.throwIfAborted();
+  } finally {
+    cancellation.signal.removeEventListener("abort", stopChild);
+    await stopping;
+  }
 }
 
 try {
-  await runGateCommand("git", ["clone", "--quiet", "--shared", source, candidate], source, env);
+  await runGateCommand("git", ["clone", "--quiet", "--shared", "--config", "core.autocrlf=false", source, candidate], source, env);
   const origin = execFileSync("git", ["remote", "get-url", "origin"], { cwd: source, env, encoding: "utf8" }).trim();
   execFileSync("git", ["remote", "set-url", "origin", origin], { cwd: candidate, env });
   // Include the current, reviewable source and tracker edits rather than testing
@@ -84,9 +115,10 @@ try {
     const step = definition.jobs.prepare.steps.find((entry: { name?: string }) => entry.name === name);
     const policy = name === "Generate changelog and release notes"
       ? stepOutputs(readFileSync(outputs, "utf8")) : {};
-    const prepared = runBashFixture(step.run, { cwd: candidate, env: { ...releaseEnv, GITHUB_OUTPUT: outputs,
-      PREPARED_NPM_LIFECYCLE: policy.npm_lifecycle, PREPARED_NPM_LIFECYCLE_CONFIGURED: policy.npm_lifecycle_configured }, encoding: "utf8" });
-    assert.equal(prepared.status, 0, prepared.stdout + prepared.stderr);
+    const fixture = join(root, "workflow-step.sh");
+    writeFileSync(fixture, step.run, { mode: 0o600 });
+    await runGateCommand("bash", ["--noprofile", "--norc", fixture], candidate, { ...releaseEnv, GITHUB_OUTPUT: outputs,
+      PREPARED_NPM_LIFECYCLE: policy.npm_lifecycle, PREPARED_NPM_LIFECYCLE_CONFIGURED: policy.npm_lifecycle_configured });
   }
   const rewritten = JSON.parse(readFileSync(join(candidate, "package.json"), "utf8")) as { version: string; scripts: Record<string, string> };
   assert.equal(rewritten.version, releaseEnv.NPM_VERSION);
@@ -106,7 +138,7 @@ try {
   if (!cancellation.signal.aborted) throw error;
   process.exitCode = cancellation.signal.reason;
 } finally {
-  rmSync(root, { recursive: true, force: true });
+  rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   process.off("SIGINT", interrupt);
   process.off("SIGTERM", terminate);
 }

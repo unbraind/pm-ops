@@ -3614,3 +3614,146 @@ test("Round GY long quoted control-word argv remains literal in the shell scanne
   const commands = tokenizeCommands('case "$MODE" in (fast) echo ready ;; esac');
   assert.ok(commands.some(words => commandName(words) === "echo"));
 });
+
+test("Round HA workflow branch options only affect reachable reads", () => {
+  const policy = (run: string) => npmLifecycle(undefined, executableShellBodies({
+    file: ".github/workflows/env.yml", text: stringify({ jobs: { release: { "runs-on": "ubuntu-latest", steps: [
+      { shell: "bash {0}", run }, { run: "true", if: "always()" },
+    ] } } }),
+  })[1].environment);
+  const condition = "if test -f marker; then\n";
+  const read = 'echo "$RECORD" >> "$GITHUB_ENV"';
+  const overwrite = '\necho npm_config_ignore_scripts=true > "$GITHUB_ENV"';
+  assert.equal(policy(condition + "set -u\nelse\n" + read + "\nfi" + overwrite), false);
+  assert.equal(policy(condition + "set -u\n" + read + "\nelse\ntrue\nfi" + overwrite), "unknown");
+  assert.equal(policy(condition + "set -u\nelse\ntrue\nfi\n" + read + overwrite), "unknown");
+  const cat = 'cat missing >> "$GITHUB_ENV"';
+  assert.equal(policy(condition + "set -e\nelse\n" + cat + "\nfi" + overwrite), false);
+  assert.equal(policy(condition + "set -e\n" + cat + "\nelse\ntrue\nfi" + overwrite), "unknown");
+});
+
+test("Round HA a step override respects runner environment name equality", () => {
+  const policy = (runner: string, name: string) => npmLifecycle(undefined, executableShellBodies({
+    file: ".github/workflows/env.yml", text: stringify({ jobs: { release: { "runs-on": runner, steps: [
+      { uses: "example/setup@v1" },
+      { run: "true", env: { [name]: "true" } },
+    ] } } }),
+  })[0].environment);
+  assert.equal(policy("ubuntu-latest", "NPM_CONFIG_IGNORE_SCRIPTS"), "unknown");
+  assert.equal(policy("ubuntu-latest", "npm_config_ignore_scripts"), false);
+  assert.equal(policy("windows-latest", "NPM_CONFIG_IGNORE_SCRIPTS"), false);
+  assert.equal(policy("windows-latest", "npm_config_ignore-scripts"), "unknown");
+});
+
+test("Round HA workflow timing is scoped to the governed command", () => {
+  const generator = "pm-changelog " + standing;
+  const publish = "npm publish --provenance";
+  for (const separator of ["\n", "; ", " && ", " || ", " |\\\n| ", " | cat\n"]) {
+    assert.deepEqual(auditPublishAttestation([workflow("time npm test" + separator + publish)]).failures, []);
+    assert.deepEqual(auditInvocations([workflow("time npm test" + separator + generator)]).failures, []);
+  }
+  const raw = "time npm test |\\\n| " + publish;
+  const { commands, spans } = tokenizeCommandsWithSpans(raw);
+  assert.equal(releaseHookConstructProblem(commands, raw, spans, "workflow", "workflow",
+    words => words.some(word => word.value === "publish")), undefined);
+  for (const prefix of ["time ", "time true | "]) {
+    assert.match(auditPublishAttestation([workflow(prefix + publish)]).failures[0] ?? "", /unsupported_construct:.*time/);
+    assert.match(auditInvocations([workflow(prefix + generator)]).failures[0] ?? "", /unsupported_construct:.*time/);
+  }
+  assert.match(auditPublishAttestation([workflow("time npx semantic-release")]).failures[0] ?? "", /unsupported_construct:.*time/);
+});
+
+test("Round HA implicit npm env cannot skip a writer sibling", () => {
+  const inspect = (script: string, scripts = {}) => resolveChangelogHooks({
+    hook: script, postenv: "pm-changelog " + standing, ...scripts,
+  }, ["hook"], true);
+  assert.throws(() => inspect("npm run --if-present env"), /unsupported_construct:.*npm.*env/);
+  assert.doesNotThrow(() => inspect("npm run --if-present missing"));
+  assert.ok(inspect("npm run --if-present env", { env: "echo ready" }).has("postenv"));
+  assert.ok(!inspect("npm --ignore-scripts=true run --if-present env").has("postenv"));
+  const audit = (notes: string) => auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts: {
+    "release:notes": notes, postenv: "pm-changelog " + standing,
+  } }) }]).failures;
+  assert.match(audit("npm run --if-present env")[0] ?? "", /unsupported_construct:.*npm.*env/);
+  assert.deepEqual(audit("npm --ignore-scripts=true run --if-present env"), []);
+  assert.deepEqual(auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts: {
+    smoke: "npm run --if-present env", postenv: "echo ready", "release:notes": "pm-changelog " + standing,
+  } }) }]).failures, []);
+});
+
+test("Round HA the last all-tags cutoff controls preparation and continuation", () => {
+  const generator = "pm-changelog --all-release-tags " + standing;
+  const rewrite = (flags: string) => rewriteReleaseHookDates(new Map([["hook", generator + flags]]), ["hook"], day, true, "2026.11.17").get("hook")!;
+  const overridden = rewrite(" --until 2026-11-16 --until=" + day);
+  assert.match(overridden, /--until 2026-11-16 --until=2026-11-17/);
+  assert.doesNotThrow(() => assertReleaseHeadingDate([overridden], day, "2026.11.17"));
+  assert.throws(() => rewrite(" --until=" + day + " --until 2026-11-16"), /overrides the prepared/);
+  assert.throws(() => rewrite(" --until --until=" + day), /--until requires a value/);
+  assert.throws(() => rewrite(" --until 2026-11-31"), /Invalid --until.*set it to 2026-11-17/);
+  assert.equal(rewriteReleaseHookDates(new Map([["hook", generator + " --until " + day]]), ["hook"], "", true,
+    "2026.11.17").get("hook"), generator + " --until " + day);
+});
+
+test("Round HA a trailing stderr log never receives the renderer's option", () => {
+  for (const suffix of ["; echo ready >&2", " && printf '%s\\n' ready 1>&2", "\necho ready > /dev/stderr",
+    "; echo ready 2>&2 >& 2"]) {
+    assert.equal(includeEmptyCustomHook("node notes.mjs" + suffix, new Map()), "node notes.mjs --include-empty" + suffix);
+  }
+  assert.equal(includeEmptyCustomHook("node notes.mjs 2>&1", new Map()), "node notes.mjs --include-empty 2>&1");
+  assert.equal(includeEmptyCustomHook("echo ready", new Map()), "echo ready --include-empty");
+  assert.throws(() => includeEmptyCustomHook("echo ready >&2", new Map()), /identify one renderer/);
+  for (const suffix of ["; echo ready", "; echo ready 2>&1 >&2", "; echo ready &>discarded", "; echo ready >&2 >discarded"]) {
+    assert.throws(() => includeEmptyCustomHook("node notes.mjs" + suffix, new Map()), /unsupported_construct:.*ambiguous output.*echo/);
+  }
+});
+
+test("Round HA reconstructing a command preserves its grouping without a source span", () => {
+  for (const command of ["bash -c 'echo time'", "bash -c '\"time\" ready'"]) {
+    const { commands, spans } = tokenizeCommandsWithSpans(command);
+    assert.equal(releaseHookConstructProblem(commands, command, spans, "hook", "hook"), undefined);
+  }
+  const timed = "bash -c 'time echo ready'";
+  const { commands, spans } = tokenizeCommandsWithSpans(timed);
+  assert.match(releaseHookConstructProblem(commands, timed, spans, "hook", "hook")?.problem ?? "", /unsupported_construct:.*time/);
+  const reconstructed = [[{ value: "echo", quoted: false, startsQuoted: false }, commands.at(-1)![0]]];
+  assert.equal(releaseHookConstructProblem(reconstructed, timed, spans, "hook", "hook"), undefined);
+});
+
+test("Round HA documents command-position timing as unsupported", () => {
+  const readme = readFileSync("README.md", "utf8");
+  const prefix = readme.split("\n").find(line => line.includes("exec") && line.includes("stdbuf") && line.includes("npx"))!;
+  assert.doesNotMatch(prefix, /`time`/);
+  assert.match(readme, /`time` in command position/);
+});
+
+test("Round HA shared construct decisions agree across release scanners", () => {
+  const hook = "release:notes";
+  const timed = /release_hook_unsupported_construct:.*time prefix/;
+  for (const prefix of ["", "env 'cache-mode=fixture' ", "env -- 'cache-mode=fixture' "]) {
+    for (const title of ["time", "'case'", "'!'"]) {
+      for (const timing of ["", "time "]) {
+        const command = timing + prefix + "pm-changelog " + standing + " --title " + title;
+        const publish = timing + prefix + "npm publish --provenance";
+        const manifest = { file: "package.json", text: JSON.stringify({ scripts: { [hook]: command } }) };
+        const { commands, spans } = tokenizeCommandsWithSpans(command);
+        const diagnoses = [
+          releaseHookConstructProblem(commands, command, spans, hook, "hook")?.problem,
+          auditInvocations([manifest]).failures[0],
+          auditInvocations([workflow(command)]).failures[0],
+          auditPublishAttestation([workflow(publish)]).failures[0],
+        ];
+        for (const apply of [
+          () => resolveChangelogHooks({ [hook]: command }, [hook]),
+          () => rewriteReleaseHookDates(new Map([[hook, command]]), [hook], day),
+        ]) {
+          try { apply(); diagnoses.push(undefined); } catch (error) { diagnoses.push((error as Error).message); }
+        }
+        assert.deepEqual(diagnoses.map(value => value ? timed.test(value) : false), Array(6).fill(Boolean(timing)), command);
+        if (!timing) assert.ok(diagnoses.every(value => value === undefined), command);
+        const guarded = (script: string) => 'case "$MODE" in (time|fast) ' + script + " ;; esac";
+        assert.deepEqual(auditInvocations([workflow(guarded(command))]).failures.map(x => timed.test(x)), timing ? [true] : []);
+        assert.deepEqual(auditPublishAttestation([workflow(guarded(publish))]).failures.map(x => timed.test(x)), timing ? [true] : []);
+      }
+    }
+  }
+});

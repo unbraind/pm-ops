@@ -18,9 +18,10 @@ export function mirrorTrackedSnapshot(source: string, candidate: string, env: No
   const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   const tracked = (cwd: string, ...flags: string[]) =>
     decoder.decode(execFileSync("git", ["ls-files", "-z", ...flags], { cwd, env })).split("\0").filter(Boolean);
-  const sourceFiles = tracked(source, "-t").map(record => {
-    const file = record.slice(2);
+  const sourceFiles = tracked(source, "-t", "--stage").map(record => {
+    const file = record.slice(record.indexOf("\t") + 1);
     if (record.startsWith("S ")) throw new Error("Cannot mirror SKIP_WORKTREE path: " + file);
+    if (record.slice(2).startsWith("120000 ")) throw new Error("Cannot mirror tracked symbolic link: " + file);
     return file;
   });
   const files = new Set(sourceFiles.filter(file => {

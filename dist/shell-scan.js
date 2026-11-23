@@ -31,7 +31,7 @@
  *
  * @packageDocumentation
  */
-import { describeUnsupportedReleaseHook, hasShellContinuation, inShellCasePattern, isShellAssignment, readShellCaseWord, readShellLogicalLine, shellCaseTerminator, unsupportedReleaseCommand } from "./release-shell-constructs.js";
+import { describeUnsupportedReleaseHook, hasShellContinuation, inShellCasePattern, isShellAssignment, readShellCaseWord, readShellLogicalLine, shellCaseTerminator, recordReleasePipeline, recordReleaseShellWord, releaseCommandConstructs } from "./release-shell-constructs.js";
 const fixedOptionNames = new WeakMap();
 const redirections = new WeakMap();
 const REDIRECTION = /^(?:[0-9]*(?:>>|>\||<>|<<<|<<-?|[<>])&?|&>>?)/;
@@ -341,14 +341,12 @@ export function tokenizeCommandsWithSpans(text) {
     return { commands: scanShellCommands(text, 0, false, undefined, spans), spans };
 }
 /** Identify the first out-of-corpus control form in a package release hook. */
-export function releaseHookConstructProblem(commands, text, spans, hook, scope) {
-    for (const words of commands) {
-        const raw = words.filter(word => !word.releaseKeyword).map(word => {
-            const span = spans.get(word);
-            return text.slice(span.start, span.end);
-        });
-        const construct = unsupportedReleaseCommand(raw, scope);
-        if (construct)
+export function releaseHookConstructProblem(commands, text, spans, hook, scope, relevant = () => true) {
+    for (const [words, construct] of releaseCommandConstructs(commands, scope, word => {
+        const span = spans.get(word);
+        return span && text.slice(span.start, span.end);
+    })) {
+        if (relevant(words))
             return { words, problem: describeUnsupportedReleaseHook(construct, hook) };
     }
     return undefined;
@@ -391,6 +389,7 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
             return;
         const token = unresolvedAt === undefined ? { value, quoted, startsQuoted } : { value, quoted, unresolved: true, startsQuoted };
         recordShellRedirection(token, text, wordStart, end);
+        recordReleaseShellWord(token, text.slice(wordStart, end));
         if (quoted && multipleWords)
             token.multipleWords = true;
         if (unresolvedAt !== undefined && quoted && !multipleWords) {
@@ -684,6 +683,18 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
                 value += character;
                 started = true;
                 continue;
+            }
+            if (character === "|") {
+                let next = index + 1;
+                while (text.startsWith("\\\n", next))
+                    next += 2;
+                if (text[next] !== "|")
+                    recordReleasePipeline(command);
+                if (text[next] === "|" || text[next] === "&") {
+                    endCommand(index);
+                    index = next;
+                    continue;
+                }
             }
             endCommand(index);
             continue;
@@ -1125,18 +1136,8 @@ export function joinContinuations(text) {
     for (let index = 0; index < lines.length - 1; index++) {
         const raw = lines[index];
         const line = raw.replace(/\r$/, "");
-        const next = lines[index + 1];
-        if (!bodies[index] && joinsShellSourceLine(line, state)) {
-            const prefix = line.slice(0, -1);
-            joined += prefix;
-            if (!state.quote) {
-                if (/[ \t]$/.test(prefix) || /^[ \t]/.test(next))
-                    joined += " ";
-                if (/^[ \t]/.test(next))
-                    state.wordStart = true;
-                lines[index + 1] = next.replace(/^[ \t]*/, "");
-            }
-        }
+        if (!bodies[index] && joinsShellSourceLine(line, state))
+            joined += line.slice(0, -1);
         else
             joined += raw + "\n";
     }
@@ -1803,6 +1804,7 @@ function heredocOpenersIn(line, quote) {
     let single = quote === "'";
     let double = quote === '"';
     let arithmeticDepth = 0;
+    let wordStart = quote === "";
     for (let index = 0; index < line.length; index += 1) {
         const character = line[index];
         if (arithmeticDepth > 0) {
@@ -1813,24 +1815,29 @@ function heredocOpenersIn(line, quote) {
             continue;
         }
         if (character === "\\" && !single) {
+            wordStart = false;
             index += 1;
             continue;
         }
         if (character === "'" && !double) {
+            wordStart = false;
             single = !single;
             continue;
         }
         if (character === '"' && !single) {
+            wordStart = false;
             double = !double;
             continue;
         }
         if (!single && character === "$" && line[index + 1] === "(" && line[index + 2] === "(") {
             arithmeticDepth = 2;
+            wordStart = false;
             index += 2;
             continue;
         }
         if (!single && !double && character === "(" && line[index + 1] === "(") {
             arithmeticDepth = 2;
+            wordStart = true;
             index += 1;
             continue;
         }
@@ -1838,8 +1845,9 @@ function heredocOpenersIn(line, quote) {
             continue;
         // A `#` opens a comment only at the start of a word, which is how bash
         // reads it: `foo#bar` is one word, not a command and a comment.
-        if (character === "#" && (index === 0 || /\s/.test(line[index - 1])))
+        if (character === "#" && wordStart)
             break;
+        wordStart = /[\s;&|<>()]/.test(character);
         if (character !== "<" || line[index + 1] !== "<")
             continue;
         if (line[index + 2] === "<") {
@@ -1884,6 +1892,7 @@ function heredocOpenersIn(line, quote) {
         if (!consumed || delimiterQuote !== undefined)
             continue;
         openers.push({ delimiter, stripTabs, expand: !quoted });
+        wordStart = false;
         index = cursor - 1;
     }
     return openers;

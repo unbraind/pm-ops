@@ -127,7 +127,7 @@ export declare function tokenizeCommandsWithSpans(text: string): {
     spans: WeakMap<ShellToken, ShellTokenSpan>;
 };
 /** Identify the first out-of-corpus control form in a package release hook. */
-export declare function releaseHookConstructProblem(commands: readonly ShellCommand[], text: string, spans: WeakMap<ShellToken, ShellTokenSpan>, hook: string, scope: ReleaseShellScope): {
+export declare function releaseHookConstructProblem(commands: readonly ShellCommand[], text: string, spans: WeakMap<ShellToken, ShellTokenSpan>, hook: string, scope: ReleaseShellScope, relevant?: (words: ShellCommand) => boolean): {
     words: ShellCommand;
     problem: string;
 } | undefined;

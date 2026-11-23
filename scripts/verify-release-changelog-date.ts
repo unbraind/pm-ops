@@ -40,7 +40,7 @@ import {
 import { isMainInvocation } from "./main-invocation.ts";
 import { tallyFlaggedInvocations } from "../invocation-audit.ts";
 import { executableShellBodies } from "../attestation.ts";
-import { assertPendingRelease, canReachGenerator, hasVersionInput, generatedWriterProblem, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, npmLifecycle, visitChangelogScriptCommands, type WorkflowReleaseStep } from "../release-changelog-options.ts";
+import { assertAllTagsCutoff, canReachGenerator, hasVersionInput, generatedWriterProblem, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, npmLifecycle, visitChangelogScriptCommands, type WorkflowReleaseStep } from "../release-changelog-options.ts";
 
 import { describeReleaseContextChange, parseReleaseHook, refuseHook } from "../release-hook-grammar.ts";
 import { releaseHookConstructProblem } from "../shell-scan.ts";
@@ -195,8 +195,8 @@ function addConfiguredHooks(
 /** Flag a nested workflow command without following its forwards into the root manifest. */
 function inspectProjectStep(file: string, text: string, line: number, directory: unknown): Invocation[] {
   const { commands, spans, heredocBodies } = parseReleaseHook(text, "workflow");
-  const construct = releaseHookConstructProblem(commands, text, spans, file + ":" + line, "workflow");
-  if (construct && commands.some(words => canReachGenerator(words))) {
+  const construct = releaseHookConstructProblem(commands, text, spans, file + ":" + line, "workflow", words => canReachGenerator(words));
+  if (construct) {
     return inspectCommand(construct.words, { file, line, command: text }, new Set(), construct.problem);
   }
   const written = new Set<string>();
@@ -265,7 +265,7 @@ function inspectCommand(words: ShellCommand, source: Pick<Invocation, "file" | "
     if (contextProblem) refuseHook(contextProblem);
     const args = changelogArguments(words, scriptNames, source.script ?? source.file);
     if (args === undefined) return [];
-    if (configuredHook) assertPendingRelease(args);
+    if (configuredHook) assertAllTagsCutoff(args);
     if (!hasVersionInput(args)) return [];
     const options = readReleaseDateOptions(args);
     return [{ ...source, args, options }];

@@ -10,7 +10,7 @@ type ReleaseConstruct = "case arms" | "shell negation" | "pipefail" | "time pref
 export function unsupportedReleaseConstruct(
   construct: ReleaseConstruct, scope: ReleaseShellScope, shell = "bash",
 ): boolean {
-  if (construct === "pipefail") return scope === "workflow" && shell === "sh";
+  if (construct === "pipefail") return shell === "sh";
   return construct === "time prefix" || (construct === "container job" ? scope === "workflow" : scope === "hook");
 }
 
@@ -67,10 +67,42 @@ export function readShellCaseWord(
   return undefined;
 }
 
+const literalWords = new WeakMap<object, string>();
+const pipedToNext = new WeakSet<readonly object[]>();
+
+/** Preserve physical words even for commands reconstructed inside an evaluator. */
+export function recordReleaseShellWord(word: object, raw: string): void {
+  literalWords.set(word, raw);
+}
+
+/** Record when the next command is a stage of the same shell pipeline. */
+export function recordReleasePipeline(words: readonly object[]): void {
+  pipedToNext.add(words);
+}
+
+/** Apply the same construct rules and pipeline scope to every shell reader. */
+export function releaseCommandConstructs<Command extends ReadonlyArray<{ releaseKeyword?: boolean }>>(
+  commands: readonly Command[], scope: ReleaseShellScope,
+  rawWord?: (word: Command[number]) => string | undefined,
+): Map<Command, string> {
+  const problems = new Map<Command, string>();
+  let pipelineProblem: string | undefined;
+  for (const command of commands) {
+    const source = command.filter(word => !word.releaseKeyword);
+    const physical = rawWord && source.map(rawWord);
+    const words = physical?.every(word => word !== undefined) ? physical : source.map(word => literalWords.get(word));
+    const construct = pipelineProblem ?? unsupportedReleaseCommand(words, scope);
+    if (construct) problems.set(command, construct);
+    pipelineProblem = pipedToNext.has(command) ? construct : undefined;
+  }
+  return problems;
+}
+
 /** Find an unsupported reserved word in unquoted command position. */
-export function unsupportedReleaseCommand(words: Iterable<string>, scope: ReleaseShellScope): string | undefined {
+function unsupportedReleaseCommand(words: Iterable<string | undefined>, scope: ReleaseShellScope): string | undefined {
   let negation: string | undefined;
   for (const word of words) {
+    if (word === undefined) break;
     const raw = word.replaceAll("\\\n", "");
     if (/^\(*time$/.test(raw) && unsupportedReleaseConstruct("time prefix", scope)) return "time prefix";
     if (/^\(*!$/.test(raw)) {

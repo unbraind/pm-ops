@@ -32,6 +32,8 @@ export declare function resolveChangelogHooks(scripts: Record<string, unknown> |
 export declare function canReachGenerator(words: ShellCommand, names?: ReadonlySet<string>, seen?: Set<string>, writing?: boolean, lifecycle?: NpmLifecycle, configured?: NpmLifecycle): boolean;
 /** Outside a release hook, trace only redirects carrying a generator or a known script forward. */
 export declare function generatedWriterProblem(words: ShellCommand, written: Set<string>, heredoc?: ShellToken, names?: ReadonlySet<string>, seen?: Set<string>): string | undefined;
+/** Find the first resolved script that enables or disables the shell's pipefail option. */
+export declare function releaseHookUsingPipefail(hooks: ReadonlyMap<string, string>): string | undefined;
 /** Whether a non-root step could run a generator or delegate to its local package scripts. */
 export declare function needsReleaseProject(words: ShellCommand, names?: ReadonlySet<string>): boolean;
 /** Read generator arguments during an audit, where only declared forwards are trusted. */
@@ -100,6 +102,8 @@ type DateOption = {
     last: ShellToken;
     day: string;
 };
+/** Preserve option/operand boundaries, including option-shaped --pm-arg data. */
+export declare function optionPositions(args: readonly Pick<ShellToken, "value">[], allowOptionOperands?: boolean): number[];
 /** Resolve the output, inspection flags, and argv consumed by the changelog adapter. */
 export declare function changelogOutputTarget<T extends Pick<ShellToken, "value" | "unresolved">>(args: readonly T[]): {
     output: Pick<ShellToken, "unresolved" | "value">;
@@ -114,6 +118,8 @@ export declare function changelogOutputTarget<T extends Pick<ShellToken, "value"
 export declare function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[];
 /** Refuse suppression of the pending heading in a versioned all-tags release. */
 export declare function assertPendingRelease(args: ShellCommand, positions?: readonly number[], advice?: string): void;
+/** All-tags generation uses an explicit cutoff as the pending release timestamp. */
+export declare function assertAllTagsCutoff(args: ShellCommand, positions?: readonly number[], headingDate?: string, packageVersion?: string, advice?: string): void;
 /** Refuse publication when a standalone generator's heading differs from the verified merge day. */
 export declare function assertReleaseHeadingDate(scripts: readonly string[], mergeDay: string, packageVersion?: string, scriptNames?: ReadonlySet<string>): void;
 /** Verify the complete generator argv from each release hook before publication. */

@@ -20,8 +20,14 @@ export type ShellCaseState = "subject" | "in" | "pattern" | "pattern-data" | "bo
 export declare function inShellCasePattern(state: ShellCaseState | undefined): boolean;
 /** Classify case words before a scanner treats them as executable argv. */
 export declare function readShellCaseWord(stack: ShellCaseState[], value: string, literal: boolean, commandStart: boolean): "open" | "header" | "pattern" | "close" | undefined;
-/** Find an unsupported reserved word in unquoted command position. */
-export declare function unsupportedReleaseCommand(words: Iterable<string>, scope: ReleaseShellScope): string | undefined;
+/** Preserve physical words even for commands reconstructed inside an evaluator. */
+export declare function recordReleaseShellWord(word: object, raw: string): void;
+/** Record when the next command is a stage of the same shell pipeline. */
+export declare function recordReleasePipeline(words: readonly object[]): void;
+/** Apply the same construct rules and pipeline scope to every shell reader. */
+export declare function releaseCommandConstructs<Command extends ReadonlyArray<{
+    releaseKeyword?: boolean;
+}>>(commands: readonly Command[], scope: ReleaseShellScope, rawWord?: (word: Command[number]) => string | undefined): Map<Command, string>;
 /** Count the physical source characters occupied by a case arm terminator. */
 export declare function shellCaseTerminator(text: string, index: number): number;
 /** Read one logical shell line and retain its physical end for edits. */

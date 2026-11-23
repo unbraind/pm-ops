@@ -1,21 +1,24 @@
 /** Release-window cardinality properties and real CLI policy integration. */
 import assert from "node:assert/strict";
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import fs, { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve, sep } from "node:path";
 import test from "node:test";
+import { syncBuiltinESMExports } from "node:module";
+import { appendReleaseReceipts, writeFileWithReceipts } from "../scripts/release-file-receipts.ts";
 import { createChangelog, resolveReleaseTagWindows, type PmItem } from "pm-changelog";
 import { execFileSync, spawnSync } from "../subprocess.ts";
 import { committedReleaseNotes } from "../release-repair.ts";
 import { describeEmptyReleases, runChangelog } from "../scripts/pm-changelog.ts";
 import { npmCli } from "../scripts/release-runtime.ts";
+import { npmScriptShell } from "../scripts/project-npm-lifecycle.ts";
 import { verify as verifySections } from "../scripts/verify-release-changelog-sections.ts";
 import { parse } from "yaml";
 import { decideDailyRelease } from "../daily-release.ts";
 import { runBashFixture, stepOutputs } from "./bash-fixture.ts";
 import { parseReleaseHook } from "../release-hook-grammar.ts";
 import { withoutRedirections } from "../shell-scan.ts";
-import { assertReleaseHeadingDate, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHeadingDate, rewriteReleaseHookDates } from "../release-changelog-options.ts";
+import { assertReleaseHeadingDate, includeEmptyReleaseSections, optionPositions, resolveChangelogHooks, rewriteReleaseHeadingDate, rewriteReleaseHookDates } from "../release-changelog-options.ts";
 
 /** Read the actual repository commands so reverting their policy breaks the proof. */
 const scripts = (JSON.parse(readFileSync(resolve("package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
@@ -56,27 +59,39 @@ function args(name: string, command = scripts[name]!): string[] {
 
 /** Match fixture tag and completion days to the date policy selected by preparation. */
 function headingDay(version: string, command: string[]): string {
-  for (let index = command.length - 1; index >= 0; index--) {
-    const arg = command[index]!;
-    if (arg === "--date-fallback") return command[index + 1]!;
-    if (arg.startsWith("--date-fallback=")) return arg.slice("--date-fallback=".length);
+  const index = fallbackDateIndexes(command).at(-1);
+  if (index !== undefined) {
+    const flag = command[index];
+    return flag === "--date-fallback" ? command[index + 1]! : flag.slice("--date-fallback=".length);
   }
   return version.split("-")[0]!.split(".").map((part, index) => part.padStart(index === 0 ? 4 : 2, "0")).join("-");
 }
 
-/** Find the first inline or separate fallback-date option in a fixture's arguments. */
-function fallbackDateIndex(command: readonly string[]): number {
-  return command.findIndex(arg => arg === "--date-fallback" || arg.startsWith("--date-fallback="));
+/** Walk fixture options without treating quoted option-shaped data as switches. */
+function fixtureOptionPositions(command: readonly string[]): number[] {
+  return optionPositions(command.map(value => ({ value })), true);
+}
+
+/** Find actual inline and separate fallback-date options in the fixture's argv. */
+function fallbackDateIndexes(command: readonly string[]): number[] {
+  return fixtureOptionPositions(command).filter(i => command[i] === "--date-fallback" || command[i].startsWith("--date-fallback="));
+}
+
+/** Remove the include-empty switches while preserving identically spelled operands. */
+function withoutFixtureIncludeEmpty(command: readonly string[]): string[] {
+  const flags = new Set(fixtureOptionPositions(command).filter(i => command[i] === "--include-empty"));
+  return command.filter((_, index) => !flags.has(index));
 }
 
 /** Restore the standing date policy while each option is still a separate argument. */
 function restoreFixtureDatePolicy(command: string[]): string[] {
-  const first = fallbackDateIndex(command);
-  if (first < 0) return command;
-  for (let fallback = first; fallback >= 0; fallback = fallbackDateIndex(command)) {
-    command.splice(fallback, command[fallback] === "--date-fallback" ? 2 : 1);
+  const fallbacks = fallbackDateIndexes(command);
+  const first = fallbacks[0];
+  if (first === undefined) return command;
+  for (const index of fallbacks.reverse()) {
+    command.splice(index, command[index] === "--date-fallback" ? 2 : 1);
   }
-  if (!command.includes("--date-from-version")) command.splice(first, 0, "--date-from-version");
+  if (!fixtureOptionPositions(command).some(index => command[index] === "--date-from-version")) command.splice(first, 0, "--date-from-version");
   return command;
 }
 
@@ -117,7 +132,7 @@ test("the generation fixture requires both lifecycle outputs to be wired in the 
 /** Fixture npm scripts that call this repository's generator with the standing policy. */
 function releaseCommands(generator = resolve("scripts/pm-changelog.ts"), node = process.execPath): Record<string, string> {
   const commands = Object.fromEntries(["changelog:full", "changelog:check", "release:notes"].map(name => [name,
-    [node, generator, ...restoreFixtureDatePolicy(args(name).filter(arg => arg !== "--include-empty"))].map(quoteFixtureArgument).join(" ")
+    [node, generator, ...restoreFixtureDatePolicy(withoutFixtureIncludeEmpty(args(name)))].map(quoteFixtureArgument).join(" ")
   ]));
   commands["release:check"] = "npm run changelog:check";
   return commands;
@@ -182,7 +197,7 @@ test("all 64 item-presence combinations retain one ordered section per real tag 
       const items: PmItem[] = tags.flatMap((tag, index) => mask & (1 << index)
         ? [{ id: `sample-${index}`, title: `Tracked change ${index}`, status: "closed", release: tag, completed_at: "2026-10-25T00:00:00Z" }]
         : []);
-      const generated = createChangelog({ items, releaseWindows, includeEmpty: args("changelog:full").includes("--include-empty"), respectItemRelease: true });
+      const generated = createChangelog({ items, releaseWindows, includeEmpty: withoutFixtureIncludeEmpty(args("changelog:full")).length !== args("changelog:full").length, respectItemRelease: true });
       const markdown = describeEmptyReleases(generated.markdown);
       assert.deepEqual(versions(markdown), [...tags].reverse().map(tag => tag.slice(1)), `mask ${mask}`);
       tags.forEach((tag, index) => {
@@ -1708,4 +1723,89 @@ test("Round GY fixture tags use the last fallback pin", () => {
   assert.equal(headingDay(version, ["--date-fallback", "2026-11-16"]), "2026-11-16");
   assert.equal(headingDay(version, ["--date-fallback=2026-11-16", "--date-fallback", "2026-11-18"]), "2026-11-18");
   assert.equal(headingDay(version, ["--date-fallback", "2026-11-16", "--date-fallback=2026-11-18"]), "2026-11-18");
+});
+
+test("Round HA the fixture preserves option-shaped title operands", () => {
+  const input = ["--title", "--date-fallback=2026-10-24", "--date-fallback", "2026-10-23"];
+  assert.equal(headingDay("2026.10.22", input.slice(0, 2)), "2026-10-22");
+  assert.equal(headingDay("2026.10.22", input), "2026-10-23");
+  assert.deepEqual(restoreFixtureDatePolicy(input), ["--title", "--date-fallback=2026-10-24", "--date-from-version"]);
+  const command = args("fixture", 'node generator --title "--include-empty" --include-empty');
+  assert.deepEqual(withoutFixtureIncludeEmpty(command), ["--title", "--include-empty"]);
+});
+
+test("Round HA a staging cleanup error cannot undo committed receipts", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-receipt-cleanup-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const changelog = join(root, "CHANGELOG.md");
+  const summary = join(root, "summary");
+  const output = join(root, "output");
+  for (const file of [changelog, summary, output]) writeFileSync(file, "old\n");
+  const realRemove = fs.rmSync;
+  let refused = 0;
+  const cleanup = t.mock.method(fs, "rmSync", (path: string, options?: fs.RmOptions) => {
+    if (String(path).includes(".release-output-") && ++refused === 1) throw new Error("cleanup fixture");
+    realRemove(path, options);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { cleanup.mock.restore(); syncBuiltinESMExports(); });
+  assert.doesNotThrow(() => writeFileWithReceipts(changelog, "new\n", () => appendReleaseReceipts([
+    { path: summary, text: "new\n" }, { path: output, text: "new\n" },
+  ])));
+  assert.equal(readFileSync(changelog, "utf8"), "new\n");
+  for (const file of [summary, output]) assert.equal(readFileSync(file, "utf8"), "old\nnew\n");
+  assert.throws(() => writeFileWithReceipts(changelog, "retry\n", () => appendReleaseReceipts([
+    { path: summary, text: "retry\n" }, { path: root, text: "retry\n" },
+  ])), /EISDIR|EPERM|EACCES/);
+  assert.equal(readFileSync(changelog, "utf8"), "new\n");
+  assert.equal(readFileSync(summary, "utf8"), "old\nnew\n");
+});
+
+test("Round HA preparation refuses shell pipefail before editing the manifest", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-hook-pipefail-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const manifest = join(root, "package.json");
+  const command = "node notes.mjs";
+  const env = releaseStepEnv(root, process.env);
+  const unavailable = process.platform === "win32" ? "cmd.exe" : join(root, "dash");
+  if (process.platform !== "win32") writeFileSync(unavailable, "#!/bin/sh\nexit 2\n", { mode: 0o755 });
+  const prepare = (options: string, shell: string | undefined = unavailable, extra: NodeJS.ProcessEnv = {}) => {
+    const source = JSON.stringify({ scripts: {
+      "changelog:full": "# no changes", "changelog:check": "# no check", "release:notes": options + command,
+    } });
+    writeFileSync(manifest, source);
+    return { source, result: spawnSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts"), join(root, "outputs")], {
+      cwd: root, env: { ...env, npm_config_script_shell: shell, ...extra }, encoding: "utf8",
+    }) };
+  };
+  for (const setting of ["set -o pipefail; ", "set -euo pipefail; "]) {
+    const { source, result } = prepare(setting);
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /unsupported_construct:.*pipefail.*release:notes/);
+    assert.equal(readFileSync(manifest, "utf8"), source);
+    assert.equal(existsSync(join(root, "outputs")), false);
+  }
+  const blocked = join(root, "blocked");
+  mkdirSync(blocked);
+  writeFileSync(join(blocked, "npm"), "#!/bin/sh\nexit 2\n", { mode: 0o755 });
+  writeFileSync(join(blocked, "npm.cmd"), "@exit /b 2\r\n");
+  assert.match(prepare("set -o pipefail; ", unavailable, { PATH: [blocked, env.PATH].join(delimiter) }).result.stderr, /unsupported_construct:.*pipefail/);
+  assert.equal(prepare("set -- -o pipefail; ").result.status, 0);
+  assert.equal(prepare("set -u; ").result.status, 0);
+  assert.equal(npmScriptShell("null", "win32"), "cmd.exe");
+  assert.equal(npmScriptShell("null", "win32", "custom.cmd"), "custom.cmd");
+  assert.equal(npmScriptShell("null", "linux"), "sh");
+  const defaultShell = process.platform !== "win32" && spawnSync("sh", ["-c", "set -o pipefail"], { stdio: "ignore" }).status === 0;
+  assert.equal(prepare("set -o pipefail; ", unavailable, { npm_config_script_shell: undefined }).result.status, defaultShell ? 0 : 1);
+  if (process.platform !== "win32") {
+    const bin = join(root, "node_modules", ".bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "bash"), "#!/bin/sh\nexit 2\n", { mode: 0o755 });
+    const shadowed = prepare("set -o pipefail; ", "bash");
+    assert.match(shadowed.result.stderr, /unsupported_construct:.*pipefail/);
+    assert.equal(readFileSync(manifest, "utf8"), shadowed.source);
+  }
+  const bash = prepare("set -o pipefail; ", process.platform === "win32" ? fixtureScriptShell() : "/bin/bash");
+  assert.equal(bash.result.status, 0, bash.result.stderr);
+  assert.match(readFileSync(manifest, "utf8"), /notes.mjs --include-empty/);
 });

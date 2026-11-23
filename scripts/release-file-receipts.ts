@@ -30,7 +30,13 @@ export function writeFileWithReceipts(destination: string, contents: string | Bu
       throw error;
     }
   } finally {
-    if (!keepBackup) rmSync(directory, { recursive: true, force: true });
+    if (!keepBackup) {
+      try {
+        rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 25 });
+      } catch (error) {
+        console.error("Could not remove release receipt staging directory: " + (error as Error).message);
+      }
+    }
   }
 }
 

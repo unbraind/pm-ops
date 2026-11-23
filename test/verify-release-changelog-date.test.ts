@@ -820,3 +820,12 @@ test("Round GW workflow esac patterns leave case arms executable", () => {
   }
   assert.deepEqual(audit("fast)", FLAGGED), []);
 });
+
+test("Round HA configured all-tags cutoffs use the effective real calendar day", () => {
+  const audit = (command: string) => auditInvocations([{ file: "package.json",
+    text: JSON.stringify({ name: "fixture", version: "2026.2.28", scripts: { "changelog:full": command } }) }]).failures;
+  const base = "pm-changelog --release-version-from-package --date-from-version";
+  assert.match(audit(base + " --all-release-tags --until 2026-02-30")[0] ?? "", /Invalid --until.*real YYYY-MM-DD/);
+  assert.deepEqual(audit(base + " --all-release-tags --until 2026-02-30 --until 2026-02-28"), []);
+  assert.deepEqual(audit(base + " --until 2026-02-30"), []);
+});

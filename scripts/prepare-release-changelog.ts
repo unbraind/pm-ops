@@ -5,7 +5,7 @@ import {
   changelogArguments, includeEmptyCustomHook, includeEmptyForwardedGenerators, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHookDates,
   visitChangelogScriptCommands,
 } from "../release-changelog-options.ts";
-import { projectNpmLifecyclePolicy } from "./project-npm-lifecycle.ts";
+import { assertProjectNpmScriptShell, projectNpmLifecyclePolicy } from "./project-npm-lifecycle.ts";
 import { appendReleaseReceipts, writeFileWithReceipts } from "./release-file-receipts.ts";
 
 try {
@@ -16,6 +16,7 @@ try {
   const hooks = [process.env.CHANGELOG_SCRIPT!, process.env.CHANGELOG_CHECK_SCRIPT!, process.env.NOTES_SCRIPT!];
   const lifecycle = projectNpmLifecyclePolicy(".");
   const resolved = resolveChangelogHooks(pkg.scripts, hooks, lifecycle);
+  assertProjectNpmScriptShell(".", resolved);
   const scriptNames = new Set(resolved.keys());
   const allScripts = new Map(Object.entries(pkg.scripts).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
   const datedHooks = rewriteReleaseHookDates(allScripts, hooks, headingDate, lifecycle, pkg.version);

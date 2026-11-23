@@ -699,7 +699,8 @@ can contain spaces, newlines, a literal `#`, or an operator.
   requires an explicit npm forward because pnpm lifecycle execution is configurable.
   Place forwarded npm arguments after `--`.
 - Recognized execution prefixes are `timeout`, `nice`, `env`, `command`,
-  `exec`, `stdbuf`, `time`, `npx`, `bunx`, `bun x` and `npm exec`.
+  `exec`, `stdbuf`, `npx`, `bunx`, `bun x` and `npm exec`.
+  Release hooks refuse `time` in command position and allow it as argument data.
   For example, `timeout "--signal" TERM 60 npm run changelog:full` has the
   same generator and arguments as the unwrapped script.
 - Separate commands with `&&`, `||`, `;` or a newline. Pipelines into ordinary output filters such as `awk` and `sed` are

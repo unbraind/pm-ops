@@ -13,7 +13,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-import { bashArrayDeclarations, bashArrays, commandArguments, commandName, dedentRunBlocks, expandArrays, joinContinuations, packageScriptCommand, shellRedirection, tokenizeCommands } from "../shell-scan.ts";
+import { bashArrayDeclarations, bashArrays, commandArguments, commandName, dedentRunBlocks, expandArrays, heredocBodyLines, joinContinuations, packageScriptCommand, shellRedirection, tokenizeCommands } from "../shell-scan.ts";
 import { auditPublishAttestation, publishInvocationsIn } from "../attestation.ts";
 import { isMainInvocation } from "../scripts/main-invocation.ts";
 
@@ -175,9 +175,7 @@ test("the main-invocation guard answers both ways", () => {
 test("a backslash continuation makes one logical command out of several lines", () => {
   assert.equal(
     joinContinuations("npm publish \\\n  --provenance \\\n  --access public\n"),
-    // The joiner replaces the backslash-newline with a single space and leaves
-    // the continuation line's own indentation, which the tokeniser then eats.
-    "npm publish  --provenance  --access public\n",
+    "npm publish   --provenance   --access public\n",
   );
   // A backslash that does not end a line is an ordinary character.
   assert.equal(joinContinuations("printf 'a\\tb'\n"), "printf 'a\\tb'\n");
@@ -397,5 +395,25 @@ test("unquoted file redirects split attached arguments while retaining descripto
     const [command] = tokenizeCommands(source);
     assert.deepEqual(commandArguments(command).map(word => word.value), args, source);
     assert.deepEqual(command.map(shellRedirection).filter(Boolean), redirects, source);
+  }
+});
+
+test("Round HA continuations remove exactly the executable newline", () => {
+  const input = "printf '%s' first\\ \\\nsecond\nprintf '%s' first\\\n  second";
+  const logical = "printf '%s' first\\ second\nprintf '%s' first  second";
+  assert.equal(joinContinuations(input), logical);
+  assert.deepEqual(tokenizeCommands(joinContinuations(input)).map(tokens => tokens.slice(2).map(word => word.value)),
+    [["first second"], ["first", "second"]]);
+});
+
+test("Round HA a comment after a separator cannot open a heredoc", () => {
+  for (const separator of [";", "&&", "||", "|", "&", ")"]) {
+    const example = "echo ready" + separator + "# << EOF\nnpm publish --provenance";
+    assert.deepEqual(heredocBodyLines(example.split("\n")), [false, false], separator);
+  }
+  assert.deepEqual(heredocBodyLines(["((1))# << EOF", "npm publish"]), [false, false]);
+  for (const word of ["name#suffix", "name\\ #suffix", "'#'", "\\#", '"name;"#', "$((1))#suffix"]) {
+    const example = "echo " + word + " <<'EOF'\nnpm publish\nEOF";
+    assert.deepEqual(heredocBodyLines(example.split("\n")), [false, true, true], word);
   }
 });

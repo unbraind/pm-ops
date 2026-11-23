@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertReleaseHookHeadingDate, releaseCommitDay, resolveChangelogHooks } from "../release-changelog-options.ts";
-import { parseNpmLifecycle, projectNpmLifecyclePolicy } from "./project-npm-lifecycle.ts";
+import { assertProjectNpmScriptShell, parseNpmLifecycle, projectNpmLifecyclePolicy } from "./project-npm-lifecycle.ts";
 import { ensureReleaseRuntime, installReleaseTools, workflowToolsRoot } from "./release-runtime.ts";
 import { originalPublicationSigner, verifyRegistryProvenance, type ProvenanceIdentity, type verifySigstoreBundle } from "../release-provenance.ts";
 import { pathToFileURL } from "node:url";
@@ -475,6 +475,7 @@ export async function runReleaseContinuation(mode: string | undefined, verifyPro
     const pkg = JSON.parse(readFileSync(join(project, "package.json"), "utf8")) as { version?: string; scripts: Record<string, string> };
     const hooks = ["CHANGELOG_SCRIPT", "CHANGELOG_CHECK_SCRIPT", "NOTES_SCRIPT"].map(required);
     const scripts = resolveChangelogHooks(pkg.scripts, hooks, lifecycle);
+    assertProjectNpmScriptShell(project, scripts);
     // The workflow has detached HEAD at the tree-verified merge commit. The
     // generator dates tags by that commit's committer timestamp (%cI), never
     // by publication time or the time the tag ref is written.

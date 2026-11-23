@@ -10,7 +10,7 @@ import {
 } from "./shell-scan.ts";
 
 import {
-  hasShellContinuation, inShellCasePattern, readShellCaseWord, readShellLogicalLine, shellCaseTerminator, unsupportedReleaseConstruct, UNSUPPORTED_RELEASE_HOOK,
+  hasShellContinuation, inShellCasePattern, readShellCaseWord, readShellLogicalLine, recordReleasePipeline, shellCaseTerminator, unsupportedReleaseConstruct, UNSUPPORTED_RELEASE_HOOK,
   type ReleaseShellScope, type ShellCaseState,
 } from "./release-shell-constructs.ts";
 
@@ -195,7 +195,10 @@ export function parseReleaseHook(text: string, scope: ReleaseShellScope = "hook"
         if (operator === "&&") followingOperators.set(words, "and");
         if (ch === "|") {
           followingOperators.set(words, operator === "||" ? "or" : "pipe");
-          if (operator !== "||") piped.add(words);
+          if (operator !== "||") {
+            piped.add(words);
+            recordReleasePipeline(words);
+          }
         }
       }
       finishCommand();

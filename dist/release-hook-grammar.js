@@ -5,7 +5,7 @@
  */
 import { basename } from "node:path";
 import { commandName, isCombinedOutputRedirect, isRedirectionSuffix, isShellEvaluator, recordShellRedirection, releaseHookCommand, shellRedirection, } from "./shell-scan.js";
-import { hasShellContinuation, inShellCasePattern, readShellCaseWord, readShellLogicalLine, shellCaseTerminator, unsupportedReleaseConstruct, UNSUPPORTED_RELEASE_HOOK, } from "./release-shell-constructs.js";
+import { hasShellContinuation, inShellCasePattern, readShellCaseWord, readShellLogicalLine, recordReleasePipeline, shellCaseTerminator, unsupportedReleaseConstruct, UNSUPPORTED_RELEASE_HOOK, } from "./release-shell-constructs.js";
 const problems = new WeakMap();
 const possibleGeneratorTargets = new WeakSet();
 const variableReferences = new WeakMap();
@@ -190,8 +190,10 @@ export function parseReleaseHook(text, scope = "hook") {
                     followingOperators.set(words, "and");
                 if (ch === "|") {
                     followingOperators.set(words, operator === "||" ? "or" : "pipe");
-                    if (operator !== "||")
+                    if (operator !== "||") {
                         piped.add(words);
+                        recordReleasePipeline(words);
+                    }
                 }
             }
             finishCommand();

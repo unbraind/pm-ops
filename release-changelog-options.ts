@@ -641,6 +641,23 @@ function unsupportedShellSemantics(words: ShellCommand): string | undefined {
   return /^(?:shopt|enable|alias|source|\.)$/.test(program.value) ? program.value : undefined;
 }
 
+/** Find the first resolved script that enables or disables the shell's pipefail option. */
+export function releaseHookUsingPipefail(hooks: ReadonlyMap<string, string>): string | undefined {
+  for (const [name, text] of hooks) {
+    const { commands } = parseReleaseHook(text);
+    for (const words of commands) {
+      const command = unwrapShellBuiltin(words);
+      if (command?.[0].value !== "set") continue;
+      for (let index = 1; index < command.length; index++) {
+        const flag = command[index].value;
+        if (flag === "--" || !/^[+-]./.test(flag)) break;
+        if (/^[+-][eu]*o[eu]*$/.test(flag) && command[++index]?.value === "pipefail") return name;
+      }
+    }
+  }
+  return undefined;
+}
+
 /** Locate the command after any shell list introducers. */
 function shellCommandStart(words: ShellCommand): number {
   const inCondition = isReleaseLoopCondition(words);
@@ -1009,15 +1026,15 @@ export function visitChangelogScriptCommands(
       const target = forwardToScript(words)?.target;
       return (target !== undefined && entryPoints.has(target)) || needsReleaseProject(words, knownWriters);
     });
-    const shellConstruct = (releasePath || scope === "workflow") && releaseHookConstructProblem(commands, text, spans, step?.label ?? name, scope);
-    const relevantShellConstruct = shellConstruct && (releasePath || commands.some(words => {
+    const shellConstruct = (releasePath || scope === "workflow") && releaseHookConstructProblem(commands, text, spans, step?.label ?? name, scope, words => {
+      if (releasePath) return true;
       const target = forwardToScript(words)?.target;
       return (target !== undefined && entryPoints.has(target)) || canReachGenerator(words, knownWriters);
-    }));
+    });
     const construct = containerCommand ? {
       words: containerCommand,
       problem: describeUnsupportedReleaseHook("container job " + JSON.stringify(job), forwardToScript(containerCommand)?.target ?? job!),
-    } : relevantShellConstruct && shellConstruct;
+    } : shellConstruct;
     if (construct) {
       if (hooks) throw new Error(construct.problem);
       if (!reportedConstructs.has(name)) {
@@ -1091,12 +1108,22 @@ export function visitChangelogScriptCommands(
           if (hooks) refuseHook(`Cannot resolve changelog script forward in ${JSON.stringify(name)}: expected a literal package.json script name`);
           continue;
         }
-        if (!names.has(forward.target) && (forward.optional || !hooks)) continue;
         if (forward.forwardedSeparator) forwardedSeparators.add(forward.forwardedSeparator);
         const isNpm = forward.runner === "npm";
         const clearsCanonical = forward.environment?.clearsCanonical;
         const fallback = clearsCanonical && previouslyRan ? "unknown" : configured;
         const policy = forwardedLifecycle(forward.lifecycle, lifecycle, fallback, forward.environment);
+        if (!names.has(forward.target)) {
+          // npm's implicit env body can execute preenv/postenv even with --if-present.
+          if (isNpm && forward.target === "env" && policy.enabled !== false
+            && names.sequence("env", true).some(sibling => sibling !== "env" && (releasePath || knownWriters.canGenerate(sibling)))) {
+            const problem = describeUnsupportedReleaseHook("npm's implicit env lifecycle", name);
+            if (hooks) throw new Error(problem);
+            inspect({ parents, name, names, text, words, effective, spans, forwardedSeparators: separators, contextProblem: problem });
+            return;
+          }
+          if (forward.optional || !hooks) continue;
+        }
         const inheritsSetting = forward.lifecycle === undefined && forward.environment === undefined;
         // An implicit reload can enable a sibling that preparation skipped.
         if (isNpm && checkContext && !npm.mainOnly && lifecycle === false && config.reloadable && previouslyRan && inheritsSetting
@@ -1195,7 +1222,7 @@ type DateOption =
 type ValidDateOption = Extract<DateOption, { kind: "version" | "pin" }>;
 
 /** Preserve option/operand boundaries, including option-shaped --pm-arg data. */
-function optionPositions(args: readonly Pick<ShellToken, "value">[], allowOptionOperands = false): number[] {
+export function optionPositions(args: readonly Pick<ShellToken, "value">[], allowOptionOperands = false): number[] {
   const positions: number[] = [];
   for (let i = 0; i < args.length; i++) {
     positions.push(i);
@@ -1374,24 +1401,38 @@ export function assertPendingRelease(args: ShellCommand, positions: readonly num
   }
 }
 
+/** Read a cutoff operand with the pinned CLI's value boundary. */
+function allTagsCutoffOperand(args: ShellCommand, index: number): string | undefined {
+  const word = args[index];
+  const separate = word.value === UNTIL_FLAG;
+  const operand = separate ? args[index + 1] : word;
+  const value = separate ? operand?.value : word.value.slice(UNTIL_FLAG.length + 1);
+  return value && !value.startsWith("--") && !operand?.unresolved ? value : undefined;
+}
+
 /** All-tags generation uses an explicit cutoff as the pending release timestamp. */
-function assertAllTagsCutoff(
-  args: ShellCommand, positions: readonly number[], headingDate: string, packageVersion?: string, advice = "",
+export function assertAllTagsCutoff(
+  args: ShellCommand, positions: readonly number[] = optionPositions(args), headingDate?: string, packageVersion?: string, advice = "",
 ): void {
   assertPendingRelease(args, positions, advice);
   if (!hasVersionInput(args) || !positions.some(i => args[i].value === "--all-release-tags")) return;
-  for (const i of positions) {
-    const token = args[i];
-    const [flag] = token.value.split("=", 1);
-    if (flag !== UNTIL_FLAG) continue;
-    const day = headingDate || calendarRelease(literalReleaseVersion(args, positions) ?? packageVersion).day;
-    const cutoff = token.value === flag ? args[i + 1]?.value : token.value.slice(flag.length + 1);
-    if (!cutoff || !isRealCalendarDay(cutoff)) {
-      throw new Error(`Invalid --until operand for a versioned --all-release-tags hook, expected a real YYYY-MM-DD day. Remove --until or set it to ${day}.${advice}`);
-    }
-    if (cutoff !== day) {
-      throw new Error(`The --until day ${cutoff} overrides the prepared release heading day ${day}. Remove --until or set it to ${day}.${advice}`);
-    }
+  const cutoffs = positions.filter(i => args[i].value === UNTIL_FLAG || args[i].value.startsWith(UNTIL_FLAG + "="));
+  const index = cutoffs.pop();
+  if (index === undefined) return;
+  // npm can forward a later cutoff, but the generator must still parse each
+  // earlier operand successfully before it applies the last one.
+  for (const earlier of cutoffs) {
+    if (!allTagsCutoffOperand(args, earlier)) throw new Error("--until requires a value." + advice);
+  }
+  const cutoff = allTagsCutoffOperand(args, index);
+  const day = headingDate === undefined ? undefined
+    : headingDate || calendarRelease(literalReleaseVersion(args, positions) ?? packageVersion).day;
+  if (!cutoff || !isRealCalendarDay(cutoff)) {
+    const remedy = day === undefined ? "Remove --until or specify a calendar day." : "Remove --until or set it to " + day + ".";
+    throw new Error("Invalid --until operand for a versioned --all-release-tags hook, expected a real YYYY-MM-DD day. " + remedy + advice);
+  }
+  if (day !== undefined && cutoff !== day) {
+    throw new Error(`The --until day ${cutoff} overrides the prepared release heading day ${day}. Remove --until or set it to ${day}.${advice}`);
   }
 }
 
@@ -1623,10 +1664,39 @@ function rendererStatusName(words: ShellCommand): string | undefined {
   if (builtin === "break" || builtin === "continue" || (builtin === "exit" && !isIsolatedReleaseCommand(words))) return builtin;
   const command = releaseHookCommand(words);
   const name = command && basename(command[0].value);
+  if (isRendererLog(name) && stderrRendererLog(words)) return "stderr log";
   return name && RENDERER_STATUS_COMMANDS.has(name) ? name : undefined;
 }
 
-/** Identify a shell status check or repository bookkeeping after rendering. */
+/** Identify the logging commands whose output is used to select a renderer. */
+function isRendererLog(program: string | undefined): boolean {
+  return program === "echo" || program === "printf";
+}
+
+/** Determine whether a literal logging command sends stdout to stderr. */
+function stderrRendererLog(words: ShellCommand): boolean {
+  // Duplicating a descriptor refers to its current destination, so walk left to right.
+  let stdout = false;
+  let stderr = true;
+  for (const [index, token] of words.entries()) {
+    const redirect = shellRedirection(token);
+    if (!redirect) continue;
+    const { operator, joined } = redirect;
+    const match = /^([12]?)(>|>>|>\||>&)$/.exec(operator);
+    if (operator === "&>" || operator === "&>>") {
+      stdout = false;
+      stderr = false;
+    }
+    if (!match) continue;
+    const target = joined ? token.value.slice(operator.length) : words[index + 1]?.value;
+    const toStderr: boolean = match[2] === ">&" ? target === "2" ? stderr : target === "1" && stdout : target === "/dev/stderr" && stderr;
+    if (match[1] === "2") stderr = toStderr;
+    else stdout = toStderr;
+  }
+  return stdout;
+}
+
+/** Identify bookkeeping or stderr logging after rendering. */
 function rendererStatusCommand(words: ShellCommand): boolean {
   return rendererStatusName(words) !== undefined;
 }
@@ -1676,9 +1746,18 @@ function finalHookCommand(
   if (isIsolatedReleaseCommand(terminal) && hookSyntaxProblem(terminal) === "Shell grouping or substitution") {
     refuseHook("Cannot edit a renderer inside shell grouping. Use a single script entry point");
   }
-  if (!rendererStatusCommand(releaseOutputProducer(terminal))) return terminal;
+  const producer = releaseOutputProducer(terminal);
+  const status = rendererStatusCommand(producer);
+  const program = releaseHookCommand(producer)?.[0].value;
+  if (!status && (hasGenerator || !isRendererLog(program && basename(program)))) return terminal;
   const candidates = [...new Set(commands.map(releaseOutputProducer))].filter(words =>
     !isReleaseIterationHeader(words) && releaseHookCommand(words) && !rendererStatusCommand(words));
+  if (!status) {
+    if (candidates.some(candidate => candidate !== producer)) {
+      refuseHook(describeUnsupportedReleaseHook("ambiguous output from trailing " + program, hook));
+    }
+    return terminal;
+  }
   // A trailing status command can belong to the same list as its renderer.
   // A separate status-only list still needs the rest of the hook for context.
   const end = commands.indexOf(terminal);
