@@ -7,10 +7,10 @@ status: in_progress
 priority: 2
 tags[3]: "area:release","gh:unbraind/pm-ops#292","gh:unbraind/pm-ops#295"
 created_at: "2026-11-16T19:17:51.165Z"
-updated_at: "2026-11-23T05:10:38.825Z"
+updated_at: "2026-11-23T05:23:50.754Z"
 author: codex-sol
 acceptance_criteria: "Resolve the existing tagged release-heading date policy mismatch; npm run changelog:check and release date checks agree before and after rollover without changing historical tags."
-comments[273]{created_at,author,text}:
+comments[275]{created_at,author,text}:
   "2026-11-16T19:18:50.836Z",codex-sol,"Verified npm run changelog:check fails on untouched origin/main c29fe88 as well as the fix branch. Tag v2026.11.15 targets c29fe88 with commit time 2026-11-16T17:43:01Z. Regeneration changes only the first heading date from 2026-11-15 to 2026-11-16. No historical tags or changelog content were changed for #290."
   "2026-11-16T19:24:41.440Z","harness:claude-code","2026-11-16 20:0xZ (orchestrator): root cause filed as unbraind/pm-ops#292. v2026.11.15 was prepared and tagged on 11-16, prepare rendered the heading from the version (2026-11-15), and after tagging pm-changelog uses the real tag date (2026-11-16, by design per pm-changelog#120). Regenerated CHANGELOG.md in PR #291 so 'npm run changelog:check' passes on this branch (exit 0); main stays red until #291 or another regeneration merges."
   "2026-11-16T22:58:09.756Z",pi-ops-292,"Root cause (issue #292): prepare renders the pending version's heading with --date-from-version, so a resumed candidate (version day before today) is stamped with its version day. The release step then tags it today; pm-changelog by design derives a tagged window's heading from the tag commit date (pm-changelog#120), so post-tag regeneration on unchanged main renders a different day and changelog:check is red on main. The release PR's own CI passes (candidate still untagged), so the failure only appears after the merge.\n\nDesign: use the generator's existing --date-fallback flag (applies only while no release tag exists; ignored once the tag exists, so it matches post-tag invocations byte-for-byte). decideDailyRelease now outputs heading_date: today in RELEASE_TIMEZONE, padded ISO, when the version's calendar day is before today; empty for a same-day release, which is therefore unchanged. The 'Generate changelog and release notes' step, in the same in-place package.json policy rewrite that already appends --include-empty, swaps --date-from-version for --date-fallback <heading_date> in the three changelog scripts when resumed, refreshes a stale pin when a candidate is re-prepared on a later day, and restores --date-from-version when the pending version is current again. The release commit carries the pinned spelling, so the release PR's CI (untagged candidate), prepare's nested release:check and post-tag checks on main all regenerate the same bytes with no follow-up regeneration. The date verifier accepts a pinned --date-fallback day (explicit ISO day only) as an equally clock-free alternative to --date-from-version. Rust/justfile releases (CHANGELOG_DATE derived from the tag name) keep their own spelling and are not touched."
@@ -284,6 +284,8 @@ comments[273]{created_at,author,text}:
   "2026-11-23T04:09:02.141Z",codex-agent,"Behavioral reverts in a disposable snapshot: 8ffd138 reproduces both failing runner-input subtests and the branch redirect control, plus the masked AND-list, saved separator operand, case arm, dynamic root selector, misleading prepend action, and premature changelog and lifecycle receipts. Removing only the local autocrlf override reproduces a CRLF checkout under an explicitly hostile Git configuration. Reintroducing the previous all-platform npm fixture command list fails the Windows schedule assertion. The exact Greptile nested break example is accepted by 8ffd138 and fails when only final renderer selection is reverted to 9e27303. Restoring 8ffd138 fails the expanded post-loop trailing status control. The complete 142-hook and 144-body pinned inventory still passes, with no audit diagnostic changes across 265 workflows and 1062 run bodies."
   "2026-11-23T04:09:06.419Z",codex-agent,The branch already includes main. Its earlier artifact-reader tracker merge combined both histories and its branch file is not a byte prefix extension of main. Round GU adds only append-only records to this release heading item and does not change the inherited artifact-reader files.
   "2026-11-23T05:10:36.975Z",codex-agent,"Round GU final gates: the linked 11-file test command passed 543 of 545 tests with two opt-in skips. The focused regression and cleanup command passed 18 of 18, and the final date verifier passed 51 of 51. The first npm run identified two uncovered date verifier branches, now exercised by malformed YAML and a non-scalar selector. The npm and Bun release checks and rewritten-candidate acceptance each passed 2292 of 2294 tests, with zero failures, two opt-in skips, and 100 percent statements, branches, functions and lines across 55 sources at the CI test depth. Typecheck, test compilation, lint, zero duplication, docstrings, both package audits, self-host and identity tests, and all release verifiers passed. Pinned fleet results are 142 hooks, 144 bodies and 39 manifests with zero refusals. Candidate cleanup left no gate directory. The unchanged generated changelog retains the trusted-build entry under Unreleased. Hosted evidence for the new head is on the pull request checks page."
+  "2026-11-23T05:21:20.707Z",codex-agent,"Hosted Node 22 and Node 26 on 84867be both reproduced a fixture-only failure: the real cat exited 2 when the unquoted runner path split, while the fixture required status 1. A Bash cat wrapper that maps read errors to status 2 reproduced the assertion on the starting fixture. The revised fixture isolates the shell environment and explicitly exercises both the platform cat and the status-2 variant. It requires a normal nonzero exit for split reads and redirects, and status zero for quoted paths and trailing true. Production audit assertions and source are unchanged."
+  "2026-11-23T05:23:48.676Z",codex-agent,"The corrected runner status fixture passed all four reported tests separately on Node 22 and Node 26. The linked complete release hook grammar suite passed 175 of 175 with no skips. Test compilation, typecheck, lint, zero duplication, docstrings and the pinned 142-hook scan passed. The next push contains only the fixture portability correction and this item evidence. The prior npm, Bun and rewritten-candidate gates ran against the same production source."
 files[47]:
   - path: .coderabbit.yaml
     scope: project
@@ -381,7 +383,7 @@ files[47]:
   - path: test/verify-release-changelog-date.test.ts
     scope: project
     note: Round GU root hook selector controls
-tests[89]:
+tests[90]:
   - command: npm run typecheck
     scope: project
     provenance:
@@ -1010,6 +1012,14 @@ tests[89]:
     provenance:
       author: codex-agent
       created_at: "2026-11-23T03:59:59.648Z"
+      source_kind: local_mutation
+      source_ref: fix/release-hook-wrapper-options-bm
+  - command: node --test --test-concurrency=2 --test-reporter=tap test/release-hook-grammar.test.ts
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-23T05:21:24.281Z"
       source_kind: local_mutation
       source_ref: fix/release-hook-wrapper-options-bm
 docs[4]:

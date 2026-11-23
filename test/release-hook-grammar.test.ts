@@ -8,7 +8,8 @@ import { stringify } from "yaml";
 import { executableShellBodies } from "../attestation.ts";
 import { projectNpmLifecyclePolicy } from "../scripts/project-npm-lifecycle.ts";
 import { npmCli } from "../scripts/release-runtime.ts";
-import { execFileSync, spawnSync } from "../subprocess.ts";
+import { execFileSync } from "../subprocess.ts";
+import { runBashFixture } from "./bash-fixture.ts";
 import {
   assertReleaseHeadingDate, assertReleaseHookHeadingDate, includeEmptyCustomHook, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHeadingDate, rewriteReleaseHookDates, visitChangelogScriptCommands,
 } from "../release-changelog-options.ts";
@@ -3121,6 +3122,9 @@ test("Round GU runner environment status follows a final branch or redirect", as
     ["cat $GITHUB_ENV", true], ["echo OTHER=ready >> $GITHUB_ENV", false], ["echo OTHER=ready >> $GITHUB_ENV", true],
   ] as const) {
     await t.test(conditional ? command + " in a final branch" : command, () => {
+      // The runner only needs a successful exit or a failure. Exercise a cat
+      // that reports status 2 even on hosts whose cat reports status 1.
+      const prefixes = command.startsWith("cat ") ? ["", 'cat() { command cat "$@" || return 2; }\n'] : [""];
       const expect = (run: string, fails: boolean) => {
         const source = { file: ".github/workflows/status.yml", text: stringify({ jobs: { release: {
           "runs-on": "ubuntu-latest", env: { npm_config_ignore_scripts: "false" },
@@ -3128,8 +3132,15 @@ test("Round GU runner environment status follows a final branch or redirect", as
         } } }) };
         if (process.platform !== "win32") {
           writeFileSync(file, "");
-          const actual = spawnSync("bash", ["-c", run], { cwd: root, env: { ...process.env, GITHUB_ENV: file } });
-          assert.equal(actual.status, fails ? 1 : 0, run);
+          for (const prefix of prefixes) {
+            const actual = runBashFixture(prefix + run, {
+              cwd: root, env: { PATH: process.env.PATH, GITHUB_ENV: file }, encoding: "utf8",
+            });
+            assert.ifError(actual.error);
+            assert.ok(actual.status !== null && (fails ? actual.status > 0 : actual.status === 0),
+              `Unexpected status ${actual.status} for ${run}`);
+            if (prefix && fails) assert.equal(actual.status, 2);
+          }
         }
         assert.equal(npmLifecycle(undefined, executableShellBodies(source).at(-1)?.environment), fails ? "unknown" : false, run);
         const failures = auditInvocations([manifest, source]).failures;
