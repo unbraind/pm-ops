@@ -3492,6 +3492,23 @@ test("Round GY time prefixes are refused across release paths and time in argv i
   assert.match(auditInvocations([nested(generator + " --title time")]).failures[0] ?? "", /context change working-directory/);
 });
 
+test("Round GY timed unrelated workflow steps leave release paths usable", () => {
+  const generator = "pm-changelog " + standing;
+  const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
+    test: "echo ok", writer: generator, "release:notes": "node notes.mjs",
+  } }) };
+  assert.deepEqual(auditInvocations([workflow("time npm test", generator)]).failures, []);
+  assert.deepEqual(auditInvocations([manifest, workflow("time npm test", "npm run writer")]).failures, []);
+  const nested = { file: ".github/workflows/checks.yml", text: stringify({ jobs: { tests: { steps: [
+    { "working-directory": "packages/example", run: "time node --test" },
+    { run: generator },
+  ] } } }) };
+  assert.deepEqual(auditInvocations([nested]).failures, []);
+  for (const command of ["time npm run writer", "time npm run release:notes"]) {
+    assert.match(auditInvocations([manifest, workflow(command, generator)]).failures[0] ?? "", /release_hook_unsupported_construct:.*time/);
+  }
+});
+
 test("Round GY expandable here-documents match joined terminators and preserve physical source", () => {
   const valid = "pm-changelog " + standing;
   const missing = valid.replace(" --date-from-version", "");

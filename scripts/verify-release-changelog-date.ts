@@ -40,7 +40,7 @@ import {
 import { isMainInvocation } from "./main-invocation.ts";
 import { tallyFlaggedInvocations } from "../invocation-audit.ts";
 import { executableShellBodies } from "../attestation.ts";
-import { assertPendingRelease, hasVersionInput, generatedWriterProblem, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, npmLifecycle, visitChangelogScriptCommands, type WorkflowReleaseStep } from "../release-changelog-options.ts";
+import { assertPendingRelease, canReachGenerator, hasVersionInput, generatedWriterProblem, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, npmLifecycle, visitChangelogScriptCommands, type WorkflowReleaseStep } from "../release-changelog-options.ts";
 
 import { describeReleaseContextChange, parseReleaseHook, refuseHook } from "../release-hook-grammar.ts";
 import { releaseHookConstructProblem } from "../shell-scan.ts";
@@ -196,7 +196,9 @@ function addConfiguredHooks(
 function inspectProjectStep(file: string, text: string, line: number, directory: unknown): Invocation[] {
   const { commands, spans, heredocBodies } = parseReleaseHook(text, "workflow");
   const construct = releaseHookConstructProblem(commands, text, spans, file + ":" + line, "workflow");
-  if (construct) return inspectCommand(construct.words, { file, line, command: text }, new Set(), construct.problem);
+  if (construct && commands.some(words => canReachGenerator(words))) {
+    return inspectCommand(construct.words, { file, line, command: text }, new Set(), construct.problem);
+  }
   const written = new Set<string>();
   const words = commands.find(command => generatedWriterProblem(command, written, heredocBodies.get(command)) || needsReleaseProject(command));
   if (!words) return [];

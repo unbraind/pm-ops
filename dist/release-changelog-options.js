@@ -399,7 +399,7 @@ function copyDirectoryWritesChangelog(directory, value, sources, writes) {
         && sources.some(source => source.unresolved || hasBraceExpansion(source) || writes(posix.basename(source.value)));
 }
 /** Look for a reachable generator without interpreting an opaque command as executable argv. */
-function canReachGenerator(words, names, seen, writing = false, lifecycle = "unknown", configured = lifecycle) {
+export function canReachGenerator(words, names, seen, writing = false, lifecycle = "unknown", configured = lifecycle) {
     if (writing && redirectsChangelog(words))
         return true;
     const assignments = [];
@@ -959,10 +959,15 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
             const target = forwardToScript(words)?.target;
             return (target !== undefined && entryPoints.has(target)) || needsReleaseProject(words, knownWriters);
         });
+        const shellConstruct = (releasePath || scope === "workflow") && releaseHookConstructProblem(commands, text, spans, step?.label ?? name, scope);
+        const relevantShellConstruct = shellConstruct && (releasePath || commands.some(words => {
+            const target = forwardToScript(words)?.target;
+            return (target !== undefined && entryPoints.has(target)) || canReachGenerator(words, knownWriters);
+        }));
         const construct = containerCommand ? {
             words: containerCommand,
             problem: describeUnsupportedReleaseHook("container job " + JSON.stringify(job), forwardToScript(containerCommand)?.target ?? job),
-        } : (releasePath || scope === "workflow") && releaseHookConstructProblem(commands, text, spans, step?.label ?? name, scope);
+        } : relevantShellConstruct && shellConstruct;
         if (construct) {
             if (hooks)
                 throw new Error(construct.problem);

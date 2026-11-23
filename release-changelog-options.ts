@@ -419,7 +419,7 @@ function copyDirectoryWritesChangelog(directory: ShellToken, value: string, sour
 }
 
 /** Look for a reachable generator without interpreting an opaque command as executable argv. */
-function canReachGenerator(
+export function canReachGenerator(
   words: ShellCommand, names?: ReadonlySet<string>, seen?: Set<string>, writing = false, lifecycle: NpmLifecycle = "unknown",
   configured = lifecycle,
 ): boolean {
@@ -1009,10 +1009,15 @@ export function visitChangelogScriptCommands(
       const target = forwardToScript(words)?.target;
       return (target !== undefined && entryPoints.has(target)) || needsReleaseProject(words, knownWriters);
     });
+    const shellConstruct = (releasePath || scope === "workflow") && releaseHookConstructProblem(commands, text, spans, step?.label ?? name, scope);
+    const relevantShellConstruct = shellConstruct && (releasePath || commands.some(words => {
+      const target = forwardToScript(words)?.target;
+      return (target !== undefined && entryPoints.has(target)) || canReachGenerator(words, knownWriters);
+    }));
     const construct = containerCommand ? {
       words: containerCommand,
       problem: describeUnsupportedReleaseHook("container job " + JSON.stringify(job), forwardToScript(containerCommand)?.target ?? job!),
-    } : (releasePath || scope === "workflow") && releaseHookConstructProblem(commands, text, spans, step?.label ?? name, scope);
+    } : relevantShellConstruct && shellConstruct;
     if (construct) {
       if (hooks) throw new Error(construct.problem);
       if (!reportedConstructs.has(name)) {

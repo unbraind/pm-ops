@@ -12,7 +12,7 @@ reviews:
         The pinned workflow bodies also contain loops with break/continue, case arms, here-documents and here-strings,
         GITHUB_ENV writes, pipelines and exit. Preserve the supported workflow forms and prior hook acceptance fixtures.
         Case patterns belong to workflow syntax. The hook grammar refuses case arms and unquoted command negation.
-        The pinned hooks and workflows contain no time prefix or container job. Refuse time in release shell source
+        The pinned hooks and workflows contain no time prefix or container job. Refuse time on release paths
         and jobs.<id>.container on a release path. Keep time as ordinary argument data outside command position.
         Preserve physical edits across expandable here-document and case terminator continuations.
         Join executable continuations while preserving single-quoted data and comment boundaries.

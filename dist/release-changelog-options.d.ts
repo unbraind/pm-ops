@@ -28,6 +28,8 @@ export declare function npmLifecycleEnvironmentValues(environment: Readonly<Reco
 export declare function npmLifecycle(projectConfig: string | undefined, environment?: Readonly<Record<string, unknown>>): NpmLifecycle;
 /** Resolve the same graph used by preparation and continuation, including comment-only hooks. */
 export declare function resolveChangelogHooks(scripts: Record<string, unknown> | undefined, hooks: readonly string[], lifecycle?: NpmLifecyclePolicy): Map<string, string>;
+/** Look for a reachable generator without interpreting an opaque command as executable argv. */
+export declare function canReachGenerator(words: ShellCommand, names?: ReadonlySet<string>, seen?: Set<string>, writing?: boolean, lifecycle?: NpmLifecycle, configured?: NpmLifecycle): boolean;
 /** Outside a release hook, trace only redirects carrying a generator or a known script forward. */
 export declare function generatedWriterProblem(words: ShellCommand, written: Set<string>, heredoc?: ShellToken, names?: ReadonlySet<string>, seen?: Set<string>): string | undefined;
 /** Whether a non-root step could run a generator or delegate to its local package scripts. */
