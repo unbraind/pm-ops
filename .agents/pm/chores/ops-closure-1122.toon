@@ -2,19 +2,23 @@ id: ops-closure-1122
 title: Refresh tracker closure PR #294
 description: "Recheck current main, verify delivery evidence, regenerate the changelog and record the validation outcome."
 type: Chore
-status: open
+status: in_progress
 priority: 2
 tags[1]: tracker-sweep
 created_at: "2026-11-22T23:50:59.276Z"
-updated_at: "2026-11-22T23:58:45.278Z"
+updated_at: "2026-11-23T10:03:50.817Z"
 author: codex-agent
-comments[2]{created_at,author,text}:
+comments[5]{created_at,author,text}:
   "2026-11-22T23:51:04.296Z",codex-agent,First containing release tags are v2026.11.11 for PRs #250 and #260 and v2026.11.15 for PR #283. The older branch completion values differ from the merge times and are preserved.
   "2026-11-22T23:58:40.904Z",codex-agent,"Focused linked test completed successfully. 33 tests, 33 pass, 0 fail, 0 skipped."
+  "2026-11-23T09:51:27.497Z",codex-agent,"Closure follow-up: closure delivery merge date. Verify against current main and the existing PR head before recording the result."
+  "2026-11-23T09:52:45.758Z",codex-agent,"The closure verifier requires completed_at to equal a cited PR merge second. All four values are later: release-continuation 2026-11-16 20:43:39Z vs PR #250 2026-11-07 19:05:17Z; release-npm-runtime 2026-11-16 20:43:40Z and ops-3jck 2026-11-16 20:34:00Z vs PR #260 2026-11-09 16:28:12Z; ci-v2 2026-11-16 20:34:14Z vs PR #283 2026-11-15 23:11:38Z. Preserve the four items."
+  "2026-11-23T10:03:45.037Z",codex-agent,"Linked Node tests passed 33/33 with no skips, and the changelog check passed. Final verification will use the committed branch. CI checks for the closure follow-up are tracked at https://github.com/unbraind/pm-ops/pull/294/checks."
 files[1]{path,scope}:
   CHANGELOG.md,project
 tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/identity-audit.test.ts test/changelog-sections.test.ts test/verify-release-changelog-date.test.ts,project,codex-agent,"2026-11-22T23:51:15.411Z",local_mutation,codex/closure-1122/chore/close-merged-items-2026-11-16
-docs[1]{path,scope}:
+docs[2]{path,scope}:
   CHANGELOG.md,project
+  README.md,project
 body: ""
