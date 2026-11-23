@@ -3757,3 +3757,22 @@ test("Round HA shared construct decisions agree across release scanners", () => 
     }
   }
 });
+
+test("Round HA implicit npm env allows harmless lifecycle siblings on a release path", () => {
+  const generator = "pm-changelog " + standing;
+  const hook = "changelog:full";
+  const command = "npm run --if-present env >/dev/null; " + generator;
+  const scripts = { [hook]: command, preenv: "echo inspecting environment", postenv: "printf '%s\\n' inspected >&2" };
+  const audit = (body: Record<string, string>) => auditInvocations([{
+    file: "package.json", text: JSON.stringify({ scripts: body }),
+  }]).failures;
+  const resolved = resolveChangelogHooks(scripts, [hook], true);
+  assert.deepEqual([...resolved], [[hook, command]]);
+  const rewritten = rewriteReleaseHookDates(new Map(Object.entries(scripts)), [hook], day, true, "2026.11.17");
+  assert.equal(rewritten.get(hook), command.replace("--date-from-version", `--date-fallback ${day}`));
+  assert.doesNotThrow(() => assertReleaseHookHeadingDate(rewritten, [hook], day, "2026.11.17", true));
+  assert.deepEqual(audit(scripts), []);
+  const writer = { ...scripts, postenv: "npm run writer", writer: generator };
+  assert.throws(() => resolveChangelogHooks(writer, [hook], true), /unsupported_construct:.*npm.*env/);
+  assert.match(audit(writer)[0] ?? "", /unsupported_construct:.*npm.*env/);
+});

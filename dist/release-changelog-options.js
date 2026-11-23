@@ -1078,7 +1078,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
                 if (!names.has(forward.target)) {
                     // npm's implicit env body can execute preenv/postenv even with --if-present.
                     if (isNpm && forward.target === "env" && policy.enabled !== false
-                        && names.sequence("env", true).some(sibling => sibling !== "env" && (releasePath || knownWriters.canGenerate(sibling)))) {
+                        && names.sequence("env", true).some(sibling => sibling !== "env" && knownWriters.canGenerate(sibling))) {
                         const problem = describeUnsupportedReleaseHook("npm's implicit env lifecycle", name);
                         if (hooks)
                             throw new Error(problem);
