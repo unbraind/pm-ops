@@ -498,6 +498,18 @@ function interpretedHookFile(name, args, words) {
     const input = [...hookRedirects(words)].reverse().find(({ operator }) => /^(?:0)?</.test(operator));
     return input && /^(?:0)?(?:<|<>)$/.test(input.operator) ? input.path : undefined;
 }
+/** Prove an implicit npm env sibling is limited to logging or a no-op. */
+function inertImplicitEnvSibling(commands) {
+    return commands.every(words => {
+        const [program, format] = withoutRedirections(words);
+        if (!/^(?:echo|printf|true|:)$/.test(program?.value ?? "") || words.some(word => word.unresolved) || hookSyntaxProblem(words))
+            return false;
+        if (program.value === "printf" && !/^(?!-)(?:[^%]|%%|%s)*$/.test(format?.value ?? "-"))
+            return false;
+        return [...hookRedirects(words)].every(({ operator, path }) => path === "/dev/null"
+            || (/^[12]?>&$/.test(operator) && /^[12]$/.test(path)));
+    });
+}
 /** Detect file execution while allowing a committed helper to read paths as ordinary arguments. */
 function executedHookFile(words, written) {
     const invocation = releaseHookCommand(words);
@@ -1078,7 +1090,9 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
                 if (!names.has(forward.target)) {
                     // npm's implicit env body can execute preenv/postenv even with --if-present.
                     if (isNpm && forward.target === "env" && policy.enabled !== false
-                        && names.sequence("env", true).some(sibling => sibling !== "env" && knownWriters.canGenerate(sibling))) {
+                        && names.sequence("env", true).some(sibling => sibling !== "env" && (checkContext
+                            ? !inertImplicitEnvSibling(parsed.get(sibling).commands)
+                            : knownWriters.canGenerate(sibling)))) {
                         const problem = describeUnsupportedReleaseHook("npm's implicit env lifecycle", name);
                         if (hooks)
                             throw new Error(problem);

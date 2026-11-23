@@ -21,7 +21,10 @@ reviews:
         Quoted operands remain literal, and env uses NAME=value operands independently of shell assignment syntax.
         A workflow using sh cannot establish a definite environment export after setting pipefail.
         Validate pipefail against the npm-selected shell before preparing or consuming a configured hook.
-        Refuse implicit npm env lifecycle hooks that can reach a writer. Keep missing ordinary optional scripts supported.
+        Allow implicit npm env on release paths with literal echo, printf, true or colon lifecycle siblings.
+        Permit printf formats with plain text, %s and %%, plus literal standard descriptor redirects and /dev/null.
+        Refuse file writes, expansions and opaque siblings.
+        Keep missing ordinary optional scripts supported.
         Enabled reusable callers require a literal, existing nonblank root script for each explicit hook selector.
         Refuse new constructs outside the supported forms with release_hook_unsupported_construct,
         naming the construct and hook and advising a simpler hook or a separate script file.

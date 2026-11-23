@@ -3776,3 +3776,26 @@ test("Round HA implicit npm env allows harmless lifecycle siblings on a release 
   assert.throws(() => resolveChangelogHooks(writer, [hook], true), /unsupported_construct:.*npm.*env/);
   assert.match(audit(writer)[0] ?? "", /unsupported_construct:.*npm.*env/);
 });
+
+test("Round HA implicit npm env refuses siblings that can generate executable files", () => {
+  const hook = "changelog:full";
+  const generator = "pm-changelog " + standing;
+  const command = "npm run --if-present env >/dev/null; sh generate.sh";
+  const preenv = "cat > generate.sh <<'EOF'\n" + generator + "\nEOF";
+  const diagnostic = /unsupported_construct:.*npm.*env/;
+  const audit = (scripts: Record<string, string>) => auditInvocations([{
+    file: "package.json", text: JSON.stringify({ scripts }),
+  }]).failures;
+  const scripts = { [hook]: command, preenv };
+  assert.throws(() => resolveChangelogHooks(scripts, [hook], true), diagnostic);
+  assert.throws(() => rewriteReleaseHookDates(new Map(Object.entries(scripts)), [hook], day, true, "2026.11.17"), diagnostic);
+  assert.throws(() => assertReleaseHookHeadingDate(new Map(Object.entries(scripts)), [hook], day, "2026.11.17", true), diagnostic);
+  assert.match(audit(scripts)[0] ?? "", diagnostic);
+  for (const sibling of ["echo inspected > generate.sh", "echo > audit.log", 'echo "$(node setup.js)"', "$CMD",
+    "printf", "printf -v buffer '%s' text", "printf '%n' buffer", "echo ready &", "echo ready 1>&3", "> generate.sh"]) {
+    assert.throws(() => resolveChangelogHooks({ ...scripts, preenv: sibling }, [hook], true), diagnostic);
+  }
+  const printOnly = { [hook]: command.replace("sh generate.sh", generator), preenv: "printf '%s\\n' inspected >&2; printf 'ready 100%%'; true; : > /dev/null" };
+  assert.deepEqual([...resolveChangelogHooks(printOnly, [hook], true).keys()], [hook]);
+  assert.deepEqual(audit(printOnly), []);
+});
