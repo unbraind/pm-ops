@@ -96,20 +96,20 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
     checkMergedLinks(result, args, positions, cwd, env);
   }
   const changed = existing !== result;
-  if (summary) appendFileSync(env.GITHUB_STEP_SUMMARY!, result);
+  const receipt = generation && {
+    mode, action: changed ? merged?.action ?? (existing.trimEnd() ? "replaced" : "created") : "unchanged",
+    changed, bytes: Buffer.byteLength(result), check,
+  };
+  if (summary) appendFileSync(resolve(cwd, env.GITHUB_STEP_SUMMARY!), result);
+  // A failed output append must leave the existing changelog intact.
+  if (stepOutput && generation && receipt) appendFileSync(resolve(cwd, env.GITHUB_OUTPUT!),
+    `output=${destination}\nmode=${mode}\naction=${receipt.action}\nchanged=${changed}\nitem_count=${generation.itemCount}\nexcluded_non_change_count=${generation.excluded_non_change_count}\nbytes=${receipt.bytes}\n`);
   if (stdout) process.stdout.write(result);
   else if (check) console.error(`Changelog is ${changed ? "out of date" : "up to date"}: ${output}`);
   else writeFileSync(destination, result);
-  if (generation) {
-    const action = changed ? merged?.action ?? (existing.trimEnd() ? "replaced" : "created") : "unchanged";
-    const { itemCount, excluded_non_change_count } = generation;
-    const bytes = Buffer.byteLength(result);
-    if (stepOutput) appendFileSync(env.GITHUB_OUTPUT!,
-      `output=${destination}\nmode=${mode}\naction=${action}\nchanged=${changed}\nitem_count=${itemCount}\nexcluded_non_change_count=${excluded_non_change_count}\nbytes=${bytes}\n`);
-    if (json) {
-      const { markdown: _markdown, ...receipt } = generation;
-      process.stdout.write(JSON.stringify({ ...receipt, mode, action, changed, bytes, check }) + "\n");
-    }
+  if (generation && json) {
+    const { markdown: _markdown, ...generated } = generation;
+    process.stdout.write(JSON.stringify({ ...generated, ...receipt }) + "\n");
   }
   return !stdout && check && changed ? 1 : 0;
 }

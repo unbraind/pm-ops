@@ -3007,3 +3007,77 @@ test("Round GQ option-shaped operands do not satisfy custom renderer policy", ()
   assert.equal(includeEmptyCustomHook(forwarded, scripts), forwarded + " --include-empty");
   assert.equal(includeEmptyCustomHook(forwarded + " --include-empty", scripts), forwarded + " --include-empty");
 });
+
+test("Round GS loop control leaves the single notes renderer and its arguments intact", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-loop-control-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(join(root, "notes.mjs"), 'console.log(process.argv.slice(2).join(" "));');
+  for (const control of ["", "; break", "; continue", "; command -- break", "; builtin continue", "; break 1"]) {
+    const hook = "for turn in first; do node notes.mjs" + control + "; done";
+    const rewritten = includeEmptyCustomHook(hook, new Map());
+    assert.equal(rewritten, hook.replace("notes.mjs", "notes.mjs --include-empty"));
+    if (process.platform !== "win32") {
+      assert.equal(execFileSync("bash", ["-ec", rewritten], { cwd: root, encoding: "utf8" }).trim(), "--include-empty");
+    }
+  }
+  const ambiguous = "for turn in first; do node notes.mjs; if test -f marker; then break; fi; node other.mjs; done";
+  assert.throws(() => includeEmptyCustomHook(ambiguous, new Map()), /renderer.*after loop control/);
+  const nested = "for turn in first; do for inner in first; do break 1; done; node notes.mjs; done";
+  assert.equal(includeEmptyCustomHook(nested, new Map()), nested.replace("notes.mjs", "notes.mjs --include-empty"));
+  assert.throws(() => includeEmptyCustomHook(nested.replace("break 1", "break 2"), new Map()), /renderer.*after loop control/);
+  assert.throws(() => includeEmptyCustomHook(nested.replace("break 1", 'break "$LEVEL"'), new Map()), /renderer.*after loop control/);
+  const deep = "for outer in first; do for middle in first; do for inner in first; do break 2; done; done; node notes.mjs; done";
+  assert.equal(includeEmptyCustomHook(deep, new Map()), deep.replace("notes.mjs", "notes.mjs --include-empty"));
+  const piped = "for turn in first; do node notes.mjs; break | cat; done";
+  assert.equal(includeEmptyCustomHook(piped, new Map()), piped.replace("notes.mjs", "notes.mjs --include-empty"));
+  const later = "for turn in first; do break | cat; node notes.mjs; done";
+  assert.equal(includeEmptyCustomHook(later, new Map()), later.replace("notes.mjs", "notes.mjs --include-empty"));
+  const ordinary = "for turn in first; do node notes.mjs; ./break; done";
+  assert.equal(includeEmptyCustomHook(ordinary, new Map()), ordinary.replace("./break", "./break --include-empty"));
+});
+
+test("Round GS a failed runner environment read can skip a later lifecycle export", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-runner-read-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = join(root, "environment file");
+  writeFileSync(file, "");
+  const unquoted = "cat $GITHUB_ENV";
+  const quoted = 'cat "$GITHUB_ENV"';
+  const env = { ...process.env, GITHUB_ENV: file };
+  if (process.platform !== "win32") {
+    for (const flags of ["-ec", "-c"]) {
+      assert.throws(() => execFileSync("bash", [flags, unquoted], { cwd: root, env, stdio: "pipe" }));
+    }
+    assert.doesNotThrow(() => execFileSync("bash", ["-ec", quoted], { cwd: root, env, stdio: "pipe" }));
+  }
+  const writer = { run: 'echo npm_config_ignore_scripts=true >> "$GITHUB_ENV"' };
+  const read = { run: unquoted };
+  const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
+    render: "pm-changelog " + standing, prerender: "echo preview > CHANGELOG.md",
+  } }) };
+  const inspect = (steps: object[], condition?: string, override?: string) => {
+    const source = { file: ".github/workflows/env.yml", text: stringify({ jobs: { release: {
+      "runs-on": "ubuntu-latest", env: { npm_config_ignore_scripts: "false" },
+      steps: [...steps, { if: condition, env: override === undefined ? undefined : { npm_config_ignore_scripts: override },
+        run: "npm run render" }],
+    } } }) };
+    return {
+      policy: npmLifecycle(undefined, executableShellBodies(source).at(-1)?.environment),
+      failures: auditInvocations([manifest, source]).failures,
+    };
+  };
+  for (const step of [read, { shell: "bash {0}", run: unquoted + "\n# Keep the status of cat.\n" }]) {
+    const failure = inspect([step, writer], "always()");
+    assert.equal(failure.policy, "unknown");
+    assert.match(failure.failures[0] ?? "", /ignore-scripts.*prerender/);
+  }
+  const disabled = { policy: false, failures: [] };
+  assert.deepEqual(inspect([read, writer]), disabled);
+  assert.deepEqual(inspect([read, writer], "success()"), disabled);
+  assert.deepEqual(inspect([{ run: quoted }, writer], "always()"), disabled);
+  assert.deepEqual(inspect([writer, read], "always()"), disabled);
+  assert.deepEqual(inspect([writer, read, { run: 'echo OTHER=ready >> "$GITHUB_ENV"' }], "always()"), disabled);
+  assert.deepEqual(inspect([{ ...read, shell: "bash {0}", run: unquoted + "\ntrue" }, writer], "always()"), disabled);
+  assert.deepEqual(inspect([{ ...read, "continue-on-error": true }, writer], "always()"), disabled);
+  assert.deepEqual(inspect([read, writer], "always()", "true"), disabled);
+});

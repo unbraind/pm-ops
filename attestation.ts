@@ -946,7 +946,7 @@ function literalEnvironmentRecord(print: string, environment: Record<string, unk
 /** Model one runner environment file, which starts empty for each step. */
 function writtenIgnoreScripts(
   text: string, conditionalStep: boolean, environment: Record<string, unknown> | undefined, errexit: boolean, windows: boolean,
-): { records: Record<string, string | undefined>; mayStopBeforeOverwrite: boolean } | undefined {
+): { records: Record<string, string | undefined>; mayStopBeforeOverwrite: boolean; mayStopAtRead: boolean } | undefined {
   let records: Map<string, [string, string | undefined]> | undefined = new Map();
   let mayStopBeforeOverwrite = false;
   let mayStopAtRead = false;
@@ -954,6 +954,7 @@ function writtenIgnoreScripts(
   let nounset = false;
   let depth = 0;
   const lines = text.split(/\r?\n/);
+  const finalLine = lines.reduce((last, line, index) => /^\s*(?:#.*)?$/.test(line) ? last : index, -1);
   const bodies = heredocBodyLines(lines);
   for (const [index, part] of lines.entries()) {
     const line = part.trim();
@@ -976,7 +977,8 @@ function writtenIgnoreScripts(
     if (!line || line.startsWith("#") || shellOptions || /^(?:true|:|echo [\w .-]+)$/.test(line)) continue;
     const readRunnerEnv = READ_ENV_FILE.exec(line);
     if (readRunnerEnv) {
-      if (mayStopOnFailure && !readRunnerEnv[1]) mayStopAtRead = true;
+      // A final command can fail the step even without errexit.
+      if (!readRunnerEnv[1] && (mayStopOnFailure || index === finalLine)) mayStopAtRead = true;
       continue;
     }
     const redirect = line.indexOf(">");
@@ -1013,7 +1015,7 @@ function writtenIgnoreScripts(
       records.set(key, [name, conditional ? uncertainEnvironmentRecord(name) : value]);
     }
   }
-  return records && { records: Object.fromEntries(records.values()), mayStopBeforeOverwrite };
+  return records && { records: Object.fromEntries(records.values()), mayStopBeforeOverwrite, mayStopAtRead };
 }
 
 /** Preserve uncertainty without treating a possibly unset expansion as a literal. */
@@ -1075,6 +1077,7 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
     let unknownNames = false;
     let definiteLifecycleWrite = false;
     let uncertainOnFailure = false;
+    let readMaySkipLaterSteps = false;
     for (const [index, value] of (steps as unknown[]).entries()) {
       const step = mapping(value);
       if (step === undefined || !Object.hasOwn(step, "run")) {
@@ -1125,11 +1128,14 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
         } else {
           inherited = mergeWorkflowEnvironment(windowsRunner, inherited, writes.records);
           for (const [key, record] of Object.entries(writes.records)) {
+            if (readMaySkipLaterSteps && uncertainEnvironmentRecord(key) !== undefined) uncertainOnFailure = true;
             if ((windowsRunner ? key.toLowerCase() : key) === IGNORE_SCRIPTS_ENV) {
               definiteLifecycleWrite = record === "true" || record === "false";
             }
           }
           if (writes.mayStopBeforeOverwrite) uncertainOnFailure = true;
+          // A read-only step can prevent a later successful-path export.
+          if (writes.mayStopAtRead && step["continue-on-error"] !== true) readMaySkipLaterSteps = true;
         }
       }
       bodies.push(body);

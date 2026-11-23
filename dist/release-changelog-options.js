@@ -1073,7 +1073,10 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
     for (const hook of hooks ?? entryPoints) {
         if (!hooks && !names.has(hook))
             continue;
-        for (const policy of entryLifecycles.get(hook) ?? [projectPolicy]) {
+        const stepPolicies = entryLifecycles.get(hook) ?? [];
+        if (stepPolicies.length === 0 || npm.projectEntryPoints?.has(hook))
+            visitSequence(hook, [], projectPolicy, true, true);
+        for (const policy of stepPolicies) {
             visitSequence(hook, [], policy, true, true);
         }
     }
@@ -1381,11 +1384,11 @@ function finalHookCommands(commands) {
             if (!word.releaseKeyword)
                 break;
             if (word.value === "do")
-                loopEntries.push(last);
+                loopEntries.push({ before: last });
             if (word.value === "done") {
-                const before = loopEntries.pop();
-                if (before)
-                    last = [...new Set([...before, ...last])];
+                const loop = loopEntries.pop();
+                if (loop)
+                    last = [...new Set([...loop.before, ...last])];
             }
             if (word.value === "if")
                 alternatives.push({
@@ -1418,6 +1421,15 @@ function finalHookCommands(commands) {
             continue;
         const producer = releaseOutputProducer(words);
         const status = rendererStatusName(producer);
+        if ((status === "break" || status === "continue") && !isIsolatedReleaseCommand(producer)) {
+            const level = Number(rendererBuiltin(producer)?.[1]?.value ?? 1);
+            const scopes = Number.isInteger(level) && level > 0 ? loopEntries.slice(-level) : loopEntries;
+            for (const loop of scopes)
+                loop.maySkipRenderer = true;
+        }
+        else if (!status && releaseHookCommand(producer) && loopEntries.some(loop => loop.maySkipRenderer)) {
+            refuseHook("Cannot select a later renderer after loop control. Use a single script entry point");
+        }
         const isStatus = status !== undefined;
         const redirectOnly = literalRedirectOnly(words);
         if (afterOr && (redirectOnly || (isStatus && (status !== "false" || producer !== words)))) {
@@ -1474,8 +1486,9 @@ function hasCustomIncludeEmpty(invocation) {
 const RENDERER_STATUS_COMMANDS = new Set(["git", "test", "[", "[[", "true", "false", ":"]);
 /** Read the actual status command name through its wrappers. */
 function rendererStatusName(words) {
-    if (rendererShellTerminator(words) === "exit")
-        return "exit";
+    const builtin = rendererBuiltin(words)?.[0].value;
+    if (builtin === "break" || builtin === "continue" || (builtin === "exit" && !isIsolatedReleaseCommand(words)))
+        return builtin;
     const command = releaseHookCommand(words);
     const name = command && basename(command[0].value);
     return name && RENDERER_STATUS_COMMANDS.has(name) ? name : undefined;
@@ -1484,9 +1497,9 @@ function rendererStatusName(words) {
 function rendererStatusCommand(words) {
     return rendererStatusName(words) !== undefined;
 }
-/** Identify a builtin that can prevent the rest of the current shell from running. */
-function rendererShellTerminator(words) {
-    if (isIsolatedReleaseCommand(words) || !releaseHookCommand(words))
+/** Read literal shell builtins with their own arguments through shell-only wrappers. */
+function rendererBuiltin(words) {
+    if (!releaseHookCommand(words))
         return undefined;
     const argv = withoutRedirections(words);
     let index = argv.findIndex(word => !word.releaseKeyword && (word.startsQuoted || !/^[A-Za-z_]\w*\+?=/.test(word.value)));
@@ -1498,12 +1511,16 @@ function rendererShellTerminator(words) {
         if (argv[index]?.value === "--")
             index++;
     }
-    const builtin = argv[index];
-    if (builtin?.unresolved)
+    return argv[index] && !argv[index].unresolved ? argv.slice(index) : undefined;
+}
+/** Identify a builtin that can prevent the rest of the current shell from running. */
+function rendererShellTerminator(words) {
+    if (isIsolatedReleaseCommand(words))
         return undefined;
-    if (builtin?.value === "exit")
+    const builtin = rendererBuiltin(words);
+    if (builtin?.[0].value === "exit")
         return "exit";
-    if (builtin?.value === "exec" && argv.length > index + 1)
+    if (builtin?.[0].value === "exec" && builtin.length > 1)
         return "exec";
     return undefined;
 }

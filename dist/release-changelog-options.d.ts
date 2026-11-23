@@ -61,6 +61,8 @@ interface NpmLifecycleInputs {
     lifecycle: NpmLifecyclePolicy;
     /** Inspect only explicitly invoked scripts when classifying the configured main command. */
     mainOnly?: boolean;
+    /** Hooks also invoked by a reusable release caller under the project configuration. */
+    projectEntryPoints?: ReadonlySet<string>;
     /** Static environment of each standalone workflow step. */
     workflowSteps?: ReadonlyMap<string, NpmLifecyclePolicy>;
 }

@@ -12,7 +12,7 @@ import { npmCli } from "../scripts/release-runtime.ts";
 import { verify as verifySections } from "../scripts/verify-release-changelog-sections.ts";
 import { parse } from "yaml";
 import { decideDailyRelease } from "../daily-release.ts";
-import { runBashFixture } from "./bash-fixture.ts";
+import { runBashFixture, stepOutputs } from "./bash-fixture.ts";
 import { parseReleaseHook } from "../release-hook-grammar.ts";
 import { withoutRedirections } from "../shell-scan.ts";
 import { assertReleaseHeadingDate, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHeadingDate, rewriteReleaseHookDates } from "../release-changelog-options.ts";
@@ -29,8 +29,8 @@ function versions(markdown: string): string[] {
 }
 
 /** Initialize a real tracker outside Git, with explicit isolated CLI settings. */
-function tracker(): { root: string; env: NodeJS.ProcessEnv } {
-  const root = mkdtempSync(join(tmpdir(), "changelog-sections-"));
+function tracker(prefix = "changelog-sections-"): { root: string; env: NodeJS.ProcessEnv } {
+  const root = mkdtempSync(join(tmpdir(), prefix));
   const env = { ...process.env, PM_PATH: join(root, ".agents/pm"), PM_AUTHOR: "fixture-agent", GIT_CEILING_DIRECTORIES: dirname(root) };
   execFileSync(process.execPath, [pm, "init", "--defaults", "--agent-guidance", "skip", "--prefix", "sample"], { cwd: root, env });
   writeFileSync(join(root, "package.json"), JSON.stringify({ name: "sample-changelog", version: "2026.10.22" }));
@@ -1487,8 +1487,68 @@ test("Round GQ fixture commands decode quoted flags and operands", () => {
   }
 });
 
-test("Round GQ GitHub file outputs report the written changelog", t => {
+test("Round GS preparation preserves its manifest when the lifecycle receipt cannot be written", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-preparation-receipt-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const manifest = join(root, "package.json");
+  const writer = "pm-changelog --release-version-from-package --date-from-version";
+  const original = JSON.stringify({ name: "sample", version: "2026.11.22", scripts: {
+    "changelog:full": writer, "changelog:check": writer + " --check", "release:notes": writer + " --stdout",
+  } });
+  writeFileSync(manifest, original);
+  const prepare = resolve("scripts/prepare-release-changelog.ts");
+  const env = { ...releaseStepEnv(root, process.env, "2026-11-23"), npm_config_ignore_scripts: "true" };
+  const refused = spawnSync(process.execPath, [prepare, root], { cwd: root, env, encoding: "utf8" });
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /EISDIR|EPERM|EACCES/);
+  assert.equal(readFileSync(manifest, "utf8"), original);
+
+  const receipt = join(root, "step-outputs");
+  execFileSync(process.execPath, [prepare, receipt], { cwd: root, env });
+  assert.equal(stepOutputs(readFileSync(receipt, "utf8")).npm_lifecycle, "false");
+  assert.match(JSON.parse(readFileSync(manifest, "utf8")).scripts["changelog:full"],
+    /--date-fallback 2026-11-23 --include-empty/);
+});
+
+test("Round GS GitHub output failure preserves the existing changelog", t => {
   const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const destination = join(root, "CHANGELOG.md");
+  const original = "# Changelog\n\nOriginal changelog.\n";
+  const cli = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22"];
+  writeFileSync(destination, original);
+  assert.throws(() => runChangelog([...cli, "--json", "--github-output"], root, { ...env, GITHUB_OUTPUT: root }), /EISDIR|EPERM|EACCES/);
+  assert.equal(readFileSync(destination, "utf8"), original);
+
+  const step = join(root, "step-output");
+  const status = runChangelog([...cli, "--github-output"], root, { ...env, GITHUB_OUTPUT: step });
+  assert.equal(status, 0);
+  const written = readFileSync(destination, "utf8");
+  assert.match(written, /No tracked changes\./);
+  assert.match(readFileSync(step, "utf8"), new RegExp("^bytes=" + Buffer.byteLength(written) + "$", "m"));
+});
+
+test("Round GS relative GitHub receipt paths resolve from the changelog project", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const receipts = "changelog-receipts";
+  mkdirSync(join(root, receipts));
+  const output = join(receipts, "outputs");
+  const summary = join(receipts, "summary");
+  const cli = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22"];
+  for (const relative of [false, true]) {
+    assert.equal(runChangelog([...cli, "--github-output"], root, { ...env, GITHUB_OUTPUT: relative ? output : join(root, output) }), 0);
+    assert.equal(runChangelog([...cli, "--github-step-summary"], root,
+      { ...env, GITHUB_STEP_SUMMARY: relative ? summary : join(root, summary) }), 0);
+  }
+  const markdown = readFileSync(join(root, "CHANGELOG.md"), "utf8");
+  assert.equal(readFileSync(join(root, summary), "utf8"), markdown.repeat(2));
+  const outputRecords = readFileSync(join(root, output), "utf8").split("\n");
+  assert.equal(outputRecords.filter(line => line === "output=" + join(root, "CHANGELOG.md")).length, 2);
+});
+
+test("Round GQ GitHub file outputs report the written changelog", t => {
+  const { root, env } = tracker("changelog-sections=output-");
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const destination = join(root, "CHANGELOG.md");
   const step = join(root, "step-outputs");
@@ -1500,7 +1560,7 @@ test("Round GQ GitHub file outputs report the written changelog", t => {
     assert.equal(runChangelog([...cli, "--mode=" + mode, flag], root, { ...env, GITHUB_OUTPUT: step }), 0);
     const markdown = readFileSync(destination, "utf8");
     assert.equal(markdown.includes("Retained history."), mode === "prepend");
-    assert.deepEqual(Object.fromEntries(readFileSync(step, "utf8").trim().split("\n").map(line => line.split("="))), {
+    assert.deepEqual(stepOutputs(readFileSync(step, "utf8")), {
       output: destination, mode, action: mode === "prepend" ? "inserted" : "replaced",
       changed: "true", item_count: "0", excluded_non_change_count: "0", bytes: String(Buffer.byteLength(markdown)),
     });

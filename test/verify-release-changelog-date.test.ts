@@ -209,6 +209,28 @@ test("the date verifier audits a declared generator script and refuses ambiguous
   assert.equal(auditInvocations([manifest("npm run pm-changelog", "pm-changelog --release-version-from-package")]).failures.length, 1);
 });
 
+test("Round GS audits reusable release hooks with both project and preview lifecycle settings", () => {
+  const audit = (project: boolean, preview: boolean, prehook = "cd docs; npm run nested-only", name = "render", caller = true) =>
+    auditInvocations([
+      { file: "package.json", text: JSON.stringify({ scripts: { [name]: FLAGGED, ["pre" + name]: prehook } }) },
+      { file: ".npmrc", text: "ignore-scripts=" + project },
+      { file: ".github/workflows/preview.yml", text: workflowRun("npm --ignore-scripts=" + preview + " run " + name) },
+      ...(caller ? [{ file: ".github/workflows/release.yml", text: [
+        "jobs:",
+        "  release:",
+        "    uses: owner/package/.github/workflows/daily-release.yml@main",
+        ...(name === "changelog:full" ? [] : ["    with:", "      changelog-script: " + name]),
+      ].join("\n") }] : []),
+    ]).failures;
+  for (const name of ["render", "changelog:full"]) {
+    assert.match(audit(false, true, undefined, name)[0] ?? "", /pre.*context change.*cd/);
+    assert.match(audit(true, false, undefined, name)[0] ?? "", /pre.*context change.*cd/);
+    assert.deepEqual(audit(true, true, undefined, name), []);
+    assert.deepEqual(audit(false, true, FLAGGED, name), []);
+  }
+  assert.deepEqual(audit(false, true, undefined, "changelog:full", false), []);
+});
+
 test("configured release hooks are audited when called without another script's arguments", () => {
   const source = (name: string, policy = "") => ({ file: "package.json", text: JSON.stringify({ scripts: {
     preview: `npm run ${name} -- --date-from-version`,

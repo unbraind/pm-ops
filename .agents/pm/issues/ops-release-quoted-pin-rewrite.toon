@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-22T23:30:01.382Z"
+updated_at: "2026-11-23T01:44:43.160Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -14,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[245]:
+comments[249]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -751,7 +751,19 @@ comments[245]:
   - created_at: "2026-11-22T23:29:59.081Z"
     author: codex-agent
     text: "Round GQ verification. The 18-suite reference sweep passed 626 tests, the direct lifecycle and grammar coverage follow-up passed 177, the pinned pm linked-test snapshot passed all eight targeted fixtures, and the self-host wiring test passed. npm and Bun packed consumers both passed create, validate and strict merge-driver health. The full-depth rewritten npm release gate and the CI quick-depth Bun release gate each passed 2274 of 2276 with two opt-in skips, zero failures and 100 percent coverage in all four dimensions across 54 sources. Each dependency audit returned zero vulnerabilities. The rewritten headings use 2026.12.31 and 2026-11-17, and the acceptance checkout was removed. Typecheck, test compilation, lint, zero duplication, docstrings, changelog, identity and release verifiers passed. PRRT_kwDOTOTl1M66n48V maps to the GitHub file-output fixture, PRRT_kwDOTOTl1M66n48Z to the forwarded renderer and operand fixtures, PRRT_kwDOTOTl1M66n48d to the npm interpreter and failed-worker fixtures, and PRRT_kwDOTOTl1M66n48k to the decoded fixture argv. PRRT_kwDOTOTl1M66n48S was already accepted at the starting head. CI receipts for the pushed revision are available at https://github.com/unbraind/pm-ops/pull/295/checks."
-files[35]{path,scope}:
+  - created_at: "2026-11-23T00:23:20.397Z"
+    author: codex-agent
+    text: "Round GS: verify all unresolved threads at 06d9bf3, add red-first finding and inverse fixtures, and rerun the pinned fleet and release checks."
+  - created_at: "2026-11-23T00:33:45.584Z"
+    author: codex-agent
+    text: "Round GS reviewed all 323 threads and the latest CodeRabbit review body. The four open inline findings and the runner environment read finding are class A. Isolated behavioral reverts failed independently: pwbj appended the flag to break, pwbn replaced the original changelog before the output append failed, pwbp omitted the project-policy prehook, pwbq truncated the equals-containing path, and the review-body revert treated a skippable export as definite. Self-review also reproduced relative GitHub receipt paths resolving against the wrong directory and a failed lifecycle receipt leaving package.json rewritten. The paired focused pm test passed all seven fixtures. The pinned fleet accepted 142 hooks and 144 bodies across 39 manifests; the workflow comparison found no diagnostic delta in 265 workflows. The owner-authored drift and misconfiguration boundary remains as documented in .coderabbit.yaml."
+  - created_at: "2026-11-23T01:07:31.306Z"
+    author: codex-agent
+    text: "The review-body regression also reproduced with errexit disabled and the unquoted read as the final command. A later successful command and a quoted final read are valid inverses. The isolated test failed with the last-command handling reverted. The four historical shell proofs were rerun in a disposable checkout. Their initial overlap with the broad suite caused one module-load failure, and the affected test passed on the restored source."
+  - created_at: "2026-11-23T01:44:41.357Z"
+    author: codex-agent
+    text: "Round GS final gate evidence on the candidate source. node test/release-heading-full-gate.acceptance.ts ran the full npm release:check on the rewritten candidate with Node 26.13.0 and npm 11.21.0. It passed 2280 of 2282 tests with two opt-in skips, 100 percent statements, branches, functions and lines across 54 sources, zero audit vulnerabilities and no acceptance scratch checkout left. An earlier bun run release:check passed the same counts before the final unquoted-read adjustment. The queued final Bun rerun was stopped before measurement with 100 seconds left in the local gate budget. The final linked pm test passed seven fixtures and the frozen lifecycle-drift retry passed. npm run accept:packed passed for npm and native Bun, including SDK activation and strict merge-driver health. Fleet verification accepted 142 hooks and 144 bodies across 39 manifests with zero audit diagnostic changes in 265 workflows. The inherited ops-input-startup-timeout history differs from main. The Round GS tracker history is an exact prefix extension of the starting branch history. Hosted run status for the pushed head is available at https://github.com/unbraind/pm-ops/pull/295/checks."
+files[36]{path,scope}:
   .coderabbit.yaml,project
   .github/workflows/daily-release.yml,project
   attestation.ts,project
@@ -773,6 +785,7 @@ files[35]{path,scope}:
   scripts/verify-release-changelog-date.ts,project
   shell-scan.ts,project
   test/attestation-union.test.ts,project
+  test/bash-fixture.ts,project
   test/changelog-sections.test.ts,project
   test/daily-release-workflow.test.ts,project
   test/daily-release.test.ts,project
@@ -787,7 +800,7 @@ files[35]{path,scope}:
   test/shell-command-scan.test.ts,project
   test/verify-release-changelog-date.test.ts,project
   tsconfig.json,project
-tests[88]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[89]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts test/daily-release.test.ts,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run coverage,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
   npm run typecheck,project,codex-sol,"2026-11-17T20:53:40.067Z",local_mutation,fix/resumed-release-heading-date
@@ -876,6 +889,7 @@ tests[88]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-reporter=tap --test-concurrency=2 test/verify-release-changelog-date.test.ts test/release-hook-grammar.test.ts test/shell-command-scan.test.ts,project,codex-agent,"2026-11-22T18:32:49.533Z",local_mutation,fix/release-hook-wrapper-options-bm
   node --test --test-reporter=tap --test-concurrency=1 --test-name-pattern='pipeline after OR|trailing status pipelines|for header|existing options on forwarded|runner exports restore|configured release hooks|repeated current-directory' test/release-hook-grammar.test.ts test/verify-release-changelog-date.test.ts,project,codex-agent,"2026-11-22T18:47:34.740Z",local_mutation,fix/release-hook-wrapper-options-bm
   npm run build && node --test --test-reporter=tap --test-concurrency=2 --test-name-pattern='Round GQ' test/changelog-sections.test.ts test/release-hook-grammar.test.ts test/release-runtime.test.ts,project,codex-agent,"2026-11-22T22:24:40.235Z",local_mutation,fix/release-hook-wrapper-options-bm
+  "node --test --test-concurrency=2 --test-reporter=tap --test-name-pattern=\"Round GS|Round GQ GitHub file outputs\" test/changelog-sections.test.ts test/release-hook-grammar.test.ts test/verify-release-changelog-date.test.ts",project,codex-agent,"2026-11-23T00:31:34.605Z",local_mutation,fix/release-hook-wrapper-options-bm
 docs[5]{path,scope}:
   .coderabbit.yaml,project
   CHANGELOG.md,project

@@ -52,9 +52,9 @@ try {
       changed = true;
     }
   }
-  if (changed) writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
   if (process.argv[2]) appendFileSync(process.argv[2],
     "npm_lifecycle=" + lifecycle.active + "\nnpm_lifecycle_configured=" + lifecycle.configured + "\n");
+  if (changed) writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
 } catch (error) {
   console.error((error as Error).message);
   process.exitCode = 1;

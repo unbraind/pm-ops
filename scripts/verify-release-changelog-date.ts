@@ -156,7 +156,7 @@ function maySelectRootProject(directory: unknown): boolean {
   return isRootProject(prefix) && remaining.every(part => !/[^./]|\.\./.test(part));
 }
 
-/** Include literal hook overrides from callers of the reusable daily release workflow. */
+/** Include literal overrides and inherited defaults from callers of the reusable daily release workflow. */
 function addConfiguredHooks(text: string, entries: Set<string>): void {
   const workflow = parse(text) as { jobs?: Record<string, { if?: unknown; uses?: string; with?: Record<string, unknown> } | null> } | null;
   for (const job of Object.values(workflow?.jobs ?? {})) {
@@ -164,8 +164,8 @@ function addConfiguredHooks(text: string, entries: Set<string>): void {
     if (typeof job?.uses !== "string" || !/(?:^|\/)\.github\/workflows\/daily-release\.ya?ml(?:@[^\s]+)?$/.test(job.uses)) continue;
     if (job.with?.rust === true) continue;
     if (!maySelectRootProject(job.with?.["npm-project-dir"])) continue;
-    for (const [input] of HOOK_INPUTS) {
-      const name = job.with?.[input];
+    for (const [input, defaultName] of HOOK_INPUTS) {
+      const name = job.with?.[input] ?? defaultName;
       if (typeof name === "string" && /^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$/.test(name)) entries.add(name);
     }
   }
@@ -189,7 +189,7 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
   const projectConfig = sources.find(source => source.file === ".npmrc")?.text;
   const workflowSteps = new Map<string, NpmLifecyclePolicy>();
   const found: Invocation[] = [];
-  const entryPoints = new Set<string>(HOOK_INPUTS.map(([, name]) => name));
+  const projectEntryPoints = new Set<string>();
   for (const source of sources) {
     if (source.file === ".npmrc") continue;
     if (source.file === "package.json") {
@@ -198,7 +198,7 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
         origins.set(name, { file: source.file, line, script: name });
       }
     } else {
-      if (/^\.github\/workflows\/.*\.ya?ml$/.test(source.file)) addConfiguredHooks(source.text, entryPoints);
+      if (/^\.github\/workflows\/.*\.ya?ml$/.test(source.file)) addConfiguredHooks(source.text, projectEntryPoints);
       for (const { text, line, workingDirectory, environment, disabled } of executableShellBodies(source)) {
         if (disabled) continue;
         if (!isRootProject(workingDirectory)) {
@@ -215,11 +215,12 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
       }
     }
   }
+  const entryPoints = new Set([...HOOK_INPUTS.map(([, name]) => name), ...projectEntryPoints]);
   visitChangelogScriptCommands(scripts, ({ name, names, text, words, effective, spans, contextProblem }) => {
     const first = spans.get(words[0])!.start;
     const last = spans.get(words.at(-1)!)!.end;
     found.push(...inspectCommand(effective, { ...origins.get(name)!, command: text.slice(first, last) }, names, contextProblem));
-  }, undefined, undefined, entryPoints, { lifecycle: npmLifecycle(projectConfig), workflowSteps });
+  }, undefined, undefined, entryPoints, { lifecycle: npmLifecycle(projectConfig), workflowSteps, projectEntryPoints });
   return found;
 }
 

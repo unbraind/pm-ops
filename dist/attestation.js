@@ -913,6 +913,7 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windo
     let nounset = false;
     let depth = 0;
     const lines = text.split(/\r?\n/);
+    const finalLine = lines.reduce((last, line, index) => /^\s*(?:#.*)?$/.test(line) ? last : index, -1);
     const bodies = heredocBodyLines(lines);
     for (const [index, part] of lines.entries()) {
         const line = part.trim();
@@ -940,7 +941,8 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windo
             continue;
         const readRunnerEnv = READ_ENV_FILE.exec(line);
         if (readRunnerEnv) {
-            if (mayStopOnFailure && !readRunnerEnv[1])
+            // A final command can fail the step even without errexit.
+            if (!readRunnerEnv[1] && (mayStopOnFailure || index === finalLine))
                 mayStopAtRead = true;
             continue;
         }
@@ -987,7 +989,7 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windo
             records.set(key, [name, conditional ? uncertainEnvironmentRecord(name) : value]);
         }
     }
-    return records && { records: Object.fromEntries(records.values()), mayStopBeforeOverwrite };
+    return records && { records: Object.fromEntries(records.values()), mayStopBeforeOverwrite, mayStopAtRead };
 }
 /** Preserve uncertainty without treating a possibly unset expansion as a literal. */
 function uncertainEnvironmentRecord(name) {
@@ -1048,6 +1050,7 @@ export function executableShellBodies(source) {
         let unknownNames = false;
         let definiteLifecycleWrite = false;
         let uncertainOnFailure = false;
+        let readMaySkipLaterSteps = false;
         for (const [index, value] of steps.entries()) {
             const step = mapping(value);
             if (step === undefined || !Object.hasOwn(step, "run")) {
@@ -1100,12 +1103,17 @@ export function executableShellBodies(source) {
                 else {
                     inherited = mergeWorkflowEnvironment(windowsRunner, inherited, writes.records);
                     for (const [key, record] of Object.entries(writes.records)) {
+                        if (readMaySkipLaterSteps && uncertainEnvironmentRecord(key) !== undefined)
+                            uncertainOnFailure = true;
                         if ((windowsRunner ? key.toLowerCase() : key) === IGNORE_SCRIPTS_ENV) {
                             definiteLifecycleWrite = record === "true" || record === "false";
                         }
                     }
                     if (writes.mayStopBeforeOverwrite)
                         uncertainOnFailure = true;
+                    // A read-only step can prevent a later successful-path export.
+                    if (writes.mayStopAtRead && step["continue-on-error"] !== true)
+                        readMaySkipLaterSteps = true;
                 }
             }
             bodies.push(body);
