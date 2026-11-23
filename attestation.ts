@@ -17,7 +17,8 @@
  *
  * @packageDocumentation
  */
-import { unsupportedReleaseConstruct } from "./release-shell-constructs.ts";
+import { describeUnsupportedReleaseHook, unsupportedReleaseConstruct } from "./release-shell-constructs.ts";
+import { parseReleaseHook } from "./release-hook-grammar.ts";
 import { readRegularText } from "./regular-input.ts";
 import { execFileSync } from "./subprocess.ts";
 import { closeSync, constants, fstatSync, statSync, openSync, readSync } from "node:fs";
@@ -38,6 +39,7 @@ import {
   heredocExpansionLines,
   isolateShellChildren,
   joinContinuations,
+  releaseHookConstructProblem,
   scalarAssignmentEvents,
   segmentShellLine,
   type ShellCommand,
@@ -79,6 +81,8 @@ export interface PublishInvocation {
   unresolved?: string;
   /** Known dependency publisher whose effective provenance is outside tracked source. */
   wrapper?: string;
+  /** A recognized release path uses an unsupported workflow construct. */
+  constructProblem?: string;
   /** Physical source line for a dependency-wrapper diagnostic. */
   line?: number;
 }
@@ -742,6 +746,8 @@ interface ExecutableShellBody {
   workingDirectory?: unknown;
   /** Workflow, job and step environment merged in execution precedence. */
   environment?: Readonly<Record<string, unknown>>;
+  /** Job id when a workflow runs the step inside a container. */
+  containerJob?: string;
   /** The workflow step has a literal false condition. */
   disabled?: true;
 }
@@ -1088,6 +1094,7 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
     const job = mapping(container.value);
     const steps = job?.steps;
     if (!Array.isArray(steps)) continue;
+    const containerJob = job!.container !== undefined && unsupportedReleaseConstruct("container job", "workflow");
     const runner = job!["runs-on"];
     const posixRunner = [runner].flat().some(label => typeof label === "string" && /^(?:ubuntu-|macos-|linux$|macos$)/i.test(label));
     const windowsRunner = [runner].flat().some(label => typeof label === "string" && /^windows(?:-|$)/i.test(label));
@@ -1111,6 +1118,12 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
       const body = bodyAt([...container.path, "steps", index, "run"], step.run);
       const directory = step["working-directory"] ?? defaultRunSetting(job, "working-directory") ?? defaultRunSetting(data, "working-directory");
       if (directory !== undefined) body.workingDirectory = directory;
+      if (job!.if === false || step.if === false) body.disabled = true;
+      if (containerJob) {
+        body.containerJob = String(container.path[1]);
+        bodies.push(body);
+        continue;
+      }
       const stepEnv = mergeWorkflowEnvironment(windowsRunner, mapping(step.env));
       const environment = mergeWorkflowEnvironment(windowsRunner, baseEnvironment, inherited, stepEnv);
       const afterFailure = canRunAfterFailure(step.if);
@@ -1132,8 +1145,7 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
       if (!stepLifecycle && (priorUncertain || (unknownNames && (!definiteLifecycleWrite || afterFailure)))) {
         body.environment = { ...body.environment, [IGNORE_SCRIPTS_ENV]: "unknown" };
       }
-      if (job!.if === false || step.if === false) body.disabled = true;
-      else {
+      if (!body.disabled) {
         const shell = step.shell ?? defaultShell;
         const shellKnown = shell === undefined ? posixRunner : typeof shell === "string" && /^(?:bash|sh|(?:bash|sh) (?:-e )?\{0\}|bash --noprofile --norc -eo pipefail \{0\})$/.test(shell);
         const condition = step.if;
@@ -1246,12 +1258,24 @@ function opaquePublishInvocations(source: SourceFile, body: string): PublishInvo
 export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
   return executableShellBodies(source).flatMap((body) => {
     const cursors = new Map<string, Iterator<number, undefined>>();
-    return (body.argv === undefined
+    const invocations = body.argv === undefined
       ? [...publishInvocationsInShell(source, body.text), ...opaquePublishInvocations(source, body.text)]
-      : publishInvocationsInArgv(source, body.argv))
-      .map((invocation) => invocation.wrapper === undefined ? invocation : {
-        ...invocation, line: wrapperSourceLine(body, invocation.wrapper, cursors),
-      });
+      : publishInvocationsInArgv(source, body.argv);
+    const hook = body.containerJob ?? source.file + ":" + body.line;
+    let constructProblem: string | undefined;
+    if (!body.disabled && invocations.length > 0 && isWorkflowYaml(source.file)) {
+      if (body.containerJob !== undefined) {
+        constructProblem = describeUnsupportedReleaseHook("container job", hook);
+      } else {
+        const { commands, spans } = parseReleaseHook(body.text, "workflow");
+        constructProblem = releaseHookConstructProblem(commands, body.text, spans, hook, "workflow")?.problem;
+      }
+    }
+    return invocations.map((invocation) => ({
+      ...invocation,
+      ...(constructProblem ? { constructProblem } : {}),
+      ...(invocation.wrapper === undefined ? {} : { line: wrapperSourceLine(body, invocation.wrapper, cursors) }),
+    }));
   });
 }
 
@@ -1309,6 +1333,7 @@ export function auditPublishAttestation(sources: SourceFile[]): PublishAttestati
   const { failures, notes } = tallyFlaggedInvocations(
     invocations,
     (invocation) => {
+      if (invocation.constructProblem !== undefined) return invocation.file + ": " + invocation.constructProblem;
       if (invocation.wrapper !== undefined) {
         return `${invocation.file}:${invocation.line}: cannot certify provenance for third-party publish wrapper`
           + ` \`${invocation.wrapper}\`; dependency source is outside the tracked audit boundary: ${renderCommand(invocation.command)}`;

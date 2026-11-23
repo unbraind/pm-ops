@@ -32,7 +32,7 @@
  * @packageDocumentation
  */
 
-import { inShellCasePattern, isShellAssignment, readShellCaseWord, shellCaseTerminator, type ShellCaseState } from "./release-shell-constructs.ts";
+import { describeUnsupportedReleaseHook, hasShellContinuation, inShellCasePattern, isShellAssignment, readShellCaseWord, readShellLogicalLine, shellCaseTerminator, unsupportedReleaseCommand, type ReleaseShellScope, type ShellCaseState } from "./release-shell-constructs.ts";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -404,6 +404,21 @@ export function tokenizeCommandsWithSpans(text: string): {
   return { commands: scanShellCommands(text, 0, false, undefined, spans), spans };
 }
 
+/** Identify the first out-of-corpus control form in a package release hook. */
+export function releaseHookConstructProblem(
+  commands: readonly ShellCommand[], text: string, spans: WeakMap<ShellToken, ShellTokenSpan>, hook: string, scope: ReleaseShellScope,
+): { words: ShellCommand; problem: string } | undefined {
+  for (const words of commands) {
+    const raw = words.filter(word => !word.releaseKeyword).map(word => {
+      const span = spans.get(word)!;
+      return text.slice(span.start, span.end);
+    });
+    const construct = unsupportedReleaseCommand(raw, scope);
+    if (construct) return { words, problem: describeUnsupportedReleaseHook(construct, hook) };
+  }
+  return undefined;
+}
+
 /**
  * Scan public tokens or collect lexical children without entering their scopes.
  * Arithmetic mode suppresses operand commands while retaining executable children.
@@ -458,7 +473,7 @@ function scanShellCommands(
     const controlWord = token.value === "case" || token.value === "esac";
     const keyword = (controlWord || token.value === "in") && !token.quoted && token.unresolved !== true
       && text.slice(wordStart, end).replaceAll("\\\n", "") === token.value;
-    readShellCaseWord(cases, token.value, keyword, controlWord && commandName(command) === undefined);
+    readShellCaseWord(cases, token.value, keyword, controlWord && keyword && commandName(command) === undefined);
     if (!inPattern) command.push(token);
     regexOperand = conditional && !token.quoted && token.value === "=~";
     value = "";
@@ -1126,6 +1141,35 @@ export interface SourceFile {
   text: string;
 }
 
+/** Shell quoting and word position carried across physical source lines. */
+interface ShellLineState {
+  /** The quote that still surrounds the next character. */
+  quote: string;
+  /** A hash begins a comment at an unquoted word boundary. */
+  wordStart: boolean;
+}
+
+/** Read source quoting before deciding whether a last backslash joins the next line. */
+function joinsShellSourceLine(line: string, state: ShellLineState): boolean {
+  for (let index = 0; index < line.length; index++) {
+    const character = line[index];
+    if (character === "\\" && state.quote !== "'") {
+      if (index === line.length - 1) return true;
+      index++;
+      state.wordStart = false;
+    } else if (character === state.quote) {
+      state.quote = "";
+      state.wordStart = false;
+    } else if (!state.quote) {
+      if (character === "#" && state.wordStart) break;
+      if (character === "'" || character === '"') state.quote = character;
+      state.wordStart = /[\s;&|<>()]/.test(character);
+    }
+  }
+  state.wordStart = !state.quote;
+  return false;
+}
+
 /**
  * Collapse shell and YAML line continuations so one logical command is one string.
  *
@@ -1137,7 +1181,25 @@ export interface SourceFile {
  * @returns The same text with continuations joined.
  */
 export function joinContinuations(text: string): string {
-  return text.replace(/\\\r?\n\s*/g, " ");
+  const lines = text.split("\n");
+  const bodies = heredocBodyLines(lines);
+  const state: ShellLineState = { quote: "", wordStart: true };
+  let joined = "";
+  for (let index = 0; index < lines.length - 1; index++) {
+    const raw = lines[index]!;
+    const line = raw.replace(/\r$/, "");
+    const next = lines[index + 1]!;
+    if (!bodies[index] && joinsShellSourceLine(line, state)) {
+      const prefix = line.slice(0, -1);
+      joined += prefix;
+      if (!state.quote) {
+        if (/[ \t]$/.test(prefix) || /^[ \t]/.test(next)) joined += " ";
+        if (/^[ \t]/.test(next)) state.wordStart = true;
+        lines[index + 1] = next.replace(/^[ \t]*/, "");
+      }
+    } else joined += raw + "\n";
+  }
+  return joined + lines.at(-1)!;
 }
 
 /**
@@ -1819,10 +1881,10 @@ function literalShellWord(raw: string): string {
  * @param line - One source line, with continuations already joined.
  * @returns The heredocs opened, in the order bash will read their bodies.
  */
-function heredocOpenersIn(line: string): Array<{ delimiter: string; stripTabs: boolean; expand: boolean }> {
+function heredocOpenersIn(line: string, quote: string): Array<{ delimiter: string; stripTabs: boolean; expand: boolean }> {
   const openers: Array<{ delimiter: string; stripTabs: boolean; expand: boolean }> = [];
-  let single = false;
-  let double = false;
+  let single = quote === "'";
+  let double = quote === '"';
   let arithmeticDepth = 0;
   for (let index = 0; index < line.length; index += 1) {
     const character = line[index]!;
@@ -1883,8 +1945,8 @@ function heredocOpenersIn(line: string): Array<{ delimiter: string; stripTabs: b
         cursor += 1;
         continue;
       }
-      if (part === "'" || part === '"') {
-        delimiterQuote = delimiterQuote === undefined ? part : delimiterQuote === part ? undefined : delimiterQuote;
+      if ((part === "'" || part === '"') && (delimiterQuote === undefined || delimiterQuote === part)) {
+        delimiterQuote = delimiterQuote === undefined ? part : undefined;
         consumed = true;
         quoted = true;
         continue;
@@ -1911,18 +1973,24 @@ interface HeredocLineState {
 /** Classify heredoc body lines while retaining delimiter quote behavior. */
 function heredocLineStates(lines: string[]): HeredocLineState[] {
   const states = lines.map(() => ({ body: false, expand: false }));
-  /** Delimiters still awaiting their terminator, in the order bash closes them. */
-  let pending: Array<{ delimiter: string; stripTabs: boolean; expand: boolean }> = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]!;
-    if (pending.length > 0) {
-      const candidate = (pending[0]!.stripTabs ? line.replace(/^\t+/, "") : line).replace(/\r$/, "");
-      const terminator = candidate === pending[0]!.delimiter;
-      states[index] = { body: true, expand: pending[0]!.expand && !terminator };
-      if (terminator) pending = pending.slice(1);
-      continue;
-    }
-    pending.push(...heredocOpenersIn(line));
+  const text = lines.join("\n");
+  const pending: ReturnType<typeof heredocOpenersIn> = [];
+  const state: ShellLineState = { quote: "", wordStart: true };
+  let offset = 0;
+  for (let index = 0; index < lines.length;) {
+    const delimiter = pending[0];
+    const quote = state.quote;
+    const line = readShellLogicalLine(text, offset, delimiter
+      ? value => delimiter.expand && hasShellContinuation(value)
+      : value => joinsShellSourceLine(value, state));
+    offset = line.end;
+    if (delimiter) {
+      const candidate = delimiter.stripTabs ? line.value.replace(/^\t+/, "") : line.value;
+      const terminator = candidate === delimiter.delimiter;
+      states.fill({ body: true, expand: delimiter.expand && !terminator }, index, index + line.lines);
+      if (terminator) pending.shift();
+    } else pending.push(...heredocOpenersIn(line.value, quote));
+    index += line.lines;
   }
   return states;
 }

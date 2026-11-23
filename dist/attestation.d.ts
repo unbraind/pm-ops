@@ -27,6 +27,8 @@ export interface PublishInvocation {
     unresolved?: string;
     /** Known dependency publisher whose effective provenance is outside tracked source. */
     wrapper?: string;
+    /** A recognized release path uses an unsupported workflow construct. */
+    constructProblem?: string;
     /** Physical source line for a dependency-wrapper diagnostic. */
     line?: number;
 }
@@ -104,6 +106,8 @@ interface ExecutableShellBody {
     workingDirectory?: unknown;
     /** Workflow, job and step environment merged in execution precedence. */
     environment?: Readonly<Record<string, unknown>>;
+    /** Job id when a workflow runs the step inside a container. */
+    containerJob?: string;
     /** The workflow step has a literal false condition. */
     disabled?: true;
 }

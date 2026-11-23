@@ -1173,9 +1173,14 @@ test("quoted heredoc delimiters are scanned as literal terminators", () => {
   assert.deepEqual(heredocBodyLines(["cat <<<word", "FLAG=--provenance"]), [false, false]);
   assert.deepEqual(heredocBodyLines(["(( 1 + (2) ))", "FLAG=--provenance"]), [false, false]);
   assert.deepEqual(heredocBodyLines(["cat <<- EOF", "payload", "EOF"]), [false, true, true]);
-  assert.deepEqual(heredocBodyLines(["cat <<EOF\\", "payload", "EOF"]), [false, true, true]);
+  assert.deepEqual(heredocBodyLines(["cat <<EOF\\", "payload", "EOF", "EOFpayload", "npm publish"]),
+    [false, false, true, true, false]);
+  assert.deepEqual(heredocBodyLines(["cat <<EO\\", "F", "payload", "EOF", "npm publish"]),
+    [false, false, true, true, false]);
+  assert.deepEqual(heredocBodyLines(["cat <<EOF\\"]), [false]);
   assert.deepEqual(heredocBodyLines(["echo $((1 << 2))", "FLAG=--provenance"]), [false, false]);
-  assert.deepEqual(heredocBodyLines(["cat <<'EO\"F'", "payload", "EOF"]), [false, true, true]);
+  assert.deepEqual(heredocBodyLines(["cat <<'EO\"F'", "payload", "EOF", 'EO"F', "npm publish"]),
+    [false, true, true, true, false]);
   assert.deepEqual(heredocBodyLines(["cat <<EOF; echo hi", "payload", "EOF"]), [false, true, true]);
   assert.deepEqual(heredocBodyLines(["cat <<'EOF", "payload"]), [false, false]);
 });

@@ -31,6 +31,7 @@
  *
  * @packageDocumentation
  */
+import { type ReleaseShellScope } from "./release-shell-constructs.ts";
 /** One word of a command, after quote resolution. */
 export interface ShellToken {
     /** The word's text with its quoting removed. */
@@ -125,6 +126,11 @@ export declare function tokenizeCommandsWithSpans(text: string): {
     commands: ShellCommand[];
     spans: WeakMap<ShellToken, ShellTokenSpan>;
 };
+/** Identify the first out-of-corpus control form in a package release hook. */
+export declare function releaseHookConstructProblem(commands: readonly ShellCommand[], text: string, spans: WeakMap<ShellToken, ShellTokenSpan>, hook: string, scope: ReleaseShellScope): {
+    words: ShellCommand;
+    problem: string;
+} | undefined;
 /**
  * Protect lexical child state from parent structural scans and expansion.
  *

@@ -12,6 +12,11 @@ reviews:
         The pinned workflow bodies also contain loops with break/continue, case arms, here-documents and here-strings,
         GITHUB_ENV writes, pipelines and exit. Preserve the supported workflow forms and prior hook acceptance fixtures.
         Case patterns belong to workflow syntax. The hook grammar refuses case arms and unquoted command negation.
+        The pinned hooks and workflows contain no time prefix or container job. Refuse time in release shell source
+        and jobs.<id>.container on a release path. Keep time as ordinary argument data outside command position.
+        Preserve physical edits across expandable here-document and case terminator continuations.
+        Join executable continuations while preserving single-quoted data and comment boundaries.
+        Use one operand walk for a custom renderer's separators and flags, including option-shaped title values.
         Quoted operands remain literal, and env uses NAME=value operands independently of shell assignment syntax.
         A workflow using sh cannot establish a definite environment export after setting pipefail.
         Enabled reusable callers require a literal, existing nonblank root script for each explicit hook selector.

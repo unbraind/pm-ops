@@ -3,7 +3,7 @@
 export function unsupportedReleaseConstruct(construct, scope, shell = "bash") {
     if (construct === "pipefail")
         return scope === "workflow" && shell === "sh";
-    return scope === "hook";
+    return construct === "time prefix" || (construct === "container job" ? scope === "workflow" : scope === "hook");
 }
 /** Stable diagnostic code for package hook grammar refusals. */
 export const UNSUPPORTED_RELEASE_HOOK = "release_hook_unsupported_construct";
@@ -48,10 +48,49 @@ export function readShellCaseWord(stack, value, literal, commandStart) {
     }
     return undefined;
 }
-/** Count the characters occupied by a shell case arm terminator. */
+/** Find an unsupported reserved word in unquoted command position. */
+export function unsupportedReleaseCommand(words, scope) {
+    let negation;
+    for (const word of words) {
+        const raw = word.replaceAll("\\\n", "");
+        if (/^\(*time$/.test(raw) && unsupportedReleaseConstruct("time prefix", scope))
+            return "time prefix";
+        if (/^\(*!$/.test(raw)) {
+            if (unsupportedReleaseConstruct("shell negation", scope))
+                negation = "shell negation";
+            continue;
+        }
+        if (/^(?:\(+|\{|if|then|elif|else|do|while|until)$/.test(raw))
+            continue;
+        if (/^\(*case$/.test(raw) && unsupportedReleaseConstruct("case arms", scope))
+            return "case arms";
+        break;
+    }
+    return negation;
+}
+/** Count the physical source characters occupied by a case arm terminator. */
 export function shellCaseTerminator(text, index) {
-    if (text.startsWith(";;&", index))
-        return 3;
-    return text.startsWith(";;", index) || text.startsWith(";&", index) ? 2 : 0;
+    const match = /^;(?:\\\n)*(?:;(?:\\\n)*&|;|&)/.exec(text.slice(index));
+    return match?.[0].length ?? 0;
+}
+/** Read one logical shell line and retain its physical end for edits. */
+export function readShellLogicalLine(text, start, joins) {
+    let end = start;
+    let value = "";
+    let lines = 0;
+    do {
+        const newline = text.indexOf("\n", end);
+        const line = text.slice(end, newline < 0 ? text.length : newline).replace(/\r$/, "");
+        end = newline < 0 ? text.length : newline + 1;
+        lines++;
+        if (!joins(line) || newline < 0)
+            return { value: value + line, end, lines };
+        value += line.slice(0, -1);
+    } while (end < text.length);
+    return { value, end, lines };
+}
+/** An odd final backslash escapes the newline after the literal pairs. */
+export function hasShellContinuation(line) {
+    return /(?<!\\)(?:\\\\)*\\$/.test(line);
 }
 //# sourceMappingURL=release-shell-constructs.js.map

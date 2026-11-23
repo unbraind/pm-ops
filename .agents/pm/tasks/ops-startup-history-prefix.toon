@@ -1,0 +1,15 @@
+id: ops-startup-history-prefix
+title: Verify inherited artifact-reader tracker history before merge
+description: "The PR beginning at a1a3790 inherits an artifact-reader item history stream from merge 28c678d that is not a byte-prefix extension of origin/main. The first eight records are byte-identical and all 19 main event identities are represented by timestamp, operation and author. The PR also carries 11 additional event identities. The Round GY work does not touch this item pair."
+type: Task
+status: open
+priority: 2
+tags[3]: "area:tracker",follow-up,"gh:unbraind/pm-ops#295"
+created_at: "2026-11-23T12:39:25.292Z"
+updated_at: "2026-11-23T12:39:25.292Z"
+author: codex-agent
+acceptance_criteria: "Verify the previous merge preserved exact event payloads and state on both sides. If reconciliation is necessary, use the supported append-only PM workflow and retain all attributable records."
+parent: ops-release-1115-heading-drift
+files[1]{path,scope}:
+  .agents/pm/history/ops-input-startup-timeout.jsonl,project
+body: ""

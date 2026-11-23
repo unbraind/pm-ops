@@ -4,14 +4,14 @@
 export type ReleaseShellScope = "hook" | "workflow";
 
 /** Shell features whose support depends on their execution context. */
-type ReleaseConstruct = "case arms" | "shell negation" | "pipefail";
+type ReleaseConstruct = "case arms" | "shell negation" | "pipefail" | "time prefix" | "container job";
 
 /** Identify a construct outside the grammar in its current execution context. */
 export function unsupportedReleaseConstruct(
   construct: ReleaseConstruct, scope: ReleaseShellScope, shell = "bash",
 ): boolean {
   if (construct === "pipefail") return scope === "workflow" && shell === "sh";
-  return scope === "hook";
+  return construct === "time prefix" || (construct === "container job" ? scope === "workflow" : scope === "hook");
 }
 
 /** Stable diagnostic code for package hook grammar refusals. */
@@ -67,8 +67,46 @@ export function readShellCaseWord(
   return undefined;
 }
 
-/** Count the characters occupied by a shell case arm terminator. */
+/** Find an unsupported reserved word in unquoted command position. */
+export function unsupportedReleaseCommand(words: Iterable<string>, scope: ReleaseShellScope): string | undefined {
+  let negation: string | undefined;
+  for (const word of words) {
+    const raw = word.replaceAll("\\\n", "");
+    if (/^\(*time$/.test(raw) && unsupportedReleaseConstruct("time prefix", scope)) return "time prefix";
+    if (/^\(*!$/.test(raw)) {
+      if (unsupportedReleaseConstruct("shell negation", scope)) negation = "shell negation";
+      continue;
+    }
+    if (/^(?:\(+|\{|if|then|elif|else|do|while|until)$/.test(raw)) continue;
+    if (/^\(*case$/.test(raw) && unsupportedReleaseConstruct("case arms", scope)) return "case arms";
+    break;
+  }
+  return negation;
+}
+
+/** Count the physical source characters occupied by a case arm terminator. */
 export function shellCaseTerminator(text: string, index: number): number {
-  if (text.startsWith(";;&", index)) return 3;
-  return text.startsWith(";;", index) || text.startsWith(";&", index) ? 2 : 0;
+  const match = /^;(?:\\\n)*(?:;(?:\\\n)*&|;|&)/.exec(text.slice(index));
+  return match?.[0].length ?? 0;
+}
+
+/** Read one logical shell line and retain its physical end for edits. */
+export function readShellLogicalLine(text: string, start: number, joins: (line: string) => boolean): { value: string; end: number; lines: number } {
+  let end = start;
+  let value = "";
+  let lines = 0;
+  do {
+    const newline = text.indexOf("\n", end);
+    const line = text.slice(end, newline < 0 ? text.length : newline).replace(/\r$/, "");
+    end = newline < 0 ? text.length : newline + 1;
+    lines++;
+    if (!joins(line) || newline < 0) return { value: value + line, end, lines };
+    value += line.slice(0, -1);
+  } while (end < text.length);
+  return { value, end, lines };
+}
+
+/** An odd final backslash escapes the newline after the literal pairs. */
+export function hasShellContinuation(line: string): boolean {
+  return /(?<!\\)(?:\\\\)*\\$/.test(line);
 }

@@ -2,7 +2,7 @@
 /** The environments in which release shell source is inspected. */
 export type ReleaseShellScope = "hook" | "workflow";
 /** Shell features whose support depends on their execution context. */
-type ReleaseConstruct = "case arms" | "shell negation" | "pipefail";
+type ReleaseConstruct = "case arms" | "shell negation" | "pipefail" | "time prefix" | "container job";
 /** Identify a construct outside the grammar in its current execution context. */
 export declare function unsupportedReleaseConstruct(construct: ReleaseConstruct, scope: ReleaseShellScope, shell?: string): boolean;
 /** Stable diagnostic code for package hook grammar refusals. */
@@ -20,7 +20,17 @@ export type ShellCaseState = "subject" | "in" | "pattern" | "pattern-data" | "bo
 export declare function inShellCasePattern(state: ShellCaseState | undefined): boolean;
 /** Classify case words before a scanner treats them as executable argv. */
 export declare function readShellCaseWord(stack: ShellCaseState[], value: string, literal: boolean, commandStart: boolean): "open" | "header" | "pattern" | "close" | undefined;
-/** Count the characters occupied by a shell case arm terminator. */
+/** Find an unsupported reserved word in unquoted command position. */
+export declare function unsupportedReleaseCommand(words: Iterable<string>, scope: ReleaseShellScope): string | undefined;
+/** Count the physical source characters occupied by a case arm terminator. */
 export declare function shellCaseTerminator(text: string, index: number): number;
+/** Read one logical shell line and retain its physical end for edits. */
+export declare function readShellLogicalLine(text: string, start: number, joins: (line: string) => boolean): {
+    value: string;
+    end: number;
+    lines: number;
+};
+/** An odd final backslash escapes the newline after the literal pairs. */
+export declare function hasShellContinuation(line: string): boolean;
 export {};
 //# sourceMappingURL=release-shell-constructs.d.ts.map

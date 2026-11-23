@@ -26,11 +26,6 @@ export declare function inheritedVariable(word: ShellToken, bindings: ReadonlySe
 export declare function literalOptionName(word: ShellToken): string | undefined;
 /** One actionable diagnostic across verification, preparation and continuation. */
 export declare function refuseHook(construct: string): never;
-/** Identify the first out-of-corpus control form in a package release hook. */
-export declare function releaseHookConstructProblem(commands: readonly ShellCommand[], text: string, spans: WeakMap<ShellToken, ShellTokenSpan>, hook: string, scope: ReleaseShellScope): {
-    words: ShellCommand;
-    problem: string;
-} | undefined;
 /** Describe a context the release manifest cannot represent. */
 export declare function describeReleaseContextChange(construct: string): string;
 /** Split only on unquoted shell list operators. Never execute or recursively guess a payload. */

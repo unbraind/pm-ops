@@ -40,9 +40,10 @@ import {
 import { isMainInvocation } from "./main-invocation.ts";
 import { tallyFlaggedInvocations } from "../invocation-audit.ts";
 import { executableShellBodies } from "../attestation.ts";
-import { hasVersionInput, generatedWriterProblem, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, npmLifecycle, visitChangelogScriptCommands, type NpmLifecyclePolicy } from "../release-changelog-options.ts";
+import { assertPendingRelease, hasVersionInput, generatedWriterProblem, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, npmLifecycle, visitChangelogScriptCommands, type WorkflowReleaseStep } from "../release-changelog-options.ts";
 
 import { describeReleaseContextChange, parseReleaseHook, refuseHook } from "../release-hook-grammar.ts";
+import { releaseHookConstructProblem } from "../shell-scan.ts";
 import { describeUnsupportedReleaseHook } from "../release-shell-constructs.ts";
 
 export { DATE_FLAG, VERSION_INPUTS, isRealCalendarDay } from "../release-changelog-options.ts";
@@ -194,6 +195,8 @@ function addConfiguredHooks(
 /** Flag a nested workflow command without following its forwards into the root manifest. */
 function inspectProjectStep(file: string, text: string, line: number, directory: unknown): Invocation[] {
   const { commands, spans, heredocBodies } = parseReleaseHook(text, "workflow");
+  const construct = releaseHookConstructProblem(commands, text, spans, file + ":" + line, "workflow");
+  if (construct) return inspectCommand(construct.words, { file, line, command: text }, new Set(), construct.problem);
   const written = new Set<string>();
   const words = commands.find(command => generatedWriterProblem(command, written, heredocBodies.get(command)) || needsReleaseProject(command));
   if (!words) return [];
@@ -207,7 +210,7 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
   const scripts = new Map<string, string>();
   const origins = new Map<string, Pick<Invocation, "file" | "line" | "script">>();
   const projectConfig = sources.find(source => source.file === ".npmrc")?.text;
-  const workflowSteps = new Map<string, NpmLifecyclePolicy>();
+  const workflowSteps = new Map<string, WorkflowReleaseStep>();
   const found: Invocation[] = [];
   const projectEntryPoints = new Set<string>();
   const explicit: Array<{ name: string; input: string; source: Invocation }> = [];
@@ -220,9 +223,9 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
       }
     } else {
       if (/^\.github\/workflows\/.*\.ya?ml$/.test(source.file)) addConfiguredHooks(source, projectEntryPoints, explicit, found);
-      for (const { text, line, workingDirectory, environment, disabled } of executableShellBodies(source)) {
+      for (const { text, line, workingDirectory, environment, disabled, containerJob } of executableShellBodies(source)) {
         if (disabled) continue;
-        if (!isRootProject(workingDirectory)) {
+        if (!isRootProject(workingDirectory) && containerJob === undefined) {
           found.push(...inspectProjectStep(source.file, text, line, workingDirectory));
           continue;
         }
@@ -230,8 +233,12 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
         origins.set(key, { file: source.file, line });
         scripts.set(key, text);
         workflowSteps.set(key, {
-          active: npmLifecycle(projectConfig, environment),
-          configured: npmLifecycle(projectConfig, { ...environment, npm_config_ignore_scripts: "" }),
+          label: source.file + ":" + line,
+          containerJob,
+          lifecycle: {
+            active: npmLifecycle(projectConfig, environment),
+            configured: npmLifecycle(projectConfig, { ...environment, npm_config_ignore_scripts: "" }),
+          },
         });
       }
     }
@@ -242,20 +249,21 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
     else found.push({ ...source, problem: describeUnsupportedReleaseHook(`missing or blank root script ${JSON.stringify(name)} selected by ${input}`, name) });
   }
   const entryPoints = new Set([...HOOK_INPUTS.map(([, name]) => name), ...projectEntryPoints]);
-  visitChangelogScriptCommands(scripts, ({ name, names, text, words, effective, spans, contextProblem }) => {
+  visitChangelogScriptCommands(scripts, ({ name, names, text, words, effective, spans, contextProblem, configuredHook }) => {
     const first = spans.get(words[0])!.start;
     const last = spans.get(words.at(-1)!)!.end;
-    found.push(...inspectCommand(effective, { ...origins.get(name)!, command: text.slice(first, last) }, names, contextProblem));
+    found.push(...inspectCommand(effective, { ...origins.get(name)!, command: text.slice(first, last) }, names, contextProblem, configuredHook));
   }, undefined, undefined, entryPoints, { lifecycle: npmLifecycle(projectConfig), workflowSteps, projectEntryPoints });
   return found;
 }
 
 /** Extract the date policy and retain any diagnostic for this command. */
-function inspectCommand(words: ShellCommand, source: Pick<Invocation, "file" | "line" | "script" | "command">, scriptNames: ReadonlySet<string>, contextProblem?: string): Invocation[] {
+function inspectCommand(words: ShellCommand, source: Pick<Invocation, "file" | "line" | "script" | "command">, scriptNames: ReadonlySet<string>, contextProblem?: string, configuredHook = false): Invocation[] {
   try {
     if (contextProblem) refuseHook(contextProblem);
-    const args = changelogArguments(words, scriptNames);
+    const args = changelogArguments(words, scriptNames, source.script ?? source.file);
     if (args === undefined) return [];
+    if (configuredHook) assertPendingRelease(args);
     if (!hasVersionInput(args)) return [];
     const options = readReleaseDateOptions(args);
     return [{ ...source, args, options }];

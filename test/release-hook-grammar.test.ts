@@ -13,7 +13,7 @@ import { runBashFixture } from "./bash-fixture.ts";
 import {
   assertReleaseHeadingDate, assertReleaseHookHeadingDate, includeEmptyCustomHook, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHeadingDate, rewriteReleaseHookDates, visitChangelogScriptCommands,
 } from "../release-changelog-options.ts";
-import { fixedOptionName, tokenizeCommands, tokenizeCommandsWithSpans, commandName, packageScriptCommand, releaseHookCommand, shellRedirection } from "../shell-scan.ts";
+import { fixedOptionName, tokenizeCommands, tokenizeCommandsWithSpans, commandName, packageScriptCommand, releaseHookCommand, releaseHookConstructProblem, shellRedirection } from "../shell-scan.ts";
 import { parseReleaseHook } from "../release-hook-grammar.ts";
 import { auditInvocations } from "../scripts/verify-release-changelog-date.ts";
 
@@ -3279,22 +3279,24 @@ test("Round GW generated construct decisions agree across hook and workflow entr
     "runs-on": "ubuntu-latest", steps: [{ shell: "bash", run }],
   } } }) });
   for (const [prefix, suffix] of [["", ""], ["", '\n: "case !"'], ["env 'cache-mode=fixture' ", ""]]) {
-    for (const layout of ["direct", "conditional", "case", "negation"] as const) {
+    for (const layout of ["direct", "conditional", "case", "negation", "timed"] as const) {
       const body = (command: string) => {
         const invocation = prefix + command;
         if (layout === "case") return 'case "$MODE" in\n  (fast|normal) ' + invocation + ' ;;\n  *) true ;;\nesac' + suffix;
         if (layout === "negation") return "! " + invocation + suffix;
+        if (layout === "timed") return "time -p " + invocation + suffix;
         if (layout === "conditional") return "if test -f flag; then " + invocation + "; fi" + suffix;
         return invocation + suffix;
       };
       const hook = body(generator);
       const scripts = { "release:notes": hook };
       const manifest = { file: "package.json", text: JSON.stringify({ scripts }) };
-      const refused = layout === "case" || layout === "negation";
+      const refused = layout === "case" || layout === "negation" || layout === "timed";
       for (const apply of [
         () => resolveChangelogHooks(scripts, ["release:notes"], false),
         () => rewriteReleaseHookDates(new Map(Object.entries(scripts)), ["release:notes"], day, false),
         () => includeEmptyCustomHook(hook, new Map(), true),
+        () => assertReleaseHookHeadingDate(new Map(Object.entries(scripts)), ["release:notes"], day, "2026.11.17", false),
       ]) {
         if (refused) assert.throws(apply, /release_hook_unsupported_construct:.*release:notes/);
         else assert.doesNotThrow(apply);
@@ -3303,13 +3305,18 @@ test("Round GW generated construct decisions agree across hook and workflow entr
       else assert.doesNotThrow(() => rewriteReleaseHeadingDate(hook, day));
       assert.equal(auditInvocations([manifest]).failures.some(failure => failure.includes("release_hook_unsupported_construct")), refused, hook);
       const step = body(generator);
-      assert.deepEqual(auditInvocations([workflows(step)]).failures, [], step);
+      const workflowRefuses = layout === "timed";
+      assert.equal(auditInvocations([workflows(step)]).failures.some(failure => failure.includes("release_hook_unsupported_construct")), workflowRefuses, step);
       const invalid = auditInvocations([workflows(body(generator.replace(" --date-from-version", "")))]);
-      assert.match(invalid.failures[0] ?? "", /neither --date-from-version/, step);
-      assert.ok(tokenizeCommands(body(publish)).some(words => commandName(words) === "npm"), step);
+      assert.match(invalid.failures[0] ?? "", workflowRefuses ? /release_hook_unsupported_construct/ : /neither --date-from-version/, step);
+      const publishSource = body(publish);
+      const { commands, spans } = tokenizeCommandsWithSpans(publishSource);
+      assert.equal(Boolean(releaseHookConstructProblem(commands, publishSource, spans, "release:notes", "hook")), refused, step);
+      assert.equal(Boolean(releaseHookConstructProblem(commands, publishSource, spans, "release", "workflow")), workflowRefuses, step);
+      assert.ok(commands.some(words => commandName(words) === "npm"), step);
       const attested = body(publish + " --provenance");
-      assert.deepEqual(auditPublishAttestation([workflows(attested)]).failures, [], attested);
-      assert.match(auditPublishAttestation([workflows(body(publish))]).failures[0] ?? "", /provenance/, step);
+      assert.equal(auditPublishAttestation([workflows(attested)]).failures.some(failure => failure.includes("release_hook_unsupported_construct")), workflowRefuses, attested);
+      assert.match(auditPublishAttestation([workflows(body(publish))]).failures[0] ?? "", workflowRefuses ? /release_hook_unsupported_construct/ : /provenance/, step);
     }
   }
 });
@@ -3324,8 +3331,8 @@ test("Round GW preserves option-shaped values supplied to custom renderers", () 
   assert.equal(includeEmptyCustomHook(caller, scripts).trimEnd(), "npm run writer -- --title --include-empty");
   const unprepared = new Map([["writer", "node notes.mjs"]]);
   const saved = "npm run writer -- --title --include-empty";
-  assert.equal(includeEmptyCustomHook("npm run writer -- --title", unprepared), saved);
-  assert.equal(includeEmptyCustomHook(saved, unprepared), saved);
+  assert.throws(() => includeEmptyCustomHook("npm run writer -- --title", unprepared), /Missing custom renderer operand/);
+  assert.equal(includeEmptyCustomHook(saved, unprepared), saved + " --include-empty");
 });
 
 
@@ -3349,4 +3356,244 @@ test("Round GW a literal title separator stays an operand on either side of a fo
   assert.equal(includeEmptyCustomHook(localPrepared, plainTargets), localPrepared);
   assert.throws(() => includeEmptyCustomHook(caller, new Map([["writer", "node notes.mjs -- file"]])),
     /ends option parsing in a shared script/);
+});
+
+test("Round GY container jobs cannot run release hooks under their own lifecycle environment", () => {
+  const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
+    "release:notes": "pm-changelog " + standing, "prerelease:notes": "echo preview > CHANGELOG.md", test: "echo ok",
+  } }) };
+  const config = { file: ".npmrc", text: "ignore-scripts=true\n" };
+  const source = (container: unknown, steps: Record<string, unknown>[]) => ({
+    file: ".github/workflows/release.yml",
+    text: stringify({ jobs: { build: { "runs-on": "ubuntu-latest", container, steps } } }),
+  });
+  const run = { run: "npm run release:notes" };
+  for (const container of ["node:24", { image: "node:24", env: { npm_config_ignore_scripts: "false" } }]) {
+    const viaContainer = source(container, [run]);
+    assert.match(auditInvocations([manifest, config, viaContainer]).failures[0] ?? "",
+      /release_hook_unsupported_construct:.*container job.*release:notes.*script file/);
+    assert.deepEqual(auditInvocations([manifest, config, source(undefined, [run])]).failures, []);
+    assert.deepEqual(auditInvocations([manifest, config, source(container, [{ run: "npm run test" }])]).failures, []);
+    assert.deepEqual(auditInvocations([manifest, config, source(container, [{ ...run, if: false }])]).failures, []);
+    assert.match(auditInvocations([source(container, [{ run: "pm-changelog " + standing }])]).failures[0] ?? "",
+      /release_hook_unsupported_construct:.*container job.*hook "build"/);
+    const publish = { run: "npm publish --provenance" };
+    assert.match(auditPublishAttestation([source(container, [publish])]).failures[0] ?? "",
+      /release_hook_unsupported_construct:.*container job.*build.*script file/);
+    assert.deepEqual(auditPublishAttestation([source(undefined, [publish])]).failures, []);
+    assert.deepEqual(auditPublishAttestation([source(container, [{ ...publish, if: false }])]).failures, []);
+  }
+});
+
+test("Round GY container job exports cannot supply the release hook policy", () => {
+  const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
+    "release:notes": "pm-changelog " + standing, "prerelease:notes": "echo setup > CHANGELOG.md",
+  } }) };
+  const input = (container?: string, shell?: string) => ({
+    file: ".github/workflows/release.yml",
+    text: stringify({ jobs: { notes: {
+      "runs-on": "ubuntu-latest", container, env: { npm_config_ignore_scripts: "false" },
+      steps: [
+        { shell, run: 'set -eo pipefail\necho npm_config_ignore_scripts=true >> "$GITHUB_ENV"' },
+        { if: "always()", run: "npm run release:notes" },
+      ],
+    } } }),
+  });
+  for (const shell of [undefined, "bash"]) {
+    assert.match(auditInvocations([manifest, input("node:24", shell)]).failures[0] ?? "",
+      /release_hook_unsupported_construct:.*container job.*release:notes.*script file/);
+    assert.deepEqual(auditInvocations([manifest, input(undefined, shell)]).failures, []);
+  }
+});
+
+test("Round GY unsupported executors name the actual hook while a command lookup remains valid", () => {
+  const generator = "pm-changelog " + standing;
+  const scripts = { "release:notes": "npm run render", render: "eval '" + generator + "'" };
+  const roots = ["release:notes"];
+  const manifest = (value: typeof scripts) => ({ file: "package.json", text: JSON.stringify({ scripts: value }) });
+  const refused = /release_hook_unsupported_construct:.*eval.*hook "render".*script file/;
+  assert.throws(() => resolveChangelogHooks(scripts, roots), refused);
+  assert.throws(() => rewriteReleaseHookDates(new Map(Object.entries(scripts)), roots, day), refused);
+  assert.match(auditInvocations([manifest(scripts)]).failures[0] ?? "", refused);
+  const valid = { ...scripts, render: "command -v pm-changelog && " + generator };
+  assert.equal(resolveChangelogHooks(valid, roots).size, 2);
+  assert.deepEqual(auditInvocations([manifest(valid)]).failures, []);
+});
+
+test("Round GY custom titles may contain the same word as a real include-empty flag", () => {
+  const renderer = "node notes.mjs";
+  for (const title of ["'--include-empty'", '"--include-empty"', "--include-empty"]) {
+    const option = " --title " + title;
+    const direct = renderer + option;
+    const caller = "npm run render --" + option;
+    const routes = [new Map<string, string>(), new Map([["render", renderer]])];
+    for (const [index, hook] of [direct, caller].entries()) {
+      const ready = hook + " --include-empty";
+      assert.equal(includeEmptyCustomHook(hook, routes[index]), ready);
+      assert.equal(includeEmptyCustomHook(ready, routes[index]), ready);
+    }
+    const split = "npm run render -- " + title;
+    assert.equal(includeEmptyCustomHook(split, new Map([["render", renderer + " --title"]])), split + " --include-empty");
+  }
+  const valid = renderer + " --title Notes --include-empty";
+  assert.equal(includeEmptyCustomHook(valid, new Map()), valid);
+  assert.throws(() => includeEmptyCustomHook(renderer + " --title", new Map()), /missing.*--title/i);
+  assert.throws(() => includeEmptyCustomHook("npm run render -- --title", new Map([["render", renderer]])), /missing.*--title/i);
+  const scripts = new Map([["relay", "npm run render"], ["render", renderer]]);
+  const caller = "npm run relay -- --title '--include-empty'";
+  assert.throws(() => includeEmptyCustomHook(caller, scripts), /argument.*--title.*before.*--/);
+  const separated = caller.replace("--title", "-- --title");
+  assert.equal(includeEmptyCustomHook(separated, scripts), separated + " --include-empty");
+  for (const suffix of ["", " '--include-empty'", " '--'"]) {
+    assert.throws(() => includeEmptyCustomHook(renderer + " --custom" + suffix, new Map()),
+      /release_hook_unsupported_construct:.*--custom/);
+  }
+  const explicit = renderer + " --custom=--include-empty";
+  assert.equal(includeEmptyCustomHook(explicit, new Map()), explicit + " --include-empty");
+  const multi = renderer + " --include-empty || node fallback.mjs --title '--include-empty'";
+  assert.throws(() => includeEmptyCustomHook(multi, new Map()), /alternative renderers/);
+  assert.equal(includeEmptyCustomHook(multi + " --include-empty", new Map()), multi + " --include-empty");
+});
+
+test("Round GY time prefixes are refused across release paths and time in argv is literal", () => {
+  const generator = "pm-changelog " + standing;
+  const roots = ["release:notes"];
+  for (const prefix of ["", " \\\n", "if true; then "]) {
+    for (const timed of ["time ", "time -p ! ", "ti\\\nme -p "]) {
+      const body = (command: string) => prefix + timed + command + (prefix.startsWith("if") ? "; fi" : "");
+      const hook = body(generator);
+      const scripts = { "release:notes": hook };
+      const manifest = { file: "package.json", text: JSON.stringify({ scripts }) };
+      const diagnostic = /release_hook_unsupported_construct:.*time.*script file/;
+      for (const apply of [
+        () => resolveChangelogHooks(scripts, roots),
+        () => rewriteReleaseHookDates(new Map(Object.entries(scripts)), roots, day),
+        () => rewriteReleaseHeadingDate(hook, day),
+        () => includeEmptyCustomHook(body("node notes.mjs"), new Map()),
+      ]) assert.throws(apply, diagnostic);
+      assert.match(auditInvocations([manifest]).failures[0] ?? "", diagnostic);
+      assert.match(auditInvocations([workflow(hook)]).failures[0] ?? "", diagnostic);
+      assert.match(auditPublishAttestation([workflow(body("npm publish --provenance"))]).failures[0] ?? "", diagnostic);
+    }
+  }
+  for (const operand of ["time", "'time -p !'", '"time"']) {
+    const hook = generator + " --title " + operand;
+    const scripts = { "release:notes": hook };
+    assert.doesNotThrow(() => resolveChangelogHooks(scripts, roots));
+    assert.doesNotThrow(() => rewriteReleaseHeadingDate(hook, day));
+    assert.deepEqual(auditInvocations([workflow(hook)]).failures, []);
+    assert.deepEqual(auditPublishAttestation([workflow("echo " + operand + "; npm publish --provenance")]).failures, []);
+  }
+  const nested = (run: string) => ({ file: ".github/workflows/release.yml",
+    text: stringify({ jobs: { release: { steps: [{ "working-directory": "packages/notes", run }] } } }),
+  });
+  assert.match(auditInvocations([nested("time -p " + generator)]).failures[0] ?? "",
+    /release_hook_unsupported_construct:.*time.*release\.yml/);
+  assert.match(auditInvocations([nested(generator + " --title time")]).failures[0] ?? "", /context change working-directory/);
+});
+
+test("Round GY expandable here-documents match joined terminators and preserve physical source", () => {
+  const valid = "pm-changelog " + standing;
+  const missing = valid.replace(" --date-from-version", "");
+  const pinned = valid.replace("--date-from-version", "--date-fallback " + day);
+  for (const [op, tab] of [["<<", ""], ["<<-", "\t"]]) {
+    const header = "cat " + op + "EOF > fixture.txt\n";
+    const ambiguous = tab + "EO\\\nF\n";
+    const input = header + tab + "ordinary data\n" + ambiguous;
+    assert.match(auditInvocations([workflow(valid + "\n" + input + missing)]).failures[0] ?? "", /neither --date-from-version/);
+    assert.equal(rewriteReleaseHeadingDate(valid + "\n" + input + valid, day), pinned + "\n" + input + pinned);
+    assert.deepEqual(auditInvocations([workflow(input + valid)]).failures, []);
+    for (const [delimiter, candidate] of [["'EOF'", ambiguous], ["E\\OF", ambiguous], ["EOF", tab + "EO\\\\\nF\n"]]) {
+      const data = header.replace("EOF", delimiter) + candidate + missing + "\n" + tab + "EOF\n";
+      assert.equal(rewriteReleaseHeadingDate(valid + "\n" + data + valid, day), pinned + "\n" + data + pinned);
+      assert.deepEqual(auditInvocations([workflow(valid + "\n" + data)]).failures, []);
+    }
+  }
+  const incomplete = "cat <<EOF > fixture.txt\nunterminated\\\n";
+  assert.equal(rewriteReleaseHeadingDate(valid + "\n" + incomplete, day), pinned + "\n" + incomplete);
+  const expandable = "cat <<EOF > fixture.txt\n$\\\n(" + missing + ")\nEOF\n";
+  assert.throws(() => rewriteReleaseHeadingDate(expandable + valid, day), /Here-document with a possible generator/);
+  const escaped = expandable.replace("$\\\n", "\\$\\\n");
+  assert.equal(rewriteReleaseHeadingDate(escaped + valid, day), escaped + pinned);
+});
+
+test("Round GY both shell scans recognize continued workflow case arm terminators", () => {
+  for (const [terminator, continued] of [[";;", ";\\\n;"], [";&", ";\\\n&"], [";;&", ";\\\n;\\\n&"]]) {
+    const body = (end: string, command: string) => 'case "$MODE" in\n (fast) : ' + end + "\n (slow) " + command + " ;;\nesac";
+    const generator = "pm-changelog " + standing;
+    for (const end of [terminator, continued]) {
+      const input = body(end, generator);
+      const date = auditInvocations([workflow(input)]);
+      assert.deepEqual(date.failures, []);
+      assert.equal(date.notes.length, 1);
+      assert.match(auditInvocations([workflow(body(end, "pm-changelog --release-version-from-package"))]).failures[0] ?? "", /neither/);
+      assert.equal(tokenizeCommands(body(end, "npm publish --provenance")).filter(words => commandName(words) === "npm").length, 1);
+      assert.throws(() => rewriteReleaseHeadingDate(input, day), /release_hook_unsupported_construct:.*case/);
+    }
+  }
+  const quoted = "echo ';\\\n;'; npm publish --provenance";
+  assert.equal(tokenizeCommands(quoted).filter(words => commandName(words) === "npm").length, 1);
+});
+
+test("Round GY configured date audit and preparation share pending-release suppression checks", () => {
+  const allTags = "pm-changelog --all-release-tags " + standing;
+  const history = allTags + " --no-pending-release";
+  const input = (scripts: Record<string, string>) => ({ file: "package.json", text: JSON.stringify({ scripts }) });
+  const roots = ["changelog:full"];
+  const suppressed: Record<string, string>[] = [
+    { "changelog:full": history },
+    { "changelog:full": "npm run render -- --no-pending-release", render: allTags },
+  ];
+  for (const scripts of suppressed) {
+    const diagnostic = /--no-pending-release suppresses the candidate heading/;
+    assert.throws(() => rewriteReleaseHookDates(new Map(Object.entries(scripts)), roots, day), diagnostic);
+    assert.match(auditInvocations([input(scripts)]).failures[0] ?? "", diagnostic);
+  }
+  const valid = { "changelog:full": allTags + " --pm-arg --no-pending-release", report: "npm run history", history };
+  assert.deepEqual(auditInvocations([input(valid)]).failures, []);
+  const historyForward = input({ "changelog:full": allTags, report: "npm run changelog:full -- --no-pending-release" });
+  assert.deepEqual(auditInvocations([historyForward, workflow("npm run report")]).failures, []);
+  const shared = input({ "changelog:full": "npm run history", history });
+  const config = { file: ".npmrc", text: "ignore-scripts=false\n" };
+  assert.match(auditInvocations([shared, config, workflow("npm run history")]).failures[0] ?? "", /suppresses the candidate heading/);
+  assert.deepEqual(auditInvocations([input({ "changelog:full": allTags })]).failures, []);
+});
+
+test("Round GY publish attestation reads bindings after a joined here-document terminator", () => {
+  const prefix = "cat <<EOF > fixture.txt\nEO\\\nF\n";
+  const publish = 'NPM=npm\n"$NPM" publish --provenance';
+  assert.deepEqual(auditPublishAttestation([workflow(prefix + publish)]).failures, []);
+  const quoted = prefix.replace("<<EOF", "<<'EOF'") + "NPM=unused\nEOF\n";
+  assert.deepEqual(auditPublishAttestation([workflow(quoted + publish)]).failures, []);
+  const blocked = auditPublishAttestation([workflow(prefix + publish.replace(" --provenance", ""))]);
+  assert.match(blocked.failures[0] ?? "", /does not enable --provenance/);
+});
+
+test("Round GY publish joins continuations according to shell quoting", () => {
+  const literal = "npm publish '--pro\\\nvenance'";
+  assert.match(auditPublishAttestation([workflow(literal)]).failures[0] ?? "", /does not enable --provenance/);
+  for (const option of ['"--pro\\\nvenance"', "--pro\\\nvenance"]) {
+    assert.deepEqual(auditPublishAttestation([workflow("npm publish " + option)]).failures, []);
+  }
+  const comment = "# The below command still runs \\\nnpm publish --provenance";
+  assert.deepEqual(auditPublishAttestation([workflow(comment)]).failures, []);
+});
+
+test("Round GY long quoted control-word argv remains literal in the shell scanner", () => {
+  const operands = Array.from({ length: 512 }, (_, index) => index % 2 ? "'case'" : "'esac'");
+  const original = WeakMap.prototype.get;
+  let lookups = 0;
+  WeakMap.prototype.get = function (key) {
+    lookups++;
+    return original.call(this, key);
+  };
+  try {
+    const commands = tokenizeCommands("echo " + operands.join(" ") + "; npm publish --provenance");
+    assert.deepEqual(commands.map(words => [words[0].value, words.length]), [["echo", operands.length + 1], ["npm", 3]]);
+  } finally {
+    WeakMap.prototype.get = original;
+  }
+  assert.ok(lookups <= operands.length * 4, "quoted operands must not trigger repeated command scans");
+  const commands = tokenizeCommands('case "$MODE" in (fast) echo ready ;; esac');
+  assert.ok(commands.some(words => commandName(words) === "echo"));
 });

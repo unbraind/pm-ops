@@ -43,7 +43,7 @@ try {
     let hasGenerator = false;
     visitChangelogScriptCommands(resolved, ({ name: target, effective, names }) => {
       if (target !== name && configured.has(target)) prepareCustomHook(target);
-      if (changelogArguments(effective, names)) hasGenerator = true;
+      if (changelogArguments(effective, names, target)) hasGenerator = true;
     }, [name], undefined, undefined, { lifecycle, mainOnly: true });
     const prepared = preparedScripts.get(name)!;
     const statusOnlyCheck = name === hooks[1] && name !== hooks[2];

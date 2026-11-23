@@ -33,7 +33,7 @@ export declare function generatedWriterProblem(words: ShellCommand, written: Set
 /** Whether a non-root step could run a generator or delegate to its local package scripts. */
 export declare function needsReleaseProject(words: ShellCommand, names?: ReadonlySet<string>): boolean;
 /** Read generator arguments during an audit, where only declared forwards are trusted. */
-export declare function changelogArguments(words: ShellCommand, scriptNames: ReadonlySet<string>): ShellToken[] | undefined;
+export declare function changelogArguments(words: ShellCommand, scriptNames: ReadonlySet<string>, hook?: string): ShellToken[] | undefined;
 /** One command in a decoded manifest script, with its source and effective argv. */
 export interface ChangelogScriptCommand {
     /** Script forwards leading to this invocation, from the root to its caller. */
@@ -54,6 +54,17 @@ export interface ChangelogScriptCommand {
     spans: WeakMap<ShellToken, ShellTokenSpan>;
     /** Context refusal for an audit that collects diagnostics instead of throwing. */
     contextProblem?: string;
+    /** The invocation belongs to an explicitly configured release hook. */
+    configuredHook?: boolean;
+}
+/** Static inputs for one workflow step in the release-hook audit. */
+export interface WorkflowReleaseStep {
+    /** User-facing workflow source location. */
+    label: string;
+    /** Environment policy at the start of the step. */
+    lifecycle: NpmLifecyclePolicy;
+    /** Container job which cannot supply release lifecycle evidence. */
+    containerJob?: string;
 }
 /** Lifecycle inputs for direct npm hooks and standalone workflow shell bodies. */
 interface NpmLifecycleInputs {
@@ -64,7 +75,7 @@ interface NpmLifecycleInputs {
     /** Hooks also invoked by a reusable release caller under the project configuration. */
     projectEntryPoints?: ReadonlySet<string>;
     /** Static environment of each standalone workflow step. */
-    workflowSteps?: ReadonlyMap<string, NpmLifecyclePolicy>;
+    workflowSteps?: ReadonlyMap<string, WorkflowReleaseStep>;
 }
 /** Scan local scripts in invocation order and join forwarded argv at its actual destination. */
 export declare function visitChangelogScriptCommands(scripts: ReadonlyMap<string, string>, inspect: (entry: ChangelogScriptCommand) => void, hooks?: readonly string[], resolved?: Map<string, string>, entryPoints?: ReadonlySet<string>, npm?: NpmLifecycleInputs): void;
@@ -99,6 +110,8 @@ export declare function changelogOutputTarget<T extends Pick<ShellToken, "value"
 };
 /** Decode literal date options and retain their shell words for edits. */
 export declare function readReleaseDateOptions(args: readonly ShellToken[]): DateOption[];
+/** Refuse suppression of the pending heading in a versioned all-tags release. */
+export declare function assertPendingRelease(args: ShellCommand, positions?: readonly number[], advice?: string): void;
 /** Refuse publication when a standalone generator's heading differs from the verified merge day. */
 export declare function assertReleaseHeadingDate(scripts: readonly string[], mergeDay: string, packageVersion?: string, scriptNames?: ReadonlySet<string>): void;
 /** Verify the complete generator argv from each release hook before publication. */

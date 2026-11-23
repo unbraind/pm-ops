@@ -56,8 +56,11 @@ function args(name: string, command = scripts[name]!): string[] {
 
 /** Match fixture tag and completion days to the date policy selected by preparation. */
 function headingDay(version: string, command: string[]): string {
-  const fallback = fallbackDateIndex(command);
-  if (fallback >= 0) return command[fallback]!.split("=")[1] ?? command[fallback + 1]!;
+  for (let index = command.length - 1; index >= 0; index--) {
+    const arg = command[index]!;
+    if (arg === "--date-fallback") return command[index + 1]!;
+    if (arg.startsWith("--date-fallback=")) return arg.slice("--date-fallback=".length);
+  }
   return version.split("-")[0]!.split(".").map((part, index) => part.padStart(index === 0 ? 4 : 2, "0")).join("-");
 }
 
@@ -579,7 +582,7 @@ test("custom notes receive the saved argument through npm independently of pre/p
     ["npm run relay", "npm run relay -- -- --include-empty", ["--include-empty"]],
     ["npm run relay -- --include-empty", "npm run relay -- -- --include-empty", ["--include-empty"]],
     ["npm run ready", "npm run ready -- --include-empty", ["--include-empty"]],
-    ["npm run render -- --title", "npm run render -- --title --include-empty", ["--title", "--include-empty"]],
+    ["npm run render -- --title Notes", "npm run render -- --title Notes --include-empty", ["--title", "Notes", "--include-empty"]],
     ["npm run render --include-empty", "npm run render -- --include-empty", ["--include-empty"]],
     ["npm run render --include-empty -- --title Notes", "npm run render -- --title Notes --include-empty", ["--title", "Notes", "--include-empty"]],
     ['npm run render "--include-empty" -- --include-empty', "npm run render -- --include-empty", ["--include-empty"]],
@@ -1697,4 +1700,12 @@ test("Round GW configured forwarding delivers the renderer flag exactly once in 
       assert.equal(scripts.writer, "node notes.mjs" + (changelog === notes ? "" : " --include-empty"));
     }
   }
+});
+
+test("Round GY fixture tags use the last fallback pin", () => {
+  const version = "2026.11.17";
+  assert.equal(headingDay(version, []), "2026-11-17");
+  assert.equal(headingDay(version, ["--date-fallback", "2026-11-16"]), "2026-11-16");
+  assert.equal(headingDay(version, ["--date-fallback=2026-11-16", "--date-fallback", "2026-11-18"]), "2026-11-18");
+  assert.equal(headingDay(version, ["--date-fallback", "2026-11-16", "--date-fallback=2026-11-18"]), "2026-11-18");
 });

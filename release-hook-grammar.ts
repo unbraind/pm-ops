@@ -10,7 +10,7 @@ import {
 } from "./shell-scan.ts";
 
 import {
-  describeUnsupportedReleaseHook, inShellCasePattern, readShellCaseWord, shellCaseTerminator, unsupportedReleaseConstruct, UNSUPPORTED_RELEASE_HOOK,
+  hasShellContinuation, inShellCasePattern, readShellCaseWord, readShellLogicalLine, shellCaseTerminator, unsupportedReleaseConstruct, UNSUPPORTED_RELEASE_HOOK,
   type ReleaseShellScope, type ShellCaseState,
 } from "./release-shell-constructs.ts";
 
@@ -98,28 +98,6 @@ export function literalOptionName(word: ShellToken): string | undefined {
 export function refuseHook(construct: string): never {
   if (construct.startsWith(UNSUPPORTED_RELEASE_HOOK + ":")) throw new Error(construct);
   throw new Error(construct + ". Use a direct pm-changelog invocation with literal option names and one date policy, or npm run <script> -- <args>.");
-}
-
-/** Identify the first out-of-corpus control form in a package release hook. */
-export function releaseHookConstructProblem(
-  commands: readonly ShellCommand[], text: string, spans: WeakMap<ShellToken, ShellTokenSpan>, hook: string, scope: ReleaseShellScope,
-): { words: ShellCommand; problem: string } | undefined {
-  for (const construct of ["case arms", "shell negation"] as const) {
-    if (!unsupportedReleaseConstruct(construct, scope)) continue;
-    const words = commands.find(command => {
-      for (const word of command) {
-        if (word.releaseKeyword) continue;
-        const span = spans.get(word)!;
-        const raw = text.slice(span.start, span.end).replaceAll("\\\n", "");
-        if (construct === "shell negation" && /^\(*!$/.test(raw)) return true;
-        if (/^(?:\(+|!|\{)$/.test(raw)) continue;
-        return construct === "case arms" && /^\(*case$/.test(raw);
-      }
-      return false;
-    });
-    if (words) return { words, problem: describeUnsupportedReleaseHook(construct, hook) };
-  }
-  return undefined;
 }
 
 /** Describe a context the release manifest cannot represent. */
@@ -229,12 +207,10 @@ export function parseReleaseHook(text: string, scope: ReleaseShellScope = "hook"
         const expandable: string[] = [];
         for (const delimiter of delimiters) {
           while (end < text.length) {
-            const newline = text.indexOf("\n", end);
-            const lineEnd = newline < 0 ? text.length : newline;
-            const line = text.slice(end, lineEnd).replace(/\r$/, "");
-            end = Math.min(text.length, lineEnd + 1);
-            if ((delimiter.stripTabs ? line.replace(/^\t+/, "") : line) === delimiter.value) break;
-            if (delimiter.expand) expandable.push(line);
+            const line = readShellLogicalLine(text, end, value => delimiter.expand && hasShellContinuation(value));
+            end = line.end;
+            if ((delimiter.stripTabs ? line.value.replace(/^\t+/, "") : line.value) === delimiter.value) break;
+            if (delimiter.expand) expandable.push(line.value);
           }
         }
         delimiters.length = 0;
@@ -247,8 +223,8 @@ export function parseReleaseHook(text: string, scope: ReleaseShellScope = "hook"
             if (!piped.has(stage)) break;
           }
         }
-        // An escaped dollar or backtick is data. A joined newline contributes no character.
-        const expanded = expandable.join("\n").replace(/\\([\\$`\n])/g, (_, char: string) => char === "\n" ? "" : "\0");
+        // Logical lines already omit continued newlines. Escaped expansion markers are data.
+        const expanded = expandable.join("\n").replace(/\\[\\$`]/g, "\0");
         const evaluates = /\$\(|`/.test(expanded);
         if (evaluates) possibleGeneratorTargets.add(body);
         heredocCommands.clear();
