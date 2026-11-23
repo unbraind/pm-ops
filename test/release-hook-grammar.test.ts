@@ -3334,3 +3334,19 @@ test("Round GW scanner treats reserved words inside a started case pattern as da
   assert.equal(words.filter(command => commandName(command) === "echo").length, 1);
   assert.ok(words.every(command => commandName(command) !== "fast"));
 });
+
+test("Round GW a literal title separator stays an operand on either side of a forward", () => {
+  const targets = new Map([["writer", "node notes.mjs --title '--'"]]);
+  const caller = "npm run writer";
+  const prepared = caller + " -- --include-empty";
+  assert.equal(includeEmptyCustomHook(caller, targets), prepared);
+  assert.equal(includeEmptyCustomHook(prepared, targets), prepared);
+
+  const localTitle = "npm run writer -- --title '--'";
+  const localPrepared = localTitle + " --include-empty";
+  const plainTargets = new Map([["writer", "node notes.mjs"]]);
+  assert.equal(includeEmptyCustomHook(localTitle, plainTargets), localPrepared);
+  assert.equal(includeEmptyCustomHook(localPrepared, plainTargets), localPrepared);
+  assert.throws(() => includeEmptyCustomHook(caller, new Map([["writer", "node notes.mjs -- file"]])),
+    /ends option parsing in a shared script/);
+});

@@ -1533,12 +1533,12 @@ function allPreparedRenderers(last, scripts, names, hasGenerator, depth, recipie
 function customIncludeEmptyOptions(invocation, allowOptionOperands = false) {
     const args = invocation.slice(generatorEntryIndex(invocation) + 1);
     const positions = optionPositions(args, allowOptionOperands);
-    const boundary = customOptionBoundary(args, positions);
+    const boundary = customOptionBoundary(args);
     return positions.filter(i => (boundary === undefined || i < boundary) && args[i].value === INCLUDE_EMPTY_FLAG).map(i => args[i]);
 }
 /** Locate the renderer separator without interpreting option operands as separators. */
-function customOptionBoundary(args, positions = optionPositions(args)) {
-    return positions.find(index => args[index].value === "--");
+function customOptionBoundary(args) {
+    return optionPositions(args, true).find(index => args[index].value === "--");
 }
 const RENDERER_STATUS_COMMANDS = new Set(["git", "test", "[", "[[", "true", "false", ":"]);
 /** Read the actual status command name through its wrappers. */
