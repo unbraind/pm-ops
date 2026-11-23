@@ -1,0 +1,22 @@
+id: ops-tdot
+title: Deep CI fails the release section gate when a release tag lands while a queued run holds an older main snapshot
+description: "The deep tier's coverage run failed verify-release-changelog-sections on all four legs of run 45008656889: 'required release version 2026.11.22 has no usable changelog section'. The run was created at 09:40Z with main's snapshot from before the v2026.11.22 release, its jobs started on local runners only after the release had already pushed the tag, and the gate audited every tag in the fetched repository instead of only the tags reachable from the snapshot under audit. Root cause: the verifier's default inventory must scope release tags to those reachable from the checked-out HEAD; the pending package version already covers the pre-tagging release job. Fix scripts/verify-release-changelog-sections.ts and add a regression test that encodes the queued-snapshot race with a must-fail control."
+type: Issue
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-11-23T15:18:36.948Z"
+updated_at: "2026-11-23T15:35:29.032Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+comments[3]{created_at,author,text}:
+  "2026-11-23T15:18:51.994Z",codex-agent,"Classification (scheduled-failure triage 2026-11-23, deep run 45008656889): class 1 - a real product failure, host-independent and date/race-dependent. First real failure: deep (22/26, npm/bun) jobs on omarchy all failed 'Full npm release gate'/'Full Bun release gate' in test/verify-release-changelog-sections.test.ts: 'required release version 2026.11.22 has no usable changelog section: committed changelog must have exactly one section for 2026.11.22' (and the entry-point test inherited exit code 1). Timeline: the run was created 09:40Z on main 333a1510 (before the release), jobs started on local runners 18:05Z+ after tag v2026.11.22 (17:27Z) already existed, and checkout fetch-tags: true lists it while the audited snapshot predates the release changelog. Reproduced deterministically with a fixture repo: an older snapshot plus a newer release tag not reachable from it fails the current verifier."
+  "2026-11-23T15:19:18.682Z",codex-agent,"Revert proof: with only the verify() default-inventory change reverted (git tag --merged HEAD back to git tag), the new race regression test fails (11 pass, 1 fail: 'the default inventory requires only release tags reachable from the checkout...'); with the fix restored the suite is 12/12 pass. The test also carries a must-fail control: the injected all-tags inventory still reports the unreachable tag as a missing section, so the fixture provably encodes the race."
+  "2026-11-23T15:35:29.032Z",codex-agent,"Gates on the package worktree: typecheck pass; lint pass; docstring-gate 50 files/378 declarations documented; full coverage gate at unchanged thresholds: 2001 tests, 1999 pass, 0 fail, all coverage-gate reports 'thresholds met'; changelog:check pass ('Changelog is up to date'). Linked test command passed (12/12 in the touched suite, isolated git identity)."
+files[2]{path,scope}:
+  scripts/verify-release-changelog-sections.ts,project
+  test/verify-release-changelog-sections.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  env HOME=$(mktemp -d) GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 node --test --test-concurrency=2 test/verify-release-changelog-sections.test.ts,project,codex-agent,"2026-11-23T15:19:00.648Z",local_mutation,deep-1123
+body: ""
