@@ -6,10 +6,11 @@ status: closed
 priority: 2
 tags[2]: ci,performance
 created_at: "2026-11-15T20:54:18.216Z"
-updated_at: "2026-11-17T01:57:59.599Z"
+updated_at: "2026-11-22T23:51:09.961Z"
 closed_at: "2026-11-16T20:34:14.655Z"
 completed_at: "2026-11-16T20:34:14.655Z"
 author: codex-sol
+release: 2026.11.15
 resolution: Implemented and merged in #283 (0615405).
 expected_result: The change described by this item is on main.
 actual_result: "Merged in #283 as 0615405; checks successful at head c2a97fc: CodeQL, Release lock compatibility (22.18.0), Release lock compatibility (26), codeql, test (22), test (26), windows-consumers (22), windows-consumers (26)."

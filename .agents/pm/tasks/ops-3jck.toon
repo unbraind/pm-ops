@@ -6,10 +6,11 @@ status: closed
 priority: 3
 tags[1]: "area:release;type:enhancement"
 created_at: "2026-11-09T06:12:30.542Z"
-updated_at: "2026-11-17T01:56:38.095Z"
+updated_at: "2026-11-22T23:51:08.834Z"
 closed_at: "2026-11-16T20:34:00.425Z"
 completed_at: "2026-11-16T20:34:00.425Z"
 author: pi-glm
+release: 2026.11.11
 resolution: Implemented and merged in #260 (edd5d94).
 expected_result: The change described by this item is on main.
 actual_result: "Merged in #260 as edd5d94; checks successful at head 1a48114: CodeQL, Release lock compatibility (22.18.0), Release lock compatibility (26), codeql, test (22), test (26), windows-consumers (22), windows-consumers (26)."

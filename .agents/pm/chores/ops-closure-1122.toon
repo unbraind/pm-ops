@@ -1,0 +1,20 @@
+id: ops-closure-1122
+title: Refresh tracker closure PR #294
+description: "Recheck current main, verify delivery evidence, regenerate the changelog and record the validation outcome."
+type: Chore
+status: open
+priority: 2
+tags[1]: tracker-sweep
+created_at: "2026-11-22T23:50:59.276Z"
+updated_at: "2026-11-22T23:58:45.278Z"
+author: codex-agent
+comments[2]{created_at,author,text}:
+  "2026-11-22T23:51:04.296Z",codex-agent,First containing release tags are v2026.11.11 for PRs #250 and #260 and v2026.11.15 for PR #283. The older branch completion values differ from the merge times and are preserved.
+  "2026-11-22T23:58:40.904Z",codex-agent,"Focused linked test completed successfully. 33 tests, 33 pass, 0 fail, 0 skipped."
+files[1]{path,scope}:
+  CHANGELOG.md,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/identity-audit.test.ts test/changelog-sections.test.ts test/verify-release-changelog-date.test.ts,project,codex-agent,"2026-11-22T23:51:15.411Z",local_mutation,codex/closure-1122/chore/close-merged-items-2026-11-16
+docs[1]{path,scope}:
+  CHANGELOG.md,project
+body: ""

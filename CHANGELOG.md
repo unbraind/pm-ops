@@ -30,11 +30,9 @@ No tracked changes.
 
 ## 2026.11.15 - 2026-11-16
 
-### Dependencies
+### Other
 
-- Bump taiki-e/install-action from 2.90.1 to 2.90.3 ([#280](https://github.com/unbraind/pm-ops/pull/280))
-- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#278](https://github.com/unbraind/pm-ops/pull/278))
-- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#279](https://github.com/unbraind/pm-ops/pull/279))
+- Split quick PR CI from exhaustive local deep gates ([ops-ci-v2](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-ci-v2.toon))
 
 ## 2026.11.14 - 2026-11-14
 
@@ -46,14 +44,14 @@ No tracked changes.
 
 ## 2026.11.11 - 2026-11-11
 
-### Dependencies
+### Fixed
 
-- Bump the pm-toolchain group across 1 directory with 2 updates ([#261](https://github.com/unbraind/pm-ops/pull/261))
-- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#257](https://github.com/unbraind/pm-ops/pull/257))
-- Bump taiki-e/install-action from 2.88.0 to 2.90.1 ([#258](https://github.com/unbraind/pm-ops/pull/258))
-- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#259](https://github.com/unbraind/pm-ops/pull/259))
-- Bump the codeql-actions group across 1 directory with 2 updates ([#256](https://github.com/unbraind/pm-ops/pull/256))
-- Bump @unbrained/pm-cli ([#254](https://github.com/unbraind/pm-ops/pull/254))
+- Release and CI install Dependabot locks with the same pinned npm ([ops-release-npm-runtime](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-npm-runtime.toon))
+- Release continuation frees the runner while protected PR checks run ([ops-release-continuation](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-continuation.toon))
+
+### Other
+
+- Release runtime discovers a non-adjacent npm CLI and pins the caller's Node for the matched CLI ([ops-3jck](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-3jck.toon))
 
 ## 2026.11.6 - 2026-11-06
 
