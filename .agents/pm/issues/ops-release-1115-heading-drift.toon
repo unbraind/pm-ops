@@ -7,10 +7,10 @@ status: in_progress
 priority: 2
 tags[3]: "area:release","gh:unbraind/pm-ops#292","gh:unbraind/pm-ops#295"
 created_at: "2026-11-16T19:17:51.165Z"
-updated_at: "2026-11-23T09:12:01.501Z"
+updated_at: "2026-11-23T09:27:51.569Z"
 author: codex-sol
 acceptance_criteria: "Resolve the existing tagged release-heading date policy mismatch; npm run changelog:check and release date checks agree before and after rollover without changing historical tags."
-comments[283]{created_at,author,text}:
+comments[285]{created_at,author,text}:
   "2026-11-16T19:18:50.836Z",codex-sol,"Verified npm run changelog:check fails on untouched origin/main c29fe88 as well as the fix branch. Tag v2026.11.15 targets c29fe88 with commit time 2026-11-16T17:43:01Z. Regeneration changes only the first heading date from 2026-11-15 to 2026-11-16. No historical tags or changelog content were changed for #290."
   "2026-11-16T19:24:41.440Z","harness:claude-code","2026-11-16 20:0xZ (orchestrator): root cause filed as unbraind/pm-ops#292. v2026.11.15 was prepared and tagged on 11-16, prepare rendered the heading from the version (2026-11-15), and after tagging pm-changelog uses the real tag date (2026-11-16, by design per pm-changelog#120). Regenerated CHANGELOG.md in PR #291 so 'npm run changelog:check' passes on this branch (exit 0); main stays red until #291 or another regeneration merges."
   "2026-11-16T22:58:09.756Z",pi-ops-292,"Root cause (issue #292): prepare renders the pending version's heading with --date-from-version, so a resumed candidate (version day before today) is stamped with its version day. The release step then tags it today; pm-changelog by design derives a tagged window's heading from the tag commit date (pm-changelog#120), so post-tag regeneration on unchanged main renders a different day and changelog:check is red on main. The release PR's own CI passes (candidate still untagged), so the failure only appears after the merge.\n\nDesign: use the generator's existing --date-fallback flag (applies only while no release tag exists; ignored once the tag exists, so it matches post-tag invocations byte-for-byte). decideDailyRelease now outputs heading_date: today in RELEASE_TIMEZONE, padded ISO, when the version's calendar day is before today; empty for a same-day release, which is therefore unchanged. The 'Generate changelog and release notes' step, in the same in-place package.json policy rewrite that already appends --include-empty, swaps --date-from-version for --date-fallback <heading_date> in the three changelog scripts when resumed, refreshes a stale pin when a candidate is re-prepared on a later day, and restores --date-from-version when the pending version is current again. The release commit carries the pinned spelling, so the release PR's CI (untagged candidate), prepare's nested release:check and post-tag checks on main all regenerate the same bytes with no follow-up regeneration. The date verifier accepts a pinned --date-fallback day (explicit ISO day only) as an equally clock-free alternative to --date-from-version. Rust/justfile releases (CHANGELOG_DATE derived from the tag name) keep their own spelling and are not touched."
@@ -294,6 +294,8 @@ comments[283]{created_at,author,text}:
   "2026-11-23T08:54:41.993Z",codex-agent,"Round GW final local gates on the tested source: npm run release:check, bun run release:check, and the rewritten-release acceptance each passed 2303 of 2305 tests with zero failures, two opt-in skips, and 100 percent statements, branches, functions and lines across 56 sources. The commands ran sequentially in about 58 minutes total using the CI test depth and unchanged thresholds. The candidate produced the pinned heading and left zero release-heading acceptance directories. Builds, test compilation, lint, zero duplication, docstrings, runtime self-host and identity controls, dependency audits and the release verifiers passed. Hosted exact-head checks are at https://github.com/unbraind/pm-ops/pull/295/checks. The orchestration cutoff is 30 minutes after push."
   "2026-11-23T09:08:41.489Z",codex-agent,Hosted CI passed on cfd557f. Greptile reported two Round GW regressions on that head. 66w0y2 confirms that deduplication could delete a custom renderer's option-shaped title operand. 66w0y- confirms that a case arm using a reserved word as data could terminate case scanning early. Fixtures reproduced both failures on cfd557f before the follow-up edits. The fix preserves option operands in custom renderer argv and recognizes case patterns consistently once their first word or opening parenthesis has appeared. Both constructs are within the supported option and workflow case forms.
   "2026-11-23T09:11:59.788Z",codex-agent,"Round GW follow-up revert proof: the new tests for option-shaped title values and literal esac patterns both failed against precisely the cfd557f implementations before editing. The paired controls preserve title equals operands and a real duplicate flag, and distinguish executable case arms from ordinary patterns and missing date policy. The final focused suites passed 398 of 398 and the PM-linked command passed 15 of 15. Typecheck, source and test build, lint, zero duplication, docstrings and release verifiers passed. Pinned results stayed at 142 accepted hooks and 144 bodies across 39 manifests. The workflow scan again found no diagnostic changes across 265 files and 1062 run bodies. The unchanged package npm, Bun and rewritten candidate gates passed on cfd557f. Exact follow-up hosted evidence is at https://github.com/unbraind/pm-ops/pull/295/checks."
+  "2026-11-23T09:25:19.058Z",codex-agent,"Both hosted Linux jobs on 5f602ac reproduced an idempotence regression in the earlier custom notes npm fixture. The existing saved title form was prepared twice because strict operand recognition was applied to placement as well as removal. The added inverse fails on 5f602ac. Keep legacy placement idempotent and require operand-aware proof only before deleting a duplicate. The real npm fixture remains unchanged, and the new controls cover both configured and unconfigured targets."
+  "2026-11-23T09:27:49.651Z",codex-agent,"Round GW compatibility correction passed the unchanged real npm fixture and all 19 focused and PM-linked regressions. A single-function revert to the pushed placement behavior reproduces the title idempotence failure. The option deletions still preserve actual option-shaped operands. Static checks and release verifiers passed. The superseded rewritten gate was interrupted after the hosted failure was confirmed and left zero fixture directories. The final pinned scan accepted 142 hooks and 144 bodies across 39 manifests with no diagnostic changes across the 265 pinned workflows. Exact final hosted evidence is at https://github.com/unbraind/pm-ops/pull/295/checks."
 files[48]:
   - path: .coderabbit.yaml
     scope: project
@@ -393,7 +395,7 @@ files[48]:
   - path: test/verify-release-changelog-date.test.ts
     scope: project
     note: Round GU root hook selector controls
-tests[92]:
+tests[93]:
   - command: npm run typecheck
     scope: project
     provenance:
@@ -1046,6 +1048,14 @@ tests[92]:
     provenance:
       author: codex-agent
       created_at: "2026-11-23T09:08:43.993Z"
+      source_kind: local_mutation
+      source_ref: fix/release-hook-wrapper-options-bm
+  - command: node --test --test-concurrency=2 --test-reporter=tap --test-name-pattern='Round GW|custom notes receive the saved argument|Round GQ option-shaped|Round GU failed changelog creation|Round GU prepend reports' test/release-hook-grammar.test.ts test/verify-release-changelog-date.test.ts test/daily-release-workflow.test.ts test/changelog-sections.test.ts
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-23T09:25:22.092Z"
       source_kind: local_mutation
       source_ref: fix/release-hook-wrapper-options-bm
 docs[5]:

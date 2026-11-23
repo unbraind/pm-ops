@@ -1558,15 +1558,15 @@ function allPreparedRenderers(
 }
 
 /** Find empty-section option tokens while preserving which script supplied them. */
-function customIncludeEmptyOptions(invocation: ShellCommand): ShellToken[] {
+function customIncludeEmptyOptions(invocation: ShellCommand, allowOptionOperands = false): ShellToken[] {
   const args = invocation.slice(generatorEntryIndex(invocation) + 1);
-  const positions = optionPositions(args, true);
+  const positions = optionPositions(args, allowOptionOperands);
   const boundary = customOptionBoundary(args, positions);
   return positions.filter(i => (boundary === undefined || i < boundary) && args[i].value === INCLUDE_EMPTY_FLAG).map(i => args[i]);
 }
 
 /** Locate the renderer separator without interpreting option operands as separators. */
-function customOptionBoundary(args: ShellCommand, positions = optionPositions(args, true)): number | undefined {
+function customOptionBoundary(args: ShellCommand, positions = optionPositions(args)): number | undefined {
   return positions.find(index => args[index].value === "--");
 }
 
@@ -1652,7 +1652,7 @@ function finalHookCommand(
 /** Count npm option boundaries between a configured custom hook and its final executable. */
 function customForwardDelimiters(
   invocation: ShellCommand, scripts: ReadonlyMap<string, string>, hasGenerator: boolean, allowStatusOnly: boolean,
-): { count: number; terminator?: ShellToken; options?: ShellToken[] } | undefined {
+): { count: number; terminator?: ShellToken; options?: ShellToken[]; confirmedOptions?: ShellToken[] } | undefined {
   const names = new Set(scripts.keys());
   let count = 0;
   let blockedTarget: string | undefined;
@@ -1667,7 +1667,8 @@ function customForwardDelimiters(
       if (blockedTarget && options.length === 0) refuseHook("Custom script " + JSON.stringify(blockedTarget) + " cannot receive forwarded arguments. Move the logic into a script file");
       const args = invocation.slice(generatorEntryIndex(invocation) + 1);
       const boundary = customOptionBoundary(args);
-      return { count, terminator: boundary === undefined ? undefined : args[boundary], options };
+      return { count, terminator: boundary === undefined ? undefined : args[boundary], options,
+        confirmedOptions: customIncludeEmptyOptions(invocation, true) };
     }
     if (forward.runner === "npm" && !forward.npmSeparator) count++;
     const text = scripts.get(forward.target!);
@@ -1698,9 +1699,11 @@ export function includeEmptyCustomHook(
   const boundary = separator ? args.indexOf(separator) : -1;
   const route = customForwardDelimiters(invocation, scripts, hasGenerator, allowStatusOnly);
   if (!route) return script; // The generator receives the flag in its own script.
-  const { count, terminator, options = [] } = route;
+  const { count, terminator, options = [], confirmedOptions = [] } = route;
   const redundant = args.slice(0, Math.max(0, boundary)).filter(word => word.value === INCLUDE_EMPTY_FLAG);
-  if (options.some(word => !spans.has(word))) redundant.push(...options.filter(word => spans.has(word)));
+  // Removal requires evidence that both the local token and the one supplied
+  // by a callee are flags. Preserve historical placement for saved argv.
+  if (confirmedOptions.some(word => !spans.has(word))) redundant.push(...confirmedOptions.filter(word => spans.has(word)));
   const edits: HookEdit[] = [];
   for (const word of redundant) {
     const { start, end } = spans.get(word)!;

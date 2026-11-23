@@ -3322,6 +3322,10 @@ test("Round GW preserves option-shaped values supplied to custom renderers", () 
   }
   const caller = "npm run writer -- --title --include-empty --include-empty";
   assert.equal(includeEmptyCustomHook(caller, scripts).trimEnd(), "npm run writer -- --title --include-empty");
+  const unprepared = new Map([["writer", "node notes.mjs"]]);
+  const saved = "npm run writer -- --title --include-empty";
+  assert.equal(includeEmptyCustomHook("npm run writer -- --title", unprepared), saved);
+  assert.equal(includeEmptyCustomHook(saved, unprepared), saved);
 });
 
 
