@@ -31,6 +31,7 @@
  *
  * @packageDocumentation
  */
+import { isShellAssignment, readShellCaseWord, shellCaseTerminator } from "./release-shell-constructs.js";
 const fixedOptionNames = new WeakMap();
 const redirections = new WeakMap();
 const REDIRECTION = /^(?:[0-9]*(?:>>|>\||<>|<<<|<<-?|[<>])&?|&>>?)/;
@@ -385,23 +386,13 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
                 fixedOptionNames.set(token, name);
         }
         spans?.set(token, { start: offset + wordStart, end: offset + end });
-        const caseState = cases.at(-1);
-        const keyword = !token.quoted && token.unresolved !== true;
-        if (caseState === "pattern") {
-            if (keyword && token.value === "esac")
-                cases.pop();
-        }
-        else {
-            if (caseState === "subject")
-                cases[cases.length - 1] = "in";
-            else if (caseState === "in" && keyword && token.value === "in")
-                cases[cases.length - 1] = "pattern";
-            else if (keyword && token.value === "case" && commandName(command) === undefined)
-                cases.push("subject");
-            else if (caseState === "body" && keyword && token.value === "esac" && commandName(command) === undefined)
-                cases.pop();
+        const inPattern = cases.at(-1) === "pattern";
+        const controlWord = token.value === "case" || token.value === "esac";
+        const keyword = (controlWord || token.value === "in") && !token.quoted && token.unresolved !== true
+            && text.slice(wordStart, end).replaceAll("\\\n", "") === token.value;
+        readShellCaseWord(cases, token.value, keyword, controlWord && commandName(command) === undefined);
+        if (!inPattern)
             command.push(token);
-        }
         regexOperand = conditional && !token.quoted && token.value === "=~";
         value = "";
         quoted = false;
@@ -626,10 +617,11 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
             }
             continue;
         }
-        if (cases.at(-1) === "body" && character === ";" && (text[index + 1] === ";" || text[index + 1] === "&")) {
+        const armEnd = cases.at(-1) === "body" && character === ";" ? shellCaseTerminator(text, index) : 0;
+        if (armEnd) {
             endCommand(index);
             cases[cases.length - 1] = "pattern";
-            index += text[index + 1] === ";" && text[index + 2] === "&" ? 2 : 1;
+            index += armEnd - 1;
             continue;
         }
         if (started && (character === "<" || character === ">") && startsFileRedirect(text, wordStart, index, character)) {
@@ -824,7 +816,7 @@ function scanCommandPrefix(command, preserveBunRun = false) {
     let lastPrefix;
     while (index < command.length) {
         const token = command[index];
-        if ((!token.startsQuoted || lastPrefix === "env") && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(token.value)) {
+        if (isShellAssignment(token, lastPrefix === "env")) {
             index += 1;
             continue;
         }
@@ -1019,7 +1011,7 @@ export function releaseHookCommand(input, context, assignments) {
     let i = 0;
     while (words[i]?.releaseKeyword)
         i++;
-    while (i < words.length && !words[i].startsQuoted && /^[A-Za-z_]\w*\+?=/.test(words[i].value)) {
+    while (i < words.length && isShellAssignment(words[i])) {
         const assignment = words[i++];
         assignments?.push(assignment);
         const variable = RELEASE_CONTEXT_VARIABLE.exec(assignment.value)?.[0];
@@ -1054,7 +1046,7 @@ export function releaseHookCommand(input, context, assignments) {
                 return words.slice(start);
         }
         if (wrapper === "env") {
-            while (/^[A-Za-z_][\w-]*=/.test(words[i]?.value ?? "")) {
+            while (i < words.length && isShellAssignment(words[i], true)) {
                 const assignment = words[i++];
                 assignments?.push(assignment);
                 const variable = RELEASE_CONTEXT_VARIABLE.exec(assignment.value)?.[0];

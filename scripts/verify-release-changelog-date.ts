@@ -42,7 +42,8 @@ import { tallyFlaggedInvocations } from "../invocation-audit.ts";
 import { executableShellBodies } from "../attestation.ts";
 import { hasVersionInput, generatedWriterProblem, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, npmLifecycle, visitChangelogScriptCommands, type NpmLifecyclePolicy } from "../release-changelog-options.ts";
 
-import { describeReleaseContextChange, describeUnsupportedReleaseHook, parseReleaseHook, refuseHook } from "../release-hook-grammar.ts";
+import { describeReleaseContextChange, parseReleaseHook, refuseHook } from "../release-hook-grammar.ts";
+import { describeUnsupportedReleaseHook } from "../release-shell-constructs.ts";
 
 export { DATE_FLAG, VERSION_INPUTS, isRealCalendarDay } from "../release-changelog-options.ts";
 
@@ -157,7 +158,9 @@ function maySelectRootProject(directory: unknown): boolean {
 }
 
 /** Include literal root hooks and report unresolved selectors at their workflow input. */
-function addConfiguredHooks(source: SourceFile, entries: Set<string>, found: Invocation[]): void {
+function addConfiguredHooks(
+  source: SourceFile, entries: Set<string>, explicit: Array<{ name: string; input: string; source: Invocation }>, found: Invocation[],
+): void {
   const lines = new LineCounter();
   const document = parseDocument(source.text, { lineCounter: lines });
   if (document.errors[0]) throw document.errors[0];
@@ -165,27 +168,32 @@ function addConfiguredHooks(source: SourceFile, entries: Set<string>, found: Inv
   for (const [id, job] of Object.entries(workflow?.jobs ?? {})) {
     if (job?.if === false) continue;
     if (typeof job?.uses !== "string" || !/(?:^|\/)\.github\/workflows\/daily-release\.ya?ml(?:@[^\s]+)?$/.test(job.uses)) continue;
-    if (job.with?.rust === true) continue;
+    if (job.with?.rust === true || job.with?.["release-enabled"] === false) continue;
     if (!maySelectRootProject(job.with?.["npm-project-dir"])) continue;
     for (const [input, defaultName] of HOOK_INPUTS) {
-      const name = job.with?.[input] ?? defaultName;
-      if (typeof name === "string" && /^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$/.test(name)) entries.add(name);
-      else {
-        const inputNode = document.getIn(["jobs", id, "with", input], true);
-        found.push({
-          file: source.file,
-          line: isScalar(inputNode) && inputNode.range ? lines.linePos(inputNode.range[0]).line : undefined,
-          command: JSON.stringify(name), args: [], options: [],
-          problem: describeUnsupportedReleaseHook("unresolved selector (use a literal script name)", input),
-        });
+      if (!job.with || !Object.hasOwn(job.with, input)) {
+        entries.add(defaultName);
+        continue;
       }
+      const name = job.with[input];
+      const inputNode = document.getIn(["jobs", id, "with", input], true);
+      const selector: Invocation = {
+        file: source.file,
+        line: isScalar(inputNode) && inputNode.range ? lines.linePos(inputNode.range[0]).line : undefined,
+        command: JSON.stringify(name), args: [], options: [],
+      };
+      if (typeof name === "string" && /^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$/.test(name)) {
+        explicit.push({ name, input, source: selector });
+      } else found.push({
+        ...selector, problem: describeUnsupportedReleaseHook("unresolved selector (use a literal script name)", input),
+      });
     }
   }
 }
 
 /** Flag a nested workflow command without following its forwards into the root manifest. */
 function inspectProjectStep(file: string, text: string, line: number, directory: unknown): Invocation[] {
-  const { commands, spans, heredocBodies } = parseReleaseHook(text);
+  const { commands, spans, heredocBodies } = parseReleaseHook(text, "workflow");
   const written = new Set<string>();
   const words = commands.find(command => generatedWriterProblem(command, written, heredocBodies.get(command)) || needsReleaseProject(command));
   if (!words) return [];
@@ -202,6 +210,7 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
   const workflowSteps = new Map<string, NpmLifecyclePolicy>();
   const found: Invocation[] = [];
   const projectEntryPoints = new Set<string>();
+  const explicit: Array<{ name: string; input: string; source: Invocation }> = [];
   for (const source of sources) {
     if (source.file === ".npmrc") continue;
     if (source.file === "package.json") {
@@ -210,7 +219,7 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
         origins.set(name, { file: source.file, line, script: name });
       }
     } else {
-      if (/^\.github\/workflows\/.*\.ya?ml$/.test(source.file)) addConfiguredHooks(source, projectEntryPoints, found);
+      if (/^\.github\/workflows\/.*\.ya?ml$/.test(source.file)) addConfiguredHooks(source, projectEntryPoints, explicit, found);
       for (const { text, line, workingDirectory, environment, disabled } of executableShellBodies(source)) {
         if (disabled) continue;
         if (!isRootProject(workingDirectory)) {
@@ -226,6 +235,11 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
         });
       }
     }
+  }
+  for (const selector of explicit) {
+    const { name, input, source } = selector;
+    if (scripts.has(name)) projectEntryPoints.add(name);
+    else found.push({ ...source, problem: describeUnsupportedReleaseHook(`missing or blank root script ${JSON.stringify(name)} selected by ${input}`, name) });
   }
   const entryPoints = new Set([...HOOK_INPUTS.map(([, name]) => name), ...projectEntryPoints]);
   visitChangelogScriptCommands(scripts, ({ name, names, text, words, effective, spans, contextProblem }) => {

@@ -32,6 +32,7 @@
  * @packageDocumentation
  */
 
+import { isShellAssignment, readShellCaseWord, shellCaseTerminator, type ShellCaseState } from "./release-shell-constructs.ts";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -437,7 +438,7 @@ function scanShellCommands(
   /** Compound assignments keep element words out of command position. */
   let arrayAssignment = false;
   /** Case subjects and patterns expand words, while each arm body runs commands. */
-  const cases: Array<"subject" | "in" | "pattern" | "body"> = [];
+  const cases: ShellCaseState[] = [];
   // Monotone delimiter caches make quoted parameter classification linear:
   // each search resumes past its last match, including an absent end sentinel.
   let parameterClose = -1;
@@ -453,17 +454,12 @@ function scanShellCommands(
       if (name !== undefined) fixedOptionNames.set(token, name);
     }
     spans?.set(token, { start: offset + wordStart, end: offset + end });
-    const caseState = cases.at(-1);
-    const keyword = !token.quoted && token.unresolved !== true;
-    if (caseState === "pattern") {
-      if (keyword && token.value === "esac") cases.pop();
-    } else {
-      if (caseState === "subject") cases[cases.length - 1] = "in";
-      else if (caseState === "in" && keyword && token.value === "in") cases[cases.length - 1] = "pattern";
-      else if (keyword && token.value === "case" && commandName(command) === undefined) cases.push("subject");
-      else if (caseState === "body" && keyword && token.value === "esac" && commandName(command) === undefined) cases.pop();
-      command.push(token);
-    }
+    const inPattern = cases.at(-1) === "pattern";
+    const controlWord = token.value === "case" || token.value === "esac";
+    const keyword = (controlWord || token.value === "in") && !token.quoted && token.unresolved !== true
+      && text.slice(wordStart, end).replaceAll("\\\n", "") === token.value;
+    readShellCaseWord(cases, token.value, keyword, controlWord && commandName(command) === undefined);
+    if (!inPattern) command.push(token);
     regexOperand = conditional && !token.quoted && token.value === "=~";
     value = "";
     quoted = false;
@@ -661,10 +657,11 @@ function scanShellCommands(
       }
       continue;
     }
-    if (cases.at(-1) === "body" && character === ";" && (text[index + 1] === ";" || text[index + 1] === "&")) {
+    const armEnd = cases.at(-1) === "body" && character === ";" ? shellCaseTerminator(text, index) : 0;
+    if (armEnd) {
       endCommand(index);
       cases[cases.length - 1] = "pattern";
-      index += text[index + 1] === ";" && text[index + 2] === "&" ? 2 : 1;
+      index += armEnd - 1;
       continue;
     }
     if (started && (character === "<" || character === ">") && startsFileRedirect(text, wordStart, index, character)) {
@@ -862,7 +859,7 @@ function scanCommandPrefix(command: ShellCommand, preserveBunRun = false): Prefi
   let lastPrefix: string | undefined;
   while (index < command.length) {
     const token = command[index]!;
-    if ((!token.startsQuoted || lastPrefix === "env") && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(token.value)) {
+    if (isShellAssignment(token, lastPrefix === "env")) {
       index += 1;
       continue;
     }
@@ -1068,7 +1065,7 @@ export function releaseHookCommand(input: ShellCommand, context?: ReleaseContext
   const words = withoutRedirections(input);
   let i = 0;
   while (words[i]?.releaseKeyword) i++;
-  while (i < words.length && !words[i].startsQuoted && /^[A-Za-z_]\w*\+?=/.test(words[i].value)) {
+  while (i < words.length && isShellAssignment(words[i])) {
     const assignment = words[i++];
     assignments?.push(assignment);
     const variable = RELEASE_CONTEXT_VARIABLE.exec(assignment.value)?.[0];
@@ -1098,7 +1095,7 @@ export function releaseHookCommand(input: ShellCommand, context?: ReleaseContext
       else if (!options?.has(flag.split("=")[0]) && !RELEASE_WRAPPERS[wrapper].test(flag)) return words.slice(start);
     }
     if (wrapper === "env") {
-      while (/^[A-Za-z_][\w-]*=/.test(words[i]?.value ?? "")) {
+      while (i < words.length && isShellAssignment(words[i], true)) {
         const assignment = words[i++];
         assignments?.push(assignment);
         const variable = RELEASE_CONTEXT_VARIABLE.exec(assignment.value)?.[0];

@@ -9,6 +9,11 @@ import {
   type ShellCommand, type ShellToken, type ShellTokenSpan,
 } from "./shell-scan.ts";
 
+import {
+  describeUnsupportedReleaseHook, readShellCaseWord, shellCaseTerminator, unsupportedReleaseConstruct, UNSUPPORTED_RELEASE_HOOK,
+  type ReleaseShellScope, type ShellCaseState,
+} from "./release-shell-constructs.ts";
+
 const problems = new WeakMap<ShellToken, string>();
 const possibleGeneratorTargets = new WeakSet<ShellToken>();
 const variableReferences = new WeakMap<ShellToken, string[]>();
@@ -91,26 +96,30 @@ export function literalOptionName(word: ShellToken): string | undefined {
 
 /** One actionable diagnostic across verification, preparation and continuation. */
 export function refuseHook(construct: string): never {
+  if (construct.startsWith(UNSUPPORTED_RELEASE_HOOK + ":")) throw new Error(construct);
   throw new Error(construct + ". Use a direct pm-changelog invocation with literal option names and one date policy, or npm run <script> -- <args>.");
 }
 
-/** Describe a construct outside the grammar for this release hook. */
-export function describeUnsupportedReleaseHook(construct: string, hook: string): string {
-  return `release_hook_unsupported_construct: ${construct} in hook ${JSON.stringify(hook)}. Simplify the hook to the supported forms, or move the logic into a script file.`;
-}
-
-/** Find a literal case keyword in command position before rewriting renderer arguments. */
-export function hasReleaseHookCase(commands: readonly ShellCommand[], text: string, spans: WeakMap<ShellToken, ShellTokenSpan>): boolean {
-  return commands.some(words => {
-    for (const word of words) {
-      if (word.releaseKeyword) continue;
-      const span = spans.get(word)!;
-      const raw = text.slice(span.start, span.end).replaceAll("\\\n", "");
-      if (/^(?:\(+|!)$/.test(raw)) continue;
-      return /^\(*case$/.test(raw);
-    }
-    return false;
-  });
+/** Identify the first out-of-corpus control form in a package release hook. */
+export function releaseHookConstructProblem(
+  commands: readonly ShellCommand[], text: string, spans: WeakMap<ShellToken, ShellTokenSpan>, hook: string, scope: ReleaseShellScope,
+): { words: ShellCommand; problem: string } | undefined {
+  for (const construct of ["case arms", "shell negation"] as const) {
+    if (!unsupportedReleaseConstruct(construct, scope)) continue;
+    const words = commands.find(command => {
+      for (const word of command) {
+        if (word.releaseKeyword) continue;
+        const span = spans.get(word)!;
+        const raw = text.slice(span.start, span.end).replaceAll("\\\n", "");
+        if (construct === "shell negation" && /^\(*!$/.test(raw)) return true;
+        if (/^(?:\(+|!|\{)$/.test(raw)) continue;
+        return construct === "case arms" && /^\(*case$/.test(raw);
+      }
+      return false;
+    });
+    if (words) return { words, problem: describeUnsupportedReleaseHook(construct, hook) };
+  }
+  return undefined;
 }
 
 /** Describe a context the release manifest cannot represent. */
@@ -136,13 +145,15 @@ function isCatHeredoc(words: ShellCommand): boolean {
 }
 
 /** Split only on unquoted shell list operators. Never execute or recursively guess a payload. */
-export function parseReleaseHook(text: string) {
+export function parseReleaseHook(text: string, scope: ReleaseShellScope = "hook") {
   const heredocBodies = new Map<ShellCommand, ShellToken>();
   const commands: ShellCommand[] = [];
   const spans = new WeakMap<ShellToken, ShellTokenSpan>();
   const bindings = new Set<string>();
   let words: ShellCommand = [];
   const piped = new Set<ShellCommand>();
+  const readCases = !unsupportedReleaseConstruct("case arms", scope);
+  const cases: ShellCaseState[] = [];
   const loops: Array<{ head: ShellToken; condition: boolean }> = [];
   let subshellDepth = 0;
   let inSubshell = false;
@@ -157,7 +168,8 @@ export function parseReleaseHook(text: string) {
         if (word.quoted || !/^(?:while|until|for|select|do|done|if|then|elif|else|fi|\}|\{|!)$/.test(word.value)) break;
         const span = spans.get(word)!;
         if (text.slice(span.start, span.end).replaceAll("\\\n", "") !== word.value) break;
-        if (/^(?:if|then|elif|else|fi|do|done|while|until|\})$/.test(word.value)) word.releaseKeyword = true;
+        if (/^(?:if|then|elif|else|fi|do|done|while|until|\})$/.test(word.value)
+          || (word.value === "!" && !unsupportedReleaseConstruct("shell negation", scope))) word.releaseKeyword = true;
         if (/^(?:while|until|for|select)$/.test(word.value)) {
           const condition = word.value === "while" || word.value === "until";
           if (!condition) iterationHeaders.add(words[0]);
@@ -181,6 +193,19 @@ export function parseReleaseHook(text: string) {
   let i = 0;
   while (i < text.length) {
     const ch = text[i];
+    const state = cases.at(-1);
+    if (state === "pattern" && (ch === "(" || ch === "|" || ch === ")")) {
+      if (ch === ")") cases[cases.length - 1] = "body";
+      i++;
+      continue;
+    }
+    const armEnd = state === "body" && ch === ";" ? shellCaseTerminator(text, i) : 0;
+    if (armEnd) {
+      finishCommand();
+      cases[cases.length - 1] = "pattern";
+      i += armEnd;
+      continue;
+    }
     if (/^[;&|\n]$/.test(ch) && !isCombinedOutputRedirect(text, i)) {
       let next = i + 1;
       while (text.startsWith("\\\n", next)) next += 2;
@@ -262,6 +287,7 @@ export function parseReleaseHook(text: string) {
     const references: string[] = [];
     while (i < text.length) {
       const char = text[i];
+      if (!quote && state === "pattern" && char === ")") break;
       // Redirection operators can contain characters that otherwise end a command.
       if (!quote && /[\s;&|]/.test(char)
         && !(i === start && isCombinedOutputRedirect(text, i))
@@ -310,6 +336,12 @@ export function parseReleaseHook(text: string) {
       if (!quote) unquoted += char;
     }
     if (quote) problem = "malformed shell arguments (unterminated quote)";
+    const caseWord = readCases && readShellCaseWord(cases, value,
+      !quoted && !unresolved && !escapedDelimiter,
+      (value === "case" || value === "esac")
+        && words.every(word => !word.quoted && /^(?:if|then|elif|else|do|\{|!)$/.test(word.value)));
+    if (caseWord === "open" || caseWord === "close") finishCommand();
+    if (caseWord && problem !== "Shell command substitution") continue;
     const token: ShellToken = { value, startsQuoted, quoted, unresolved };
     recordShellRedirection(token, text, start, i);
     const redirect = shellRedirection(token);
@@ -334,7 +366,9 @@ export function parseReleaseHook(text: string) {
     if (fixedName && !splits) optionNames.set(token, fixedName);
     if (problem) problems.set(token, problem);
     spans.set(token, { start, end: i });
-    words.push(token);
+    // Patterns and subjects are data, but substitutions inside them still run.
+    if (caseWord) commands.push([token]);
+    else words.push(token);
   }
   finishCommand();
   // A pipe to an interpreter can turn printed generator text into a command.

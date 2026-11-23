@@ -1661,8 +1661,9 @@ test("Round GU failed changelog creation leaves existing GitHub receipts intact"
   assert.equal(readFileSync(receipt, "utf8"), "previous=value\n");
   assert.equal(readFileSync(summary, "utf8"), "Previous summary\n");
   mkdirSync(join(root, "missing"));
-  assert.throws(() => runChangelog(cli.filter(flag => flag !== "--github-step-summary"), root, { ...env, GITHUB_OUTPUT: root }), /EISDIR|EPERM|EACCES/);
+  assert.throws(() => runChangelog(cli, root, { ...receiptEnv, GITHUB_OUTPUT: root }), /EISDIR|EPERM|EACCES/);
   assert.equal(existsSync(join(root, "missing", "CHANGELOG.md")), false);
+  assert.equal(readFileSync(summary, "utf8"), "Previous summary\n");
   assert.equal(runChangelog(cli, root, receiptEnv), 0);
   const body = readFileSync(join(root, "missing", "CHANGELOG.md"), "utf8");
   const output = stepOutputs(readFileSync(receipt, "utf8"));
@@ -1670,4 +1671,30 @@ test("Round GU failed changelog creation leaves existing GitHub receipts intact"
   assert.equal(output.action, "created");
   assert.equal(output.bytes, String(Buffer.byteLength(body)));
   assert.equal(readFileSync(summary, "utf8"), "Previous summary\n" + body);
+});
+
+test("Round GW configured forwarding delivers the renderer flag exactly once in either hook order", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const manifest = join(root, "package.json");
+  const prepare = resolve("scripts/prepare-release-changelog.ts");
+  writeFileSync(join(root, "notes.mjs"), [
+    'const flags = process.argv.slice(2).filter(arg => arg === "--include-empty");',
+    'if (flags.length !== 1) process.exit(1);',
+  ].join("\n"));
+  for (const [changelog, notes] of [["caller", "writer"], ["writer", "caller"], ["caller", "caller"]]) {
+    for (const suffix of ["", " -- --include-empty"]) {
+      writeFileSync(manifest, JSON.stringify({ scripts: {
+        caller: "npm run writer" + suffix, writer: "node notes.mjs", check: "true",
+      } }));
+      const releaseEnv = { ...env, CHANGELOG_SCRIPT: changelog, CHANGELOG_CHECK_SCRIPT: "check", NOTES_SCRIPT: notes };
+      execFileSync(process.execPath, [prepare], { cwd: root, env: releaseEnv, stdio: "pipe" });
+      const saved = readFileSync(manifest, "utf8");
+      execFileSync(process.execPath, npmRunArgs("caller", "--silent"), { cwd: root, env: releaseEnv, stdio: "pipe" });
+      execFileSync(process.execPath, [prepare], { cwd: root, env: releaseEnv, stdio: "pipe" });
+      assert.equal(readFileSync(manifest, "utf8"), saved);
+      const { scripts } = JSON.parse(saved);
+      assert.equal(scripts.writer, "node notes.mjs" + (changelog === notes ? "" : " --include-empty"));
+    }
+  }
 });

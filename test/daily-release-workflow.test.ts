@@ -1114,3 +1114,11 @@ test("both heading checks receive the active and configured lifecycle values rec
     for (const entry of checks) assert.equal(entry.env?.[name], "${{ steps.continue.outputs." + candidate + " }}");
   }
 });
+
+test("Round GW env operands and shell assignments have different name syntax", () => {
+  for (const assignment of ["'cache-mode=fixture'", "'1cache=fixture'", "'cache.mode=fixture'"]) {
+    assert.throws(() => assertNoNpmInstalls("env " + assignment + " npm ci"), /must not install/);
+    assertNoNpmInstalls("env " + assignment + " echo npm ci");
+    assertNoNpmInstalls(assignment + " npm ci");
+  }
+});

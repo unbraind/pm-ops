@@ -734,3 +734,76 @@ test("Round GU unresolved reusable hook names fail closed for root projects", ()
   assert.match(auditInvocations([source, call("render")]).failures[0], /neither --date-from-version/);
   assert.deepEqual(auditInvocations([source, call("${{ vars.CHANGELOG_HOOK }}", "docs")]).failures, []);
 });
+
+test("Round GW workflow case arms expose generator argv and preserve its controls", () => {
+  const file = ".github/workflows/release.yml";
+  const body = (command: string) => ({
+    file, text: "jobs:\n  verify:\n    steps:\n      - shell: bash\n        run: |\n"
+      + ['case "$MODE" in', '  (fast|normal) ' + command + ' ;;', '  ("slow)") echo "pm-changelog --release-version-from-package" ;;', 'esac']
+        .map(line => "          " + line).join("\n"),
+  });
+  assert.deepEqual(auditInvocations([body(FLAGGED)]).failures, []);
+  assert.match(auditInvocations([body(FLAGGED.replace(DATE_FLAG, ""))]).failures[0] ?? "", /neither --date-from-version/);
+  const nested = { ...body(FLAGGED), text: body(FLAGGED).text.replace("shell: bash", "working-directory: docs\n        shell: bash") };
+  assert.match(auditInvocations([nested]).failures[0] ?? "", /working-directory/);
+});
+
+test("Round GW the date audit applies the package hook grammar to configured and default notes", () => {
+  const caller = { file: ".github/workflows/release.yml", text: [
+    "jobs:", "  release:", "    uses: owner/package/.github/workflows/daily-release.yml@main",
+    "    with:", "      notes-script: notes",
+  ].join("\n") };
+  for (const [name, workflows] of [["release:notes", []], ["notes", [caller]]] as const) {
+    const manifest = (body: string) => ({ file: "package.json", text: JSON.stringify({ scripts: {
+      "changelog:check": FLAGGED, [name]: body,
+    } }) });
+    const unsupported = 'case "$MODE" in fast) node notes.mjs ;; esac';
+    assert.match(auditInvocations([manifest(unsupported), ...workflows]).failures[0] ?? "",
+      new RegExp("release_hook_unsupported_construct:.*case arms.*" + name + ".*script file"));
+    assert.deepEqual(auditInvocations([manifest('node notes.mjs "case"'), ...workflows]).failures, []);
+  }
+});
+
+test("Round GW only enabled reusable calls require their explicit root selectors", () => {
+  const file = ".github/workflows/release.yml";
+  const caller = (selector: string, enabled?: string) => ({
+    file, text: ["jobs:", "  release:", "    uses: owner/package/.github/workflows/daily-release.yml@main",
+      "    with:", "      changelog-script: " + selector, ...(enabled === undefined ? [] : ["      release-enabled: " + enabled])].join("\n"),
+  });
+  const manifest = (scripts: Record<string, string>) => ({ file: "package.json", text: JSON.stringify({ scripts }) });
+  const minimal = { "changelog:check": FLAGGED };
+  const audit = (selector: string, enabled?: string, scripts: Record<string, string> = minimal) => auditInvocations([caller(selector, enabled), manifest(scripts)]).failures;
+  const dynamic = "${{ vars.CHANGELOG_HOOK }}";
+  assert.deepEqual(audit(dynamic, "false"), []);
+  assert.deepEqual(audit("render", "false"), []);
+});
+
+test("Round GW explicit root selectors require an existing nonblank script", () => {
+  const file = ".github/workflows/release.yml";
+  const audit = (selector: string, enabled?: string, scripts: Record<string, string> = { "changelog:check": FLAGGED }) => auditInvocations([
+    { file, text: ["jobs:", "  release:", "    uses: owner/package/.github/workflows/daily-release.yml@main",
+      "    with:", "      changelog-script: " + selector, ...(enabled === undefined ? [] : ["      release-enabled: " + enabled])].join("\n") },
+    { file: "package.json", text: JSON.stringify({ scripts }) },
+  ]).failures;
+  const dynamic = "${{ vars.CHANGELOG_HOOK }}";
+  const minimal = { "changelog:check": FLAGGED };
+  for (const enabled of [undefined, "true", "${{ inputs.release }}", "'false'"]) {
+    assert.match(audit(dynamic, enabled)[0] ?? "", /release\.yml:5:.*unresolved selector/);
+    assert.match(audit("render", enabled)[0] ?? "", /release\.yml:5:.*release_hook_unsupported_construct:.*missing or blank.*render.*changelog-script/i);
+  }
+  assert.match(audit("render", "true", { ...minimal, render: " " })[0] ?? "", /missing or blank/);
+  assert.deepEqual(audit("render", "true", { ...minimal, render: FLAGGED }), []);
+});
+
+test("Round GW workflow case metadata cannot hide executable substitutions", () => {
+  const file = ".github/workflows/release.yml";
+  const audit = (subject: string, pattern: string) => auditInvocations([{
+    file, text: "jobs:\n  verify:\n    steps:\n      - run: |\n"
+      + ['case ' + subject + ' in', '  ' + pattern + ') ' + FLAGGED + ' ;;', 'esac']
+        .map(line => "          " + line).join("\n"),
+  }]).failures;
+  const command = "pm-changelog --release-version-from-package";
+  assert.match(audit('"$(' + command + ')"', "fast")[0] ?? "", /Shell command substitution/);
+  assert.match(audit('"$MODE"', '"$(' + command + ')"')[0] ?? "", /Shell command substitution/);
+  assert.deepEqual(audit("'$(" + command + ")'", "'$(" + command + ")'"), []);
+});

@@ -1,5 +1,5 @@
 /** Repository changelog policy over the pinned generator's release windows. */
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { parseBootstrapGlobalOptions, resolveImplicitPmRoot, resolvePmRoot } from "@unbrained/pm-cli/sdk";
@@ -7,7 +7,7 @@ import { buildPmListArgs, checkItemLinks, mergeChangelog } from "pm-changelog";
 import { changelogOutputTarget } from "../release-changelog-options.ts";
 import { execFileSync, spawnSync } from "../subprocess.ts";
 import { isMainInvocation } from "./main-invocation.ts";
-import { writeFileWithReceipts } from "./release-file-receipts.ts";
+import { appendReleaseReceipts, writeFileWithReceipts } from "./release-file-receipts.ts";
 
 /** Retain empty releases without adding an empty Unreleased window after tagging. */
 export function describeEmptyReleases(markdown: string): string {
@@ -104,9 +104,13 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
   const receipt = generation && { mode, action, changed, bytes: Buffer.byteLength(result), check };
   /** Append only receipts for a changelog whose bytes have been written or checked. */
   function writeReceipts(): void {
-    if (summary) appendFileSync(resolve(cwd, env.GITHUB_STEP_SUMMARY!), result);
-    if (stepOutput && generation && receipt) appendFileSync(resolve(cwd, env.GITHUB_OUTPUT!),
-      `output=${destination}\nmode=${mode}\naction=${receipt.action}\nchanged=${changed}\nitem_count=${generation.itemCount}\nexcluded_non_change_count=${generation.excluded_non_change_count}\nbytes=${receipt.bytes}\n`);
+    const receipts = [];
+    if (summary) receipts.push({ path: resolve(cwd, env.GITHUB_STEP_SUMMARY!), text: result });
+    if (stepOutput && generation && receipt) receipts.push({
+      path: resolve(cwd, env.GITHUB_OUTPUT!),
+      text: `output=${destination}\nmode=${mode}\naction=${receipt.action}\nchanged=${changed}\nitem_count=${generation.itemCount}\nexcluded_non_change_count=${generation.excluded_non_change_count}\nbytes=${receipt.bytes}\n`,
+    });
+    appendReleaseReceipts(receipts);
   }
   if (!stdout && !check && (summary || stepOutput)) writeFileWithReceipts(destination, result, writeReceipts);
   else {

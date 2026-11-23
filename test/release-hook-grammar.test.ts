@@ -5,7 +5,7 @@ import { devNull, tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import test from "node:test";
 import { stringify } from "yaml";
-import { executableShellBodies } from "../attestation.ts";
+import { auditPublishAttestation, executableShellBodies } from "../attestation.ts";
 import { projectNpmLifecyclePolicy } from "../scripts/project-npm-lifecycle.ts";
 import { npmCli } from "../scripts/release-runtime.ts";
 import { execFileSync } from "../subprocess.ts";
@@ -3223,4 +3223,93 @@ test("Round GU conditional continue in setup leaves a definite renderer after do
   assert.throws(() => includeEmptyCustomHook(setup + conditional, new Map()), /renderer.*after loop control/);
   const prepared = setup + "; pm-changelog " + standing + " --stdout --include-empty";
   assert.equal(includeEmptyCustomHook(prepared, new Map(), true), prepared);
+});
+
+test("Round GW a successful trailing conditional retains skipped-list renderers", () => {
+  const list = "node primary.mjs && test -f use-secondary && node secondary.mjs";
+  for (const suffix of [
+    "; if test -f optional; then true; fi",
+    "; if test -f optional; then true; else false; fi",
+    "; if test -f optional; then if test -f other; then true; fi; fi",
+  ]) {
+    assert.throws(() => includeEmptyCustomHook(list + suffix, new Map()), /alternative renderers/);
+    const prepared = list.replaceAll(".mjs", ".mjs --include-empty") + suffix;
+    assert.equal(includeEmptyCustomHook(prepared, new Map()), prepared);
+  }
+  assert.equal(includeEmptyCustomHook(list, new Map()), list + " --include-empty");
+  const nextRenderer = "; if test -f optional; then true; fi; node notes.mjs";
+  assert.equal(includeEmptyCustomHook(list + nextRenderer, new Map()), list + nextRenderer + " --include-empty");
+});
+
+test("Round GW negated shell commands are outside the package hook grammar", () => {
+  for (const operand of ["! test -f omit-notes", "! command test -f omit-notes"]) {
+    const hook = "node notes.mjs; " + operand;
+    assert.throws(() => includeEmptyCustomHook(hook, new Map(), false, false, "notes"), /release_hook_unsupported_construct:.*negation.*notes.*script file/);
+  }
+  for (const body of ['node notes.mjs "!"', "node notes.mjs; test -f omit-notes"]) {
+    assert.equal(includeEmptyCustomHook(body, new Map()), body.replace("notes.mjs", "notes.mjs --include-empty").replace('--include-empty "!"', '"!" --include-empty'));
+  }
+});
+
+test("Round GW runner environment exports respect the selected shell's pipefail support", () => {
+  const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
+    render: "pm-changelog " + standing, prerender: "echo preview > CHANGELOG.md",
+  } }) };
+  const source = (shell: string, option: string) => ({
+    file: ".github/workflows/release.yml",
+    text: stringify({ jobs: { release: {
+      "runs-on": "ubuntu-latest", env: { npm_config_ignore_scripts: "false" }, defaults: { run: { shell } },
+      steps: [{ run: option + '\n' + 'echo npm_config_ignore_scripts=true >> "$GITHUB_ENV"' }, { if: "always()", run: "npm run render" }],
+    } } }),
+  });
+  for (const option of ["set -o pipefail", "set -euo pipefail"]) {
+    const sh = source("sh", option);
+    assert.equal(npmLifecycle(undefined, executableShellBodies(sh).at(-1)?.environment), "unknown");
+    assert.match(auditInvocations([manifest, sh]).failures[0] ?? "", /ignore-scripts.*prerender/);
+    assert.deepEqual(auditInvocations([manifest, source("bash", option)]).failures, []);
+  }
+  assert.deepEqual(auditInvocations([manifest, source("sh", "set -eu")]).failures, []);
+});
+
+test("Round GW generated construct decisions agree across hook and workflow entry points", () => {
+  const generator = "pm-changelog " + standing;
+  const publish = "npm publish";
+  const file = ".github/workflows/release.yml";
+  const workflows = (run: string) => ({ file, text: stringify({ jobs: { release: {
+    "runs-on": "ubuntu-latest", steps: [{ shell: "bash", run }],
+  } } }) });
+  for (const [prefix, suffix] of [["", ""], ["", '\n: "case !"'], ["env 'cache-mode=fixture' ", ""]]) {
+    for (const layout of ["direct", "conditional", "case", "negation"] as const) {
+      const body = (command: string) => {
+        const invocation = prefix + command;
+        if (layout === "case") return 'case "$MODE" in\n  (fast|normal) ' + invocation + ' ;;\n  *) true ;;\nesac' + suffix;
+        if (layout === "negation") return "! " + invocation + suffix;
+        if (layout === "conditional") return "if test -f flag; then " + invocation + "; fi" + suffix;
+        return invocation + suffix;
+      };
+      const hook = body(generator);
+      const scripts = { "release:notes": hook };
+      const manifest = { file: "package.json", text: JSON.stringify({ scripts }) };
+      const refused = layout === "case" || layout === "negation";
+      for (const apply of [
+        () => resolveChangelogHooks(scripts, ["release:notes"], false),
+        () => rewriteReleaseHookDates(new Map(Object.entries(scripts)), ["release:notes"], day, false),
+        () => includeEmptyCustomHook(hook, new Map(), true),
+      ]) {
+        if (refused) assert.throws(apply, /release_hook_unsupported_construct:.*release:notes/);
+        else assert.doesNotThrow(apply);
+      }
+      if (refused) assert.throws(() => rewriteReleaseHeadingDate(hook, day), /release_hook_unsupported_construct:.*standalone/);
+      else assert.doesNotThrow(() => rewriteReleaseHeadingDate(hook, day));
+      assert.equal(auditInvocations([manifest]).failures.some(failure => failure.includes("release_hook_unsupported_construct")), refused, hook);
+      const step = body(generator);
+      assert.deepEqual(auditInvocations([workflows(step)]).failures, [], step);
+      const invalid = auditInvocations([workflows(body(generator.replace(" --date-from-version", "")))]);
+      assert.match(invalid.failures[0] ?? "", /neither --date-from-version/, step);
+      assert.ok(tokenizeCommands(body(publish)).some(words => commandName(words) === "npm"), step);
+      const attested = body(publish + " --provenance");
+      assert.deepEqual(auditPublishAttestation([workflows(attested)]).failures, [], attested);
+      assert.match(auditPublishAttestation([workflows(body(publish))]).failures[0] ?? "", /provenance/, step);
+    }
+  }
 });

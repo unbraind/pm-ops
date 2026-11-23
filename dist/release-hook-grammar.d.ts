@@ -1,4 +1,5 @@
 import { type ShellCommand, type ShellToken, type ShellTokenSpan } from "./shell-scan.ts";
+import { type ReleaseShellScope } from "./release-shell-constructs.ts";
 /** Return the producing command upstream of a supported output filter. */
 export declare function releaseOutputProducer(command: ShellCommand): ShellCommand;
 /** Return the separator for an AND-list, fallback, or pipeline stage. */
@@ -25,14 +26,15 @@ export declare function inheritedVariable(word: ShellToken, bindings: ReadonlySe
 export declare function literalOptionName(word: ShellToken): string | undefined;
 /** One actionable diagnostic across verification, preparation and continuation. */
 export declare function refuseHook(construct: string): never;
-/** Describe a construct outside the grammar for this release hook. */
-export declare function describeUnsupportedReleaseHook(construct: string, hook: string): string;
-/** Find a literal case keyword in command position before rewriting renderer arguments. */
-export declare function hasReleaseHookCase(commands: readonly ShellCommand[], text: string, spans: WeakMap<ShellToken, ShellTokenSpan>): boolean;
+/** Identify the first out-of-corpus control form in a package release hook. */
+export declare function releaseHookConstructProblem(commands: readonly ShellCommand[], text: string, spans: WeakMap<ShellToken, ShellTokenSpan>, hook: string, scope: ReleaseShellScope): {
+    words: ShellCommand;
+    problem: string;
+} | undefined;
 /** Describe a context the release manifest cannot represent. */
 export declare function describeReleaseContextChange(construct: string): string;
 /** Split only on unquoted shell list operators. Never execute or recursively guess a payload. */
-export declare function parseReleaseHook(text: string): {
+export declare function parseReleaseHook(text: string, scope?: ReleaseShellScope): {
     commands: ShellCommand[];
     spans: WeakMap<ShellToken, ShellTokenSpan>;
     heredocBodies: Map<ShellCommand, ShellToken>;

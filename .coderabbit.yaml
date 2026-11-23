@@ -11,9 +11,16 @@ reviews:
         The Git bookkeeping posthook uses tests, if/then/fi, subshells, stdout and descriptor redirects, and &&/|| lists.
         The pinned workflow bodies also contain loops with break/continue, case arms, here-documents and here-strings,
         GITHUB_ENV writes, pipelines and exit. Preserve the supported workflow forms and prior hook acceptance fixtures.
-        Notes renderer case arms and unresolved root release-hook selectors are outside the hook grammar.
+        Case patterns belong to workflow syntax. The hook grammar refuses case arms and unquoted command negation.
+        Quoted operands remain literal, and env uses NAME=value operands independently of shell assignment syntax.
+        A workflow using sh cannot establish a definite environment export after setting pipefail.
+        Enabled reusable callers require a literal, existing nonblank root script for each explicit hook selector.
         Refuse new constructs outside the supported forms with release_hook_unsupported_construct,
         naming the construct and hook and advising a simpler hook or a separate script file.
+    - path: "release-shell-constructs.ts"
+      instructions: *release_hook_scope
+    - path: "shell-scan.ts"
+      instructions: *release_hook_scope
     - path: "release-hook-grammar.ts"
       instructions: *release_hook_scope
     - path: "release-changelog-options.ts"

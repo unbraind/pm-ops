@@ -17,6 +17,7 @@
  *
  * @packageDocumentation
  */
+import { unsupportedReleaseConstruct } from "./release-shell-constructs.js";
 import { readRegularText } from "./regular-input.js";
 import { execFileSync } from "./subprocess.js";
 import { closeSync, constants, fstatSync, statSync, openSync, readSync } from "node:fs";
@@ -905,12 +906,13 @@ function literalEnvironmentRecord(print, environment) {
     return format ? format[2] + format[4] : undefined;
 }
 /** Model one runner environment file, which starts empty for each step. */
-function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windows) {
+function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windows, shell) {
     let records = new Map();
     let mayStopBeforeOverwrite = false;
     let maySkipLaterSteps = false;
     let mayStopOnFailure = errexit;
     let nounset = false;
+    let uncertainShellOptions = false;
     const branchFailures = [];
     let mayFailAtEnd = false;
     const lines = text.split(/\r?\n/);
@@ -941,13 +943,18 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windo
         if (!line || line.startsWith("#"))
             continue;
         mayFailAtEnd = false;
-        const shellOptions = /^set -([eu]+)(?:o pipefail)?$/.exec(line);
-        if (shellOptions?.[1].includes("e")) {
+        const shellOptions = /^set -(?:([eu]+)|([eu]*o)[ \t]+(pipefail))$/.exec(line);
+        const optionFlags = shellOptions?.[1] ?? shellOptions?.[2] ?? "";
+        if (shellOptions?.[3] && unsupportedReleaseConstruct("pipefail", "workflow", shell)) {
+            uncertainShellOptions = true;
+            maySkipLaterSteps = true;
+        }
+        if (optionFlags.includes("e")) {
             mayStopOnFailure = true;
             if (branchFailures.length === 0)
                 errexit = true;
         }
-        if (shellOptions?.[1].includes("u"))
+        if (optionFlags.includes("u"))
             nounset = true;
         if (shellOptions || /^(?:true|:|echo [\w .-]+)$/.test(line))
             continue;
@@ -986,7 +993,7 @@ function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windo
             records = undefined;
             continue;
         }
-        const conditional = conditionalStep || branchFailures.length > 0 || (unquoted && !errexit);
+        const conditional = conditionalStep || uncertainShellOptions || branchFailures.length > 0 || (unquoted && !errexit);
         if (!append) {
             if (conditional) {
                 if (records)
@@ -1107,7 +1114,8 @@ export function executableShellBodies(source) {
                 const conditional = (condition !== undefined && condition !== true && !(typeof condition === "string" && isSuccessCondition(condition)))
                     || Boolean(step["continue-on-error"]);
                 const errexit = shell !== "bash {0}" && shell !== "sh {0}";
-                const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, producerEnvironment, errexit, windowsRunner) : undefined;
+                const shellProgram = typeof shell === "string" && /^sh(?: |$)/.test(shell) ? "sh" : "bash";
+                const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, producerEnvironment, errexit, windowsRunner, shellProgram) : undefined;
                 if (writes === undefined) {
                     inherited = invalidateWorkflowExports(baseEnvironment, inherited);
                     unknownNames = true;

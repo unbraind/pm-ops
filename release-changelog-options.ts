@@ -7,13 +7,14 @@
  * Source spans belong to the script that wrote each word. Shell evaluation,
  * unknown wrappers and ambiguous policies require a canonical invocation.
  */
+import { isShellAssignment, type ReleaseShellScope } from "./release-shell-constructs.ts";
 import { basename, posix } from "node:path";
 import {
   isShellEvaluator, RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand, shellRedirection, withoutRedirections,
   type ReleaseContextChange, type ShellCommand, type ShellToken, type ShellTokenSpan,
 } from "./shell-scan.ts";
 import {
-  describeReleaseContextChange, describeUnsupportedReleaseHook, followingReleaseOperator, hasBraceExpansion, hasReleaseHookCase, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand,
+  describeReleaseContextChange, followingReleaseOperator, hasBraceExpansion, releaseHookConstructProblem, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand,
   isReleaseIterationHeader, isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, releaseLoopScope, releaseOutputProducer,
 } from "./release-hook-grammar.ts";
 
@@ -663,7 +664,7 @@ function shellContextChange(words: ShellCommand): ReleaseContextChange | undefin
     const variable = args.map(word => RELEASE_CONTEXT_VARIABLE.exec(word.value)?.[0]).find(Boolean);
     if (variable) return { construct: name + " " + variable };
   }
-  if (command.every(word => !word.startsQuoted && /^[A-Za-z_]\w*\+?=/.test(word.value))) {
+  if (command.every(word => isShellAssignment(word))) {
     const variable = RELEASE_CONTEXT_VARIABLE.exec(program.value)?.[0]
       ?? args.map(word => RELEASE_CONTEXT_VARIABLE.exec(word.value)?.[0]).find(Boolean);
     if (variable) return { construct: variable + " assignment" };
@@ -775,10 +776,10 @@ function changelogInvocation(words: ShellCommand, scriptNames?: ReadonlySet<stri
 
 /** Check indirect references inside unknown wrappers only for dependencies that can reach a generator. */
 class HookScriptNames extends Set<string> {
-  private readonly scripts: ReadonlyMap<string, string>;
+  private readonly scripts: ReadonlyMap<string, ParsedReleaseScript>;
   private readonly allowUnresolvedProjects: boolean;
 
-  constructor(scripts: ReadonlyMap<string, string>, allowUnresolvedProjects = true) {
+  constructor(scripts: ReadonlyMap<string, ParsedReleaseScript>, allowUnresolvedProjects = true) {
     super(scripts.keys());
     this.scripts = scripts;
     this.allowUnresolvedProjects = allowUnresolvedProjects;
@@ -786,7 +787,7 @@ class HookScriptNames extends Set<string> {
 
   /** npm skips empty implicit lifecycle scripts and passes args only to main. */
   sequence(name: string, lifecycle: boolean): string[] {
-    return lifecycle ? [`pre${name}`, name, `post${name}`].filter(script => script === name || this.scripts.get(script)?.trim()) : [name];
+    return lifecycle ? [`pre${name}`, name, `post${name}`].filter(script => script === name || this.scripts.get(script)?.text.trim()) : [name];
   }
 
   /** An opaque npm invocation may run the named script and both lifecycle siblings. */
@@ -801,8 +802,7 @@ class HookScriptNames extends Set<string> {
   ): boolean {
     if (!this.has(name) || seen.has(name)) return false;
     const ancestors = new Set(seen).add(name);
-    const text = this.scripts.get(name)!;
-    const { commands, spans, heredocBodies } = parseReleaseHook(text);
+    const { text, commands, spans, heredocBodies } = this.scripts.get(name)!;
     const written = new Set<string>();
     const recipient = args.length ? commandReceivingArguments(text, commands, spans) : undefined;
     let preceding: ReleaseContextChange | undefined;
@@ -929,18 +929,21 @@ function forwardedBindingProblem(words: ShellCommand, bindings: ReadonlySet<stri
   return binding && ("Generator binding through variable assignment " + binding + " crosses an npm run forward" + SCRIPT_FILE_ADVICE);
 }
 
+/** One parsed body shared by reachability, policy rewriting, and date verification. */
+type ParsedReleaseScript = ReturnType<typeof parseReleaseHook> & { text: string; scope: ReleaseShellScope };
+
 /** Scan local scripts in invocation order and join forwarded argv at its actual destination. */
 export function visitChangelogScriptCommands(
   scripts: ReadonlyMap<string, string>, inspect: (entry: ChangelogScriptCommand) => void, hooks?: readonly string[],
   resolved?: Map<string, string>, entryPoints: ReadonlySet<string> = new Set(), npm: NpmLifecycleInputs = { lifecycle: "unknown" },
 ): void {
-  const names = new HookScriptNames(scripts);
-  const knownWriters = new HookScriptNames(scripts, false);
-  const targeted = new Set<string>();
-  const parsed = new Map([...scripts].map(([name, text]) => {
-    const { commands, spans } = parseReleaseHook(text);
-    return [name, { text, commands, spans }];
+  const parsed = new Map<string, ParsedReleaseScript>([...scripts].map(([name, text]) => {
+    const scope = npm.workflowSteps?.has(name) ? "workflow" : "hook";
+    return [name, { text, scope, ...parseReleaseHook(text, scope) }];
   }));
+  const names = new HookScriptNames(parsed);
+  const knownWriters = new HookScriptNames(parsed, false);
+  const targeted = new Set<string>();
 
   /** Read the local script target, arguments, and command-prefix assignments. */
   function forwardToScript(words: ShellCommand) {
@@ -959,6 +962,7 @@ export function visitChangelogScriptCommands(
   type InvocationLifecycle = ReturnType<typeof forwardedLifecycle>;
   const entryLifecycles = new Map<string, InvocationLifecycle[]>();
   const visited = new Set<string>();
+  const reportedConstructs = new Set<string>();
   type CachedVisit = { depth: number; written: readonly string[] };
   const withoutArgs = new Map<string, CachedVisit>();
   const recipients = new Map<string, ShellCommand | undefined>();
@@ -985,9 +989,17 @@ export function visitChangelogScriptCommands(
       refuseHook(parents.length === 0 ? "Missing changelog hook: " + name
         : "Cannot resolve changelog script forward " + chain + ": missing or empty package.json script");
     }
-    const { text, commands, spans } = script;
-    if (hooks && hasReleaseHookCase(commands, text, spans)) {
-      throw new Error(describeUnsupportedReleaseHook("case arms", name));
+    const { text, commands, spans, scope } = script;
+    const construct = (releasePath || scope === "workflow") && releaseHookConstructProblem(commands, text, spans, name, scope);
+    if (construct) {
+      if (hooks) throw new Error(construct.problem);
+      if (!reportedConstructs.has(name)) {
+        const { words, problem: contextProblem } = construct;
+        inspect({ parents, name, names, text, words, effective: words, spans, forwardedSeparators: [], contextProblem });
+        reportedConstructs.add(name);
+      }
+      visited.add(name);
+      return;
     }
     let recipient: ShellCommand | undefined;
     if (args.length > 0) {
@@ -1352,7 +1364,7 @@ function assertAllTagsCutoff(
 /** Refuse publication when a standalone generator's heading differs from the verified merge day. */
 export function assertReleaseHeadingDate(scripts: readonly string[], mergeDay: string, packageVersion?: string, scriptNames?: ReadonlySet<string>): void {
   for (const script of scripts) {
-    for (const words of standaloneHookCommands(parseReleaseHook(script).commands, scriptNames)) assertHeadingOptions(words, mergeDay, packageVersion, scriptNames);
+    for (const words of standaloneHookCommands(parseSupportedReleaseHook(script).commands, scriptNames)) assertHeadingOptions(words, mergeDay, packageVersion, scriptNames);
   }
 }
 
@@ -1376,7 +1388,7 @@ function applyHookEdits(script: string, edits: Iterable<HookEdit>): string {
 
 /** Enable empty sections on each generator while preserving shell operators and redirections. */
 export function includeEmptyReleaseSections(script: string, scriptNames?: ReadonlySet<string>): string {
-  const { commands, spans } = parseReleaseHook(script);
+  const { commands, spans } = parseSupportedReleaseHook(script);
   const edits = new Map<number, HookEdit>();
   for (const words of standaloneHookCommands(commands, scriptNames)) {
     const invocation = changelogInvocation(words, scriptNames);
@@ -1430,9 +1442,14 @@ function finalHookCommands(commands: ShellCommand[]): { last: ShellCommand[]; sk
         const loop = loopEntries.pop();
         if (loop) last = [...new Set([...loop.before, ...last])];
       }
-      if (word.value === "if") alternatives.push({
-        before: last, branches: [], skipped: [], hasElse: false, beforeExit: terminated, branchExit: undefined,
-      });
+      if (word.value === "if") {
+        // A successful conditional can mask the preceding list's failure.
+        // An arm that renders again will replace these candidates.
+        if (!afterAnd && !afterOr) last = [...new Set([...last, ...skippedInPreviousList])];
+        alternatives.push({
+          before: last, branches: [], skipped: [], hasElse: false, beforeExit: terminated, branchExit: undefined,
+        });
+      }
       const branch = alternatives.at(-1);
       if (branch && (word.value === "elif" || word.value === "else")) {
         branch.branches.push(...last);
@@ -1509,6 +1526,14 @@ function assertLoopRendererReachable(renderers: ShellCommand[], skippedByLoopCon
   }
 }
 
+/** Apply the same construct refusal to standalone options and renderer selection. */
+function parseSupportedReleaseHook(text: string, hook = "standalone") {
+  const parsed = parseReleaseHook(text);
+  const construct = releaseHookConstructProblem(parsed.commands, text, parsed.spans, hook, "hook");
+  if (construct) throw new Error(construct.problem);
+  return parsed;
+}
+
 /** Check whether all terminal renderers receive the flag without editing their caller. */
 function allPreparedRenderers(
   last: ShellCommand[], scripts: ReadonlyMap<string, string>, names: ReadonlySet<string>, hasGenerator: boolean, depth: number,
@@ -1520,25 +1545,24 @@ function allPreparedRenderers(
     if (!command) return false;
     if (hasGenerator && generatorCommand(command)) return true;
     const forward = scriptForward(basename(command[0].value), command.slice(1), names);
-    if (!forward) return !hasGenerator && hasCustomIncludeEmpty(command);
+    if (!forward) return !hasGenerator && customIncludeEmptyOptions(command).length > 0;
     if (!forward.target) return false;
     const body = scripts.get(forward.target);
     if (!body) return false;
-    const { commands, spans } = parseReleaseHook(body);
+    const { commands, spans } = parseSupportedReleaseHook(body, forward.target);
     const nextRecipient = forward.args.length ? commandReceivingArguments(body, commands, spans) : undefined;
-    if (hasReleaseHookCase(commands, body, spans)) throw new Error(describeUnsupportedReleaseHook("case arms", forward.target));
     const { last: next, skippedByLoopControl } = finalHookCommands(commands);
     assertLoopRendererReachable(next, skippedByLoopControl);
     return allPreparedRenderers(next, scripts, names, hasGenerator, depth + 1, nextRecipient, forward.args);
   });
 }
 
-/** Find an empty-section option among the custom executable's own arguments. */
-function hasCustomIncludeEmpty(invocation: ShellCommand): boolean {
+/** Find empty-section option tokens while preserving which script supplied them. */
+function customIncludeEmptyOptions(invocation: ShellCommand): ShellToken[] {
   const args = invocation.slice(generatorEntryIndex(invocation) + 1);
   const positions = optionPositions(args);
   const boundary = customOptionBoundary(args, positions);
-  return positions.some(i => (boundary === undefined || i < boundary) && args[i].value === INCLUDE_EMPTY_FLAG);
+  return positions.filter(i => (boundary === undefined || i < boundary) && args[i].value === INCLUDE_EMPTY_FLAG).map(i => args[i]);
 }
 
 /** Locate the renderer separator without interpreting option operands as separators. */
@@ -1566,7 +1590,7 @@ function rendererStatusCommand(words: ShellCommand): boolean {
 function rendererBuiltin(words: ShellCommand): ShellCommand | undefined {
   if (!releaseHookCommand(words)) return undefined;
   const argv = withoutRedirections(words);
-  let index = argv.findIndex(word => !word.releaseKeyword && (word.startsQuoted || !/^[A-Za-z_]\w*\+?=/.test(word.value)));
+  let index = argv.findIndex(word => !word.releaseKeyword && !isShellAssignment(word));
   while (argv[index]?.value === "command" || argv[index]?.value === "builtin") {
     const command = argv[index].value === "command";
     index++;
@@ -1628,7 +1652,7 @@ function finalHookCommand(
 /** Count npm option boundaries between a configured custom hook and its final executable. */
 function customForwardDelimiters(
   invocation: ShellCommand, scripts: ReadonlyMap<string, string>, hasGenerator: boolean, allowStatusOnly: boolean,
-): { count: number; terminator?: ShellToken; hasOption?: boolean } | undefined {
+): { count: number; terminator?: ShellToken; options?: ShellToken[] } | undefined {
   const names = new Set(scripts.keys());
   let count = 0;
   let blockedTarget: string | undefined;
@@ -1639,17 +1663,16 @@ function customForwardDelimiters(
       // Preserve a generator's trailing status checks, logging and Git steps.
       if (hasGenerator && (generatorCommand(invocation) || DATA_CONSUMERS.has(program)
         || [":", "true", "false", "git"].includes(program))) return undefined;
-      const hasOption = hasCustomIncludeEmpty(invocation);
-      if (blockedTarget && !hasOption) refuseHook("Custom script " + JSON.stringify(blockedTarget) + " cannot receive forwarded arguments. Move the logic into a script file");
+      const options = customIncludeEmptyOptions(invocation);
+      if (blockedTarget && options.length === 0) refuseHook("Custom script " + JSON.stringify(blockedTarget) + " cannot receive forwarded arguments. Move the logic into a script file");
       const args = invocation.slice(generatorEntryIndex(invocation) + 1);
       const boundary = customOptionBoundary(args);
-      return { count, terminator: boundary === undefined ? undefined : args[boundary], hasOption };
+      return { count, terminator: boundary === undefined ? undefined : args[boundary], options };
     }
     if (forward.runner === "npm" && !forward.npmSeparator) count++;
     const text = scripts.get(forward.target!);
     if (!text) return hasGenerator ? undefined : { count }; // An optional missing target runs no command.
-    const { commands, spans } = parseReleaseHook(text);
-    if (hasReleaseHookCase(commands, text, spans)) throw new Error(describeUnsupportedReleaseHook("case arms", forward.target!));
+    const { commands, spans } = parseSupportedReleaseHook(text, forward.target);
     const recipient = commandReceivingArguments(text, commands, spans);
     const terminal = finalHookCommand(commands, hasGenerator, scripts, allowStatusOnly);
     if (!terminal) return undefined;
@@ -1666,8 +1689,7 @@ function customForwardDelimiters(
 export function includeEmptyCustomHook(
   script: string, scripts: ReadonlyMap<string, string>, hasGenerator = false, allowStatusOnly = false, hook = "release:notes",
 ): string {
-  const { commands, spans } = parseReleaseHook(script);
-  if (hasReleaseHookCase(commands, script, spans)) throw new Error(describeUnsupportedReleaseHook("case arms", hook));
+  const { commands, spans } = parseSupportedReleaseHook(script, hook);
   const terminal = finalHookCommand(commands, hasGenerator, scripts, allowStatusOnly);
   const invocation = terminal && releaseHookCommand(releaseOutputProducer(terminal));
   if (!invocation) return script;
@@ -1676,15 +1698,16 @@ export function includeEmptyCustomHook(
   const boundary = separator ? args.indexOf(separator) : -1;
   const route = customForwardDelimiters(invocation, scripts, hasGenerator, allowStatusOnly);
   if (!route) return script; // The generator receives the flag in its own script.
-  const { count, terminator, hasOption } = route;
+  const { count, terminator, options = [] } = route;
+  const redundant = args.slice(0, Math.max(0, boundary)).filter(word => word.value === INCLUDE_EMPTY_FLAG);
+  if (options.some(word => !spans.has(word))) redundant.push(...options.filter(word => spans.has(word)));
   const edits: HookEdit[] = [];
-  for (const word of args.slice(0, Math.max(0, boundary))) {
-    if (word.value !== INCLUDE_EMPTY_FLAG) continue;
+  for (const word of redundant) {
     const { start, end } = spans.get(word)!;
     const padding = /^[ \t]*/.exec(script.slice(end))![0].length;
     edits.push({ start, end: end + padding, text: "" });
   }
-  if (hasOption) return applyHookEdits(script, edits);
+  if (options.length) return applyHookEdits(script, edits);
   if (terminator && !spans.has(terminator)) {
     refuseHook("Custom renderer ends option parsing in a shared script. Use a single script entry point");
   }
@@ -1709,7 +1732,7 @@ function validateReplacementDay(headingDate: string): void {
 /** Refresh the inline pins, or restore the standing policy for a current version. */
 export function rewriteReleaseHeadingDate(script: string, headingDate: string, scriptNames?: ReadonlySet<string>): string {
   validateReplacementDay(headingDate);
-  const { commands, spans } = parseReleaseHook(script);
+  const { commands, spans } = parseSupportedReleaseHook(script);
   const source = { text: script, spans, edits: new Map<number, HookEdit>() };
   const options = [...standaloneHookCommands(commands, scriptNames)].flatMap(words => hookDateOptions(changelogInvocation(words, scriptNames)?.slice(1) ?? []));
   rewriteDateOptions(options, headingDate, () => source);

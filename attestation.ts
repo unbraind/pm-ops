@@ -17,6 +17,7 @@
  *
  * @packageDocumentation
  */
+import { unsupportedReleaseConstruct } from "./release-shell-constructs.ts";
 import { readRegularText } from "./regular-input.ts";
 import { execFileSync } from "./subprocess.ts";
 import { closeSync, constants, fstatSync, statSync, openSync, readSync } from "node:fs";
@@ -946,12 +947,14 @@ function literalEnvironmentRecord(print: string, environment: Record<string, unk
 /** Model one runner environment file, which starts empty for each step. */
 function writtenIgnoreScripts(
   text: string, conditionalStep: boolean, environment: Record<string, unknown> | undefined, errexit: boolean, windows: boolean,
+  shell: "bash" | "sh",
 ): { records: Record<string, string | undefined>; mayStopBeforeOverwrite: boolean; maySkipLaterSteps: boolean } | undefined {
   let records: Map<string, [string, string | undefined]> | undefined = new Map();
   let mayStopBeforeOverwrite = false;
   let maySkipLaterSteps = false;
   let mayStopOnFailure = errexit;
   let nounset = false;
+  let uncertainShellOptions = false;
   const branchFailures: boolean[] = [];
   let mayFailAtEnd = false;
   const lines = text.split(/\r?\n/);
@@ -979,12 +982,17 @@ function writtenIgnoreScripts(
     }
     if (!line || line.startsWith("#")) continue;
     mayFailAtEnd = false;
-    const shellOptions = /^set -([eu]+)(?:o pipefail)?$/.exec(line);
-    if (shellOptions?.[1].includes("e")) {
+    const shellOptions = /^set -(?:([eu]+)|([eu]*o)[ \t]+(pipefail))$/.exec(line);
+    const optionFlags = shellOptions?.[1] ?? shellOptions?.[2] ?? "";
+    if (shellOptions?.[3] && unsupportedReleaseConstruct("pipefail", "workflow", shell)) {
+      uncertainShellOptions = true;
+      maySkipLaterSteps = true;
+    }
+    if (optionFlags.includes("e")) {
       mayStopOnFailure = true;
       if (branchFailures.length === 0) errexit = true;
     }
-    if (shellOptions?.[1].includes("u")) nounset = true;
+    if (optionFlags.includes("u")) nounset = true;
     if (shellOptions || /^(?:true|:|echo [\w .-]+)$/.test(line)) continue;
     const readRunnerEnv = READ_ENV_FILE.exec(line);
     if (readRunnerEnv) {
@@ -1015,7 +1023,7 @@ function writtenIgnoreScripts(
       records = undefined;
       continue;
     }
-    const conditional = conditionalStep || branchFailures.length > 0 || (unquoted && !errexit);
+    const conditional = conditionalStep || uncertainShellOptions || branchFailures.length > 0 || (unquoted && !errexit);
     if (!append) {
       if (conditional) {
         if (records) for (const [key, [name]] of records) records.set(key, [name, uncertainEnvironmentRecord(name)]);
@@ -1132,7 +1140,8 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
         const conditional = (condition !== undefined && condition !== true && !(typeof condition === "string" && isSuccessCondition(condition)))
           || Boolean(step["continue-on-error"]);
         const errexit = shell !== "bash {0}" && shell !== "sh {0}";
-        const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, producerEnvironment, errexit, windowsRunner) : undefined;
+        const shellProgram = typeof shell === "string" && /^sh(?: |$)/.test(shell) ? "sh" : "bash";
+        const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, producerEnvironment, errexit, windowsRunner, shellProgram) : undefined;
         if (writes === undefined) {
           inherited = invalidateWorkflowExports(baseEnvironment, inherited);
           unknownNames = true;
