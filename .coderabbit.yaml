@@ -5,7 +5,15 @@ reviews:
         Release hooks are authored by repository owners.
         Attestation guards against drift and honest misconfiguration across release steps.
         Hostile workflow authors already control release execution and are outside this threat model.
-        Require the pinned fleet scan to continue accepting all 142 release hooks and 144 script bodies.
+        Require the pinned fleet scan to continue accepting all 142 release hooks and 144 script bodies from 39 manifests.
+        Package hooks use direct pm-changelog, Node adapters and custom renderers, npm forwards and Just recipes,
+        quoted words, inline and separate option operands, option-position delimiters and pm-arg passthrough.
+        The Git bookkeeping posthook uses tests, if/then/fi, subshells, stdout and descriptor redirects, and &&/|| lists.
+        The pinned workflow bodies also contain loops with break/continue, case arms, here-documents and here-strings,
+        GITHUB_ENV writes, pipelines and exit. Preserve the supported workflow forms and prior hook acceptance fixtures.
+        Notes renderer case arms and unresolved root release-hook selectors are outside the hook grammar.
+        Refuse new constructs outside the supported forms with release_hook_unsupported_construct,
+        naming the construct and hook and advising a simpler hook or a separate script file.
     - path: "release-hook-grammar.ts"
       instructions: *release_hook_scope
     - path: "release-changelog-options.ts"

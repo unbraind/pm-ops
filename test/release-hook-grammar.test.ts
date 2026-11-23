@@ -8,7 +8,7 @@ import { stringify } from "yaml";
 import { executableShellBodies } from "../attestation.ts";
 import { projectNpmLifecyclePolicy } from "../scripts/project-npm-lifecycle.ts";
 import { npmCli } from "../scripts/release-runtime.ts";
-import { execFileSync } from "../subprocess.ts";
+import { execFileSync, spawnSync } from "../subprocess.ts";
 import {
   assertReleaseHeadingDate, assertReleaseHookHeadingDate, includeEmptyCustomHook, includeEmptyReleaseSections, npmLifecycle, resolveChangelogHooks, rewriteReleaseHeadingDate, rewriteReleaseHookDates, visitChangelogScriptCommands,
 } from "../release-changelog-options.ts";
@@ -2078,6 +2078,19 @@ function prependFixturePath(env: NodeJS.ProcessEnv, bin: string, windows = proce
   env[key] = [bin, env[key]].join(delimiter);
 }
 
+/** Limit the default npm script shell to forms supported on the fixture's platform. */
+function nestedLifecycleHooks(windows: boolean): string[] {
+  const portable = "npm --ignore-scripts=false run relay";
+  return windows ? [portable] : [portable, "env npm_config_ignore_scripts= npm run relay", "npm_config_ignore_scripts='' npm run relay"];
+}
+
+test("Round GU the default Windows npm fixture uses only portable shell syntax", () => {
+  assert.deepEqual(nestedLifecycleHooks(true), ["npm --ignore-scripts=false run relay"]);
+  assert.deepEqual(nestedLifecycleHooks(false), [
+    "npm --ignore-scripts=false run relay", "env npm_config_ignore_scripts= npm run relay", "npm_config_ignore_scripts='' npm run relay",
+  ]);
+});
+
 test("preparation and real npm reload project policy when a nested override clears the inherited env setting", t => {
   const root = mkdtempSync(join(tmpdir(), "release-npm-cli-default-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -2091,17 +2104,14 @@ test("preparation and real npm reload project policy when a nested override clea
     NPM_CONFIG_USERCONFIG: join(root, "user.npmrc"), NPM_CONFIG_GLOBALCONFIG: join(root, "global.npmrc"),
     CHANGELOG_SCRIPT: "hook", CHANGELOG_CHECK_SCRIPT: "hook", NOTES_SCRIPT: "hook", RELEASE_HEADING_DATE: day });
   const scripts = {
-    hook: "npm --ignore-scripts=false run relay", relay: "npm run writer",
+    relay: "npm run writer",
     writer: "node pm-changelog.ts " + standing + " --stdout",
     prewriter: "node pm-changelog.ts --release-version-from-package",
   };
   const manifest = join(root, "package.json");
   const prepare = () => execFileSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env, stdio: "pipe" });
   writeFileSync(join(root, "pm-changelog.ts"), String.raw`require("node:fs").appendFileSync("calls", process.argv.includes("--stdout") ? "writer\n" : "prewriter\n");`);
-  for (const hook of [
-    scripts.hook, "env npm_config_ignore_scripts= npm run relay",
-    "npm_config_ignore_scripts='' npm run relay",
-  ]) for (const ignore of [false, true]) {
+  for (const hook of nestedLifecycleHooks(process.platform === "win32")) for (const ignore of [false, true]) {
     writeFileSync(manifest, JSON.stringify({ name: "fixture", scripts: { ...scripts, hook } }));
     writeFileSync(join(root, ".npmrc"), "ignore-scripts=" + ignore + "\n");
     const calls = join(root, "calls");
@@ -3094,4 +3104,112 @@ test("Round GS a failed runner environment read can skip a later lifecycle expor
   assert.deepEqual(inspect([{ ...read, shell: "bash {0}", run: unquoted + "\ntrue" }, writer], "always()"), disabled);
   assert.deepEqual(inspect([{ ...read, "continue-on-error": true }, writer], "always()"), disabled);
   assert.deepEqual(inspect([read, writer], "always()", "true"), disabled);
+});
+
+test("Round GU runner environment status follows a final branch or redirect", async t => {
+  const root = mkdtempSync(join(tmpdir(), "release-runner-status-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(join(root, "optional"), "");
+  const file = join(root, "environment file");
+  const writer = { run: 'echo npm_config_ignore_scripts=true >> "$GITHUB_ENV"' };
+  const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
+    render: "pm-changelog " + standing, prerender: "echo preview > CHANGELOG.md",
+  } }) };
+  const body = (command: string, suffix: string, conditional: boolean) =>
+    conditional ? "if test -f optional; then\n" + command + suffix + "\nfi\n# shell status" : command + suffix;
+  for (const [command, conditional] of [
+    ["cat $GITHUB_ENV", true], ["echo OTHER=ready >> $GITHUB_ENV", false], ["echo OTHER=ready >> $GITHUB_ENV", true],
+  ] as const) {
+    await t.test(conditional ? command + " in a final branch" : command, () => {
+      const expect = (run: string, fails: boolean) => {
+        const source = { file: ".github/workflows/status.yml", text: stringify({ jobs: { release: {
+          "runs-on": "ubuntu-latest", env: { npm_config_ignore_scripts: "false" },
+          steps: [{ run, shell: "bash {0}" }, writer, { if: "always()", run: "npm run render" }],
+        } } }) };
+        if (process.platform !== "win32") {
+          writeFileSync(file, "");
+          const actual = spawnSync("bash", ["-c", run], { cwd: root, env: { ...process.env, GITHUB_ENV: file } });
+          assert.equal(actual.status, fails ? 1 : 0, run);
+        }
+        assert.equal(npmLifecycle(undefined, executableShellBodies(source).at(-1)?.environment), fails ? "unknown" : false, run);
+        const failures = auditInvocations([manifest, source]).failures;
+        if (fails) assert.match(failures[0] ?? "", /ignore-scripts.*prerender/, run);
+        else assert.deepEqual(failures, [], run);
+      };
+      expect(body(command, "", conditional), true);
+      expect(body(command, "\ntrue", conditional), false);
+      expect(body(command.replace("$GITHUB_ENV", '"$GITHUB_ENV"'), "", conditional), false);
+      if (conditional) {
+        expect(body(command, "", true) + "\ntrue", false);
+        expect("if test -f optional; then\n" + command + "\nelse\ntrue\nfi", true);
+        expect("if test -f missing; then\ntrue\nelif test -f optional; then\n" + command + "\nfi", true);
+        expect("if test -f optional; then\n" + body(command, "", true) + "\nfi", true);
+      }
+    });
+  }
+});
+
+test("Round GU exit preserves renderers reached before a skipped AND-list suffix", () => {
+  const hook = "node primary.mjs && test -f use-secondary && node secondary.mjs";
+  const safe = "node primary.mjs --include-empty && test -f use-secondary && node secondary.mjs --include-empty; exit 0";
+  assert.throws(() => includeEmptyCustomHook(hook + "; exit 0", new Map()), /alternative renderers/);
+  assert.equal(includeEmptyCustomHook(safe, new Map()), safe);
+  assert.equal(includeEmptyCustomHook(hook, new Map()), hook + " --include-empty");
+  assert.equal(includeEmptyCustomHook(hook + "; exit 1", new Map()), hook + " --include-empty; exit 1");
+  assert.equal(includeEmptyCustomHook(hook + "; exit", new Map()), hook + " --include-empty; exit");
+  assert.equal(includeEmptyCustomHook(hook + " && exit 0", new Map()), hook + " --include-empty && exit 0");
+  for (const exit of ["exit 256", 'exit "$STATUS"', "command -- exit +0", "exit -- 0"]) {
+    assert.throws(() => includeEmptyCustomHook(hook + "; " + exit, new Map()), /alternative renderers/);
+  }
+  for (const branch of ["if test -f marker; then " + hook + "; fi",
+    "if test -f marker; then " + hook + "; else true; fi"]) {
+    assert.throws(() => includeEmptyCustomHook(branch + "; exit 0", new Map()), /alternative renderers/);
+  }
+});
+
+test("Round GU custom renderer separators occupy option positions", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-renderer-separator-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(join(root, "notes.mjs"), "console.log(JSON.stringify(process.argv.slice(2)))");
+  for (const [args, expected] of [
+    ["--pm-arg --", "--pm-arg -- --include-empty"],
+    ["--pm-arg -- --include-empty", "--pm-arg -- --include-empty"],
+    ["--pm-arg -- -- draft.md", "--pm-arg -- --include-empty -- draft.md"],
+    ["-- draft.md", "--include-empty -- draft.md"],
+  ]) {
+    const rewritten = includeEmptyCustomHook("node notes.mjs " + args, new Map());
+    assert.equal(rewritten, "node notes.mjs " + expected);
+    const argv = execFileSync(process.execPath, ["notes.mjs", ...rewritten.split(" ").slice(2)], { cwd: root, encoding: "utf8" });
+    assert.deepEqual(JSON.parse(argv), expected.split(" "));
+  }
+  const scripts = new Map([["render", "node notes.mjs --pm-arg --"]]);
+  assert.equal(includeEmptyCustomHook("npm run render -- --include-empty", scripts), "npm run render -- --include-empty");
+});
+
+test("Round GU notes case arms require a separate script file", () => {
+  const hook = 'case "$MODE" in\n  fast) node fast.mjs ;;\n  *) node slow.mjs ;;\nesac';
+  const help = /release_hook_unsupported_construct:.*case.*render.*simplify.*script file/i;
+  const scripts = new Map([["render", hook]]);
+  const writer = hook.replace("node fast.mjs", "pm-changelog " + standing);
+  assert.throws(() => resolveChangelogHooks({ root: "npm run render", render: writer }, ["root"], false), help);
+  assert.throws(() => includeEmptyCustomHook("npm run render", scripts), help);
+  assert.throws(() => includeEmptyCustomHook("node notes.mjs --include-empty || npm run render", scripts), help);
+  for (const body of [hook, "(" + hook + ")", "( " + hook + " )", "! " + hook]) {
+    assert.throws(() => includeEmptyCustomHook(body, new Map()), /release_hook_unsupported_construct:.*case.*release:notes/);
+  }
+  for (const accepted of ['node notes.mjs "case"', 'node notes.mjs esac', 'node notes.mjs "case fast) slow ;; esac"', String.raw`c\ase notes`]) {
+    assert.equal(includeEmptyCustomHook(accepted, new Map()), accepted + " --include-empty");
+  }
+});
+
+test("Round GU conditional continue in setup leaves a definite renderer after done", () => {
+  const setup = "for turn in first; do if test -f marker; then continue; fi; node setup.mjs; done";
+  const hook = setup + "; node notes.mjs";
+  assert.equal(includeEmptyCustomHook(hook, new Map()), hook + " --include-empty");
+  assert.equal(includeEmptyCustomHook(hook + "; git status", new Map()), hook + " --include-empty; git status");
+  assert.throws(() => includeEmptyCustomHook(setup + "; git status", new Map()), /renderer.*after loop control/);
+  const conditional = "; if test -f optional; then node notes.mjs; fi; git status";
+  assert.throws(() => includeEmptyCustomHook(setup + conditional, new Map()), /renderer.*after loop control/);
+  const prepared = setup + "; pm-changelog " + standing + " --stdout --include-empty";
+  assert.equal(includeEmptyCustomHook(prepared, new Map(), true), prepared);
 });

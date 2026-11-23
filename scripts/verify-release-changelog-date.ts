@@ -30,7 +30,7 @@ import { execFileSync } from "../subprocess.ts";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { isMap, isScalar, LineCounter, parse, parseDocument, type YAMLMap } from "yaml";
+import { isMap, isScalar, LineCounter, parseDocument, type YAMLMap } from "yaml";
 import {
   type ShellCommand,
   type ShellToken,
@@ -42,7 +42,7 @@ import { tallyFlaggedInvocations } from "../invocation-audit.ts";
 import { executableShellBodies } from "../attestation.ts";
 import { hasVersionInput, generatedWriterProblem, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, npmLifecycle, visitChangelogScriptCommands, type NpmLifecyclePolicy } from "../release-changelog-options.ts";
 
-import { describeReleaseContextChange, parseReleaseHook, refuseHook } from "../release-hook-grammar.ts";
+import { describeReleaseContextChange, describeUnsupportedReleaseHook, parseReleaseHook, refuseHook } from "../release-hook-grammar.ts";
 
 export { DATE_FLAG, VERSION_INPUTS, isRealCalendarDay } from "../release-changelog-options.ts";
 
@@ -156,10 +156,13 @@ function maySelectRootProject(directory: unknown): boolean {
   return isRootProject(prefix) && remaining.every(part => !/[^./]|\.\./.test(part));
 }
 
-/** Include literal overrides and inherited defaults from callers of the reusable daily release workflow. */
-function addConfiguredHooks(text: string, entries: Set<string>): void {
-  const workflow = parse(text) as { jobs?: Record<string, { if?: unknown; uses?: string; with?: Record<string, unknown> } | null> } | null;
-  for (const job of Object.values(workflow?.jobs ?? {})) {
+/** Include literal root hooks and report unresolved selectors at their workflow input. */
+function addConfiguredHooks(source: SourceFile, entries: Set<string>, found: Invocation[]): void {
+  const lines = new LineCounter();
+  const document = parseDocument(source.text, { lineCounter: lines });
+  if (document.errors[0]) throw document.errors[0];
+  const workflow = document.toJS() as { jobs?: Record<string, { if?: unknown; uses?: string; with?: Record<string, unknown> } | null> } | null;
+  for (const [id, job] of Object.entries(workflow?.jobs ?? {})) {
     if (job?.if === false) continue;
     if (typeof job?.uses !== "string" || !/(?:^|\/)\.github\/workflows\/daily-release\.ya?ml(?:@[^\s]+)?$/.test(job.uses)) continue;
     if (job.with?.rust === true) continue;
@@ -167,6 +170,15 @@ function addConfiguredHooks(text: string, entries: Set<string>): void {
     for (const [input, defaultName] of HOOK_INPUTS) {
       const name = job.with?.[input] ?? defaultName;
       if (typeof name === "string" && /^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$/.test(name)) entries.add(name);
+      else {
+        const inputNode = document.getIn(["jobs", id, "with", input], true);
+        found.push({
+          file: source.file,
+          line: isScalar(inputNode) && inputNode.range ? lines.linePos(inputNode.range[0]).line : undefined,
+          command: JSON.stringify(name), args: [], options: [],
+          problem: describeUnsupportedReleaseHook("unresolved selector (use a literal script name)", input),
+        });
+      }
     }
   }
 }
@@ -198,7 +210,7 @@ function invocationsAcross(sources: SourceFile[]): Invocation[] {
         origins.set(name, { file: source.file, line, script: name });
       }
     } else {
-      if (/^\.github\/workflows\/.*\.ya?ml$/.test(source.file)) addConfiguredHooks(source.text, projectEntryPoints);
+      if (/^\.github\/workflows\/.*\.ya?ml$/.test(source.file)) addConfiguredHooks(source, projectEntryPoints, found);
       for (const { text, line, workingDirectory, environment, disabled } of executableShellBodies(source)) {
         if (disabled) continue;
         if (!isRootProject(workingDirectory)) {

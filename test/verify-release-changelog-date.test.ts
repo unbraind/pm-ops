@@ -708,3 +708,29 @@ test("a forwarded manifest diagnostic names the script and its JSON key line", (
   assert.equal(result.failures.length, 1);
   assert.match(result.failures[0], /^package\.json:5 \(script "changes"\): .*neither --date-from-version/);
 });
+
+test("Round GU unresolved reusable hook names fail closed for root projects", () => {
+  const source = { file: "package.json", text: JSON.stringify({ scripts: {
+    preview: "npm run render -- --date-from-version", render: "pm-changelog --release-version-from-package",
+  } }) };
+  const file = ".github/workflows/release.yml";
+  const call = (name: string, project = ".") => ({ file, text: [
+    "jobs:",
+    "  release:",
+    "    uses: owner/package/.github/workflows/daily-release.yml@main",
+    "    with:",
+    "      changelog-script: " + name,
+    "      npm-project-dir: " + project,
+  ].join("\n") });
+  for (const project of [".", "${{ inputs.project }}"]) {
+    const failures = auditInvocations([source, call("${{ vars.CHANGELOG_HOOK }}", project)]).failures;
+    assert.equal(failures.length, 1);
+    assert.match(failures[0], /release\.yml:5: release_hook_unsupported_construct:.*literal.*changelog-script.*script file/);
+  }
+  const nonScalar = auditInvocations([source, call("[render]")]).failures;
+  assert.equal(nonScalar.length, 1);
+  assert.match(nonScalar[0], /release\.yml: release_hook_unsupported_construct:.*changelog-script/);
+  assert.throws(() => auditInvocations([source, { file, text: "jobs: [\n" }]), { name: "YAMLParseError" });
+  assert.match(auditInvocations([source, call("render")]).failures[0], /neither --date-from-version/);
+  assert.deepEqual(auditInvocations([source, call("${{ vars.CHANGELOG_HOOK }}", "docs")]).failures, []);
+});

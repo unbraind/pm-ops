@@ -77,6 +77,25 @@ export function literalOptionName(word) {
 export function refuseHook(construct) {
     throw new Error(construct + ". Use a direct pm-changelog invocation with literal option names and one date policy, or npm run <script> -- <args>.");
 }
+/** Describe a construct outside the grammar for this release hook. */
+export function describeUnsupportedReleaseHook(construct, hook) {
+    return `release_hook_unsupported_construct: ${construct} in hook ${JSON.stringify(hook)}. Simplify the hook to the supported forms, or move the logic into a script file.`;
+}
+/** Find a literal case keyword in command position before rewriting renderer arguments. */
+export function hasReleaseHookCase(commands, text, spans) {
+    return commands.some(words => {
+        for (const word of words) {
+            if (word.releaseKeyword)
+                continue;
+            const span = spans.get(word);
+            const raw = text.slice(span.start, span.end).replaceAll("\\\n", "");
+            if (/^(?:\(+|!)$/.test(raw))
+                continue;
+            return /^\(*case$/.test(raw);
+        }
+        return false;
+    });
+}
 /** Describe a context the release manifest cannot represent. */
 export function describeReleaseContextChange(construct) {
     return "Unsupported release hook context change " + construct + ". Run the generator from the root package directory";

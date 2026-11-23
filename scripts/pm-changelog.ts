@@ -7,6 +7,7 @@ import { buildPmListArgs, checkItemLinks, mergeChangelog } from "pm-changelog";
 import { changelogOutputTarget } from "../release-changelog-options.ts";
 import { execFileSync, spawnSync } from "../subprocess.ts";
 import { isMainInvocation } from "./main-invocation.ts";
+import { writeFileWithReceipts } from "./release-file-receipts.ts";
 
 /** Retain empty releases without adding an empty Unreleased window after tagging. */
 export function describeEmptyReleases(markdown: string): string {
@@ -96,17 +97,24 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
     checkMergedLinks(result, args, positions, cwd, env);
   }
   const changed = existing !== result;
-  const receipt = generation && {
-    mode, action: changed ? merged?.action ?? (existing.trimEnd() ? "replaced" : "created") : "unchanged",
-    changed, bytes: Buffer.byteLength(result), check,
-  };
-  if (summary) appendFileSync(resolve(cwd, env.GITHUB_STEP_SUMMARY!), result);
-  // A failed output append must leave the existing changelog intact.
-  if (stepOutput && generation && receipt) appendFileSync(resolve(cwd, env.GITHUB_OUTPUT!),
-    `output=${destination}\nmode=${mode}\naction=${receipt.action}\nchanged=${changed}\nitem_count=${generation.itemCount}\nexcluded_non_change_count=${generation.excluded_non_change_count}\nbytes=${receipt.bytes}\n`);
-  if (stdout) process.stdout.write(result);
-  else if (check) console.error(`Changelog is ${changed ? "out of date" : "up to date"}: ${output}`);
-  else writeFileSync(destination, result);
+  const mergeAction = merged?.action;
+  const action = !changed ? "unchanged"
+    : mergeAction === "unchanged" ? "replaced"
+    : mergeAction ?? (existing.trimEnd() ? "replaced" : "created");
+  const receipt = generation && { mode, action, changed, bytes: Buffer.byteLength(result), check };
+  /** Append only receipts for a changelog whose bytes have been written or checked. */
+  function writeReceipts(): void {
+    if (summary) appendFileSync(resolve(cwd, env.GITHUB_STEP_SUMMARY!), result);
+    if (stepOutput && generation && receipt) appendFileSync(resolve(cwd, env.GITHUB_OUTPUT!),
+      `output=${destination}\nmode=${mode}\naction=${receipt.action}\nchanged=${changed}\nitem_count=${generation.itemCount}\nexcluded_non_change_count=${generation.excluded_non_change_count}\nbytes=${receipt.bytes}\n`);
+  }
+  if (!stdout && !check && (summary || stepOutput)) writeFileWithReceipts(destination, result, writeReceipts);
+  else {
+    writeReceipts();
+    if (stdout) process.stdout.write(result);
+    else if (check) console.error(`Changelog is ${changed ? "out of date" : "up to date"}: ${output}`);
+    else writeFileSync(destination, result);
+  }
   if (generation && json) {
     const { markdown: _markdown, ...generated } = generation;
     process.stdout.write(JSON.stringify({ ...generated, ...receipt }) + "\n");

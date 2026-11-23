@@ -106,7 +106,7 @@ export declare function assertReleaseHookHeadingDate(scripts: ReadonlyMap<string
 /** Enable empty sections on each generator while preserving shell operators and redirections. */
 export declare function includeEmptyReleaseSections(script: string, scriptNames?: ReadonlySet<string>): string;
 /** Save the flag and any npm delimiters on the root caller, preserving shared target scripts. */
-export declare function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<string, string>, hasGenerator?: boolean, allowStatusOnly?: boolean): string;
+export declare function includeEmptyCustomHook(script: string, scripts: ReadonlyMap<string, string>, hasGenerator?: boolean, allowStatusOnly?: boolean, hook?: string): string;
 /** Refresh the inline pins, or restore the standing policy for a current version. */
 export declare function rewriteReleaseHeadingDate(script: string, headingDate: string, scriptNames?: ReadonlySet<string>): string;
 /** Add the empty-section flag at the call site when it supplies the generator entrypoint. */

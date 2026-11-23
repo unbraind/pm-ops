@@ -1,10 +1,12 @@
 /** Persist the date and empty-section policies used by release changelog hooks. */
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   changelogArguments, includeEmptyCustomHook, includeEmptyForwardedGenerators, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHookDates,
   visitChangelogScriptCommands,
 } from "../release-changelog-options.ts";
 import { projectNpmLifecyclePolicy } from "./project-npm-lifecycle.ts";
+import { writeFileWithReceipts } from "./release-file-receipts.ts";
 
 /** Test the main invocation and its explicit forwards independently of their lifecycle siblings. */
 function usesMainGenerator(scripts: ReadonlyMap<string, string>, hook: string, lifecycle: ReturnType<typeof projectNpmLifecyclePolicy>): boolean {
@@ -16,7 +18,8 @@ function usesMainGenerator(scripts: ReadonlyMap<string, string>, hook: string, l
 }
 
 try {
-  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  const manifest = resolve("package.json");
+  const pkg = JSON.parse(readFileSync(manifest, "utf8"));
   const headingDate = (process.env.RELEASE_HEADING_DATE || "").trim();
   let changed = false;
   const hooks = [process.env.CHANGELOG_SCRIPT!, process.env.CHANGELOG_CHECK_SCRIPT!, process.env.NOTES_SCRIPT!];
@@ -41,7 +44,7 @@ try {
     if (hooks.includes(name)) {
       const hasGenerator = usesMainGenerator(resolved, name, lifecycle);
       const statusOnlyCheck = name === hooks[1] && name !== hooks[2];
-      const custom = includeEmptyCustomHook(prepared, resolved, hasGenerator, statusOnlyCheck);
+      const custom = includeEmptyCustomHook(prepared, resolved, hasGenerator, statusOnlyCheck, name);
       if (custom !== prepared) {
         console.log(`::notice::Release commit adds --include-empty to custom package.json script "${name}".`);
       }
@@ -52,9 +55,15 @@ try {
       changed = true;
     }
   }
-  if (process.argv[2]) appendFileSync(process.argv[2],
+  const output = process.argv[2];
+  /** Record the policy used by the saved manifest. */
+  const writeReceipt = (path: string) => appendFileSync(path,
     "npm_lifecycle=" + lifecycle.active + "\nnpm_lifecycle_configured=" + lifecycle.configured + "\n");
-  if (changed) writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+  if (changed) {
+    const prepared = JSON.stringify(pkg, null, 2) + "\n";
+    if (output) writeFileWithReceipts(manifest, prepared, () => writeReceipt(output));
+    else writeFileSync(manifest, prepared);
+  } else if (output) writeReceipt(output);
 } catch (error) {
   console.error((error as Error).message);
   process.exitCode = 1;

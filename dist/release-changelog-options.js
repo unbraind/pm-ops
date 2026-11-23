@@ -9,7 +9,7 @@
  */
 import { basename, posix } from "node:path";
 import { isShellEvaluator, RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand, shellRedirection, withoutRedirections, } from "./shell-scan.js";
-import { describeReleaseContextChange, followingReleaseOperator, hasBraceExpansion, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand, isReleaseIterationHeader, isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, releaseLoopScope, releaseOutputProducer, } from "./release-hook-grammar.js";
+import { describeReleaseContextChange, describeUnsupportedReleaseHook, followingReleaseOperator, hasBraceExpansion, hasReleaseHookCase, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand, isReleaseIterationHeader, isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, releaseLoopScope, releaseOutputProducer, } from "./release-hook-grammar.js";
 /** The flag that makes an untagged heading version-derived. */
 export const DATE_FLAG = "--date-from-version";
 /** The option that pins the heading day of a resumed release. */
@@ -951,6 +951,9 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
                 : "Cannot resolve changelog script forward " + chain + ": missing or empty package.json script");
         }
         const { text, commands, spans } = script;
+        if (hooks && hasReleaseHookCase(commands, text, spans)) {
+            throw new Error(describeUnsupportedReleaseHook("case arms", name));
+        }
         let recipient;
         if (args.length > 0) {
             if (!recipients.has(name))
@@ -1377,10 +1380,12 @@ function finalHookCommands(commands) {
     const skippedByLoopControl = new Set();
     let last = [];
     let skipped = [];
+    let skippedInPreviousList = [];
     let afterOr = false;
     let afterAnd = false;
     let terminated;
     for (const words of commands) {
+        let completedBranch = false;
         for (const word of words) {
             if (!word.releaseKeyword)
                 break;
@@ -1393,11 +1398,12 @@ function finalHookCommands(commands) {
             }
             if (word.value === "if")
                 alternatives.push({
-                    before: last, branches: [], hasElse: false, beforeExit: terminated, branchExit: undefined,
+                    before: last, branches: [], skipped: [], hasElse: false, beforeExit: terminated, branchExit: undefined,
                 });
             const branch = alternatives.at(-1);
             if (branch && (word.value === "elif" || word.value === "else")) {
                 branch.branches.push(...last);
+                branch.skipped.push(...skippedInPreviousList);
                 branch.hasElse = word.value === "else";
                 last = branch.before;
                 branch.branchExit ??= terminated;
@@ -1407,6 +1413,8 @@ function finalHookCommands(commands) {
                 alternatives.pop();
                 last = [...new Set([...branch.branches, ...last, ...(branch.hasElse ? [] : branch.before)])];
                 terminated ??= branch.branchExit;
+                skippedInPreviousList = [...branch.skipped, ...skippedInPreviousList];
+                completedBranch = true;
             }
         }
         if (isReleaseIterationHeader(words))
@@ -1417,6 +1425,9 @@ function finalHookCommands(commands) {
         }
         const terminator = rendererShellTerminator(words);
         terminated ??= terminator;
+        if (terminator === "exit" && !afterAnd && overridesFailureWithSuccess(words)) {
+            last = [...new Set([...last, ...skippedInPreviousList])];
+        }
         const following = followingReleaseOperator(words);
         if (following === "pipe")
             continue;
@@ -1436,9 +1447,16 @@ function finalHookCommands(commands) {
         if (afterOr && (redirectOnly || (isStatus && (status !== "false" || producer !== words)))) {
             last = [...new Set([...last, ...skipped])];
         }
+        // Keep the selected renderers when a trailing status would make
+        // the fallback search reconsider setup already superseded after a loop.
+        const statusAfterSetupLoop = isStatus && !terminator && !afterOr && !afterAnd
+            && loopEntries.length === 0 && alternatives.length === 0 && skippedByLoopControl.size > 0 && last.length > 0;
+        if (statusAfterSetupLoop)
+            last = [...new Set([...last, ...skippedInPreviousList])];
         if ((!words[0].releaseKeyword || words.length > 1)
             && terminator !== "exit"
             && !redirectOnly
+            && !statusAfterSetupLoop
             && !((alternatives.length > 0 || loopEntries.length > 0 || isReleaseLoopCondition(words)
                 || afterOr || (afterAnd && following !== undefined)) && isStatus)) {
             const prior = afterOr ? last.filter(command => !rendererStatusCommand(releaseOutputProducer(command))) : [];
@@ -1448,12 +1466,14 @@ function finalHookCommands(commands) {
                 skipped = [];
             last = [...prior, words];
         }
-        if (following === undefined)
+        if (following === undefined) {
+            if (!completedBranch)
+                skippedInPreviousList = skipped;
             skipped = [];
+        }
         afterOr = following === "or";
         afterAnd = following === "and";
     }
-    assertLoopRendererReachable(last, skippedByLoopControl);
     return { last, skippedByLoopControl };
 }
 /** Refuse a selected renderer that might be skipped by loop control. */
@@ -1481,16 +1501,23 @@ function allPreparedRenderers(last, scripts, names, hasGenerator, depth, recipie
             return false;
         const { commands, spans } = parseReleaseHook(body);
         const nextRecipient = forward.args.length ? commandReceivingArguments(body, commands, spans) : undefined;
-        const { last: next } = finalHookCommands(commands);
+        if (hasReleaseHookCase(commands, body, spans))
+            throw new Error(describeUnsupportedReleaseHook("case arms", forward.target));
+        const { last: next, skippedByLoopControl } = finalHookCommands(commands);
+        assertLoopRendererReachable(next, skippedByLoopControl);
         return allPreparedRenderers(next, scripts, names, hasGenerator, depth + 1, nextRecipient, forward.args);
     });
 }
 /** Find an empty-section option among the custom executable's own arguments. */
 function hasCustomIncludeEmpty(invocation) {
     const args = invocation.slice(generatorEntryIndex(invocation) + 1);
-    const terminator = args.find(word => word.value === "--");
-    const options = terminator ? args.slice(0, args.indexOf(terminator)) : args;
-    return optionPositions(options).some(i => options[i].value === INCLUDE_EMPTY_FLAG);
+    const positions = optionPositions(args);
+    const boundary = customOptionBoundary(args, positions);
+    return positions.some(i => (boundary === undefined || i < boundary) && args[i].value === INCLUDE_EMPTY_FLAG);
+}
+/** Locate the renderer separator without interpreting option operands as separators. */
+function customOptionBoundary(args, positions = optionPositions(args)) {
+    return positions.find(index => args[index].value === "--");
 }
 const RENDERER_STATUS_COMMANDS = new Set(["git", "test", "[", "[[", "true", "false", ":"]);
 /** Read the actual status command name through its wrappers. */
@@ -1533,9 +1560,17 @@ function rendererShellTerminator(words) {
         return "exec";
     return undefined;
 }
+/** An explicit exit operand can turn a failed preceding list into a successful hook. */
+function overridesFailureWithSuccess(words) {
+    const args = rendererBuiltin(words);
+    const operand = args[args[1]?.value === "--" ? 2 : 1];
+    return operand !== undefined && (Boolean(operand.unresolved)
+        || (/^[+-]?\d+$/.test(operand.value) && BigInt(operand.value) % 256n === 0n));
+}
 /** Alternatives need no custom argument when all of their terminal generators receive the flag directly. */
 function finalHookCommand(commands, hasGenerator, scripts, allowStatusOnly) {
     const { last, skippedByLoopControl } = finalHookCommands(commands);
+    assertLoopRendererReachable(last, skippedByLoopControl);
     if (last.length > 1) {
         if (allPreparedRenderers(last, scripts, new Set(scripts.keys()), hasGenerator, 0))
             return undefined;
@@ -1583,8 +1618,8 @@ function customForwardDelimiters(invocation, scripts, hasGenerator, allowStatusO
             if (blockedTarget && !hasOption)
                 refuseHook("Custom script " + JSON.stringify(blockedTarget) + " cannot receive forwarded arguments. Move the logic into a script file");
             const args = invocation.slice(generatorEntryIndex(invocation) + 1);
-            const boundary = args.findIndex(word => word.value === "--");
-            return { count, terminator: args[boundary], hasOption };
+            const boundary = customOptionBoundary(args);
+            return { count, terminator: boundary === undefined ? undefined : args[boundary], hasOption };
         }
         if (forward.runner === "npm" && !forward.npmSeparator)
             count++;
@@ -1592,6 +1627,8 @@ function customForwardDelimiters(invocation, scripts, hasGenerator, allowStatusO
         if (!text)
             return hasGenerator ? undefined : { count }; // An optional missing target runs no command.
         const { commands, spans } = parseReleaseHook(text);
+        if (hasReleaseHookCase(commands, text, spans))
+            throw new Error(describeUnsupportedReleaseHook("case arms", forward.target));
         const recipient = commandReceivingArguments(text, commands, spans);
         const terminal = finalHookCommand(commands, hasGenerator, scripts, allowStatusOnly);
         if (!terminal)
@@ -1607,8 +1644,10 @@ function customForwardDelimiters(invocation, scripts, hasGenerator, allowStatusO
     refuseHook("Custom script forward depth exceeds " + MAX_SCRIPT_FORWARDS);
 }
 /** Save the flag and any npm delimiters on the root caller, preserving shared target scripts. */
-export function includeEmptyCustomHook(script, scripts, hasGenerator = false, allowStatusOnly = false) {
+export function includeEmptyCustomHook(script, scripts, hasGenerator = false, allowStatusOnly = false, hook = "release:notes") {
     const { commands, spans } = parseReleaseHook(script);
+    if (hasReleaseHookCase(commands, script, spans))
+        throw new Error(describeUnsupportedReleaseHook("case arms", hook));
     const terminal = finalHookCommand(commands, hasGenerator, scripts, allowStatusOnly);
     const invocation = terminal && releaseHookCommand(releaseOutputProducer(terminal));
     if (!invocation)

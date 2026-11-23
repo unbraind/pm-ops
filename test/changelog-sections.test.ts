@@ -1,6 +1,6 @@
 /** Release-window cardinality properties and real CLI policy integration. */
 import assert from "node:assert/strict";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve, sep } from "node:path";
 import test from "node:test";
@@ -902,6 +902,7 @@ test("preparation refuses a stale all-tags cutoff without writing any hooks", ()
       writeFileSync(join(hooksPath, name), "#!/bin/sh\necho unexpected fixture hook >&2\nexit 79\n", { mode: 0o755 });
     }
     execFileSync("git", ["config", "--file", config, "core.hooksPath", hooksPath]);
+    execFileSync("git", ["config", "--file", config, "core.autocrlf", "true"]);
     const env = { ...trackerEnv, GIT_CONFIG_GLOBAL: config };
     releaseTags(root, env);
     const day = "2026-11-17";
@@ -973,7 +974,9 @@ test("preparation refuses a stale all-tags cutoff without writing any hooks", ()
     assert.match(committedReleaseNotes(readFileSync(changelog, "utf8"), version), /Completed after preparation/);
     git("tag", "-d", "v" + version);
 
+    git("config", "--local", "core.autocrlf", "false");
     git("checkout", "--detach", "--force", candidate);
+    assert.equal(readFileSync(changelog, "utf8"), prepared);
     commit("Release merge retains the prepared tree");
     const merged = git("rev-parse", "HEAD");
     const verification = verifyTree(merged);
@@ -1504,8 +1507,23 @@ test("Round GS preparation preserves its manifest when the lifecycle receipt can
   assert.equal(readFileSync(manifest, "utf8"), original);
 
   const receipt = join(root, "step-outputs");
+  writeFileSync(receipt, "previous=value\n");
+  if (process.platform !== "win32" && process.getuid?.() !== 0) {
+    chmodSync(manifest, 0o444);
+    try {
+      const failedWrite = spawnSync(process.execPath, [prepare, receipt], { cwd: root, env, encoding: "utf8" });
+      assert.equal(failedWrite.status, 1);
+      assert.match(failedWrite.stderr, /EACCES|EPERM/);
+      assert.equal(readFileSync(receipt, "utf8"), "previous=value\n");
+      assert.equal(readFileSync(manifest, "utf8"), original);
+    } finally {
+      chmodSync(manifest, 0o644);
+    }
+  }
   execFileSync(process.execPath, [prepare, receipt], { cwd: root, env });
-  assert.equal(stepOutputs(readFileSync(receipt, "utf8")).npm_lifecycle, "false");
+  const output = stepOutputs(readFileSync(receipt, "utf8"));
+  assert.equal(output.previous, "value");
+  assert.equal(output.npm_lifecycle, "false");
   assert.match(JSON.parse(readFileSync(manifest, "utf8")).scripts["changelog:full"],
     /--date-fallback 2026-11-23 --include-empty/);
 });
@@ -1609,4 +1627,47 @@ test("Round GQ forwarded custom renderers receive exactly one include-empty opti
     execFileSync(process.execPath, npmRunArgs("release:notes", "--silent"), { cwd: root, env });
     assert.equal(prepare(), prepared);
   }
+});
+
+test("Round GU prepend reports whitespace normalization as replacement", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const path = join(root, "CHANGELOG.md");
+  const receipt = join(root, "outputs");
+  const clean = "# Changelog\n\n## 2026.1.1 - 2026-01-01\n\nRetained history.\n";
+  const cli = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--mode", "prepend", "--github-output"];
+  for (const [body, action] of [[clean + "\n", "replaced"], [clean, "unchanged"]]) {
+    writeFileSync(path, body);
+    writeFileSync(receipt, "");
+    assert.equal(runChangelog(cli, root, { ...env, GITHUB_OUTPUT: receipt }), 0);
+    assert.equal(readFileSync(path, "utf8"), clean);
+    const output = stepOutputs(readFileSync(receipt, "utf8"));
+    assert.equal(output.action, action);
+    assert.equal(output.changed, String(action === "replaced"));
+  }
+});
+
+test("Round GU failed changelog creation leaves existing GitHub receipts intact", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const receipt = join(root, "outputs");
+  writeFileSync(receipt, "previous=value\n");
+  const summary = join(root, "summary");
+  writeFileSync(summary, "Previous summary\n");
+  const cli = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22",
+    "--github-output", "--github-step-summary", "-o", "missing/CHANGELOG.md"];
+  const receiptEnv = { ...env, GITHUB_OUTPUT: receipt, GITHUB_STEP_SUMMARY: summary };
+  assert.throws(() => runChangelog(cli, root, receiptEnv), /ENOENT/);
+  assert.equal(readFileSync(receipt, "utf8"), "previous=value\n");
+  assert.equal(readFileSync(summary, "utf8"), "Previous summary\n");
+  mkdirSync(join(root, "missing"));
+  assert.throws(() => runChangelog(cli.filter(flag => flag !== "--github-step-summary"), root, { ...env, GITHUB_OUTPUT: root }), /EISDIR|EPERM|EACCES/);
+  assert.equal(existsSync(join(root, "missing", "CHANGELOG.md")), false);
+  assert.equal(runChangelog(cli, root, receiptEnv), 0);
+  const body = readFileSync(join(root, "missing", "CHANGELOG.md"), "utf8");
+  const output = stepOutputs(readFileSync(receipt, "utf8"));
+  assert.equal(output.previous, "value");
+  assert.equal(output.action, "created");
+  assert.equal(output.bytes, String(Buffer.byteLength(body)));
+  assert.equal(readFileSync(summary, "utf8"), "Previous summary\n" + body);
 });

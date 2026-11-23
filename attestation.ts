@@ -946,39 +946,50 @@ function literalEnvironmentRecord(print: string, environment: Record<string, unk
 /** Model one runner environment file, which starts empty for each step. */
 function writtenIgnoreScripts(
   text: string, conditionalStep: boolean, environment: Record<string, unknown> | undefined, errexit: boolean, windows: boolean,
-): { records: Record<string, string | undefined>; mayStopBeforeOverwrite: boolean; mayStopAtRead: boolean } | undefined {
+): { records: Record<string, string | undefined>; mayStopBeforeOverwrite: boolean; maySkipLaterSteps: boolean } | undefined {
   let records: Map<string, [string, string | undefined]> | undefined = new Map();
   let mayStopBeforeOverwrite = false;
-  let mayStopAtRead = false;
+  let maySkipLaterSteps = false;
   let mayStopOnFailure = errexit;
   let nounset = false;
-  let depth = 0;
+  const branchFailures: boolean[] = [];
+  let mayFailAtEnd = false;
   const lines = text.split(/\r?\n/);
-  const finalLine = lines.reduce((last, line, index) => /^\s*(?:#.*)?$/.test(line) ? last : index, -1);
   const bodies = heredocBodyLines(lines);
   for (const [index, part] of lines.entries()) {
     const line = part.trim();
-    if (bodies[index] || /^cat <<'[\w.-]+'$/.test(line)) continue;
+    if (bodies[index]) continue;
+    if (/^cat <<'[\w.-]+'$/.test(line)) {
+      mayFailAtEnd = false;
+      continue;
+    }
     if (/^if test -f [\w.-]+; then$/.test(line)) {
-      depth++;
+      branchFailures.push(false);
+      mayFailAtEnd = false;
       continue;
     }
-    if (depth && (line === "else" || /^elif test -f [\w.-]+; then$/.test(line))) continue;
-    if (depth && line === "fi") {
-      depth--;
+    if (branchFailures.length && (line === "else" || /^elif test -f [\w.-]+; then$/.test(line))) {
+      if (mayFailAtEnd) branchFailures[branchFailures.length - 1] = true;
+      mayFailAtEnd = false;
       continue;
     }
+    if (branchFailures.length && line === "fi") {
+      mayFailAtEnd = branchFailures.pop()! || mayFailAtEnd;
+      continue;
+    }
+    if (!line || line.startsWith("#")) continue;
+    mayFailAtEnd = false;
     const shellOptions = /^set -([eu]+)(?:o pipefail)?$/.exec(line);
     if (shellOptions?.[1].includes("e")) {
       mayStopOnFailure = true;
-      if (depth === 0) errexit = true;
+      if (branchFailures.length === 0) errexit = true;
     }
     if (shellOptions?.[1].includes("u")) nounset = true;
-    if (!line || line.startsWith("#") || shellOptions || /^(?:true|:|echo [\w .-]+)$/.test(line)) continue;
+    if (shellOptions || /^(?:true|:|echo [\w .-]+)$/.test(line)) continue;
     const readRunnerEnv = READ_ENV_FILE.exec(line);
     if (readRunnerEnv) {
-      // A final command can fail the step even without errexit.
-      if (!readRunnerEnv[1] && (mayStopOnFailure || index === finalLine)) mayStopAtRead = true;
+      mayFailAtEnd = !readRunnerEnv[1];
+      if (mayFailAtEnd && mayStopOnFailure) maySkipLaterSteps = true;
       continue;
     }
     const redirect = line.indexOf(">");
@@ -989,7 +1000,8 @@ function writtenIgnoreScripts(
     // Bash can split an unquoted runner path. Under errexit, only consumers
     // that can run after a failure can see the state before such a write.
     const unquoted = !destination.startsWith('"');
-    if (mayStopAtRead || (unquoted && mayStopOnFailure)) mayStopBeforeOverwrite = true;
+    mayFailAtEnd = unquoted;
+    if (maySkipLaterSteps || (unquoted && mayStopOnFailure)) mayStopBeforeOverwrite = true;
     const print = line.slice(0, redirect).trimEnd();
     const record = literalEnvironmentRecord(print, environment);
     if (record === undefined) {
@@ -1003,7 +1015,7 @@ function writtenIgnoreScripts(
       records = undefined;
       continue;
     }
-    const conditional = conditionalStep || depth > 0 || (unquoted && !errexit);
+    const conditional = conditionalStep || branchFailures.length > 0 || (unquoted && !errexit);
     if (!append) {
       if (conditional) {
         if (records) for (const [key, [name]] of records) records.set(key, [name, uncertainEnvironmentRecord(name)]);
@@ -1015,7 +1027,7 @@ function writtenIgnoreScripts(
       records.set(key, [name, conditional ? uncertainEnvironmentRecord(name) : value]);
     }
   }
-  return records && { records: Object.fromEntries(records.values()), mayStopBeforeOverwrite, mayStopAtRead };
+  return records && { records: Object.fromEntries(records.values()), mayStopBeforeOverwrite, maySkipLaterSteps: maySkipLaterSteps || mayFailAtEnd };
 }
 
 /** Preserve uncertainty without treating a possibly unset expansion as a literal. */
@@ -1077,7 +1089,7 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
     let unknownNames = false;
     let definiteLifecycleWrite = false;
     let uncertainOnFailure = false;
-    let readMaySkipLaterSteps = false;
+    let failureMaySkipLaterSteps = false;
     for (const [index, value] of (steps as unknown[]).entries()) {
       const step = mapping(value);
       if (step === undefined || !Object.hasOwn(step, "run")) {
@@ -1128,14 +1140,14 @@ export function executableShellBodies(source: SourceFile): ExecutableShellBody[]
         } else {
           inherited = mergeWorkflowEnvironment(windowsRunner, inherited, writes.records);
           for (const [key, record] of Object.entries(writes.records)) {
-            if (readMaySkipLaterSteps && uncertainEnvironmentRecord(key) !== undefined) uncertainOnFailure = true;
+            if (failureMaySkipLaterSteps && uncertainEnvironmentRecord(key) !== undefined) uncertainOnFailure = true;
             if ((windowsRunner ? key.toLowerCase() : key) === IGNORE_SCRIPTS_ENV) {
               definiteLifecycleWrite = record === "true" || record === "false";
             }
           }
           if (writes.mayStopBeforeOverwrite) uncertainOnFailure = true;
-          // A read-only step can prevent a later successful-path export.
-          if (writes.mayStopAtRead && step["continue-on-error"] !== true) readMaySkipLaterSteps = true;
+          // A failed step can prevent a later successful-path export.
+          if (writes.maySkipLaterSteps && step["continue-on-error"] !== true) failureMaySkipLaterSteps = true;
         }
       }
       bodies.push(body);
