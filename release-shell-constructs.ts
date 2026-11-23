@@ -28,18 +28,24 @@ export function isShellAssignment(word: { value: string; startsQuoted?: boolean 
 }
 
 /** The current position within each nested shell case. */
-export type ShellCaseState = "subject" | "in" | "pattern" | "body";
+export type ShellCaseState = "subject" | "in" | "pattern" | "pattern-data" | "body";
+
+/** A case can read its next pattern or the remaining words in a started pattern. */
+export function inShellCasePattern(state: ShellCaseState | undefined): boolean {
+  return state === "pattern" || state === "pattern-data";
+}
 
 /** Classify case words before a scanner treats them as executable argv. */
 export function readShellCaseWord(
   stack: ShellCaseState[], value: string, literal: boolean, commandStart: boolean,
 ): "open" | "header" | "pattern" | "close" | undefined {
   const state = stack.at(-1);
-  if (state === "pattern") {
-    if (literal && value === "esac") {
+  if (inShellCasePattern(state)) {
+    if (state === "pattern" && literal && value === "esac") {
       stack.pop();
       return "close";
     }
+    stack[stack.length - 1] = "pattern-data";
     return "pattern";
   }
   if (state === "subject") {

@@ -32,7 +32,7 @@
  * @packageDocumentation
  */
 
-import { isShellAssignment, readShellCaseWord, shellCaseTerminator, type ShellCaseState } from "./release-shell-constructs.ts";
+import { inShellCasePattern, isShellAssignment, readShellCaseWord, shellCaseTerminator, type ShellCaseState } from "./release-shell-constructs.ts";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -454,7 +454,7 @@ function scanShellCommands(
       if (name !== undefined) fixedOptionNames.set(token, name);
     }
     spans?.set(token, { start: offset + wordStart, end: offset + end });
-    const inPattern = cases.at(-1) === "pattern";
+    const inPattern = inShellCasePattern(cases.at(-1));
     const controlWord = token.value === "case" || token.value === "esac";
     const keyword = (controlWord || token.value === "in") && !token.quoted && token.unresolved !== true
       && text.slice(wordStart, end).replaceAll("\\\n", "") === token.value;
@@ -644,12 +644,12 @@ function scanShellCommands(
       continue;
     }
     if (cases.at(-1) === "pattern" && value === "esac" && !quoted && isOperatorStart(character)) endWord(index);
-    if (cases.at(-1) === "pattern") {
+    if (inShellCasePattern(cases.at(-1))) {
       if (character === ")") {
         endCommand(index);
         cases[cases.length - 1] = "body";
       } else if (character === "(" && !started) {
-        // Bash permits an optional opening parenthesis before an arm pattern.
+        cases[cases.length - 1] = "pattern-data";
       } else if (character === "|" || character === "\n") endWord(index);
       else {
         value += character;

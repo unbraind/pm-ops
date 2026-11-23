@@ -15,7 +15,9 @@ export declare function isShellAssignment(word: {
     startsQuoted?: boolean;
 }, utility?: boolean): boolean;
 /** The current position within each nested shell case. */
-export type ShellCaseState = "subject" | "in" | "pattern" | "body";
+export type ShellCaseState = "subject" | "in" | "pattern" | "pattern-data" | "body";
+/** A case can read its next pattern or the remaining words in a started pattern. */
+export declare function inShellCasePattern(state: ShellCaseState | undefined): boolean;
 /** Classify case words before a scanner treats them as executable argv. */
 export declare function readShellCaseWord(stack: ShellCaseState[], value: string, literal: boolean, commandStart: boolean): "open" | "header" | "pattern" | "close" | undefined;
 /** Count the characters occupied by a shell case arm terminator. */

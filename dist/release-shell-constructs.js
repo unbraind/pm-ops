@@ -15,14 +15,19 @@ export function describeUnsupportedReleaseHook(construct, hook) {
 export function isShellAssignment(word, utility = false) {
     return utility ? /^[^=]+=/.test(word.value) : !word.startsQuoted && /^[A-Za-z_]\w*\+?=/.test(word.value);
 }
+/** A case can read its next pattern or the remaining words in a started pattern. */
+export function inShellCasePattern(state) {
+    return state === "pattern" || state === "pattern-data";
+}
 /** Classify case words before a scanner treats them as executable argv. */
 export function readShellCaseWord(stack, value, literal, commandStart) {
     const state = stack.at(-1);
-    if (state === "pattern") {
-        if (literal && value === "esac") {
+    if (inShellCasePattern(state)) {
+        if (state === "pattern" && literal && value === "esac") {
             stack.pop();
             return "close";
         }
+        stack[stack.length - 1] = "pattern-data";
         return "pattern";
     }
     if (state === "subject") {

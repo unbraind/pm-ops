@@ -1122,3 +1122,10 @@ test("Round GW env operands and shell assignments have different name syntax", (
     assertNoNpmInstalls(assignment + " npm ci");
   }
 });
+
+test("Round GW scanner keeps the command after a parenthesized esac pattern", () => {
+  const body = (command: string) => 'case "$MODE" in (esac) ' + command + ' ;; esac';
+  assert.throws(() => assertNoNpmInstalls(body("npm ci")), /must not install/);
+  assertNoNpmInstalls(body("echo npm ci"));
+  assertNoNpmInstalls('case "$MODE" in esac\necho npm ci');
+});

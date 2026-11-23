@@ -807,3 +807,16 @@ test("Round GW workflow case metadata cannot hide executable substitutions", () 
   assert.match(audit('"$MODE"', '"$(' + command + ')"')[0] ?? "", /Shell command substitution/);
   assert.deepEqual(audit("'$(" + command + ")'", "'$(" + command + ")'"), []);
 });
+
+test("Round GW workflow esac patterns leave case arms executable", () => {
+  const file = ".github/workflows/release.yml";
+  const audit = (pattern: string, command: string) => auditInvocations([{
+    file, text: "jobs:\n  verify:\n    steps:\n      - run: |\n"
+      + '          case "$MODE" in ' + pattern + ' ' + command + ' ;; esac\n',
+  }]).failures;
+  for (const pattern of ["(esac)", "(esac | fast)", "(fast | esac)", "fast | esac)"]) {
+    assert.deepEqual(audit(pattern, FLAGGED), []);
+    assert.match(audit(pattern, FLAGGED.replace(DATE_FLAG, ""))[0] ?? "", /neither --date-from-version/);
+  }
+  assert.deepEqual(audit("fast)", FLAGGED), []);
+});

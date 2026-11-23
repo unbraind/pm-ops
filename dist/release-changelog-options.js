@@ -1131,12 +1131,12 @@ function* standaloneHookCommands(commands, names) {
     }
 }
 /** Preserve option/operand boundaries, including option-shaped --pm-arg data. */
-function optionPositions(args) {
+function optionPositions(args, allowOptionOperands = false) {
     const positions = [];
     for (let i = 0; i < args.length; i++) {
         positions.push(i);
         const flag = args[i].value;
-        if (VALUE_OPTIONS.has(flag) && args[i + 1] && (flag === "--pm-arg" || !args[i + 1].value.startsWith("--")))
+        if (VALUE_OPTIONS.has(flag) && args[i + 1] && (allowOptionOperands || flag === "--pm-arg" || !args[i + 1].value.startsWith("--")))
             i++;
     }
     return positions;
@@ -1532,12 +1532,12 @@ function allPreparedRenderers(last, scripts, names, hasGenerator, depth, recipie
 /** Find empty-section option tokens while preserving which script supplied them. */
 function customIncludeEmptyOptions(invocation) {
     const args = invocation.slice(generatorEntryIndex(invocation) + 1);
-    const positions = optionPositions(args);
+    const positions = optionPositions(args, true);
     const boundary = customOptionBoundary(args, positions);
     return positions.filter(i => (boundary === undefined || i < boundary) && args[i].value === INCLUDE_EMPTY_FLAG).map(i => args[i]);
 }
 /** Locate the renderer separator without interpreting option operands as separators. */
-function customOptionBoundary(args, positions = optionPositions(args)) {
+function customOptionBoundary(args, positions = optionPositions(args, true)) {
     return positions.find(index => args[index].value === "--");
 }
 const RENDERER_STATUS_COMMANDS = new Set(["git", "test", "[", "[[", "true", "false", ":"]);

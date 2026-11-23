@@ -5,7 +5,7 @@
  */
 import { basename } from "node:path";
 import { commandName, isCombinedOutputRedirect, isRedirectionSuffix, isShellEvaluator, recordShellRedirection, releaseHookCommand, shellRedirection, } from "./shell-scan.js";
-import { describeUnsupportedReleaseHook, readShellCaseWord, shellCaseTerminator, unsupportedReleaseConstruct, UNSUPPORTED_RELEASE_HOOK, } from "./release-shell-constructs.js";
+import { describeUnsupportedReleaseHook, inShellCasePattern, readShellCaseWord, shellCaseTerminator, unsupportedReleaseConstruct, UNSUPPORTED_RELEASE_HOOK, } from "./release-shell-constructs.js";
 const problems = new WeakMap();
 const possibleGeneratorTargets = new WeakSet();
 const variableReferences = new WeakMap();
@@ -185,14 +185,16 @@ export function parseReleaseHook(text, scope = "hook") {
     let i = 0;
     while (i < text.length) {
         const ch = text[i];
-        const state = cases.at(-1);
-        if (state === "pattern" && (ch === "(" || ch === "|" || ch === ")")) {
+        const inPattern = inShellCasePattern(cases.at(-1));
+        if (inPattern && (ch === "(" || ch === "|" || ch === ")")) {
             if (ch === ")")
                 cases[cases.length - 1] = "body";
+            if (ch === "(")
+                cases[cases.length - 1] = "pattern-data";
             i++;
             continue;
         }
-        const armEnd = state === "body" && ch === ";" ? shellCaseTerminator(text, i) : 0;
+        const armEnd = cases.at(-1) === "body" && ch === ";" ? shellCaseTerminator(text, i) : 0;
         if (armEnd) {
             finishCommand();
             cases[cases.length - 1] = "pattern";
@@ -297,7 +299,7 @@ export function parseReleaseHook(text, scope = "hook") {
         const references = [];
         while (i < text.length) {
             const char = text[i];
-            if (!quote && state === "pattern" && char === ")")
+            if (!quote && inPattern && char === ")")
                 break;
             // Redirection operators can contain characters that otherwise end a command.
             if (!quote && /[\s;&|]/.test(char)

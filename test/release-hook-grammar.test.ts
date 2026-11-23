@@ -3313,3 +3313,20 @@ test("Round GW generated construct decisions agree across hook and workflow entr
     }
   }
 });
+
+test("Round GW preserves option-shaped values supplied to custom renderers", () => {
+  const scripts = new Map([["writer", "node notes.mjs --include-empty"]]);
+  for (const operand of ["--title --include-empty", "--title '--include-empty'", "--title=--include-empty"]) {
+    const caller = "npm run writer -- " + operand;
+    assert.equal(includeEmptyCustomHook(caller, scripts), caller);
+  }
+  const caller = "npm run writer -- --title --include-empty --include-empty";
+  assert.equal(includeEmptyCustomHook(caller, scripts).trimEnd(), "npm run writer -- --title --include-empty");
+});
+
+
+test("Round GW scanner treats reserved words inside a started case pattern as data", () => {
+  const words = tokenizeCommands('case "$MODE" in (esac|fast) echo sample ;; esac');
+  assert.equal(words.filter(command => commandName(command) === "echo").length, 1);
+  assert.ok(words.every(command => commandName(command) !== "fast"));
+});

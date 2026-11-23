@@ -31,7 +31,7 @@
  *
  * @packageDocumentation
  */
-import { isShellAssignment, readShellCaseWord, shellCaseTerminator } from "./release-shell-constructs.js";
+import { inShellCasePattern, isShellAssignment, readShellCaseWord, shellCaseTerminator } from "./release-shell-constructs.js";
 const fixedOptionNames = new WeakMap();
 const redirections = new WeakMap();
 const REDIRECTION = /^(?:[0-9]*(?:>>|>\||<>|<<<|<<-?|[<>])&?|&>>?)/;
@@ -386,7 +386,7 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
                 fixedOptionNames.set(token, name);
         }
         spans?.set(token, { start: offset + wordStart, end: offset + end });
-        const inPattern = cases.at(-1) === "pattern";
+        const inPattern = inShellCasePattern(cases.at(-1));
         const controlWord = token.value === "case" || token.value === "esac";
         const keyword = (controlWord || token.value === "in") && !token.quoted && token.unresolved !== true
             && text.slice(wordStart, end).replaceAll("\\\n", "") === token.value;
@@ -601,13 +601,13 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
         }
         if (cases.at(-1) === "pattern" && value === "esac" && !quoted && isOperatorStart(character))
             endWord(index);
-        if (cases.at(-1) === "pattern") {
+        if (inShellCasePattern(cases.at(-1))) {
             if (character === ")") {
                 endCommand(index);
                 cases[cases.length - 1] = "body";
             }
             else if (character === "(" && !started) {
-                // Bash permits an optional opening parenthesis before an arm pattern.
+                cases[cases.length - 1] = "pattern-data";
             }
             else if (character === "|" || character === "\n")
                 endWord(index);

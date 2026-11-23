@@ -1167,12 +1167,12 @@ type DateOption =
 type ValidDateOption = Extract<DateOption, { kind: "version" | "pin" }>;
 
 /** Preserve option/operand boundaries, including option-shaped --pm-arg data. */
-function optionPositions(args: readonly Pick<ShellToken, "value">[]): number[] {
+function optionPositions(args: readonly Pick<ShellToken, "value">[], allowOptionOperands = false): number[] {
   const positions: number[] = [];
   for (let i = 0; i < args.length; i++) {
     positions.push(i);
     const flag = args[i].value;
-    if (VALUE_OPTIONS.has(flag) && args[i + 1] && (flag === "--pm-arg" || !args[i + 1].value.startsWith("--"))) i++;
+    if (VALUE_OPTIONS.has(flag) && args[i + 1] && (allowOptionOperands || flag === "--pm-arg" || !args[i + 1].value.startsWith("--"))) i++;
   }
   return positions;
 }
@@ -1560,13 +1560,13 @@ function allPreparedRenderers(
 /** Find empty-section option tokens while preserving which script supplied them. */
 function customIncludeEmptyOptions(invocation: ShellCommand): ShellToken[] {
   const args = invocation.slice(generatorEntryIndex(invocation) + 1);
-  const positions = optionPositions(args);
+  const positions = optionPositions(args, true);
   const boundary = customOptionBoundary(args, positions);
   return positions.filter(i => (boundary === undefined || i < boundary) && args[i].value === INCLUDE_EMPTY_FLAG).map(i => args[i]);
 }
 
 /** Locate the renderer separator without interpreting option operands as separators. */
-function customOptionBoundary(args: ShellCommand, positions = optionPositions(args)): number | undefined {
+function customOptionBoundary(args: ShellCommand, positions = optionPositions(args, true)): number | undefined {
   return positions.find(index => args[index].value === "--");
 }
 
