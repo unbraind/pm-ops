@@ -1404,12 +1404,13 @@ function literalRedirectOnly(words: ShellCommand): boolean {
 }
 
 /** Find possible final renderers, including those retained when an OR fallback masks a failed AND-list. */
-function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
+function finalHookCommands(commands: ShellCommand[]): { last: ShellCommand[]; skippedByLoopControl: ReadonlySet<ShellCommand> } {
   type ShellTerminator = "exec" | "exit" | undefined;
   const alternatives: Array<{
     before: ShellCommand[]; branches: ShellCommand[]; hasElse: boolean; beforeExit: ShellTerminator; branchExit: ShellTerminator;
   }> = [];
   const loopEntries: Array<{ before: ShellCommand[]; maySkipRenderer?: boolean }> = [];
+  const skippedByLoopControl = new Set<ShellCommand>();
   let last: ShellCommand[] = [];
   let skipped: ShellCommand[] = [];
   let afterOr = false;
@@ -1456,7 +1457,7 @@ function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
       const scopes = Number.isInteger(level) && level > 0 ? loopEntries.slice(-level) : loopEntries;
       for (const loop of scopes) loop.maySkipRenderer = true;
     } else if (!status && releaseHookCommand(producer) && loopEntries.some(loop => loop.maySkipRenderer)) {
-      refuseHook("Cannot select a later renderer after loop control. Use a single script entry point");
+      skippedByLoopControl.add(producer);
     }
     const isStatus = status !== undefined;
     const redirectOnly = literalRedirectOnly(words);
@@ -1477,7 +1478,15 @@ function finalHookCommands(commands: ShellCommand[]): ShellCommand[] {
     afterOr = following === "or";
     afterAnd = following === "and";
   }
-  return last;
+  assertLoopRendererReachable(last, skippedByLoopControl);
+  return { last, skippedByLoopControl };
+}
+
+/** Refuse a selected renderer that might be skipped by loop control. */
+function assertLoopRendererReachable(renderers: ShellCommand[], skippedByLoopControl: ReadonlySet<ShellCommand>): void {
+  if (skippedByLoopControl.size && renderers.some(words => skippedByLoopControl.has(releaseOutputProducer(words)))) {
+    refuseHook("Cannot select a later renderer after loop control. Use a single script entry point");
+  }
 }
 
 /** Check whether all terminal renderers receive the flag without editing their caller. */
@@ -1497,7 +1506,8 @@ function allPreparedRenderers(
     if (!body) return false;
     const { commands, spans } = parseReleaseHook(body);
     const nextRecipient = forward.args.length ? commandReceivingArguments(body, commands, spans) : undefined;
-    return allPreparedRenderers(finalHookCommands(commands), scripts, names, hasGenerator, depth + 1, nextRecipient, forward.args);
+    const { last: next } = finalHookCommands(commands);
+    return allPreparedRenderers(next, scripts, names, hasGenerator, depth + 1, nextRecipient, forward.args);
   });
 }
 
@@ -1552,7 +1562,7 @@ function rendererShellTerminator(words: ShellCommand): "exec" | "exit" | undefin
 function finalHookCommand(
   commands: ShellCommand[], hasGenerator: boolean, scripts: ReadonlyMap<string, string>, allowStatusOnly: boolean,
 ): ShellCommand | undefined {
-  const last = finalHookCommands(commands);
+  const { last, skippedByLoopControl } = finalHookCommands(commands);
   if (last.length > 1) {
     if (allPreparedRenderers(last, scripts, new Set(scripts.keys()), hasGenerator, 0)) return undefined;
     refuseHook("Custom hook has alternative renderers. Use a single script entry point");
@@ -1572,6 +1582,7 @@ function finalHookCommand(
   const list = new Set(commands.slice(start, end).map(releaseOutputProducer));
   const listRenderers = candidates.filter(words => list.has(words));
   const renderers = listRenderers.length === 0 ? candidates : listRenderers;
+  assertLoopRendererReachable(renderers, skippedByLoopControl);
   if (renderers.length === 0 && allowStatusOnly) return undefined;
   if (renderers.length === 1) return renderers[0];
   if (allPreparedRenderers(renderers, scripts, new Set(scripts.keys()), hasGenerator, 0)) return undefined;

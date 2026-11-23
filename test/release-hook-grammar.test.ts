@@ -3032,6 +3032,20 @@ test("Round GS loop control leaves the single notes renderer and its arguments i
   assert.equal(includeEmptyCustomHook(piped, new Map()), piped.replace("notes.mjs", "notes.mjs --include-empty"));
   const later = "for turn in first; do break | cat; node notes.mjs; done";
   assert.equal(includeEmptyCustomHook(later, new Map()), later.replace("notes.mjs", "notes.mjs --include-empty"));
+  const setup = "for turn in first; do if test -f marker; then break; fi; node setup.mjs; done";
+  const afterLoop = setup + "; node notes.mjs";
+  assert.equal(includeEmptyCustomHook(afterLoop, new Map()), afterLoop + " --include-empty");
+  const prepared = setup + "; pm-changelog " + standing + " --stdout --include-empty";
+  assert.equal(includeEmptyCustomHook(prepared, new Map(), true), prepared);
+  assert.throws(() => includeEmptyCustomHook(setup + "; true", new Map()), /renderer.*after loop control/);
+  writeFileSync(join(root, "setup.mjs"), "");
+  if (process.platform !== "win32") {
+    const rewritten = includeEmptyCustomHook(afterLoop, new Map());
+    for (const markerExists of [false, true]) {
+      if (markerExists) writeFileSync(join(root, "marker"), "");
+      assert.equal(execFileSync("bash", ["-ec", rewritten], { cwd: root, encoding: "utf8" }).trim(), "--include-empty");
+    }
+  }
   const ordinary = "for turn in first; do node notes.mjs; ./break; done";
   assert.equal(includeEmptyCustomHook(ordinary, new Map()), ordinary.replace("./break", "./break --include-empty"));
 });

@@ -6,7 +6,7 @@ status: in_progress
 priority: 1
 tags[3]: "area:release",follow-up,"gh:unbraind/pm-ops#295"
 created_at: "2026-11-17T19:50:58.644Z"
-updated_at: "2026-11-23T01:44:43.160Z"
+updated_at: "2026-11-23T02:11:49.861Z"
 author: codex-sol
 estimated_minutes: 60
 acceptance_criteria: "Exercise the real prepare and continuation paths with quoted option names, quoted date values and equals forms. Both paths must share shell option semantics with the verifier, including ignoring lookalikes inside URL arguments."
@@ -14,7 +14,7 @@ severity: high
 repro_steps: "At pre-fix revision 60ef4b9, use a hook with \"--date-fallback\" followed by a quoted 2026-11-16 day. Run date-pin refresh and continuation validation with a 2026-11-17 merge day. The shared parser correction first appears in 1304543."
 expected_result: "Preparation refreshes or restores each recognized option, and continuation refuses stale pins before publication."
 actual_result: "Pre-fix at 60ef4b9: The verifier accepts the shell option. Preparation leaves the stale day in place, and the continuation guard reports no mismatch."
-comments[249]:
+comments[251]:
   - created_at: "2026-11-17T20:49:08.758Z"
     author: codex-sol
     text: "Greptile thread PRRT_kwDOTOTl1M64nxQb on PR #295 identifies a mismatch between the verifier and release handling. Share shell token interpretation across verification, preparation and continuation, with fixtures for quoted option names and rollover."
@@ -763,6 +763,12 @@ comments[249]:
   - created_at: "2026-11-23T01:44:41.357Z"
     author: codex-agent
     text: "Round GS final gate evidence on the candidate source. node test/release-heading-full-gate.acceptance.ts ran the full npm release:check on the rewritten candidate with Node 26.13.0 and npm 11.21.0. It passed 2280 of 2282 tests with two opt-in skips, 100 percent statements, branches, functions and lines across 54 sources, zero audit vulnerabilities and no acceptance scratch checkout left. An earlier bun run release:check passed the same counts before the final unquoted-read adjustment. The queued final Bun rerun was stopped before measurement with 100 seconds left in the local gate budget. The final linked pm test passed seven fixtures and the frozen lifecycle-drift retry passed. npm run accept:packed passed for npm and native Bun, including SDK activation and strict merge-driver health. Fleet verification accepted 142 hooks and 144 bodies across 39 manifests with zero audit diagnostic changes in 265 workflows. The inherited ops-input-startup-timeout history differs from main. The Round GS tracker history is an exact prefix extension of the starting branch history. Hosted run status for the pushed head is available at https://github.com/unbraind/pm-ops/pull/295/checks."
+  - created_at: "2026-11-23T01:52:41.673Z"
+    author: codex-agent
+    text: Greptile review on 9e27303 reproduced a class A regression in Round GS loop control. The release can reach a definite renderer after done even if a setup executable inside the loop can be skipped. Add paired cases before deferring the refusal to renderer selection.
+  - created_at: "2026-11-23T02:11:46.403Z"
+    author: codex-agent
+    text: "PRRT_kwDOTOTl1M66qvXK is class A. Reverting deferred selection makes the setup-loop fixture fail on 9e27303 with the premature loop-control refusal. The corrected selector accepts both real Bash outcomes with a final renderer outside the loop and accepts the already prepared generator inverse. It still refuses a renderer that can be skipped within the loop, including the trailing-status path. The linked pm test passed seven fixtures and the focused renderer sweep passed 10. Typecheck, test compilation, lint, docstrings, zero duplication and the date verifier passed. The pinned fleet scan accepted 142 hooks and 144 bodies across 39 manifests. The full Bun rerun was stopped by its local cap with 1739 passes, two skips, seven cancellations and zero assertion failures before cancellation. The full rewritten npm acceptance and packed npm and Bun consumers passed on the earlier Round GS source. Exact follow-up hosted checks are tracked at https://github.com/unbraind/pm-ops/pull/295/checks."
 files[36]{path,scope}:
   .coderabbit.yaml,project
   .github/workflows/daily-release.yml,project

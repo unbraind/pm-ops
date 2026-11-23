@@ -1374,6 +1374,7 @@ function literalRedirectOnly(words) {
 function finalHookCommands(commands) {
     const alternatives = [];
     const loopEntries = [];
+    const skippedByLoopControl = new Set();
     let last = [];
     let skipped = [];
     let afterOr = false;
@@ -1428,7 +1429,7 @@ function finalHookCommands(commands) {
                 loop.maySkipRenderer = true;
         }
         else if (!status && releaseHookCommand(producer) && loopEntries.some(loop => loop.maySkipRenderer)) {
-            refuseHook("Cannot select a later renderer after loop control. Use a single script entry point");
+            skippedByLoopControl.add(producer);
         }
         const isStatus = status !== undefined;
         const redirectOnly = literalRedirectOnly(words);
@@ -1452,7 +1453,14 @@ function finalHookCommands(commands) {
         afterOr = following === "or";
         afterAnd = following === "and";
     }
-    return last;
+    assertLoopRendererReachable(last, skippedByLoopControl);
+    return { last, skippedByLoopControl };
+}
+/** Refuse a selected renderer that might be skipped by loop control. */
+function assertLoopRendererReachable(renderers, skippedByLoopControl) {
+    if (skippedByLoopControl.size && renderers.some(words => skippedByLoopControl.has(releaseOutputProducer(words)))) {
+        refuseHook("Cannot select a later renderer after loop control. Use a single script entry point");
+    }
 }
 /** Check whether all terminal renderers receive the flag without editing their caller. */
 function allPreparedRenderers(last, scripts, names, hasGenerator, depth, recipient, args = []) {
@@ -1473,7 +1481,8 @@ function allPreparedRenderers(last, scripts, names, hasGenerator, depth, recipie
             return false;
         const { commands, spans } = parseReleaseHook(body);
         const nextRecipient = forward.args.length ? commandReceivingArguments(body, commands, spans) : undefined;
-        return allPreparedRenderers(finalHookCommands(commands), scripts, names, hasGenerator, depth + 1, nextRecipient, forward.args);
+        const { last: next } = finalHookCommands(commands);
+        return allPreparedRenderers(next, scripts, names, hasGenerator, depth + 1, nextRecipient, forward.args);
     });
 }
 /** Find an empty-section option among the custom executable's own arguments. */
@@ -1526,7 +1535,7 @@ function rendererShellTerminator(words) {
 }
 /** Alternatives need no custom argument when all of their terminal generators receive the flag directly. */
 function finalHookCommand(commands, hasGenerator, scripts, allowStatusOnly) {
-    const last = finalHookCommands(commands);
+    const { last, skippedByLoopControl } = finalHookCommands(commands);
     if (last.length > 1) {
         if (allPreparedRenderers(last, scripts, new Set(scripts.keys()), hasGenerator, 0))
             return undefined;
@@ -1548,6 +1557,7 @@ function finalHookCommand(commands, hasGenerator, scripts, allowStatusOnly) {
     const list = new Set(commands.slice(start, end).map(releaseOutputProducer));
     const listRenderers = candidates.filter(words => list.has(words));
     const renderers = listRenderers.length === 0 ? candidates : listRenderers;
+    assertLoopRendererReachable(renderers, skippedByLoopControl);
     if (renderers.length === 0 && allowStatusOnly)
         return undefined;
     if (renderers.length === 1)
