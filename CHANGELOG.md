@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Keep published dependency bullets when releases also have tracker items ([ops-changelog-dependency-updates](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-changelog-dependency-updates.toon))
+
 ## 2026.11.22 - 2026-11-22
 
 ### Dependencies
