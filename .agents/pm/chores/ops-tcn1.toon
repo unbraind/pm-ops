@@ -1,0 +1,24 @@
+id: ops-tcn1
+title: Keep published dependency updates in the generated changelog
+description: "Regenerating the changelog without --dependency-updates drops Dependabot bullets that main already published. Every package changelog entry point must pass the flag so generation, checks and release notes keep those bullets."
+type: Chore
+status: in_progress
+priority: 2
+tags[2]: changelog,release-hygiene
+created_at: "2026-11-24T00:06:26.808Z"
+updated_at: "2026-11-24T00:17:14.746Z"
+author: codex-agent
+acceptance_criteria: "changelog, changelog:full, changelog:check and release:notes pass --dependency-updates; A regression fails when any changelog entry point drops the flag; changelog:check passes after regeneration with fetched tags"
+comments[3]{created_at,author,text}:
+  "2026-11-24T00:06:40.080Z",codex-agent,"Package changelog entry points omit --dependency-updates. The published ledger has 25 dependency bullets. Add the flag to every generator invocation, regenerate after the last tracker write, and prove a script-flag revert fails the regression."
+  "2026-11-24T00:14:12.180Z",codex-agent,"With fetched tags, the unflagged generator matches the published ledger and omits 37 dependency bullets from release windows that already have tracked items. Passing --dependency-updates restores all 37 published dependency PRs: 8, 9, 13, 14, 15, 24, 35, 58, 72, 91, 97, 107, 108, 109, 116, 146, 153, 154, 159, 166, 174, 179, 181, 184, 185, 191, 200, 201, 202, 203, 212, 213, 221, 222, 227, 267, 299. Removing only the flag from the package scripts fails the changelog entry-point regression. Restoring the flag makes that test pass, 1/1."
+  "2026-11-24T00:17:01.142Z",codex-agent,"Typecheck and lint passed. Focused Node tests that read the package scripts, changelog policy and identity controls passed 57/57. Changelog check passed after regeneration. Release notes rendered with the dependency opt-in. The full release gate remains for package CI."
+files[3]{path,scope}:
+  CHANGELOG.md,project
+  package.json,project
+  test/changelog-sections.test.ts,project
+tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "node --test --test-concurrency=2 --test-name-pattern=\"package changelog entry points retain published dependency updates\" test/changelog-sections.test.ts",project,codex-agent,"2026-11-24T00:14:08.389Z",local_mutation,fix/changelog-keep-dependency-updates
+  "npm run changelog:check",project,codex-agent,"2026-11-24T00:16:11.738Z",local_mutation,fix/changelog-keep-dependency-updates
+  "npm run release:notes",project,codex-agent,"2026-11-24T00:16:15.697Z",local_mutation,fix/changelog-keep-dependency-updates
+body: "The published changelog includes dependency bullets. Package scripts that call the changelog generator must opt in with --dependency-updates, including checks and release notes, or the next regeneration removes those published notes."

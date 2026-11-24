@@ -28,6 +28,10 @@ No tracked changes.
 
 - Global npm update guard mistakes comment words and redirect targets for packages ([ops-global-update-operands](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-global-update-operands.toon))
 
+### Dependencies
+
+- Bump taiki-e/install-action from 2.90.3 to 2.90.4 ([#299](https://github.com/unbraind/pm-ops/pull/299))
+
 ## 2026.11.17 - 2026-11-17
 
 ### Dependencies
@@ -49,6 +53,10 @@ No tracked changes.
 - Parse the candidate receipt independently of surrounding bot summaries ([ops-release-receipt-boundary](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-receipt-boundary.toon))
 - Derive provenance signer from the actual publishing workflow ref ([ops-release-publishing-signer](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-publishing-signer.toon))
 - Report current release blockers instead of remembered approval ([ops-release-current-diagnosis](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-current-diagnosis.toon))
+
+### Dependencies
+
+- Bump jscpd ([#267](https://github.com/unbraind/pm-ops/pull/267))
 
 ## 2026.11.11 - 2026-11-11
 
@@ -113,6 +121,10 @@ No tracked changes.
 
 - Recover the historical 2026.10.20 GitHub Release with verified release evidence ([ops-release-1020-recovery](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-release-1020-recovery.toon))
 
+### Dependencies
+
+- Bump the pm-toolchain group with 2 updates ([#227](https://github.com/unbraind/pm-ops/pull/227))
+
 ## 2026.10.28 - 2026-10-28
 
 ### Added
@@ -126,6 +138,12 @@ No tracked changes.
 ### Other
 
 - Stop Hound from linting generated dist/ output ([ops-hound-generated-dist](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-hound-generated-dist.toon))
+
+### Dependencies
+
+- Bump the pm-toolchain group across 1 directory with 2 updates ([#221](https://github.com/unbraind/pm-ops/pull/221))
+- Bump @types/semver ([#222](https://github.com/unbraind/pm-ops/pull/222))
+- Bump the pm-toolchain group across 1 directory with 2 updates ([#212](https://github.com/unbraind/pm-ops/pull/212))
 
 ## 2026.10.27 - 2026-10-27
 
@@ -147,6 +165,10 @@ No tracked changes.
 
 - Point the npm homepage at the package catalog and link the author ([ops-dyh7](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-dyh7.toon))
 
+### Dependencies
+
+- Bump jscpd ([#213](https://github.com/unbraind/pm-ops/pull/213))
+
 ## 2026.10.25 - 2026-10-25
 
 ### Added
@@ -160,9 +182,18 @@ No tracked changes.
 - Honor metrics JSON format and document verified registry activation ([ops-install-routes-1022](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-install-routes-1022.toon))
 - Refuse unsafe diagnostic and artifact inputs before reading ([ops-bounded-input](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-bounded-input.toon))
 
+### Dependencies
+
+- Bump taiki-e/install-action from 2.87.29 to 2.87.30 ([#203](https://github.com/unbraind/pm-ops/pull/203))
+- Bump unbraind/pm-github/.github/workflows/pm-github-closeout.yml ([#202](https://github.com/unbraind/pm-ops/pull/202))
+- Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml ([#201](https://github.com/unbraind/pm-ops/pull/201))
+- Bump the codeql-actions group with 2 updates ([#200](https://github.com/unbraind/pm-ops/pull/200))
+
 ## 2026.10.24 - 2026-10-24
 
-No tracked changes.
+### Dependencies
+
+- Bump the pm-toolchain group across 1 directory with 2 updates ([#191](https://github.com/unbraind/pm-ops/pull/191))
 
 ## 2026.10.23 - 2026-10-23
 
@@ -207,15 +238,22 @@ No tracked changes.
 
 ## 2026.10.20 - 2026-10-20
 
-No tracked changes.
+### Dependencies
+
+- Bump eslint ([#185](https://github.com/unbraind/pm-ops/pull/185))
+- Bump the pm-toolchain group with 2 updates ([#184](https://github.com/unbraind/pm-ops/pull/184))
 
 ## 2026.10.19 - 2026-10-19
 
-No tracked changes.
+### Dependencies
+
+- Bump the pm-toolchain group with 2 updates ([#181](https://github.com/unbraind/pm-ops/pull/181))
 
 ## 2026.10.18 - 2026-10-18
 
-No tracked changes.
+### Dependencies
+
+- Bump the codeql-actions group with 2 updates ([#179](https://github.com/unbraind/pm-ops/pull/179))
 
 ## 2026.10.17 - 2026-10-17
 
@@ -223,13 +261,19 @@ No tracked changes.
 
 ## 2026.10.16 - 2026-10-16
 
-No tracked changes.
+### Dependencies
+
+- Bump pm-changelog ([#174](https://github.com/unbraind/pm-ops/pull/174))
 
 ## 2026.10.15 - 2026-10-15
 
 ### Security
 
 - Remove the unpatched braces chain with built-in fs.glob and jscpd 5 only ([ops-braces-audit](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-braces-audit.toon))
+
+### Dependencies
+
+- Bump @types/node ([#166](https://github.com/unbraind/pm-ops/pull/166))
 
 ## 2026.10.14 - 2026-10-14
 
@@ -240,7 +284,9 @@ No tracked changes.
 
 ## 2026.10.13 - 2026-10-13
 
-No tracked changes.
+### Dependencies
+
+- Bump the dependencies group with 3 updates ([#159](https://github.com/unbraind/pm-ops/pull/159))
 
 ## 2026.10.12 - 2026-10-12
 
@@ -256,9 +302,16 @@ No tracked changes.
 
 - Certify pm-ops on PM CLI/SDK 2026.10.10 with linear declaration scanner ([ops-hiee](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-hiee.toon))
 
+### Dependencies
+
+- Bump the codeql-actions group across 1 directory with 2 updates ([#154](https://github.com/unbraind/pm-ops/pull/154))
+- Bump pm-changelog ([#153](https://github.com/unbraind/pm-ops/pull/153))
+
 ## 2026.10.6 - 2026-10-06
 
-No tracked changes.
+### Dependencies
+
+- Bump eslint ([#146](https://github.com/unbraind/pm-ops/pull/146))
 
 ## 2026.10.5 - 2026-10-05
 
@@ -299,7 +352,9 @@ No tracked changes.
 
 ## 2026.9.23 - 2026-09-23
 
-No tracked changes.
+### Dependencies
+
+- Bump @types/node from 26.6.1 to 26.6.2 ([#116](https://github.com/unbraind/pm-ops/pull/116))
 
 ## 2026.9.18 - 2026-09-18
 
@@ -315,6 +370,12 @@ No tracked changes.
 ### Other
 
 - Certify pm CLI 2026.9.17 ([ops-xz9q](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-xz9q.toon))
+
+### Dependencies
+
+- Bump pm-changelog from 2026.9.6 to 2026.9.13 ([#107](https://github.com/unbraind/pm-ops/pull/107))
+- Bump @types/node from 26.4.1 to 26.5.1 ([#108](https://github.com/unbraind/pm-ops/pull/108))
+- Bump the codeql-actions group across 1 directory with 2 updates ([#109](https://github.com/unbraind/pm-ops/pull/109))
 
 ## 2026.9.13 - 2026-09-13
 
@@ -356,6 +417,10 @@ No tracked changes.
 
 - Closed: An assignment the scanner cannot read leaves the previous binding standing, so a replaced provenance flag still attests the publish ([ops-3wbz](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3wbz.toon))
 
+### Dependencies
+
+- Bump @types/node from 26.4.0 to 26.4.1 ([#91](https://github.com/unbraind/pm-ops/pull/91))
+
 ## 2026.9.7 - 2026-09-07
 
 ### Fixed
@@ -372,6 +437,10 @@ No tracked changes.
 ### Other
 
 - A same-day re-release is blocked because the pinned pm-changelog rejects the -N version suffix ([ops-tk0h](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-tk0h.toon))
+
+### Dependencies
+
+- Bump pm-changelog to 2026.9.2 so a same-day re-release can publish ([#97](https://github.com/unbraind/pm-ops/pull/97))
 
 ## 2026.9.6 - 2026-09-06
 
@@ -431,6 +500,10 @@ No tracked changes.
 
 - Closed: The release changelog remained Unreleased after the release tag was created ([ops-3ete](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-3ete.toon))
 
+### Dependencies
+
+- Bump @types/node from 26.2.0 to 26.4.0 ([#72](https://github.com/unbraind/pm-ops/pull/72))
+
 ## 2026.8.29 - 2026-08-29
 
 ### Fixed
@@ -456,6 +529,10 @@ No tracked changes.
 ### Closed
 
 - Closed: The identity gate deadlocks the one remediation its own failure message prescribes ([ops-wsi9](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-wsi9.toon))
+
+### Dependencies
+
+- Bump pm-changelog from 2026.8.16 to 2026.8.17 ([#58](https://github.com/unbraind/pm-ops/pull/58))
 
 ## 2026.8.17 - 2026-08-17
 
@@ -511,7 +588,9 @@ No tracked changes.
 
 ## 2026.8.3 - 2026-08-03
 
-No tracked changes.
+### Dependencies
+
+- Bump pm-changelog from 2026.7.29-1 to 2026.7.29 ([#35](https://github.com/unbraind/pm-ops/pull/35))
 
 ## 2026.8.1 - 2026-08-01
 
@@ -575,6 +654,10 @@ No tracked changes.
 
 - Enable governance duplicate-detection advisory mode and adopt pm-cli 2026.7.25 ([ops-73km](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-73km.toon))
 
+### Dependencies
+
+- Bump @unbrained/pm-cli from 2026.7.25 to 2026.7.26 ([#24](https://github.com/unbraind/pm-ops/pull/24))
+
 ## 2026.7.25 - 2026-07-25
 
 ### Other
@@ -597,7 +680,11 @@ No tracked changes.
 
 ## 2026.7.20 - 2026-07-20
 
-No tracked changes.
+### Dependencies
+
+- Bump @unbrained/pm-cli from 2026.7.13 to 2026.7.19 ([#14](https://github.com/unbraind/pm-ops/pull/14))
+- Bump actions/setup-node from 6 to 7 ([#13](https://github.com/unbraind/pm-ops/pull/13))
+- Bump pm-changelog from 2026.7.14-1 to 2026.7.18 ([#15](https://github.com/unbraind/pm-ops/pull/15))
 
 ## 2026.7.19 - 2026-07-19
 
@@ -626,7 +713,10 @@ No tracked changes.
 
 ## 2026.7.11 - 2026-07-11
 
-No tracked changes.
+### Dependencies
+
+- Bump @types/node from 26.1.0 to 26.1.1 ([#8](https://github.com/unbraind/pm-ops/pull/8))
+- Bump typescript from 6.0.3 to 7.0.2 ([#9](https://github.com/unbraind/pm-ops/pull/9))
 
 ## 2026.7.10-1 - 2026-07-10
 

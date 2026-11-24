@@ -548,6 +548,21 @@ test("dependency-only release windows support forwarded generators and custom no
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("package changelog entry points retain published dependency updates", () => {
+  const entryPoints = ["changelog", "changelog:full", "changelog:check", "release:notes"];
+  for (const name of entryPoints) {
+    const command = scripts[name] ?? "";
+    const delegated = /^npm run (\S+)/u.exec(command)?.[1];
+    const optedIn = command.split(/\s+/u).includes("--dependency-updates")
+      || (delegated !== undefined && (scripts[delegated]?.split(/\s+/u).includes("--dependency-updates") ?? false));
+    assert.equal(optedIn, true, name);
+  }
+  for (const [name, command] of Object.entries(scripts)) {
+    if (!/(?:^|[\s;|&])(?:pm-changelog|node\s+scripts\/pm-changelog\.ts)(?:\s|$)/u.test(command)) continue;
+    assert.equal(command.split(/\s+/u).includes("--dependency-updates"), true, name);
+  }
+});
+
 test("custom notes keep the saved option before shell terminators and comments", t => {
   const root = mkdtempSync(join(tmpdir(), "custom-notes-shell-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
