@@ -3303,10 +3303,14 @@ test("Round GW generated construct decisions agree across hook and workflow entr
       }
       if (refused) assert.throws(() => rewriteReleaseHeadingDate(hook, day), /release_hook_unsupported_construct:.*standalone/);
       else assert.doesNotThrow(() => rewriteReleaseHeadingDate(hook, day));
-      assert.equal(auditInvocations([manifest]).failures.some(failure => failure.includes("release_hook_unsupported_construct")), refused, hook);
+      const manifestFailures = auditInvocations([manifest]).failures;
+      if (refused) assert.ok(manifestFailures.some(failure => failure.includes("release_hook_unsupported_construct")), hook);
+      else assert.deepEqual(manifestFailures, [], hook);
       const step = body(generator);
       const workflowRefuses = layout === "timed";
-      assert.equal(auditInvocations([workflows(step)]).failures.some(failure => failure.includes("release_hook_unsupported_construct")), workflowRefuses, step);
+      const workflowFailures = auditInvocations([workflows(step)]).failures;
+      if (workflowRefuses) assert.ok(workflowFailures.some(failure => failure.includes("release_hook_unsupported_construct")), step);
+      else assert.deepEqual(workflowFailures, [], step);
       const invalid = auditInvocations([workflows(body(generator.replace(" --date-from-version", "")))]);
       assert.match(invalid.failures[0] ?? "", workflowRefuses ? /release_hook_unsupported_construct/ : /neither --date-from-version/, step);
       const publishSource = body(publish);
@@ -3315,7 +3319,9 @@ test("Round GW generated construct decisions agree across hook and workflow entr
       assert.equal(Boolean(releaseHookConstructProblem(commands, publishSource, spans, "release", "workflow")), workflowRefuses, step);
       assert.ok(commands.some(words => commandName(words) === "npm"), step);
       const attested = body(publish + " --provenance");
-      assert.equal(auditPublishAttestation([workflows(attested)]).failures.some(failure => failure.includes("release_hook_unsupported_construct")), workflowRefuses, attested);
+      const publishFailures = auditPublishAttestation([workflows(attested)]).failures;
+      if (workflowRefuses) assert.ok(publishFailures.some(failure => failure.includes("release_hook_unsupported_construct")), attested);
+      else assert.deepEqual(publishFailures, [], attested);
       assert.match(auditPublishAttestation([workflows(body(publish))]).failures[0] ?? "", workflowRefuses ? /release_hook_unsupported_construct/ : /provenance/, step);
     }
   }
@@ -3924,4 +3930,137 @@ test("Round HC a final redirect can make a skipped renderer path succeed", () =>
   }
   const accepted = first + " --include-empty" + tail + " --include-empty; > preview.log";
   assert.equal(includeEmptyCustomHook(accepted, new Map()), accepted);
+});
+
+test("Round HE implicit npm env refuses forwarded arguments across release readers", () => {
+  const name = "changelog:full";
+  const generator = "pm-changelog " + standing;
+  const diagnostic = /release_hook_unsupported_construct:.*arguments.*implicit env.*changelog:full.*script file/;
+  for (const flags of ["", "--if-present ", "--ignore-scripts=true "]) {
+    const invoke = "npm run " + flags + "env";
+    const hook = (args: string) => invoke + args + " >/dev/null; " + generator;
+    const manifest = (body: Record<string, string>) => ({ file: "package.json", text: JSON.stringify({ scripts: body }) });
+    for (const args of [" -- npm run writer", " npm run writer"]) {
+      const scripts = { [name]: hook(args), writer: generator };
+      const map = new Map(Object.entries(scripts));
+      assert.throws(() => resolveChangelogHooks(scripts, [name]), diagnostic);
+      assert.throws(() => rewriteReleaseHookDates(map, [name], day), diagnostic);
+      assert.throws(() => assertReleaseHookHeadingDate(map, [name], day, "2026.11.17"), diagnostic);
+      assert.match(auditInvocations([manifest(scripts)]).failures[0] ?? "", diagnostic);
+      const step = auditInvocations([manifest({ writer: generator }), workflow(hook(args))]);
+      assert.match(step.failures[0] ?? "", /unsupported_construct:.*arguments.*implicit env.*workflows\/release\.yml/);
+      assert.throws(() => includeEmptyCustomHook(invoke + args, new Map(), false, true, name), diagnostic);
+    }
+    for (const args of ["", " --"]) {
+      const valid = { [name]: hook(args) };
+      assert.deepEqual(auditInvocations([manifest(valid)]).failures, []);
+      assert.equal(resolveChangelogHooks(valid, [name]).get(name), hook(args));
+    }
+    const declared = { [name]: hook(" -- --title release"), env: generator };
+    assert.equal(resolveChangelogHooks(declared, [name]).get("env"), declared.env);
+  }
+});
+
+test("Round HE implicit npm env status checks stay intact and declared renderers are prepared", () => {
+  const status = "npm run env >/dev/null";
+  const scripts = new Map([["preenv", "printf '%s\\n' ready >&2"], ["postenv", "true"]]);
+  assert.equal(includeEmptyCustomHook(status, scripts, false, true, "changelog:check"), status);
+  assert.throws(() => includeEmptyCustomHook(status, scripts), /unsupported_construct:.*implicit env.*renderer.*release:notes/);
+  assert.equal(includeEmptyCustomHook("pm-changelog " + standing + "; " + status, scripts, true),
+    "pm-changelog " + standing + "; " + status);
+  scripts.set("env", "node notes.mjs");
+  assert.equal(includeEmptyCustomHook(status, scripts, false, true, "changelog:check"), "npm run env -- --include-empty >/dev/null");
+});
+
+test("Round HE implicit npm env sibling permits the literal printf delimiter", () => {
+  const name = "changelog:full";
+  const body = "npm run env >/dev/null; pm-changelog " + standing;
+  const accepted = { [name]: body, preenv: "printf -- '%s\\n' ready >&2" };
+  assert.deepEqual([...resolveChangelogHooks(accepted, [name], true)], [[name, body]]);
+  for (const preenv of ["printf -v buffer '%s' ready", "printf -- '%s' ready > file", "printf -- '%n' buffer"]) {
+    assert.throws(() => resolveChangelogHooks({ ...accepted, preenv }, [name], true), /unsupported_construct:.*implicit env/);
+  }
+});
+
+test("Round HE a trailing loop can succeed after an AND-list skips a renderer", () => {
+  const first = "node primary.mjs";
+  const tail = " && test -f marker && node secondary.mjs";
+  assert.equal(includeEmptyCustomHook(first + tail, new Map()), first + tail + " --include-empty");
+  for (const loop of ["while false; do true; done", "until true; do true; done", "for word in; do true; done"]) {
+    const ending = "; " + loop;
+    assert.throws(() => includeEmptyCustomHook(first + tail + ending, new Map()), /alternative renderers/);
+    const prepared = first + " --include-empty" + tail + " --include-empty" + ending;
+    assert.equal(includeEmptyCustomHook(prepared, new Map()), prepared);
+  }
+});
+
+test("Round HE timed workflow evaluators keep their payload inside the timing scope", () => {
+  const diagnostic = /release_hook_unsupported_construct:.*time prefix/;
+  for (const wrapper of ["bash -c", "sh -c", "eval"]) {
+    const command = wrapper + " 'npm publish --provenance'";
+    const publish = (body: string) => auditPublishAttestation([workflow(body)]).failures;
+    assert.match(publish("time " + command)[0] ?? "", diagnostic);
+    assert.deepEqual(publish(command), []);
+    assert.match(publish(command.replace(" --provenance", ""))[0] ?? "", /provenance/);
+    assert.deepEqual(publish("time " + wrapper + " 'echo ordinary'; " + command), []);
+  }
+});
+
+test("Round HE generated pipeline groups agree across the release readers", () => {
+  const name = "release:notes";
+  const generator = "pm-changelog " + standing;
+  const diagnostic = /release_hook_unsupported_construct:.*time prefix.*script file/;
+  for (const pipe of ["|", "|&"]) {
+    for (const group of [
+      (command: string) => "(" + command + ")",
+      (command: string) => "{ " + command + "; }",
+    ]) {
+      for (const words of ["echo one; ", "echo }; ", "echo {; "]) {
+        for (const timer of [true, false]) {
+          const prefix = (timer ? "time " : "") + "echo ready " + pipe + " ";
+          const body = (command: string) => timer ? prefix + group(words + command) : prefix + group(words + "true") + "; " + command;
+          const hook = body(generator);
+          const scripts = { [name]: hook };
+          const manifest = { file: "package.json", text: JSON.stringify({ scripts }) };
+          const apply = [
+            () => resolveChangelogHooks(scripts, [name]),
+            () => rewriteReleaseHookDates(new Map([[name, hook]]), [name], day),
+            () => assertReleaseHookHeadingDate(new Map([[name, hook]]), [name], day, "2026.11.17"),
+          ];
+          for (const read of apply) {
+            if (timer) assert.throws(read, diagnostic, hook);
+            else assert.doesNotThrow(read, hook);
+          }
+          const { commands, spans } = tokenizeCommandsWithSpans(hook);
+          const generatorCommand = (words: typeof commands[number]) => words.some(word => word.value === "pm-changelog");
+          const problem = releaseHookConstructProblem(commands, hook, spans, name, "workflow", generatorCommand);
+          const audits = [auditInvocations([manifest]), auditInvocations([workflow(hook)]),
+            auditPublishAttestation([workflow(body("npm publish --provenance"))])];
+          if (timer) {
+            assert.match(problem?.problem ?? "", diagnostic, hook);
+            for (const { failures } of audits) assert.match(failures[0] ?? "", diagnostic, hook);
+          } else {
+            assert.equal(problem, undefined, hook);
+            for (const { failures } of audits) assert.deepEqual(failures, [], hook);
+          }
+        }
+      }
+    }
+  }
+});
+
+test("Round HE brace arguments neither end nor extend a timed group", () => {
+  const publish = "npm publish --provenance";
+  const audit = (body: string) => auditPublishAttestation([workflow(body)]).failures;
+  assert.match(audit("time { echo }; " + publish + "; }")[0] ?? "", /unsupported_construct:.*time prefix/);
+  assert.deepEqual(audit("time { echo {; }; " + publish), []);
+  assert.deepEqual(audit("time { echo ready; }; " + publish), []);
+});
+
+test("Round HE brace classification preserves Bash function declarations and their inverse", () => {
+  const publish = "npm publish --provenance";
+  const audit = (body: string) => auditPublishAttestation([workflow(publish + "; " + body)]).failures;
+  assert.match(audit("function ship { npm publish; }; ship")[0] ?? "", /provenance/);
+  assert.deepEqual(audit("function ship { " + publish + "; }; ship"), []);
+  assert.deepEqual(audit("echo function ship { npm publish }"), []);
 });

@@ -58,13 +58,20 @@ export function readShellCaseWord(stack, value, literal, commandStart) {
 const literalWords = new WeakMap();
 const pipedToNext = new WeakSet();
 const timedGroupCommands = new WeakSet();
-/** Whether a group opener immediately follows an unquoted timing prefix. */
-export function isReleaseTimingGroup(words) {
+/** Shell control prefixes that can be followed by a reserved word. */
+const CONTROL_PREFIX = /^(?:\(+|\{|!|if|then|elif|else|do|while|until)$/;
+/** Recognize a standalone brace reserved word at a command boundary. */
+export function isReleaseGroupBrace(brace, words) {
+    if (brace === "}")
+        return words.length === 0;
     const source = words.map(word => literalWords.get(word)?.replaceAll("\\\n", ""));
-    const timing = source.findIndex(word => word === "time");
-    return timing >= 0
-        && source.slice(0, timing).every(word => word !== undefined && /^(?:!|if|then|elif|else|do|while|until)$/.test(word))
-        && source.slice(timing + 1).every(word => word === "-p" || word === "!");
+    // Bash accepts a function header with no parentheses before the group.
+    const prefix = source.at(-2) === "function" ? source.slice(0, -2) : source;
+    return prefix.every(raw => raw !== undefined && (CONTROL_PREFIX.test(raw) || raw === "time" || raw === "-p" && hasReleaseTiming(words)));
+}
+/** Whether a command is governed by a timing prefix, directly or through a group. */
+export function hasReleaseTiming(command) {
+    return timedGroupCommands.has(command) || unsupportedReleaseCommand(command.map(word => literalWords.get(word)), "workflow") === "time prefix";
 }
 /** Associate commands with a timing prefix outside their compound command. */
 export function recordTimedReleaseGroup(command) {
@@ -107,7 +114,7 @@ function unsupportedReleaseCommand(words, scope) {
                 negation = "shell negation";
             continue;
         }
-        if (/^(?:\(+|\{|if|then|elif|else|do|while|until)$/.test(raw))
+        if (CONTROL_PREFIX.test(raw))
             continue;
         if (/^\(*case$/.test(raw) && unsupportedReleaseConstruct("case arms", scope))
             return "case arms";

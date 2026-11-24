@@ -78,13 +78,21 @@ const literalWords = new WeakMap<object, string>();
 const pipedToNext = new WeakSet<readonly object[]>();
 const timedGroupCommands = new WeakSet<readonly object[]>();
 
-/** Whether a group opener immediately follows an unquoted timing prefix. */
-export function isReleaseTimingGroup(words: readonly object[]): boolean {
+/** Shell control prefixes that can be followed by a reserved word. */
+const CONTROL_PREFIX = /^(?:\(+|\{|!|if|then|elif|else|do|while|until)$/;
+
+/** Recognize a standalone brace reserved word at a command boundary. */
+export function isReleaseGroupBrace(brace: string, words: readonly object[]): boolean {
+  if (brace === "}") return words.length === 0;
   const source = words.map(word => literalWords.get(word)?.replaceAll("\\\n", ""));
-  const timing = source.findIndex(word => word === "time");
-  return timing >= 0
-    && source.slice(0, timing).every(word => word !== undefined && /^(?:!|if|then|elif|else|do|while|until)$/.test(word))
-    && source.slice(timing + 1).every(word => word === "-p" || word === "!");
+  // Bash accepts a function header with no parentheses before the group.
+  const prefix = source.at(-2) === "function" ? source.slice(0, -2) : source;
+  return prefix.every(raw => raw !== undefined && (CONTROL_PREFIX.test(raw) || raw === "time" || raw === "-p" && hasReleaseTiming(words)));
+}
+
+/** Whether a command is governed by a timing prefix, directly or through a group. */
+export function hasReleaseTiming(command: readonly object[]): boolean {
+  return timedGroupCommands.has(command) || unsupportedReleaseCommand(command.map(word => literalWords.get(word)), "workflow") === "time prefix";
 }
 
 /** Associate commands with a timing prefix outside their compound command. */
@@ -131,7 +139,7 @@ function unsupportedReleaseCommand(words: Iterable<string | undefined>, scope: R
       if (unsupportedReleaseConstruct("shell negation", scope)) negation = "shell negation";
       continue;
     }
-    if (/^(?:\(+|\{|if|then|elif|else|do|while|until)$/.test(raw)) continue;
+    if (CONTROL_PREFIX.test(raw)) continue;
     if (/^\(*case$/.test(raw) && unsupportedReleaseConstruct("case arms", scope)) return "case arms";
     break;
   }

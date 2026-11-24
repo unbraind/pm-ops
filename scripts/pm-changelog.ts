@@ -122,8 +122,13 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
     });
     appendReleaseReceipts(receipts);
   }
-  if (!stdout && !check && (summary || stepOutput)) writeFileWithReceipts(destination, result, writeReceipts);
-  else {
+  if (!stdout && !check && (summary || stepOutput)) {
+    writeFileWithReceipts(destination, result, () => {
+      if (summaryPath) assertDistinctReleaseReceipt(destination, summaryPath);
+      if (outputPath) assertDistinctReleaseReceipt(destination, outputPath);
+      writeReceipts();
+    });
+  } else {
     if (summaryPath && !outputPath) appendFileSync(summaryPath, result);
     else writeReceipts();
     if (stdout) process.stdout.write(result);

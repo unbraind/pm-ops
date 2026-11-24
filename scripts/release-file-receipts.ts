@@ -4,8 +4,8 @@ import { basename, dirname, join, resolve } from "node:path";
 
 /** Replace a staged release file before sending receipts, and restore it if receipt delivery fails. */
 export function writeFileWithReceipts(destination: string, contents: string | Buffer, writeReceipts: () => void): void {
-  const present = existsSync(destination);
-  const target = present ? realpathSync(destination) : destination;
+  const target = releaseFileIdentity(resolve(destination));
+  const present = existsSync(target);
   if (present) accessSync(target, constants.W_OK);
   const directory = mkdtempSync(join(dirname(target), ".release-output-"));
   const staged = join(directory, "next");
@@ -71,5 +71,8 @@ export function appendReleaseReceipts(receipts: readonly { path: string; text: s
   const previous = existsSync(path) ? readFileSync(path) : Buffer.alloc(0);
   const separator = records && previous.length > 0 && previous.at(-1) !== 10 ? "\n" : "";
   const appended = Buffer.concat([previous, Buffer.from(separator + text)]);
-  writeFileWithReceipts(path, appended, () => appendReleaseReceipts(remaining));
+  writeFileWithReceipts(path, appended, () => {
+    for (const next of remaining) assertDistinctReleaseReceipt(path, next.path);
+    appendReleaseReceipts(remaining);
+  });
 }

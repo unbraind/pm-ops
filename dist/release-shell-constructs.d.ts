@@ -22,8 +22,10 @@ export type ShellCaseState = "subject" | "in" | "pattern" | "pattern-data" | "bo
 export declare function inShellCasePattern(state: ShellCaseState | undefined): boolean;
 /** Classify case words before a scanner treats them as executable argv. */
 export declare function readShellCaseWord(stack: ShellCaseState[], value: string, literal: boolean, commandStart: boolean): "open" | "header" | "pattern" | "close" | undefined;
-/** Whether a group opener immediately follows an unquoted timing prefix. */
-export declare function isReleaseTimingGroup(words: readonly object[]): boolean;
+/** Recognize a standalone brace reserved word at a command boundary. */
+export declare function isReleaseGroupBrace(brace: string, words: readonly object[]): boolean;
+/** Whether a command is governed by a timing prefix, directly or through a group. */
+export declare function hasReleaseTiming(command: readonly object[]): boolean;
 /** Associate commands with a timing prefix outside their compound command. */
 export declare function recordTimedReleaseGroup(command: readonly object[]): void;
 /** Preserve physical words even for commands reconstructed inside an evaluator. */

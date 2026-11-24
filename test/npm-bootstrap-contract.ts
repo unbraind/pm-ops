@@ -41,7 +41,7 @@ export function npmInstalls(script: string): string[][] {
     const protectedCommand = command.map((token, index) => {
       const value = /^(?:exec|x)$/.test(token.value) && /(?:^|[\\/])npm(?:\.cmd)?$/.test(command[index - 1]?.value ?? "")
         ? `npm-subcommand-${token.value}` : /(?:^|[\\/])timeout$/.test(token.value) ? "npm-check-timeout" : token.value;
-      const protectedToken = { ...token, value };
+      const protectedToken = token.value === value ? token : { ...token, value };
       originalWords.set(protectedToken, token.value);
       return protectedToken;
     });

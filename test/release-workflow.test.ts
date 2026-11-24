@@ -990,3 +990,11 @@ test("npm guards distinguish redirects from executable and printed npm arguments
     assertNoNpmInstalls(prefix + "echo npm ci --ignore-scripts");
   }
 });
+
+test("Round HE npm bootstrap detection retains raw assignment spelling", () => {
+  assertNoNpmInstalls('FO"O"=fixture npm ci');
+  assertNoNpmInstalls('F\\OO=fixture npm ci');
+  for (const prefix of ['FOO="fixture"', "env 'FOO=fixture'"]) {
+    assert.deepEqual(npmInstalls(prefix + " npm ci"), [["npm", "ci"]]);
+  }
+});

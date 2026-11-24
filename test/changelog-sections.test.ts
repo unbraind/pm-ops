@@ -1794,16 +1794,16 @@ test("Round HA preparation refuses shell pipefail before editing the manifest", 
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const manifest = join(root, "package.json");
   const command = "node notes.mjs";
-  const env = releaseStepEnv(root, process.env);
+  const env = isolatedNpmReleaseEnv(root, process.env);
   const unavailable = process.platform === "win32" ? "cmd.exe" : join(root, "dash");
   if (process.platform !== "win32") writeFileSync(unavailable, "#!/bin/sh\nexit 2\n", { mode: 0o755 });
-  const prepare = (options: string, shell: string | undefined = unavailable, extra: NodeJS.ProcessEnv = {}) => {
+  const prepare = (options: string, shell: string | undefined = unavailable, extra: NodeJS.ProcessEnv = {}, base = env) => {
     const source = JSON.stringify({ scripts: {
       "changelog:full": "# no changes", "changelog:check": "# no check", "release:notes": options + command,
     } });
     writeFileSync(manifest, source);
     return { source, result: spawnSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts"), join(root, "outputs")], {
-      cwd: root, env: { ...env, npm_config_script_shell: shell, ...extra }, encoding: "utf8",
+      cwd: root, env: { ...base, npm_config_script_shell: shell, ...extra }, encoding: "utf8",
     }) };
   };
   for (const setting of ["set -o pipefail; ", "set -euo pipefail; "]) {
@@ -1824,7 +1824,14 @@ test("Round HA preparation refuses shell pipefail before editing the manifest", 
   assert.equal(npmScriptShell("null", "win32", "custom.cmd"), "custom.cmd");
   assert.equal(npmScriptShell("null", "linux"), "sh");
   const defaultShell = process.platform !== "win32" && spawnSync("sh", ["-c", "set -o pipefail"], { stdio: "ignore" }).status === 0;
-  assert.equal(prepare("set -o pipefail; ", unavailable, { npm_config_script_shell: undefined }).result.status, defaultShell ? 0 : 1);
+  const globalConfig = join(root, "global.npmrc");
+  writeFileSync(globalConfig, "script-shell=" + (process.platform === "win32" ? fixtureScriptShell().replaceAll("\\", "/") : "/bin/bash") + "\n");
+  const configured = { ...env, NPM_CONFIG_GLOBALCONFIG: globalConfig };
+  const noOverride = { npm_config_script_shell: undefined };
+  const fallback = isolatedNpmReleaseEnv(root, configured);
+  assert.equal(prepare("set -o pipefail; ", unavailable, noOverride, configured).result.status, 0);
+  const unconfigured = prepare("set -o pipefail; ", unavailable, noOverride, fallback);
+  assert.equal(unconfigured.result.status, defaultShell ? 0 : 1, unconfigured.result.stderr);
   if (process.platform !== "win32") {
     const bin = join(root, "node_modules", ".bin");
     mkdirSync(bin, { recursive: true });
@@ -1965,4 +1972,58 @@ test("Round HC fixture argument quoting preserves literal titles with Windows pa
     Object.defineProperty(path, "sep", { value: original });
     syncBuiltinESMExports();
   }
+});
+
+test("Round HE receipt writes preserve a dangling changelog symlink on success and rollback", t => {
+  const root = mkdtempSync(join(tmpdir(), "release-receipt-link-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const changelog = join(root, "CHANGELOG.md");
+  const target = join(root, "docs", "CHANGELOG.md");
+  mkdirSync(dirname(target));
+  try { symlinkSync(join("docs", "CHANGELOG.md"), changelog, "file"); } catch (error) {
+    if (process.platform === "win32" && (error as NodeJS.ErrnoException).code === "EPERM") return t.skip("file symlinks require privileges");
+    throw error;
+  }
+  assert.throws(() => writeFileWithReceipts(changelog, "candidate\n", () => {
+    assert.equal(lstatSync(changelog).isSymbolicLink(), true);
+    assert.equal(readFileSync(target, "utf8"), "candidate\n");
+    throw new Error("fixture receipt failure");
+  }), /fixture receipt failure/);
+  assert.equal(lstatSync(changelog).isSymbolicLink(), true);
+  assert.equal(existsSync(target), false);
+  writeFileWithReceipts(changelog, "committed\n", () => {});
+  assert.equal(lstatSync(changelog).isSymbolicLink(), true);
+  assert.equal(readFileSync(target, "utf8"), "committed\n");
+});
+
+test("Round HE receipt aliases are checked again after the changelog is installed", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const changelog = join(root, "CHANGELOG.md");
+  const alias = join(root, "changelog.md");
+  const summary = join(root, "summary.md");
+  const summaryAlias = join(root, "Summary.md");
+  const aliases = new Map([[alias, changelog], [summaryAlias, summary]]);
+  // Simulate an alternate filesystem spelling that becomes visible on install.
+  const realExists = fs.existsSync;
+  const realPath = fs.realpathSync;
+  const exists = t.mock.method(fs, "existsSync", (file: fs.PathLike) => realExists(aliases.get(String(file)) ?? file));
+  const realpath = t.mock.method(fs, "realpathSync", (file: fs.PathLike) => realPath(aliases.get(String(file)) ?? file));
+  syncBuiltinESMExports();
+  t.after(() => { exists.mock.restore(); realpath.mock.restore(); syncBuiltinESMExports(); });
+  const args = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22", "--github-step-summary", "--github-output"];
+  assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: summaryAlias }), /same file/);
+  assert.equal(existsSync(changelog), false);
+  assert.equal(existsSync(summary), false);
+  writeFileSync(summary, "prior");
+  assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: alias }), /same file/);
+  assert.equal(existsSync(changelog), false);
+  assert.equal(readFileSync(summary, "utf8"), "prior");
+  exists.mock.restore();
+  realpath.mock.restore();
+  syncBuiltinESMExports();
+  const distinct = join(root, "output");
+  assert.equal(runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: distinct }), 0);
+  assert.match(readFileSync(changelog, "utf8"), /^# Changelog/);
+  assert.match(readFileSync(distinct, "utf8"), /action=created/);
 });

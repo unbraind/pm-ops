@@ -503,10 +503,24 @@ function interpretedHookFile(name: string, args: ShellCommand, words: ShellComma
   return input && /^(?:0)?(?:<|<>)$/.test(input.operator) ? input.path : undefined;
 }
 
+/** npm supplies an environment-printing body when the manifest declares none. */
+function isImplicitNpmEnv(forward: { runner: string; target?: string }, body: string | undefined): boolean {
+  return forward.runner === "npm" && forward.target === "env" && !body;
+}
+
+/** Refuse arguments that turn the implicit env body into a command launcher. */
+function implicitNpmEnvArgumentProblem(forward: { args: readonly ShellToken[]; unsupported?: string }, hook: string): string | undefined {
+  if (forward.args.length || forward.unsupported !== undefined) {
+    return describeUnsupportedReleaseHook("arguments forwarded to npm's implicit env", hook);
+  }
+  return undefined;
+}
+
 /** Prove an implicit npm env sibling is limited to logging or a no-op. */
 function inertImplicitEnvSibling(commands: readonly ShellCommand[]): boolean {
   return commands.every(words => {
-    const [program, format] = withoutRedirections(words);
+    const [program, ...args] = withoutRedirections(words);
+    const format = args[args[0]?.value === "--" ? 1 : 0];
     if (!/^(?:echo|printf|true|:)$/.test(program?.value ?? "") || words.some(word => word.unresolved) || hookSyntaxProblem(words)) return false;
     if (program.value === "printf" && !/^(?!-)(?:[^%]|%%|%s)*$/.test(format?.value ?? "-")) return false;
     return [...hookRedirects(words)].every(({ operator, path }) => path === "/dev/null"
@@ -1086,10 +1100,12 @@ export function visitChangelogScriptCommands(
       const effective = words === recipient ? [...words, ...args] : words;
       mayHaveChanged ||= mayChangeNpmConfig(effective);
       const forward = forwardToScript(effective);
+      const implicitEnv = forward && isImplicitNpmEnv(forward, parsed.get("env")?.text);
+      const implicitEnvProblem = implicitEnv ? implicitNpmEnvArgumentProblem(forward, step?.label ?? name) : undefined;
       // pnpm passes its delimiter through verbatim. A nested runner can consume
       // it, but the generator only accepts named options.
       const separators = effective.filter(token => forwardedSeparators.has(token));
-      const contextProblem = (checkContext ? generatedHookProblem(effective, written, true, loopReads) : undefined)
+      const contextProblem = implicitEnvProblem ?? (checkContext ? generatedHookProblem(effective, written, true, loopReads) : undefined)
         ?? forwardedBindingProblem(effective, bindings)
         ?? (checkContext ? releaseContextProblem(effective, names, preceding, true, step?.label ?? name) : undefined);
       if (checkContext) preceding = nextShellContext(words, preceding, effective);
@@ -1109,7 +1125,6 @@ export function visitChangelogScriptCommands(
         const clearsCanonical = forward.environment?.clearsCanonical;
         const fallback = clearsCanonical && previouslyRan ? "unknown" : configured;
         const policy = forwardedLifecycle(forward.lifecycle, lifecycle, fallback, forward.environment);
-        const implicitEnv = isNpm && forward.target === "env" && !parsed.get("env")?.text;
         if (!implicitEnv && !names.has(forward.target) && (forward.optional || !hooks)) continue;
         const inheritsSetting = forward.lifecycle === undefined && forward.environment === undefined;
         // An implicit reload can enable a sibling that preparation skipped.
@@ -1510,6 +1525,9 @@ function finalHookCommands(commands: ShellCommand[]): { last: ShellCommand[]; sk
   let terminated: ShellTerminator;
   for (const words of commands) {
     let completedBranch = false;
+    const startsLoop = isReleaseIterationHeader(words)
+      || words.some(word => word.releaseKeyword && /^(?:while|until)$/.test(word.value));
+    if (startsLoop && !afterAnd && !afterOr) last = [...new Set([...last, ...skippedInPreviousList])];
     for (const word of words) {
       if (!word.releaseKeyword) break;
       if (word.value === "do") loopEntries.push({ before: last });
@@ -1795,11 +1813,17 @@ function customForwardDelimiters(
       if (blockedTarget && options.length === 0) refuseHook("Custom script " + JSON.stringify(blockedTarget) + " cannot receive forwarded arguments. Move the logic into a script file");
       return { count, terminator, options };
     }
+    const text = scripts.get(forward.target!);
+    if (isImplicitNpmEnv(forward, text)) {
+      const problem = implicitNpmEnvArgumentProblem(forward, hook);
+      if (problem) refuseHook(problem);
+      if (!hasGenerator && !allowStatusOnly) refuseHook(describeUnsupportedReleaseHook("npm's implicit env as a release renderer", hook));
+      return undefined;
+    }
     if (forward.unsupported) {
       refuseHook(describeUnsupportedReleaseHook("Custom renderer argument " + JSON.stringify(forward.unsupported) + " before npm's --", hook));
     }
     if (forward.runner === "npm" && !forward.npmSeparator) count++;
-    const text = scripts.get(forward.target!);
     if (!text) return hasGenerator ? undefined : { count }; // An optional missing target runs no command.
     hook = forward.target!;
     const { commands, spans } = parseSupportedReleaseHook(text, hook);

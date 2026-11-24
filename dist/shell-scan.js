@@ -31,7 +31,7 @@
  *
  * @packageDocumentation
  */
-import { describeUnsupportedReleaseHook, hasShellContinuation, inShellCasePattern, isDoubleQuotedShellEscape, isReleaseTimingGroup, isShellAssignment, readShellCaseWord, readShellLogicalLine, shellCaseTerminator, recordReleasePipeline, recordReleaseShellWord, recordTimedReleaseGroup, releaseCommandConstructs } from "./release-shell-constructs.js";
+import { describeUnsupportedReleaseHook, hasShellContinuation, inShellCasePattern, isDoubleQuotedShellEscape, hasReleaseTiming, isReleaseGroupBrace, isShellAssignment, readShellCaseWord, readShellLogicalLine, shellCaseTerminator, recordReleasePipeline, recordReleaseShellWord, recordTimedReleaseGroup, releaseCommandConstructs } from "./release-shell-constructs.js";
 const fixedOptionNames = new WeakMap();
 const redirections = new WeakMap();
 const REDIRECTION = /^(?:[0-9]*(?:>>|>\||<>|<<<|<<-?|[<>])&?|&>>?)/;
@@ -349,7 +349,7 @@ export function releaseHookConstructProblem(commands, text, spans, hook, scope, 
         if (relevant(words))
             return { words, problem: describeUnsupportedReleaseHook(construct, hook) };
     }
-    if (/\btime(?:[ \t]+(?:(?:-p|!)[ \t]+)*)?[({]/.test(text.replaceAll("\\\n", ""))) {
+    if (/\btime\b/.test(text.replaceAll("\\\n", "")) && commands.every(words => words.every(word => spans.has(word)))) {
         const lines = text.split("\n");
         const bodies = heredocBodyLines(lines);
         const executable = lines.map((line, index) => bodies[index] ? " ".repeat(line.length) : line).join("\n");
@@ -395,8 +395,10 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
     let arrayAssignment = false;
     /** Case subjects and patterns expand words, while each arm body runs commands. */
     const cases = [];
-    const timedGroups = [];
-    /** A pipeline operator after a timed group connects its final command to the next stage. */
+    const groups = [];
+    /** Whether the current pipeline stage inherits timing from its predecessor. */
+    let timedStage = false;
+    /** A group can be followed by redirections before the next pipeline operator. */
     let timedGroupEnd;
     // Monotone delimiter caches make quoted parameter classification linear:
     // each search resumes past its last match, including an absent end sentinel.
@@ -434,7 +436,7 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
     const endCommand = (end) => {
         endWord(end);
         if (command.length > 0) {
-            if (timedGroups.length || timedGroupEnd)
+            if (groups.at(-1)?.timed || timedStage || timedGroupEnd)
                 recordTimedReleaseGroup(command);
             commands.push(command);
         }
@@ -457,9 +459,13 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
             continue;
         }
         if (character === "#" && !started) {
+            const empty = command.length === 0;
             const newline = text.indexOf("\n", index);
             index = newline === -1 ? text.length : newline;
             endCommand(index);
+            if (!empty)
+                timedStage = false;
+            timedGroupEnd = undefined;
             continue;
         }
         if (character === "\\") {
@@ -662,7 +668,7 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
             wordStart = index;
         }
         if (isOperatorStart(character)) {
-            if (children !== undefined && !arithmetic && timedGroups.length === 0 && character === "(" && !started
+            if (children !== undefined && !arithmetic && !groups.at(-1)?.timed && !timedStage && character === "(" && !started
                 && command.every(/** Only shell control words can precede a standalone subshell. */ (token) => ["if", "then", "else", "do", "!"].includes(token.value))) {
                 /** Standalone child groups are isolated only for lexical-state consumers. */
                 const child = readSubstitution(text, index, 1);
@@ -683,7 +689,7 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
             // followed by a real metacharacter or whitespace, never by another brace.
             // The other operator characters are metacharacters that always end a word.
             if (character === "{" || character === "}") {
-                if (started || !isBraceBoundary(text[index + 1])) {
+                if (started || !isBraceBoundary(text[index + 1]) || !isReleaseGroupBrace(character, command)) {
                     value += character;
                     if (!started)
                         startsQuoted = false;
@@ -707,34 +713,35 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
             }
             if (character === "(" || character === "{") {
                 endWord(index);
-                const timed = timedGroups.length > 0 || isReleaseTimingGroup(command);
+                const timed = Boolean(groups.at(-1)?.timed || timedStage || hasReleaseTiming(command));
                 endCommand(index);
+                groups.push({ end: character === "(" ? ")" : "}", timed });
+                timedStage = false;
                 timedGroupEnd = undefined;
-                if (timed)
-                    timedGroups.push(character === "(" ? ")" : "}");
                 continue;
             }
-            if (character === timedGroups.at(-1)) {
+            if (character === groups.at(-1)?.end) {
                 endCommand(index);
-                timedGroups.pop();
-                timedGroupEnd = commands.at(-1);
+                timedGroupEnd = groups.pop()?.timed ? commands.at(-1) : undefined;
+                timedStage = false;
                 continue;
             }
+            const pendingStage = character === "\n" && command.length === 0 && !started && !timedGroupEnd && timedStage;
+            const stage = command.length || started ? command : timedGroupEnd ?? command;
+            endCommand(index);
+            timedStage = pendingStage;
+            timedGroupEnd = undefined;
             if (character === "|") {
                 let next = index + 1;
                 while (text.startsWith("\\\n", next))
                     next += 2;
-                if (text[next] !== "|")
-                    recordReleasePipeline(command.length || started ? command : timedGroupEnd ?? command);
-                if (text[next] === "|" || text[next] === "&") {
-                    endCommand(index);
-                    timedGroupEnd = undefined;
-                    index = next;
-                    continue;
+                if (text[next] !== "|") {
+                    recordReleasePipeline(stage);
+                    timedStage = hasReleaseTiming(stage);
                 }
+                if (text[next] === "|" || text[next] === "&")
+                    index = next;
             }
-            endCommand(index);
-            timedGroupEnd = undefined;
             continue;
         }
         value += character;
@@ -786,8 +793,13 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
             // them and `eval "npm" "publish" "--provenance"` reconstructs as an
             // unattested publish and fails a workflow that is in fact attested.
             const bodies = new Set([...words.filter((word) => !word.startsWith("-")), words.join(" ")]);
-            for (const body of bodies)
-                commands.push(...tokenizeCommands(body, depth + 1));
+            for (const body of bodies) {
+                const evaluated = tokenizeCommands(body, depth + 1);
+                if (hasReleaseTiming(found))
+                    for (const command of evaluated)
+                        recordTimedReleaseGroup(command);
+                commands.push(...evaluated);
+            }
         }
     }
     return commands;
