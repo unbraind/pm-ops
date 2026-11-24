@@ -6,6 +6,10 @@
 
 - Verify the clean trusted release-tool build before daily release planning ([ops-b2bs](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-b2bs.toon))
 
+### Other
+
+- Keep published dependency bullets when releases also have tracker items ([ops-changelog-dependency-updates](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-changelog-dependency-updates.toon))
+
 ## 2026.11.22 - 2026-11-22
 
 ### Dependencies
@@ -40,6 +44,10 @@ No tracked changes.
 
 ## 2026.11.15 - 2026-11-16
 
+### Other
+
+- Split quick PR CI from exhaustive local deep gates ([ops-ci-v2](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-ci-v2.toon))
+
 ### Dependencies
 
 - Bump taiki-e/install-action from 2.90.1 to 2.90.3 ([#280](https://github.com/unbraind/pm-ops/pull/280))
@@ -59,6 +67,15 @@ No tracked changes.
 - Bump jscpd ([#267](https://github.com/unbraind/pm-ops/pull/267))
 
 ## 2026.11.11 - 2026-11-11
+
+### Fixed
+
+- Release and CI install Dependabot locks with the same pinned npm ([ops-release-npm-runtime](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-npm-runtime.toon))
+- Release continuation frees the runner while protected PR checks run ([ops-release-continuation](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-continuation.toon))
+
+### Other
+
+- Release runtime discovers a non-adjacent npm CLI and pins the caller's Node for the matched CLI ([ops-3jck](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-3jck.toon))
 
 ### Dependencies
 

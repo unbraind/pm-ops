@@ -1,0 +1,31 @@
+id: ops-closure-1122
+title: Refresh tracker closure PR #294
+description: "Recheck current main, verify delivery evidence, regenerate the changelog and record the validation outcome."
+type: Chore
+status: in_progress
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#294",tracker-sweep
+created_at: "2026-11-22T23:50:59.276Z"
+updated_at: "2026-11-23T22:36:40.273Z"
+author: codex-agent
+comments[9]{created_at,author,text}:
+  "2026-11-22T23:51:04.296Z",codex-agent,First containing release tags are v2026.11.11 for PRs #250 and #260 and v2026.11.15 for PR #283. The older branch completion values differ from the merge times and are preserved.
+  "2026-11-22T23:58:40.904Z",codex-agent,"Focused linked test completed successfully. 33 tests, 33 pass, 0 fail, 0 skipped."
+  "2026-11-23T09:51:27.497Z",codex-agent,"Closure follow-up: closure delivery merge date. Verify against current main and the existing PR head before recording the result."
+  "2026-11-23T09:52:45.758Z",codex-agent,"The closure verifier requires completed_at to equal a cited PR merge second. All four values are later: release-continuation 2026-11-16 20:43:39Z vs PR #250 2026-11-07 19:05:17Z; release-npm-runtime 2026-11-16 20:43:40Z and ops-3jck 2026-11-16 20:34:00Z vs PR #260 2026-11-09 16:28:12Z; ci-v2 2026-11-16 20:34:14Z vs PR #283 2026-11-15 23:11:38Z. Preserve the four items."
+  "2026-11-23T10:03:45.037Z",codex-agent,"Linked Node tests passed 33/33 with no skips, and the changelog check passed. Final verification will use the committed branch. CI checks for the closure follow-up are tracked at https://github.com/unbraind/pm-ops/pull/294/checks."
+  "2026-11-23T16:12:54.850Z",codex-agent,Correct delivery timestamps on 4 terminal records using GitHub merge data and pinned PM. Preserve closed status and append evidence to each item.
+  "2026-11-23T16:33:04.336Z",codex-agent,"The registered focused Node tests and changelog check passed. Identity, public-content and history prefix checks are part of the final-head gate. The full release gate runs in package CI."
+  "2026-11-23T22:31:44.254Z",codex-agent,"The earliest containing tags for delivery PRs #250, #260, and #283 are v2026.11.11, v2026.11.11, and v2026.11.15. Retrieved successful delivery-head checks directly for #260. Check published dependency bullets in the native and explicit dependency-update renderings."
+  "2026-11-23T22:36:33.497Z",codex-agent,Generated both forms with the pinned tool. The default invocation loses dependency bullets in 2026.11.11 and 2026.11.15. The explicit --dependency-updates invocation keeps every published dependency bullet and the release-pinned tracker entries. The package-script follow-up is ops-changelog-dependency-updates. Hold closure PR #294 until the package opts in.
+files[1]{path,scope}:
+  CHANGELOG.md,project
+tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/identity-audit.test.ts test/changelog-sections.test.ts test/verify-release-changelog-date.test.ts,project,codex-agent,"2026-11-22T23:51:15.411Z",local_mutation,codex/closure-1122/chore/close-merged-items-2026-11-16
+  "npm run changelog:check",project,codex-agent,"2026-11-23T16:13:14.405Z",local_mutation,codex/closure-1122/chore/close-merged-items-2026-11-16
+  node --test --test-concurrency=2 test/daily-release-workflow.test.ts,project,codex-agent,"2026-11-23T16:22:39.053Z",local_mutation,codex/closure-1122/chore/close-merged-items-2026-11-16
+  node --test --test-concurrency=2 test/identity-audit.test.ts test/changelog-sections.test.ts test/verify-release-changelog-date.test.ts test/verify-release-changelog-sections.test.ts test/daily-release-workflow.test.ts,project,codex-agent,"2026-11-23T22:31:55.100Z",local_mutation,codex/closure-1122/chore/close-merged-items-2026-11-16
+docs[2]{path,scope}:
+  CHANGELOG.md,project
+  README.md,project
+body: ""
