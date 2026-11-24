@@ -2,19 +2,27 @@ id: ops-hg5r
 title: "Daily release coverage gate fails: continuation tests inherit the release job's NPM_PROJECT_PATH"
 description: "The daily release exports NPM_PROJECT_PATH through GITHUB_ENV before running release:check. test/release-continuation-adapter.test.ts saved and restored that variable but never cleared it, so inside the release job the post-release hook's default-cwd branch (scripts/release-continuation.ts:375, NPM_PROJECT_PATH ?? '.') was never taken, and branch coverage fell to 99.81% (pm-ops release run 42807281840, 2026-11-10). PR CI, which lacks the variable, reported 100%."
 type: Issue
-status: open
+status: in_progress
 priority: 1
 tags[3]: coverage,release,tests
 created_at: "2026-11-10T16:27:14.620Z"
-updated_at: "2026-11-10T17:20:57.591Z"
+updated_at: "2026-11-24T07:02:02.031Z"
 author: claude-orchestrator
 acceptance_criteria: "The continuation fixture starts every test with NPM_PROJECT_PATH cleared, like POST_RELEASE_SCRIPT; The coverage gate reaches 100% with NPM_PROJECT_PATH set in the ambient environment"
+repro_steps: "In a disposable checkout of edd5d94bfa6200e21082e5aa592ce164a3271615 (the parent of fix dc319b12d9d186cdee2c6e2ee239049764c01fda), install the locked dependencies with npm ci --ignore-scripts and run this focused coverage gate from the repository root:\nNPM_PROJECT_PATH=\"$PWD\" node_modules/.bin/c8 --check-coverage --branches 100 --include scripts/release-continuation.ts --reporter=text node --test --test-concurrency=1 test/release-continuation-adapter.test.ts test/release-runtime.test.ts\nThe exported project path prevents the adapter fixture from covering the default hook working-directory branch at line 375. The coverage gate exits 1 at 99.81 percent branches. At the fix commit the same command reaches 100 percent and exits zero."
 actual_result: "Run release checks: ERROR: Coverage for branches (99.81%) does not meet threshold (100%) for scripts/release-continuation.ts (line 375)."
-comments[2]{created_at,author,text}:
+comments[4]{created_at,author,text}:
   "2026-11-10T16:27:16.932Z",claude-orchestrator,"Fix: the fixture now deletes NPM_PROJECT_PATH next to POST_RELEASE_SCRIPT. Evidence with NPM_PROJECT_PATH exported as in the release job: adapter test alone 62/0, branch coverage of release-continuation.ts 99.62% before and 99.81% after (the other test files cover the remaining branches). Full npm run coverage with the variable set: 1651 tests, 1649 pass, 0 fail; release-continuation.ts 100/100/100/100; all 48 files meet thresholds. Without the fix, the daily release reported 99.81% (line 375)."
   "2026-11-10T17:20:57.590Z",claude-orchestrator,"CodeRabbit PRRT_kwDOTOTl1M61z_3F: a regression now sets an ambient NPM_PROJECT_PATH, asserts the fixture callback sees it unset, and asserts the value is restored afterwards. Revert proof: dropping the delete fails it (0/1); with the fix 1/0. Adapter file 63/0, test typecheck clean."
-files[1]{path,scope}:
+  "2026-11-24T06:44:45.545Z",codex-agent,"Review follow-up: identify the pre-fix commit and verify a repeatable command before and after the historical fix in a disposable checkout."
+  "2026-11-24T07:01:51.321Z",codex-agent,"PRRT_kwDOTOTl1M67L41E: verified the same focused c8 command in a disposable checkout on both revisions. At edd5d94bfa6200e21082e5aa592ce164a3271615, tests passed but the script missed the default-cwd branch at line 375 (99.81 percent branches, exit 1). At dc319b12d9d186cdee2c6e2ee239049764c01fda it reached 100 percent in all four dimensions and exited zero. The linked adapter command also passed 93 tests at the reviewed branch head."
+files[3]{path,scope}:
+  scripts/coverage-gate.ts,project
+  scripts/release-continuation.ts,project
   test/release-continuation-adapter.test.ts,project
-tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   npm run coverage,project,claude-orchestrator,"2026-11-10T16:27:16.267Z",local_mutation,fix/continuation-tests-own-project-path
+  node --test --test-concurrency=2 test/release-continuation-adapter.test.ts,project,codex-agent,"2026-11-24T06:48:51.279Z",local_mutation,sched-1123-pm-ops-closeout-repro-steps
+docs[1]{path,scope}:
+  docs/reusable-release.md,project
 body: ""

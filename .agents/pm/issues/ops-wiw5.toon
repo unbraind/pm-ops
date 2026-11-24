@@ -1,0 +1,18 @@
+id: ops-wiw5
+title: Scheduled closeout refuses three delivered Issue items for missing reproduction steps
+description: "The scheduled closeout of merged pull requests fails because delivered Issue items lack the reproduction steps the tracker close policy requires: the closeout derives expected_result from each item's acceptance criteria itself, but repro_steps must already exist on the item. The closeout plan holds three delivered Issue items. Two are genuinely delivered by their merged pull requests; record truthful reproduction steps on each from its own recorded evidence so the next closeout run can close them. The third delivery claim comes from a tracking-only merged pull request against a defect that is still present in the package, so its policy refusal is correct and that item stays open; the separate run-level defect that a single refusal fails the whole closeout run is fixed in pm-github."
+type: Issue
+status: in_progress
+priority: 1
+tags: []
+created_at: "2026-11-23T15:47:36.040Z"
+updated_at: "2026-11-23T20:44:38.536Z"
+assignee: pi-glm
+claim_principal: pi-glm
+author: codex-agent
+comments[1]{created_at,author,text}:
+  "2026-11-23T20:44:32.096Z",pi-glm,"Class decision finished (scheduled-failure triage 2026-11-23). The closeout dry-run plan holds three delivered Issue items. Two are genuinely delivered: one by the merged pull request that clears the exported NPM_PROJECT_PATH in the continuation fixture, and one by the merged pull request that skips registry-held pending versions and retires stale release candidates. Truthful reproduction steps recorded on each item from its own recorded evidence (the closeout itself derives expected_result from acceptance criteria). The third planned close claims delivery from a tracking-only merged pull request whose acceptance criteria are not met in the current package source, so the completeness-policy refusal is correct and that item stays open; recording reproduction steps on it would grease a false close of a live defect. The run-level defect that a single policy refusal fails the whole closeout and discards every other close is fixed in pm-github (closeout records the refusal and continues). The pm-ops closeout stays red until that fix is released and the caller pin is bumped."
+files[2]{path,scope}:
+  .agents/pm/issues/ops-hg5r.toon,project
+  .agents/pm/issues/ops-pending-version-registry.toon,project
+body: ""
