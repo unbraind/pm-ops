@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { execFileSync, spawnSync } from "../subprocess.ts";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -25,7 +25,7 @@ const interrupt = () => cancellation.abort(130);
 const terminate = () => cancellation.abort(143);
 process.on("SIGINT", interrupt);
 process.on("SIGTERM", terminate);
-const root = mkdtempSync(join(tmpdir(), "release-heading-full-gate-"));
+const root = mkdtempSync(join(realpathSync(tmpdir()), "release-heading-full-gate-"));
 const candidate = join(root, "candidate");
 
 /** Signal the owned POSIX process group, returning false when it has already gone. */

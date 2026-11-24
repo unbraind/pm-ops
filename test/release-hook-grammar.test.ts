@@ -217,10 +217,10 @@ test("release grammar retains escaped and quoted words, continuation and comment
 test("custom notes delimiters follow explicit forwards and refuse unreachable argv", () => {
   const scripts = new Map([["render", "node notes.js"], ["cycle", "npm run cycle"], ["comment", "node notes.js # no argv"],
     ["bun-render", "bun run render"]]);
-  assert.equal(includeEmptyCustomHook("npm run --if-present missing", scripts), "npm run --if-present missing -- --include-empty");
-  const mixedPipeline = "pm-changelog --output preview.md; node notes.mjs | cat";
+  assert.throws(() => includeEmptyCustomHook("npm run --if-present missing", scripts), /unsupported_construct:.*missing optional renderer/);
+  const mixedPipeline = "pm-changelog --output preview.md; node notes.mjs | head";
   assert.equal(includeEmptyCustomHook(mixedPipeline, scripts, true), mixedPipeline.replace("notes.mjs", "notes.mjs --include-empty"));
-  for (const filter of ["cat", "awk", "sed", "grep", "head", "tail", "cut", "tr", "sort", "uniq", "wc"]) {
+  for (const filter of ["awk", "sed", "grep", "head", "tail", "cut", "tr", "sort", "uniq", "wc"]) {
     const pipeline = "pm-changelog --stdout --include-empty | " + filter;
     assert.equal(includeEmptyCustomHook(pipeline, scripts, true), pipeline);
     scripts.set("pipeline", pipeline);
@@ -258,7 +258,7 @@ test("notes preparation routes options before tee and refuses an opaque pipeline
 
 test("background notes pipelines are refused through direct and forwarded hooks", () => {
   for (const producer of ["pm-changelog " + standing + " --stdout", "node notes.mjs"]) {
-    for (const pipeline of [producer + " | cat &", producer + " | tee notes.md | head -n 1 &"]) {
+    for (const pipeline of [producer + " | head &", producer + " | tee notes.md | head -n 1 &"]) {
       for (const tail of ["", " true"]) {
         for (const script of [pipeline + tail, "npm run writer"]) {
           assert.throws(() => includeEmptyCustomHook(script, new Map([["writer", pipeline + tail]]), producer.startsWith("pm-changelog")),
@@ -266,13 +266,13 @@ test("background notes pipelines are refused through direct and forwarded hooks"
         }
       }
     }
-    const foreground = producer + " | cat";
+    const foreground = producer + " | head";
     const hasGenerator = producer.startsWith("pm-changelog");
-    const expected = hasGenerator ? foreground : producer + " --include-empty | cat";
+    const expected = hasGenerator ? foreground : producer + " --include-empty | head";
     assert.equal(includeEmptyCustomHook(foreground, new Map(), hasGenerator), expected);
     const quoted = producer + ' --title "&"';
-    assert.equal(includeEmptyCustomHook(quoted + " | cat", new Map(), hasGenerator),
-      quoted + (hasGenerator ? "" : " --include-empty") + " | cat");
+    assert.equal(includeEmptyCustomHook(quoted + " | head", new Map(), hasGenerator),
+      quoted + (hasGenerator ? "" : " --include-empty") + " | head");
   }
 });
 
@@ -404,19 +404,19 @@ test("npm lifecycle follows workflow env, project config and explicit options", 
 test("uncertain npm lifecycle refuses possible changelog writes but permits read-only hooks", () => {
   const writer = "pm-changelog " + standing;
   for (const prehook of [writer, writer + " --output", writer + " -o CHANGELOG.md", writer + " --output=./CHANGELOG.md",
-    writer + " --output=\"$DEST\"", "printf heading &>CHANGELOG.md", "printf heading >> ./CHANGELOG.md", "printf heading >| \"CHANGELOG.md\"", "npm run writer"]) {
+    writer + " --output=\"$DEST\"", "echo heading &>CHANGELOG.md", "echo heading >> ./CHANGELOG.md", "echo heading >| \"CHANGELOG.md\"", "npm run writer"]) {
     assert.throws(() => resolveChangelogHooks({ hook: writer, prehook, writer }, ["hook"]), /ignore-scripts.*prehook/, prehook);
   }
   for (const prehook of [writer + " --stdout", writer + " --check", writer + " --output other.md", writer + " --output=other.md",
-    "printf heading > other.md", "printf heading >", "printf '%s' '>CHANGELOG.md'", 'printf %s 2">CHANGELOG.md"',
-    "printf heading > '$DEST'", writer + " --output='$DEST'", "echo done"]) {
+    "echo heading > other.md", "echo heading >", "echo '>CHANGELOG.md'", 'echo value 2">CHANGELOG.md"',
+    "echo heading > '$DEST'", writer + " --output='$DEST'", "echo done"]) {
     assert.ok(resolveChangelogHooks({ hook: writer, prehook }, ["hook"]).has("prehook"), prehook);
   }
 });
 
 test("uncertain npm lifecycle refuses unresolved redirection destinations", () => {
   const hook = "pm-changelog " + standing;
-  for (const prehook of ['printf heading > "$DEST"', 'printf heading >>"$DEST"', 'printf heading > CHANGELOG.[m]d']) {
+  for (const prehook of ['echo heading > "$DEST"', 'echo heading >>"$DEST"', 'echo heading > CHANGELOG.[m]d']) {
     assert.throws(() => resolveChangelogHooks({ hook, prehook }, ["hook"]), /ignore-scripts.*prehook/, prehook);
   }
 });
@@ -486,7 +486,7 @@ test("the date verifier uses workflow, job and step npm environment precedence",
 test("default hook lifecycle follows each workflow invocation that actually reaches it", () => {
   const entry = "changelog:full";
   const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
-    [entry]: "pm-changelog " + standing, ["pre" + entry]: "printf heading >CHANGELOG.md", relay: "npm run " + entry,
+    [entry]: "pm-changelog " + standing, ["pre" + entry]: "echo heading >CHANGELOG.md", relay: "npm run " + entry,
   } }) };
   const source = (run: string, setting: string) => ({ file: ".github/workflows/release.yml", text: stringify({
     env: { npm_config_ignore_scripts: setting }, jobs: { release: { steps: [{ run }] } },
@@ -502,7 +502,7 @@ test("default hook lifecycle follows each workflow invocation that actually reac
 });
 
 test("consecutive redirections retain their separate destinations", () => {
-  const hooks = (redirect: string) => ({ hook: "echo main", prehook: "printf heading " + redirect });
+  const hooks = (redirect: string) => ({ hook: "echo main", prehook: "echo heading " + redirect });
   for (const redirect of [">preview.md>CHANGELOG.md", ">preview.md<in>>CHANGELOG.md", '>"pre>view">CHANGELOG.md', "> preview.md>CHANGELOG.md"]) {
     assert.throws(() => resolveChangelogHooks(hooks(redirect), ["hook"]), /ignore-scripts.*prehook/, redirect);
     assert.doesNotThrow(() => resolveChangelogHooks(hooks(redirect), ["hook"], true));
@@ -563,7 +563,7 @@ test("a descriptor duplication stays with its command before an output-filter pi
 
 test("a traversing redirection is classified as a CHANGELOG write", () => {
   const writer = "pm-changelog " + standing;
-  const traversal = 'printf heading > "docs/../CHANGELOG.md"';
+  const traversal = 'echo heading > "docs/../CHANGELOG.md"';
   const scripts = { hook: writer, prehook: traversal };
   const reason = /path traversal.*CHANGELOG\.md.*script file/i;
   assert.throws(() => resolveChangelogHooks(scripts, ["hook"]), reason);
@@ -586,7 +586,7 @@ test("a directory change in a loop condition is refused before rewriting", () =>
   }
   assert.doesNotThrow(() => resolveChangelogHooks({ hook: "while false; do echo cd; done; " + writer }, ["hook"]));
   assert.doesNotThrow(() => resolveChangelogHooks({ hook: "\\while cd docs; " + writer }, ["hook"]));
-  const piped = "while cd docs | cat; do break; done; " + writer;
+  const piped = "while cd docs | head; do break; done; " + writer;
   assert.doesNotThrow(() => resolveChangelogHooks({ hook: piped }, ["hook"]));
   assert.doesNotThrow(() => rewriteReleaseHeadingDate(piped, day));
   assert.deepEqual(auditInvocations([workflow(piped)]).failures, []);
@@ -896,7 +896,7 @@ test("release hooks refuse shell modes and builtins that can invalidate the pars
   const writer = "pm-changelog " + standing;
   for (const [prefix, construct] of [
     ["shopt -s lastpipe; cd docs | true", "shopt"],
-    ["shopt -s lastpipe; printf docs | cd docs", "shopt"],
+    ["shopt -s lastpipe; echo docs | cd docs", "shopt"],
     ["shopt -u extglob", "shopt"],
     ["set -o posix", "set -o posix"],
     ["set +o allexport", "set +o allexport"],
@@ -935,9 +935,9 @@ test("directory changes remain local to pipeline stages and subshells", () => {
   const pinned = writer.replace("--date-from-version", "--date-fallback " + day);
   for (const prefix of [
     "cd docs | true; ",
-    "cd docs | cat; ",
-    "cd docs |& cat; ",
-    "printf docs |\ncd docs; ",
+    "cd docs | head; ",
+    "cd docs |& head; ",
+    "echo docs |\ncd docs; ",
     "(cd docs); ",
     "(echo prepare; cd docs; (echo nested); echo done); ",
     "if (echo prepare; cd docs; echo done); then echo ready; fi; ",
@@ -956,12 +956,12 @@ test("directory changes remain local to pipeline stages and subshells", () => {
     assert.equal(includeEmptyReleaseSections(hook), hook + " --include-empty");
     assert.deepEqual(auditInvocations([workflow(hook)]).failures, [], hook);
   }
-  for (const prefix of ["cd docs && ", "cd docs; echo helper | cat; ", "cd docs; (echo helper); "]) {
+  for (const prefix of ["cd docs && ", "cd docs; echo helper | head; ", "cd docs; (echo helper); "]) {
     const hook = prefix + writer;
     assert.throws(() => resolveChangelogHooks({ hook }, ["hook"]), /context change cd/);
     assert.throws(() => assertReleaseHeadingDate([hook], day, "2026.11.17"), /context change cd/);
   }
-  const piped = `cd docs | ${writer} | cat`;
+  const piped = `cd docs | ${writer} | head`;
   assertReleaseHeadingDate([piped], day, "2026.11.17");
   assert.deepEqual(auditInvocations([workflow(piped)]).failures, []);
   assert.throws(() => resolveChangelogHooks({ hook: `(echo start; ${writer}; echo done)` }, ["hook"]), /Shell grouping/);
@@ -1066,10 +1066,10 @@ test("literal here-document data is never rewritten and opaque executable bodies
   for (const opener of ["cat <<'END'", "cat <<'END' # ignore <<BAD pm-changelog"]) {
     const data = opener + "\n" + body + "\nEND";
     assert.deepEqual(auditInvocations([workflow(data + "\n" + sibling)]).failures, []);
-    assert.equal(includeEmptyReleaseSections(data), data);
+    assert.throws(() => includeEmptyReleaseSections(data), /unsupported_construct:.*cat/);
   }
   for (const script of ["sh <<'END'\n" + body + "\nEND", "cat <<END\n$(" + body + ")\nEND"]) {
-    assert.throws(() => includeEmptyReleaseSections(script), /Here-document.*Use a direct/);
+    assert.throws(() => includeEmptyReleaseSections(script), script.startsWith("cat") ? /unsupported_construct:.*cat/ : /Here-document.*Use a direct/);
   }
   const title = 'pm-changelog --title "first\ncat <<END\n' + body + '\nEND\nlast" ' + standing;
   assert.deepEqual(auditInvocations([workflow(title)]).failures, []);
@@ -1081,7 +1081,7 @@ test("literal cat file redirects preserve here-document data without allowing ex
   for (const opener of ["cat <<'END' >preview.txt", 'cat > "preview file" <<- \'END\'', "cat <<'END' 2>>preview.err &>preview.txt"]) {
     const script = opener + "\n$(" + body + ")\nEND\n" + next;
     assert.deepEqual(auditInvocations([workflow(script)]).failures, [], opener);
-    assert.equal(includeEmptyReleaseSections(script), script + " --include-empty", opener);
+    assert.throws(() => includeEmptyReleaseSections(script), /unsupported_construct:.*cat/, opener);
   }
   for (const [opener, data] of [
     ["cat <<END >preview.txt", "$(" + body + ")"],
@@ -1093,36 +1093,36 @@ test("literal cat file redirects preserve here-document data without allowing ex
     ["cat <<'END' >", body],
     ["cat <<'END' > >preview.txt", body],
   ]) {
-    assert.throws(() => includeEmptyReleaseSections(opener + "\n" + data + "\nEND\n" + next), /Here-document/);
+    assert.throws(() => includeEmptyReleaseSections(opener + "\n" + data + "\nEND\n" + next), opener.startsWith("cat") ? /unsupported_construct:.*cat/ : /Here-document/);
   }
 });
 
 test("release hooks refuse to execute a file written by an earlier redirect", () => {
   const body = "pm-changelog " + standing;
-  const heredoc = `cat <<'END' >generate.sh\n${body}\nEND\n`;
+  const redirect = "echo '" + body + "' >generate.sh; ";
   const refuse = /generated release hook file .*commit the script to the repository/i;
   for (const [write, execute] of [
-    [heredoc, "sh generate.sh"],
-    [heredoc, "/fixture/bin/sh generate.sh"],
-    [heredoc, "bash -e ./generate.sh"],
-    [heredoc, "bash -o errexit ./generate.sh"],
-    [heredoc, "sh <generate.sh"],
-    [heredoc, "bash -s ignored 0<generate.sh"],
-    [heredoc, "./generate.sh"],
-    [heredoc, "source generate.sh"],
-    [heredoc, "source -- generate.sh"],
-    [heredoc, ". ./generate.sh"],
-    ["printf script >> 'generate script.js' && ", "node -- './generate script.js'"],
-    ["printf script &>scripts/generate.js; ", "env node --enable-source-maps ./scripts/generate.js"],
-    ["printf script>generate.sh; ", "sh generate.sh"],
-    ["printf script >preview.txt>>generated.sh; ", "bash generated.sh"],
-    ["printf script >&generate.sh; ", "sh generate.sh"],
-    ["printf script 3<>generate.sh; ", "sh generate.sh"],
-    ["printf script >generate.js; ", "node --import ./setup.js generate.js"],
-    ["printf script >generate.js; ", "node - <generate.js"],
-    ["printf script >node; ", "./node ignored.js"],
-    ["printf script >/fixture/bin/node; ", "/fixture/bin/node ignored.js"],
-    ['printf script >"$TARGET"; ', 'sh "${TARGET}"'],
+    [redirect, "sh generate.sh"],
+    [redirect, "/fixture/bin/sh generate.sh"],
+    [redirect, "bash -e ./generate.sh"],
+    [redirect, "bash -o errexit ./generate.sh"],
+    [redirect, "sh <generate.sh"],
+    [redirect, "bash -s ignored 0<generate.sh"],
+    [redirect, "./generate.sh"],
+    [redirect, "source generate.sh"],
+    [redirect, "source -- generate.sh"],
+    [redirect, ". ./generate.sh"],
+    ["echo script >> 'generate script.js' && ", "node -- './generate script.js'"],
+    ["echo script &>scripts/generate.js; ", "env node --enable-source-maps ./scripts/generate.js"],
+    ["echo script>generate.sh; ", "sh generate.sh"],
+    ["echo script >preview.txt>>generated.sh; ", "bash generated.sh"],
+    ["echo script >&generate.sh; ", "sh generate.sh"],
+    ["echo script 3<>generate.sh; ", "sh generate.sh"],
+    ["echo script >generate.js; ", "node --import ./setup.js generate.js"],
+    ["echo script >generate.js; ", "node - <generate.js"],
+    ["echo script >node; ", "./node ignored.js"],
+    ["echo script >/fixture/bin/node; ", "/fixture/bin/node ignored.js"],
+    ['echo script >"$TARGET"; ', 'sh "${TARGET}"'],
   ]) {
     const hook = write + execute;
     const scripts = new Map([["changelog:full", hook]]);
@@ -1137,7 +1137,7 @@ test("release hooks refuse to execute a file written by an earlier redirect", ()
 
 test("forwarded release hooks share possible writes across the call and lifecycle sequence", () => {
   const writer = "sh generate.sh; pm-changelog " + standing;
-  const write = "printf 'fixture script' >./generate.sh";
+  const write = "echo 'fixture script' >./generate.sh";
   const cases: [string, Record<string, string>][] = [
     [write + "; npm run writer", { writer }],
     ["npm run relay; npm run writer", { relay: write, writer }],
@@ -1156,8 +1156,8 @@ test("forwarded release hooks share possible writes across the call and lifecycl
   }
   const shared = { check: "npm run relay", "changelog:full": "npm run relay; " + writer, relay: write };
   assert.throws(() => resolveChangelogHooks(shared, ["check", "changelog:full"], true), /generated release hook file/);
-  assert.doesNotThrow(() => resolveChangelogHooks({ ...shared, relay: "printf data >preview.txt" }, ["check", "changelog:full"], true));
-  for (const hook of ["npm run writer", "printf 'fixture data' >preview.txt; npm run writer"]) {
+  assert.doesNotThrow(() => resolveChangelogHooks({ ...shared, relay: "echo data >preview.txt" }, ["check", "changelog:full"], true));
+  for (const hook of ["npm run writer", "echo 'fixture data' >preview.txt; npm run writer"]) {
     const scripts = new Map([["changelog:full", hook], ["writer", writer]]);
     assert.equal(resolveChangelogHooks(Object.fromEntries(scripts), ["changelog:full"], true).get("writer"), writer);
     assert.doesNotThrow(() => assertReleaseHookHeadingDate(scripts, ["changelog:full"], day, "2026.11.17", true));
@@ -1167,7 +1167,7 @@ test("forwarded release hooks share possible writes across the call and lifecycl
 test("forwarded file writes stay separate across alternatives and survive the join", () => {
   const entry = ["changelog:full"];
   const writer = "pm-changelog " + standing;
-  const commands = { preview: "printf data >generate.sh", helper: "sh generate.sh" };
+  const commands = { preview: "echo data >generate.sh", helper: "sh generate.sh" };
   const inspect = (hook: string) => {
     const scripts = { "changelog:full": hook + "; " + writer, ...commands };
     const resolved = resolveChangelogHooks(scripts, entry, true);
@@ -1190,7 +1190,7 @@ test("forwarded file writes stay separate across alternatives and survive the jo
 });
 
 test("only release hook paths may refuse a script that executes redirected output", () => {
-  const smoke = "printf 'console.log(1)' >smoke.js; node smoke.js";
+  const smoke = "echo 'console.log(1)' >smoke.js; node smoke.js";
   const writer = "pm-changelog " + standing;
   const audit = (generate: string) => auditInvocations([
     { file: "package.json", text: JSON.stringify({ scripts: { "changelog:full": generate, "changelog:check": writer, smoke } }) },
@@ -1202,25 +1202,25 @@ test("only release hook paths may refuse a script that executes redirected outpu
 
 test("redirected release data and committed script invocations remain usable", () => {
   const writer = "pm-changelog " + standing;
-  const heredoc = `cat <<'END' >preview.txt\n${writer}\nEND\n`;
+  const redirect = "echo '" + writer + "' >preview.txt; ";
   for (const prefix of [
-    heredoc + "cat ./preview.txt; ",
-    heredoc + "sh scripts/committed.sh ./preview.txt; ",
-    heredoc + "bash -c 'echo example' ./preview.txt; ",
-    heredoc + "bash -n ./preview.txt; ",
-    heredoc + "sh 0<preview.txt <scripts/committed.sh; ",
-    heredoc + "sh <&0; ",
-    heredoc + "sh; ",
-    heredoc + "node --eval 'console.log(1)' ./preview.txt; ",
-    heredoc + "node --check ./preview.txt; ",
-    heredoc + "node - <scripts/committed.js; ",
-    heredoc + "./scripts/committed.sh ./preview.txt; ",
-    heredoc + "./node preview.txt; ",
-    "sh generate.sh; printf data >generate.sh; ",
-    "printf data >preview.txt; sh scripts/committed.sh; ",
-    "cat <generate.sh; sh generate.sh; ",
-    "printf data >&2; sh 2; ",
-    "printf data >preview.txt; >other.txt; sh scripts/committed.sh; ",
+    redirect + "head ./preview.txt; ",
+    redirect + "sh scripts/committed.sh ./preview.txt; ",
+    redirect + "bash -c 'echo example' ./preview.txt; ",
+    redirect + "bash -n ./preview.txt; ",
+    redirect + "sh 0<preview.txt <scripts/committed.sh; ",
+    redirect + "sh <&0; ",
+    redirect + "sh; ",
+    redirect + "node --eval 'console.log(1)' ./preview.txt; ",
+    redirect + "node --check ./preview.txt; ",
+    redirect + "node - <scripts/committed.js; ",
+    redirect + "./scripts/committed.sh ./preview.txt; ",
+    redirect + "./node preview.txt; ",
+    "sh generate.sh; echo data >generate.sh; ",
+    "echo data >preview.txt; sh scripts/committed.sh; ",
+    "head <generate.sh; sh generate.sh; ",
+    "echo data >&2; sh 2; ",
+    "echo data >preview.txt; >other.txt; sh scripts/committed.sh; ",
   ]) {
     const hook = prefix + writer;
     const scripts = new Map([["changelog:full", hook]]);
@@ -1253,7 +1253,7 @@ test("punctuation in a literal cat here-document delimiter preserves data and th
   ]) {
     const data = "cat " + redirect + "\n" + indent + body + "\n" + indent + "END-LOG\n";
     assert.deepEqual(auditInvocations([workflow(data + next)]).failures, [], redirect);
-    assert.equal(includeEmptyReleaseSections(data + next), data + next + " --include-empty", redirect);
+    assert.throws(() => includeEmptyReleaseSections(data + next), /unsupported_construct:.*cat/, redirect);
   }
 });
 
@@ -1266,7 +1266,7 @@ test("punctuation in a here-document delimiter does not hide executable generato
     ["cat <<END-LOG", "$(" + body + ")"],
   ]) {
     const script = opener + "\n" + data + "\nEND-LOG";
-    assert.throws(() => includeEmptyReleaseSections(script), /Here-document.*Use a direct/, opener);
+    assert.throws(() => includeEmptyReleaseSections(script), script.startsWith("cat") ? /unsupported_construct:.*cat/ : /Here-document.*Use a direct/, opener);
   }
 });
 
@@ -1279,8 +1279,8 @@ test("a computed lifecycle switch or opaque runner cannot conceal an implicit-on
 
 test("generator text piped to an opaque executable is refused while ordinary output filters remain data", () => {
   const generator = "pm-changelog " + standing;
-  for (const sink of ["sh", "cat | bash", '"$SINK"', "env"]) {
-    assert.throws(() => includeEmptyReleaseSections("printf '%s' '" + generator + "' | " + sink), /Pipeline to an opaque executable.*Use a direct/);
+  for (const sink of ["sh", "head | bash", '"$SINK"', "env"]) {
+    assert.throws(() => includeEmptyReleaseSections("echo '" + generator + "' | " + sink), /Pipeline to an opaque executable.*Use a direct/);
   }
   assert.equal(includeEmptyReleaseSections("echo pm-changelog | grep pm-changelog"), "echo pm-changelog | grep pm-changelog");
   const scripts = { writer: generator, hook: "sh <<'END'\nnpm run writer\nEND" };
@@ -1290,7 +1290,7 @@ test("generator text piped to an opaque executable is refused while ordinary out
 test("GITHUB_ENV lifecycle writes apply to later steps within their job", () => {
   const entry = "changelog:full";
   const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
-    [entry]: "pm-changelog " + standing, ["pre" + entry]: "printf heading > CHANGELOG.md",
+    [entry]: "pm-changelog " + standing, ["pre" + entry]: "echo heading > CHANGELOG.md",
   } }) };
   const consume = { run: "npm run " + entry };
   const write = { run: 'echo "npm_config_ignore_scripts=true" >> "$GITHUB_ENV"' };
@@ -1490,12 +1490,14 @@ test("each explicit release version requires its own operand", () => {
 test("expandable here-documents refuse command substitution and preserve literal text", () => {
   for (const literal of [String.raw`\$(printf fixture)`, "plain text"]) {
     const script = "cat <<END\n" + literal + "\nEND";
-    assert.equal(includeEmptyReleaseSections(script), script);
+    assert.throws(() => includeEmptyReleaseSections(script), /unsupported_construct:.*cat/);
+    assert.deepEqual(auditInvocations([workflow(script + "\npm-changelog " + standing)]).failures, []);
   }
   for (const body of ["$(printf fixture)", "`printf fixture`", "$\\\n(printf fixture)"]) {
-    assert.throws(() => includeEmptyReleaseSections("cat <<END\n" + body + "\nEND"), /Here-document/);
+    assert.throws(() => includeEmptyReleaseSections("cat <<END\n" + body + "\nEND"), /unsupported_construct:.*cat/);
     const quoted = "cat <<'END'\n" + body + "\nEND";
-    assert.equal(includeEmptyReleaseSections(quoted), quoted);
+    assert.throws(() => includeEmptyReleaseSections(quoted), /unsupported_construct:.*cat/);
+    assert.deepEqual(auditInvocations([workflow(quoted + "\npm-changelog " + standing)]).failures, []);
   }
 });
 
@@ -1530,7 +1532,7 @@ test("workflow env maps and shell templates carry only definite lifecycle settin
 });
 
 test("tee file operands distinguish possible changelog writes from preview output", () => {
-  const inspect = (args: string) => resolveChangelogHooks({ hook: "echo ready", posthook: "printf preview | tee " + args }, ["hook"]);
+  const inspect = (args: string) => resolveChangelogHooks({ hook: "echo ready", posthook: "echo preview | tee " + args }, ["hook"]);
   for (const args of ["CHANGELOG.md", "-a preview.md ./CHANGELOG.md", '-- "$OUTPUT"', "CHANGE{LOG,X}.md"]) {
     assert.throws(() => inspect(args), /ignore-scripts/);
   }
@@ -1556,8 +1558,9 @@ test("continued heredoc delimiters preserve body bytes and the command after the
   const writer = "pm-changelog " + standing;
   for (const opener of ["cat <<'EO'\\\n'F'", "cat <<- 'EO'\\\n'F'", "cat <<E\\\nOF", "cat <<EOF"]) {
     const prefix = opener + "\n" + writer + "\nEOF\n";
-    assert.equal(rewriteReleaseHeadingDate(prefix + writer, day), prefix + writer.replace("--date-from-version", "--date-fallback " + day));
-    assert.throws(() => assertReleaseHeadingDate([prefix + writer], day, "2026.11.16"), /retire-unpublished/);
+    assert.throws(() => rewriteReleaseHeadingDate(prefix + writer, day), /unsupported_construct:.*cat/);
+    assert.throws(() => assertReleaseHeadingDate([prefix + writer], day, "2026.11.16"), /unsupported_construct:.*cat/);
+    assert.deepEqual(auditInvocations([workflow(prefix + writer)]).failures, []);
   }
 });
 
@@ -1616,7 +1619,7 @@ test("a copied Node executable in a spaced path keeps its generator and script e
   const generator = node + " scripts/pm-changelog.ts " + standing;
   assert.equal(rewriteReleaseHeadingDate(generator, day), generator.replace("--date-from-version", "--date-fallback " + day));
   assert.throws(() => rewriteReleaseHeadingDate(generator.replace("node.exe", "other.exe"), day), /Unrecognized wrapper/);
-  const before = "printf data > helper.js; " + node;
+  const before = "echo data > helper.js; " + node;
   const check = (command: string) => resolveChangelogHooks({ hook: command + "; pm-changelog " + standing }, ["hook"]);
   assert.throws(() => check(before + " helper.js"), /generated release hook file/);
   assert.doesNotThrow(() => check(before + " committed.js helper.js"));
@@ -1840,7 +1843,7 @@ test("status guards and pipeline sinks do not become renderer candidates before 
   const guard = "test -f package.json && ";
   const scripts = new Map<string, string>();
   for (const prefix of ["", guard]) {
-    const renderer = prefix + "node notes.mjs | cat";
+    const renderer = prefix + "node notes.mjs | head";
     assert.equal(includeEmptyCustomHook(renderer + tail, scripts), renderer.replace("notes.mjs", "notes.mjs --include-empty") + tail);
     for (const generator of ["pm-changelog --stdout", "pm-changelog --check && pm-changelog --stdout"]) {
       assert.equal(includeEmptyCustomHook(prefix + generator + tail, scripts, true), prefix + generator + tail);
@@ -1881,7 +1884,7 @@ test("environment-file overwrites after a failed read require a successful produ
   const consume = { run: "npm run changelog:full" };
   const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
     "changelog:full": "pm-changelog " + standing,
-    "prechangelog:full": "printf heading > CHANGELOG.md",
+    "prechangelog:full": "echo heading > CHANGELOG.md",
   } }) };
   const audit = (...steps: object[]) => auditInvocations([manifest, {
     file: ".github/workflows/env.yml", text: stringify({ jobs: { release: { "runs-on": "ubuntu-latest", steps } } }),
@@ -1928,7 +1931,7 @@ test("an unquoted runner environment read can stop a producer before it writes",
     }
     const audit = (condition: string, producer = run, shell = "bash") => auditInvocations([
       { file: "package.json", text: JSON.stringify({ scripts: {
-        "changelog:full": "pm-changelog " + standing, "prechangelog:full": "printf heading > CHANGELOG.md",
+        "changelog:full": "pm-changelog " + standing, "prechangelog:full": "echo heading > CHANGELOG.md",
       } }) },
       { file: ".github/workflows/env.yml", text: stringify({ jobs: { release: {
         "runs-on": "ubuntu-latest", env: { npm_config_ignore_scripts: "false" },
@@ -1948,7 +1951,7 @@ test("the step's explicit npm setting wins over unknown writes by an earlier act
   const audit = (env: unknown, action: { uses: string; if?: boolean } = { uses: "./local-action" },
     jobEnv?: string) => auditInvocations([
     { file: "package.json", text: JSON.stringify({ scripts: {
-      "changelog:full": "pm-changelog " + standing, "prechangelog:full": "printf heading > CHANGELOG.md",
+      "changelog:full": "pm-changelog " + standing, "prechangelog:full": "echo heading > CHANGELOG.md",
     } }) },
     { file: ".github/workflows/env.yml", text: stringify({ env: { npm_config_ignore_scripts: "true" }, jobs: {
       release: { "runs-on": "ubuntu-latest", env: jobEnv, steps: [action, { run: "npm run changelog:full", env }] },
@@ -2271,7 +2274,7 @@ test("an OR-list status fallback cannot hide a renderer skipped by an AND-list",
 test("a pipeline after OR can recover a skipped notes renderer", () => {
   const primary = "node primary.mjs";
   const list = primary + " && test -f use-secondary && node secondary.mjs";
-  for (const pipeline of ["false | cat", "false | cat | cat", "true | cat"]) {
+  for (const pipeline of ["false | head", "false | head | head", "true | head"]) {
     assert.throws(() => includeEmptyCustomHook(list + " || " + pipeline, new Map()), /alternative renderers/);
     assert.equal(includeEmptyCustomHook(primary + " || " + pipeline, new Map()),
       primary + " --include-empty || " + pipeline);
@@ -2281,10 +2284,10 @@ test("a pipeline after OR can recover a skipped notes renderer", () => {
 
 test("trailing status pipelines keep the notes renderer", () => {
   const notes = "node notes.mjs";
-  for (const suffix of ["; false | cat", " && test -s notes.md | cat"]) {
+  for (const suffix of ["; false | head", " && test -s notes.md | head"]) {
     assert.equal(includeEmptyCustomHook(notes + suffix, new Map()), notes + " --include-empty" + suffix);
   }
-  assert.equal(includeEmptyCustomHook(notes + " | cat", new Map()), notes + " --include-empty | cat");
+  assert.equal(includeEmptyCustomHook(notes + " | head", new Map()), notes + " --include-empty | head");
 });
 
 test("a for header is not a notes renderer", () => {
@@ -2454,7 +2457,7 @@ test("copy backup suffixes are consumed before identifying the last file operand
 });
 
 test("an OR list preserves alternative custom notes renderers, including through script forwards", () => {
-  const ambiguous = ["node preferred.mjs || node fallback.mjs", "node preferred.mjs | cat | sed -n p ||\n node fallback.mjs | cat",
+  const ambiguous = ["node preferred.mjs || node fallback.mjs", "node preferred.mjs | head | sed -n p ||\n node fallback.mjs | head",
     "true && node preferred.mjs || node fallback.mjs", "if test -f input; then node preferred.mjs || node fallback.mjs; else node last.mjs; fi"];
   for (const hook of ambiguous) {
     assert.throws(() => includeEmptyCustomHook(hook, new Map()), /alternative renderers/, hook);
@@ -2463,7 +2466,7 @@ test("an OR list preserves alternative custom notes renderers, including through
   for (const [hook, expected] of [
     ["node notes.mjs", "node notes.mjs --include-empty"],
     ["node notes.mjs || true", "node notes.mjs --include-empty || true"],
-    ["true || node notes.mjs | cat", "true || node notes.mjs --include-empty | cat"],
+    ["true || node notes.mjs | head", "true || node notes.mjs --include-empty | head"],
     ["node one.mjs || node two.mjs && node notes.mjs", "node one.mjs || node two.mjs && node notes.mjs --include-empty"],
     ['node notes.mjs --title "a || b"', 'node notes.mjs --title "a || b" --include-empty'],
   ]) assert.equal(includeEmptyCustomHook(hook, new Map()), expected);
@@ -2652,7 +2655,7 @@ test("a final AND-list status check keeps the terminal notes renderer", () => {
   }
   for (const hook of [
     "node setup.mjs && node check.mjs; node notes.mjs && test -s notes.txt",
-    "node setup.mjs; node notes.mjs | cat && test -s notes.txt",
+    "node setup.mjs; node notes.mjs | head && test -s notes.txt",
     "node notes.mjs; true && test -s notes.txt",
   ]) assert.equal(includeEmptyCustomHook(hook, new Map()), hook.replace("notes.mjs", "notes.mjs --include-empty"));
   for (const hook of [
@@ -2757,7 +2760,7 @@ test("Round GI forwarded writes can reach another branch on a later loop iterati
       "changelog:full": forward + "; " + writer,
       relay: "npm run choose",
       choose: branch,
-      emit: "printf '%s\\n' 'pm-changelog " + standing + "' >generate.sh; rm marker",
+      emit: "echo 'pm-changelog " + standing + "' >generate.sh; rm marker",
       execute: "sh generate.sh",
     }));
     const checks = [
@@ -2784,7 +2787,7 @@ test("Round GI forwarded writes can reach another branch on a later loop iterati
 });
 
 test("Round GI standalone preparation separates alternatives and checks their joined writes", () => {
-  const conditional = "if test -f marker; then printf preview >preview.sh; else sh preview.sh; fi";
+  const conditional = "if test -f marker; then echo preview >preview.sh; else sh preview.sh; fi";
   const writer = "pm-changelog " + standing;
   const safe = conditional + "; " + writer;
   assert.equal(includeEmptyReleaseSections(safe), safe + " --include-empty");
@@ -2803,19 +2806,19 @@ test("Round GI standalone preparation separates alternatives and checks their jo
 test("Round GI uncertain lifecycle accounts for unquoted brace-expanded redirects", () => {
   const hook = "pm-changelog " + standing;
   for (const destination of [" > CHANGELOG.m{d..d}", ">./CHANGELOG.m{d..d}"]) {
-    assert.throws(() => resolveChangelogHooks({ hook, posthook: "printf heading " + destination }, ["hook"]),
+    assert.throws(() => resolveChangelogHooks({ hook, posthook: "echo heading " + destination }, ["hook"]),
       /ignore-scripts.*posthook/, destination);
   }
   for (const destination of [" > 'CHANGELOG.m{d..d}'", '> "./CHANGELOG.m{d..d}"', " > CHANGELOG.m\\{d..d\\}"]) {
-    assert.ok(resolveChangelogHooks({ hook, posthook: "printf heading " + destination }, ["hook"]).has("posthook"), destination);
+    assert.ok(resolveChangelogHooks({ hook, posthook: "echo heading " + destination }, ["hook"]).has("posthook"), destination);
   }
-  assert.throws(() => resolveChangelogHooks({ hook, posthook: 'printf heading > "previews/$SUBDIR/../CHANGELOG.md"' }, ["hook"]),
+  assert.throws(() => resolveChangelogHooks({ hook, posthook: 'echo heading > "previews/$SUBDIR/../CHANGELOG.md"' }, ["hook"]),
     error => /ignore-scripts/.test(String(error)) && !/traversal/.test(String(error)));
 });
 
 test("Round GI runner OS controls case-equivalent lifecycle environment precedence", () => {
   const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
-    "changelog:full": "pm-changelog " + standing, "prechangelog:full": "printf heading >CHANGELOG.md",
+    "changelog:full": "pm-changelog " + standing, "prechangelog:full": "echo heading >CHANGELOG.md",
   } }) };
   const source = (runner: string | string[], value: string) => ({ file: ".github/workflows/case.yml", text: stringify({
     env: { NpM_CoNfIg_IgNoRe_ScRiPtS: "false" },
@@ -2889,7 +2892,7 @@ test("Round GI custom notes refuse a later renderer after shell replacement", ()
   for (const hook of ["node setup.mjs; node notes.mjs", "exec >notes.log; node notes.mjs"]) {
     assert.equal(includeEmptyCustomHook(hook, new Map()), hook + " --include-empty");
   }
-  const piped = "exec node setup.mjs | cat; node notes.mjs";
+  const piped = "exec node setup.mjs | head; node notes.mjs";
   assert.equal(includeEmptyCustomHook(piped, new Map()), piped + " --include-empty");
   const generator = "exec pm-changelog " + standing + " --stdout";
   const prepare = (body: string) => includeEmptyCustomHook(includeEmptyReleaseSections(body), new Map(), true);
@@ -3003,8 +3006,8 @@ test("Round GQ actual date arguments and both here-document forms retain their m
     /Mutually exclusive --date-from-version and --date-fallback/);
   for (const [operator, indent] of [["<<", ""], ["<<-", "\t"]]) {
     const data = "cat " + operator + "EOF > notes.txt\n" + indent + "--date-fallback\n" + indent + "EOF\n";
-    assert.equal(rewriteReleaseHeadingDate(data + command, day),
-      data + "pm-changelog --release-version-from-package --date-fallback " + day);
+    assert.throws(() => rewriteReleaseHeadingDate(data + command, day), /unsupported_construct:.*cat/);
+    assert.deepEqual(auditInvocations([workflow(data + command)]).failures, []);
   }
 });
 
@@ -3039,9 +3042,9 @@ test("Round GS loop control leaves the single notes renderer and its arguments i
   assert.throws(() => includeEmptyCustomHook(nested.replace("break 1", 'break "$LEVEL"'), new Map()), /renderer.*after loop control/);
   const deep = "for outer in first; do for middle in first; do for inner in first; do break 2; done; done; node notes.mjs; done";
   assert.equal(includeEmptyCustomHook(deep, new Map()), deep.replace("notes.mjs", "notes.mjs --include-empty"));
-  const piped = "for turn in first; do node notes.mjs; break | cat; done";
+  const piped = "for turn in first; do node notes.mjs; break | head; done";
   assert.equal(includeEmptyCustomHook(piped, new Map()), piped.replace("notes.mjs", "notes.mjs --include-empty"));
-  const later = "for turn in first; do break | cat; node notes.mjs; done";
+  const later = "for turn in first; do break | head; node notes.mjs; done";
   assert.equal(includeEmptyCustomHook(later, new Map()), later.replace("notes.mjs", "notes.mjs --include-empty"));
   const setup = "for turn in first; do if test -f marker; then break; fi; node setup.mjs; done";
   const afterLoop = setup + "; node notes.mjs";
@@ -3518,26 +3521,25 @@ test("Round GY timed unrelated workflow steps leave release paths usable", () =>
 test("Round GY expandable here-documents match joined terminators and preserve physical source", () => {
   const valid = "pm-changelog " + standing;
   const missing = valid.replace(" --date-from-version", "");
-  const pinned = valid.replace("--date-from-version", "--date-fallback " + day);
   for (const [op, tab] of [["<<", ""], ["<<-", "\t"]]) {
     const header = "cat " + op + "EOF > fixture.txt\n";
     const ambiguous = tab + "EO\\\nF\n";
     const input = header + tab + "ordinary data\n" + ambiguous;
     assert.match(auditInvocations([workflow(valid + "\n" + input + missing)]).failures[0] ?? "", /neither --date-from-version/);
-    assert.equal(rewriteReleaseHeadingDate(valid + "\n" + input + valid, day), pinned + "\n" + input + pinned);
+    assert.throws(() => rewriteReleaseHeadingDate(valid + "\n" + input + valid, day), /unsupported_construct:.*cat/);
     assert.deepEqual(auditInvocations([workflow(input + valid)]).failures, []);
     for (const [delimiter, candidate] of [["'EOF'", ambiguous], ["E\\OF", ambiguous], ["EOF", tab + "EO\\\\\nF\n"]]) {
       const data = header.replace("EOF", delimiter) + candidate + missing + "\n" + tab + "EOF\n";
-      assert.equal(rewriteReleaseHeadingDate(valid + "\n" + data + valid, day), pinned + "\n" + data + pinned);
+      assert.throws(() => rewriteReleaseHeadingDate(valid + "\n" + data + valid, day), /unsupported_construct:.*cat/);
       assert.deepEqual(auditInvocations([workflow(valid + "\n" + data)]).failures, []);
     }
   }
   const incomplete = "cat <<EOF > fixture.txt\nunterminated\\\n";
-  assert.equal(rewriteReleaseHeadingDate(valid + "\n" + incomplete, day), pinned + "\n" + incomplete);
+  assert.throws(() => rewriteReleaseHeadingDate(valid + "\n" + incomplete, day), /unsupported_construct:.*cat/);
   const expandable = "cat <<EOF > fixture.txt\n$\\\n(" + missing + ")\nEOF\n";
-  assert.throws(() => rewriteReleaseHeadingDate(expandable + valid, day), /Here-document with a possible generator/);
+  assert.throws(() => rewriteReleaseHeadingDate(expandable + valid, day), /unsupported_construct:.*cat/);
   const escaped = expandable.replace("$\\\n", "\\$\\\n");
-  assert.equal(rewriteReleaseHeadingDate(escaped + valid, day), escaped + pinned);
+  assert.throws(() => rewriteReleaseHeadingDate(escaped + valid, day), /unsupported_construct:.*cat/);
 });
 
 test("Round GY both shell scans recognize continued workflow case arm terminators", () => {
@@ -3651,17 +3653,17 @@ test("Round HA a step override respects runner environment name equality", () =>
   assert.equal(policy("windows-latest", "npm_config_ignore-scripts"), "unknown");
 });
 
-test("Round HA workflow timing is scoped to the governed command", () => {
+test("Round HA command-position time refuses the participating workflow step across separators", () => {
   const generator = "pm-changelog " + standing;
   const publish = "npm publish --provenance";
   for (const separator of ["\n", "; ", " && ", " || ", " |\\\n| ", " | cat\n"]) {
-    assert.deepEqual(auditPublishAttestation([workflow("time npm test" + separator + publish)]).failures, []);
-    assert.deepEqual(auditInvocations([workflow("time npm test" + separator + generator)]).failures, []);
+    assert.match(auditPublishAttestation([workflow("time npm test" + separator + publish)]).failures[0] ?? "", /unsupported_construct:.*time/);
+    assert.match(auditInvocations([workflow("time npm test" + separator + generator)]).failures[0] ?? "", /unsupported_construct:.*time/);
   }
   const raw = "time npm test |\\\n| " + publish;
   const { commands, spans } = tokenizeCommandsWithSpans(raw);
-  assert.equal(releaseHookConstructProblem(commands, raw, spans, "workflow", "workflow",
-    words => words.some(word => word.value === "publish")), undefined);
+  assert.match(releaseHookConstructProblem(commands, raw, spans, "workflow", "workflow",
+    words => words.some(word => word.value === "publish"))?.problem ?? "", /unsupported_construct:.*time/);
   for (const prefix of ["time ", "time true | "]) {
     assert.match(auditPublishAttestation([workflow(prefix + publish)]).failures[0] ?? "", /unsupported_construct:.*time/);
     assert.match(auditInvocations([workflow(prefix + generator)]).failures[0] ?? "", /unsupported_construct:.*time/);
@@ -3676,12 +3678,12 @@ test("Round HA implicit npm env cannot skip a writer sibling", () => {
   assert.throws(() => inspect("npm run --if-present env"), /unsupported_construct:.*npm.*env/);
   assert.doesNotThrow(() => inspect("npm run --if-present missing"));
   assert.ok(inspect("npm run --if-present env", { env: "echo ready" }).has("postenv"));
-  assert.ok(!inspect("npm --ignore-scripts=true run --if-present env").has("postenv"));
+  assert.throws(() => inspect("npm --ignore-scripts=true run --if-present env"), /unsupported_construct:.*implicit env/);
   const audit = (notes: string) => auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts: {
     "release:notes": notes, postenv: "pm-changelog " + standing,
   } }) }]).failures;
   assert.match(audit("npm run --if-present env")[0] ?? "", /unsupported_construct:.*npm.*env/);
-  assert.deepEqual(audit("npm --ignore-scripts=true run --if-present env"), []);
+  assert.match(audit("npm --ignore-scripts=true run --if-present env")[0] ?? "", /unsupported_construct:.*implicit env/);
   assert.deepEqual(auditInvocations([{ file: "package.json", text: JSON.stringify({ scripts: {
     smoke: "npm run --if-present env", postenv: "echo ready", "release:notes": "pm-changelog " + standing,
   } }) }]).failures, []);
@@ -3701,7 +3703,7 @@ test("Round HA the last all-tags cutoff controls preparation and continuation", 
 });
 
 test("Round HA a trailing stderr log never receives the renderer's option", () => {
-  for (const suffix of ["; echo ready >&2", " && printf '%s\\n' ready 1>&2", "\necho ready > /dev/stderr",
+  for (const suffix of ["; echo ready >&2", " && echo ready 1>&2", "\necho ready > /dev/stderr",
     "; echo ready 2>&2 >& 2"]) {
     assert.equal(includeEmptyCustomHook("node notes.mjs" + suffix, new Map()), "node notes.mjs --include-empty" + suffix);
   }
@@ -3764,7 +3766,7 @@ test("Round HA shared construct decisions agree across release scanners", () => 
   }
 });
 
-test("Round HA implicit npm env allows harmless lifecycle siblings on a release path", () => {
+test("Round HA implicit npm env refuses even harmless lifecycle siblings on a release path", () => {
   const generator = "pm-changelog " + standing;
   const hook = "changelog:full";
   const command = "npm run --if-present env >/dev/null; " + generator;
@@ -3772,12 +3774,12 @@ test("Round HA implicit npm env allows harmless lifecycle siblings on a release 
   const audit = (body: Record<string, string>) => auditInvocations([{
     file: "package.json", text: JSON.stringify({ scripts: body }),
   }]).failures;
-  const resolved = resolveChangelogHooks(scripts, [hook], true);
-  assert.deepEqual([...resolved], [[hook, command]]);
-  const rewritten = rewriteReleaseHookDates(new Map(Object.entries(scripts)), [hook], day, true, "2026.11.17");
-  assert.equal(rewritten.get(hook), command.replace("--date-from-version", `--date-fallback ${day}`));
-  assert.doesNotThrow(() => assertReleaseHookHeadingDate(rewritten, [hook], day, "2026.11.17", true));
-  assert.deepEqual(audit(scripts), []);
+  const diagnostic = /unsupported_construct:.*implicit env/;
+  const map = new Map(Object.entries(scripts));
+  assert.throws(() => resolveChangelogHooks(scripts, [hook], true), diagnostic);
+  assert.throws(() => rewriteReleaseHookDates(map, [hook], day, true), diagnostic);
+  assert.throws(() => assertReleaseHookHeadingDate(map, [hook], day, "2026.11.17", true), diagnostic);
+  assert.match(audit(scripts)[0] ?? "", diagnostic);
   const writer = { ...scripts, postenv: "npm run writer", writer: generator };
   assert.throws(() => resolveChangelogHooks(writer, [hook], true), /unsupported_construct:.*npm.*env/);
   assert.match(audit(writer)[0] ?? "", /unsupported_construct:.*npm.*env/);
@@ -3802,8 +3804,8 @@ test("Round HA implicit npm env refuses siblings that can generate executable fi
     assert.throws(() => resolveChangelogHooks({ ...scripts, preenv: sibling }, [hook], true), diagnostic);
   }
   const printOnly = { [hook]: command.replace("sh generate.sh", generator), preenv: "printf '%s\\n' inspected >&2; printf 'ready 100%%'; true; : > /dev/null" };
-  assert.deepEqual([...resolveChangelogHooks(printOnly, [hook], true).keys()], [hook]);
-  assert.deepEqual(audit(printOnly), []);
+  assert.throws(() => resolveChangelogHooks(printOnly, [hook], true), diagnostic);
+  assert.match(audit(printOnly)[0] ?? "", diagnostic);
 });
 
 test("Round HC generated timing groups agree across all release readers", () => {
@@ -3830,14 +3832,14 @@ test("Round HC generated timing groups agree across all release readers", () => 
         const { commands, spans } = tokenizeCommandsWithSpans(hook);
         const command = (words: typeof commands[number]) => words.some(word => word.value === "pm-changelog");
         assert.match(releaseHookConstructProblem(commands, hook, spans, name, "workflow", command)?.problem ?? "", diagnostic);
-        assert.deepEqual(auditInvocations([workflow(wrap("echo ordinary") + "; " + generator)]).failures, []);
-        assert.deepEqual(auditPublishAttestation([workflow(wrap("echo ordinary") + "; " + publish)]).failures, []);
+        assert.match(auditInvocations([workflow(wrap("echo ordinary") + "; " + generator)]).failures[0] ?? "", /unsupported_construct:.*time/);
+        assert.match(auditPublishAttestation([workflow(wrap("echo ordinary") + "; " + publish)]).failures[0] ?? "", /unsupported_construct:.*time/);
       }
     }
   }
 });
 
-test("Round HC timing includes a grouped pipeline stage and its downstream command", () => {
+test("Round HC command-position time refuses a grouped stage before a downstream command", () => {
   const generator = "pm-changelog " + standing;
   const publish = "npm publish --provenance";
   const diagnostic = /release_hook_unsupported_construct:.*time prefix/;
@@ -3852,8 +3854,8 @@ test("Round HC timing includes a grouped pipeline stage and its downstream comma
   }
   const data = "cat <<'EOF' > preview.log\ntime (" + generator + ")\nEOF\n";
   assert.deepEqual(auditInvocations([workflow(data + generator)]).failures, []);
-  assert.deepEqual(auditInvocations([workflow("time (echo ready) || " + generator)]).failures, []);
-  assert.deepEqual(auditPublishAttestation([workflow("time (echo ready) || " + publish)]).failures, []);
+  assert.match(auditInvocations([workflow("time (echo ready) || " + generator)]).failures[0] ?? "", /unsupported_construct:.*time/);
+  assert.match(auditPublishAttestation([workflow("time (echo ready) || " + publish)]).failures[0] ?? "", /unsupported_construct:.*time/);
 });
 
 test("Round HC unsupported hook shell mode has the owning hook diagnostic", () => {
@@ -3889,14 +3891,14 @@ test("Round HC container refusal follows configured custom hook relays", () => {
   assert.deepEqual(auditInvocations([manifest, job("npm run relay")]).failures, []);
 });
 
-test("Round HC implicit npm env allows missing and empty built-in bodies", () => {
+test("Round HC implicit npm env refuses missing and empty built-in bodies", () => {
   const name = "changelog:full";
   const generator = "pm-changelog " + standing;
   for (const flags of ["", "--if-present "]) {
     const invoke = "npm run " + flags + "env";
     const body = invoke + " >/dev/null; " + generator;
     for (const scripts of [{ preenv: "echo ready" }, { env: "", preenv: "echo ready" }]) {
-      assert.deepEqual([...resolveChangelogHooks({ ...scripts, [name]: body }, [name], true)], [[name, body]]);
+      assert.throws(() => resolveChangelogHooks({ ...scripts, [name]: body }, [name], true), /unsupported_construct:.*implicit env/);
     }
     const explicit = { [name]: body, env: generator };
     assert.equal(resolveChangelogHooks(explicit, [name], true).get("env"), generator);
@@ -3907,17 +3909,17 @@ test("Round HC implicit npm env allows missing and empty built-in bodies", () =>
   assert.throws(() => resolveChangelogHooks({ [name]: "npm run absent; " + generator }, [name], false), /missing or empty/);
 });
 
-test("Round HC implicit npm env checks reloads even when the forward is optional", () => {
+test("Round HC implicit npm env is refused with either lifecycle reload policy", () => {
   const name = "changelog:full";
   const generator = "pm-changelog " + standing;
   for (const flags of ["--if-present ", ""]) {
     const invoke = "npm run " + flags + "env";
     const relay = "relay";
-    const changed = { [name]: "npm --ignore-scripts=false run " + relay, [relay]: "printf '%s\\n' ignore-scripts=false > .npmrc; " + invoke + "; " + generator,
+    const changed = { [name]: "npm --ignore-scripts=false run " + relay, [relay]: "echo ignore-scripts=false > .npmrc; " + invoke + "; " + generator,
       postenv: "npm run writer", writer: generator };
-    assert.throws(() => resolveChangelogHooks(changed, [name], false), /Cannot verify nested npm lifecycle.*env/);
+    assert.throws(() => resolveChangelogHooks(changed, [name], false), /unsupported_construct:.*implicit env/);
     const pinned = { ...changed, [relay]: changed[relay].replace("npm run", "npm --ignore-scripts=true run") };
-    assert.deepEqual([...resolveChangelogHooks(pinned, [name], false).keys()], [name, relay]);
+    assert.throws(() => resolveChangelogHooks(pinned, [name], false), /unsupported_construct:.*implicit env/);
   }
 });
 
@@ -3935,7 +3937,7 @@ test("Round HC a final redirect can make a skipped renderer path succeed", () =>
 test("Round HE implicit npm env refuses forwarded arguments across release readers", () => {
   const name = "changelog:full";
   const generator = "pm-changelog " + standing;
-  const diagnostic = /release_hook_unsupported_construct:.*arguments.*implicit env.*changelog:full.*script file/;
+  const diagnostic = /release_hook_unsupported_construct:.*implicit env.*changelog:full.*script file/;
   for (const flags of ["", "--if-present ", "--ignore-scripts=true "]) {
     const invoke = "npm run " + flags + "env";
     const hook = (args: string) => invoke + args + " >/dev/null; " + generator;
@@ -3948,35 +3950,34 @@ test("Round HE implicit npm env refuses forwarded arguments across release reade
       assert.throws(() => assertReleaseHookHeadingDate(map, [name], day, "2026.11.17"), diagnostic);
       assert.match(auditInvocations([manifest(scripts)]).failures[0] ?? "", diagnostic);
       const step = auditInvocations([manifest({ writer: generator }), workflow(hook(args))]);
-      assert.match(step.failures[0] ?? "", /unsupported_construct:.*arguments.*implicit env.*workflows\/release\.yml/);
+      assert.match(step.failures[0] ?? "", /unsupported_construct:.*implicit env.*workflows\/release\.yml/);
       assert.throws(() => includeEmptyCustomHook(invoke + args, new Map(), false, true, name), diagnostic);
     }
     for (const args of ["", " --"]) {
       const valid = { [name]: hook(args) };
-      assert.deepEqual(auditInvocations([manifest(valid)]).failures, []);
-      assert.equal(resolveChangelogHooks(valid, [name]).get(name), hook(args));
+      assert.match(auditInvocations([manifest(valid)]).failures[0] ?? "", diagnostic);
+      assert.throws(() => resolveChangelogHooks(valid, [name]), diagnostic);
     }
     const declared = { [name]: hook(" -- --title release"), env: generator };
     assert.equal(resolveChangelogHooks(declared, [name]).get("env"), declared.env);
   }
 });
 
-test("Round HE implicit npm env status checks stay intact and declared renderers are prepared", () => {
+test("Round HE implicit npm env status checks are refused and declared renderers are prepared", () => {
   const status = "npm run env >/dev/null";
   const scripts = new Map([["preenv", "printf '%s\\n' ready >&2"], ["postenv", "true"]]);
-  assert.equal(includeEmptyCustomHook(status, scripts, false, true, "changelog:check"), status);
-  assert.throws(() => includeEmptyCustomHook(status, scripts), /unsupported_construct:.*implicit env.*renderer.*release:notes/);
-  assert.equal(includeEmptyCustomHook("pm-changelog " + standing + "; " + status, scripts, true),
-    "pm-changelog " + standing + "; " + status);
+  assert.throws(() => includeEmptyCustomHook(status, scripts, false, true, "changelog:check"), /unsupported_construct:.*implicit env/);
+  assert.throws(() => includeEmptyCustomHook(status, scripts), /unsupported_construct:.*implicit env.*release:notes/);
+  assert.throws(() => includeEmptyCustomHook("pm-changelog " + standing + "; " + status, scripts, true), /unsupported_construct:.*implicit env/);
   scripts.set("env", "node notes.mjs");
   assert.equal(includeEmptyCustomHook(status, scripts, false, true, "changelog:check"), "npm run env -- --include-empty >/dev/null");
 });
 
-test("Round HE implicit npm env sibling permits the literal printf delimiter", () => {
+test("Round HE implicit npm env with a literal printf sibling is refused", () => {
   const name = "changelog:full";
   const body = "npm run env >/dev/null; pm-changelog " + standing;
   const accepted = { [name]: body, preenv: "printf -- '%s\\n' ready >&2" };
-  assert.deepEqual([...resolveChangelogHooks(accepted, [name], true)], [[name, body]]);
+  assert.throws(() => resolveChangelogHooks(accepted, [name], true), /unsupported_construct:.*implicit env/);
   for (const preenv of ["printf -v buffer '%s' ready", "printf -- '%s' ready > file", "printf -- '%n' buffer"]) {
     assert.throws(() => resolveChangelogHooks({ ...accepted, preenv }, [name], true), /unsupported_construct:.*implicit env/);
   }
@@ -3994,7 +3995,7 @@ test("Round HE a trailing loop can succeed after an AND-list skips a renderer", 
   }
 });
 
-test("Round HE timed workflow evaluators keep their payload inside the timing scope", () => {
+test("Round HE an evaluator in a timed workflow step receives the shared refusal", () => {
   const diagnostic = /release_hook_unsupported_construct:.*time prefix/;
   for (const wrapper of ["bash -c", "sh -c", "eval"]) {
     const command = wrapper + " 'npm publish --provenance'";
@@ -4002,7 +4003,7 @@ test("Round HE timed workflow evaluators keep their payload inside the timing sc
     assert.match(publish("time " + command)[0] ?? "", diagnostic);
     assert.deepEqual(publish(command), []);
     assert.match(publish(command.replace(" --provenance", ""))[0] ?? "", /provenance/);
-    assert.deepEqual(publish("time " + wrapper + " 'echo ordinary'; " + command), []);
+    assert.match(publish("time " + wrapper + " 'echo ordinary'; " + command)[0] ?? "", /unsupported_construct:.*time/);
   }
 });
 
@@ -4049,12 +4050,12 @@ test("Round HE generated pipeline groups agree across the release readers", () =
   }
 });
 
-test("Round HE brace arguments neither end nor extend a timed group", () => {
+test("Round HE brace arguments are data and command-position time refuses the whole publish step", () => {
   const publish = "npm publish --provenance";
   const audit = (body: string) => auditPublishAttestation([workflow(body)]).failures;
   assert.match(audit("time { echo }; " + publish + "; }")[0] ?? "", /unsupported_construct:.*time prefix/);
-  assert.deepEqual(audit("time { echo {; }; " + publish), []);
-  assert.deepEqual(audit("time { echo ready; }; " + publish), []);
+  assert.match(audit("time { echo {; }; " + publish)[0] ?? "", /unsupported_construct:.*time/);
+  assert.match(audit("time { echo ready; }; " + publish)[0] ?? "", /unsupported_construct:.*time/);
 });
 
 test("Round HE brace classification preserves Bash function declarations and their inverse", () => {
@@ -4063,4 +4064,85 @@ test("Round HE brace classification preserves Bash function declarations and the
   assert.match(audit("function ship { npm publish; }; ship")[0] ?? "", /provenance/);
   assert.deepEqual(audit("function ship { " + publish + "; }; ship"), []);
   assert.deepEqual(audit("echo function ship { npm publish }"), []);
+});
+
+for (const shell of ["time [[ -n x ]] | COMMAND", "time if true; then COMMAND; fi", "time true; COMMAND"]) {
+  test("HF step refuses " + shell, () => {
+    for (const [command, audit] of [["npm publish --provenance", auditPublishAttestation], ["pm-changelog " + standing, auditInvocations]] as const) {
+      const body = shell.replace("COMMAND", command);
+      assert.match(audit([workflow(body)]).failures[0] ?? "", /release_hook_unsupported_construct:.*time/);
+      assert.deepEqual(audit([workflow(body.slice(5))]).failures, []);
+      for (const literal of ["echo time", "echo 'time'", "'time' true"]) assert.deepEqual(audit([workflow(literal + "; " + command)]).failures, []);
+    }
+  });
+}
+
+test("Continued command words keep their lexical role with CRLF", () => {
+  const prefix = "ti\\\r\nme ";
+  for (const [command, audit] of [["npm publish --provenance", auditPublishAttestation], ["pm-changelog " + standing, auditInvocations]] as const) {
+    assert.match(audit([workflow(prefix + command)]).failures[0] ?? "", /unsupported_construct:.*time/);
+    assert.deepEqual(audit([workflow("echo " + prefix + "; " + command)]).failures, []);
+  }
+});
+
+test("Earlier timing refusals accept the same workflow command without the reserved word", () => {
+  for (const pattern of ["PREFIXtrue && COMMAND", "PREFIX(echo ready) || COMMAND", "PREFIX{ echo }; }; COMMAND",
+    "PREFIXecho ready | { echo ordinary; COMMAND; }", "PREFIXbash -c 'echo ready'; COMMAND", "PREFIX{ echo ready; }; COMMAND"]) {
+    for (const [command, audit] of [["npm publish --provenance", auditPublishAttestation], ["pm-changelog " + standing, auditInvocations]] as const) {
+      const run = (prefix: string) => audit([workflow(pattern.replace("PREFIX", prefix).replace("COMMAND", command))]).failures;
+      assert.match(run("time ")[0] ?? "", /unsupported_construct:.*time/);
+      assert.deepEqual(run(""), [], pattern);
+    }
+  }
+});
+
+test("HF implicit env is confined to participating release steps", () => {
+  const generator = "pm-changelog " + standing;
+  const body = "npm run env -- printenv NODE_ENV";
+  const manifest = { file: "package.json", text: JSON.stringify({ scripts: { "release:notes": generator } }) };
+  const inspected = new Set<string>();
+  const steps = new Map([["diagnostics", body], ["publish notes", "npm run release:notes"]]);
+  visitChangelogScriptCommands(new Map([...steps, ["release:notes", generator]]), entry => { inspected.add(entry.name); },
+    undefined, undefined, new Set(["release:notes"]), { lifecycle: true,
+      workflowSteps: new Map([...steps.keys()].map(label => [label, { label, lifecycle: true }])) });
+  assert.deepEqual([...inspected].sort(), ["publish notes", "release:notes"]);
+  assert.deepEqual(auditInvocations([manifest, workflow(body, "npm run release:notes")]).failures, []);
+  assert.throws(() => resolveChangelogHooks({ "release:notes": body }, ["release:notes"]), /unsupported_construct:.*implicit env/);
+  assert.doesNotThrow(() => resolveChangelogHooks({ "release:notes": "npm run env", env: generator }, ["release:notes"]));
+});
+
+test("HF optional missing notes target must have a renderer", () => {
+  const body = "npm run --if-present missing";
+  assert.throws(() => includeEmptyCustomHook(body, new Map()), /unsupported_construct:.*missing optional renderer.*release:notes/);
+  assert.throws(() => includeEmptyCustomHook("npm run missing", new Map()), /unsupported_construct:.*missing renderer/);
+  assert.equal(includeEmptyCustomHook(body, new Map([["missing", "node notes.mjs"]])), body + " -- --include-empty");
+});
+
+test("HF last effective date fallback controls the merge-day check", () => {
+  const pins = (a: string, b: string) => "pm-changelog --release-version-from-package --date-fallback=" + a + " --date-fallback " + b;
+  assert.doesNotThrow(() => assertReleaseHeadingDate([pins("2026-11-16", day)], day, "2026.11.17"));
+  assert.throws(() => assertReleaseHeadingDate([pins(day, "2026-11-16")], day, "2026.11.17"), /differs from verified/);
+});
+
+for (const prefix of ["printf -- '- %s' ready >&2; ", "cat 0<<'EOF'\npm-changelog --version\nEOF\n"]) {
+  test("HF hook refuses " + prefix.split(" ")[0], () => {
+    const generator = "pm-changelog " + standing;
+    assert.throws(() => resolveChangelogHooks({ notes: prefix + generator }, ["notes"]), /unsupported_construct:.*(?:printf|cat).*notes.*script file/);
+    assert.doesNotThrow(() => resolveChangelogHooks({ notes: generator }, ["notes"]));
+  });
+}
+
+test("Hook logging refusals follow command position through wrappers and subshells", () => {
+  const check = (prefix: string) => resolveChangelogHooks({ notes: prefix + "; pm-changelog " + standing }, ["notes"]);
+  for (const program of ["builtin -- printf ready", "(printf ready)", "sh -c 'cat notes.md'", 'command "pr"intf ready']) {
+    assert.throws(() => check(program), /unsupported_construct:.*(?:printf|cat).*notes/);
+    assert.doesNotThrow(() => check("echo " + JSON.stringify(program)));
+  }
+});
+
+test("HF custom renderer dynamic option positions require a known operand", () => {
+  for (const [name, scripts] of [["node notes.mjs", new Map<string, string>()], ["npm run writer --", new Map([["writer", "node notes.mjs"]])]] as const) {
+    assert.throws(() => includeEmptyCustomHook(name + ' "$RENDER_ARGS"', scripts), /unsupported_construct:.*option/);
+    assert.equal(includeEmptyCustomHook(name + ' --title "$TITLE"', scripts), name + ' --title "$TITLE" --include-empty');
+  }
 });

@@ -32,7 +32,7 @@
  * @packageDocumentation
  */
 
-import { describeUnsupportedReleaseHook, hasShellContinuation, inShellCasePattern, isDoubleQuotedShellEscape, hasReleaseTiming, isReleaseGroupBrace, isShellAssignment, readShellCaseWord, readShellLogicalLine, shellCaseTerminator, recordReleasePipeline, recordReleaseShellWord, recordTimedReleaseGroup, releaseCommandConstructs, type ReleaseShellScope, type ShellCaseState } from "./release-shell-constructs.ts";
+import { describeUnsupportedReleaseHook, hasShellContinuation, inShellCasePattern, isDoubleQuotedShellEscape, isReleaseGroupBrace, isShellAssignment, readShellCaseWord, readShellLogicalLine, shellCaseTerminator, recordReleaseShellWord, releaseCommandConstructs, type ReleaseShellScope, type ShellCaseState } from "./release-shell-constructs.ts";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -75,23 +75,20 @@ const REDIRECTION = /^(?:[0-9]*(?:>>|>\||<>|<<<|<<-?|[<>])&?|&>>?)/;
 
 /** Recognize Bash combined output redirection across physical line continuations. */
 export function isCombinedOutputRedirect(source: string, index: number): boolean {
-  if (source[index] !== "&") return false;
-  let next = index + 1;
-  while (source.startsWith("\\\n", next)) next += 2;
-  return source[next] === ">";
+  return source.startsWith("&>", index);
 }
 
 /** Whether this operator continues a literal redirection after shell line joining. */
 export function isRedirectionSuffix(source: string, start: number, end: number): boolean {
   const operator = source[end];
   if (operator !== "&" && operator !== "|") return false;
-  const prefix = source.slice(start, end).replaceAll("\\\n", "");
+  const prefix = source.slice(start, end);
   return operator === "&" ? /^[0-9]*[<>]>?$/.test(prefix) : /^[0-9]*>$/.test(prefix);
 }
 
 /** A file redirect ends an attached word except after a literal descriptor or an incomplete operator. */
 function startsFileRedirect(source: string, start: number, end: number, character: "<" | ">"): boolean {
-  const prefix = source.slice(start, end).replaceAll("\\\n", "");
+  const prefix = source.slice(start, end);
   const continuation = character === ">" ? /^(?:[0-9]*[<>]?|&>?)$/ : /^[0-9]*<{0,2}$/;
   return !continuation.test(prefix);
 }
@@ -99,7 +96,7 @@ function startsFileRedirect(source: string, start: number, end: number, characte
 /** Record operators from the original source, where quoting and escapes are still visible. */
 export function recordShellRedirection(token: ShellToken, source: string, start: number, end: number): void {
   if (!REDIRECTION.test(token.value)) return;
-  const raw = source.slice(start, end).replaceAll("\\\n", "");
+  const raw = source.slice(start, end);
   const operator = REDIRECTION.exec(raw)?.[0];
   if (operator !== undefined) redirections.set(token, { operator, joined: raw.length > operator.length });
 }
@@ -380,7 +377,7 @@ interface ShellChildRegion {
  * @returns Every simple command found, outermost first.
  */
 export function tokenizeCommands(text: string, depth = 0): ShellCommand[] {
-  return scanShellCommands(text, depth, false);
+  return scanShellCommands(joinContinuations(text), depth, false);
 }
 
 /** Half-open source offsets for a shell word before quote removal. */
@@ -401,7 +398,22 @@ export function tokenizeCommandsWithSpans(text: string): {
   spans: WeakMap<ShellToken, ShellTokenSpan>;
 } {
   const spans = new WeakMap<ShellToken, ShellTokenSpan>();
-  return { commands: scanShellCommands(text, 0, false, undefined, spans), spans };
+  const logical = logicalShellSource(text);
+  const commands = scanShellCommands(logical.text, 0, false, undefined, spans);
+  if (logical.offsets) for (const word of commands.flat()) {
+    const span = spans.get(word);
+    if (span) spans.set(word, { start: logical.offsets[span.start], end: logical.offsets[span.end] });
+  }
+  return { commands, spans };
+}
+
+/** Expose the shell command beneath command and builtin prefixes. */
+export function unwrapShellBuiltin(words: ShellCommand): ShellCommand | undefined {
+  let command = releaseHookCommand(words);
+  while (command?.[0].value === "builtin") {
+    command = releaseHookCommand(command.slice(command[1]?.value === "--" ? 2 : 1));
+  }
+  return command;
 }
 
 /** Identify the first out-of-corpus control form in a package release hook. */
@@ -409,19 +421,21 @@ export function releaseHookConstructProblem(
   commands: readonly ShellCommand[], text: string, spans: WeakMap<ShellToken, ShellTokenSpan>, hook: string, scope: ReleaseShellScope,
   relevant: (words: ShellCommand) => boolean = () => true,
 ): { words: ShellCommand; problem: string } | undefined {
-  for (const [words, construct] of releaseCommandConstructs(commands, scope, word => {
-    const span = spans.get(word);
-    return span && text.slice(span.start, span.end);
-  })) {
-    if (relevant(words)) return { words, problem: describeUnsupportedReleaseHook(construct, hook) };
+  for (const [words, construct] of releaseCommandConstructs(commands, scope)) {
+    if (commands.some(relevant)) return { words, problem: describeUnsupportedReleaseHook(construct, hook) };
   }
-  if (/\btime\b/.test(text.replaceAll("\\\n", "")) && commands.every(words => words.every(word => spans.has(word)))) {
+  if (commands.every(words => words.every(word => spans.has(word)))) {
     const lines = text.split("\n");
     const bodies = heredocBodyLines(lines);
     const executable = lines.map((line, index) => bodies[index] ? " ".repeat(line.length) : line).join("\n");
     const scanned = tokenizeCommandsWithSpans(executable);
-    for (const [words, construct] of releaseCommandConstructs(scanned.commands, scope)) {
-      if (!relevant(words)) continue;
+    const constructs = releaseCommandConstructs(scanned.commands, scope);
+    if (scope === "hook") for (const words of scanned.commands) {
+      const program = unwrapShellBuiltin(words)?.[0].value;
+      if (program && /^(?:printf|cat)$/.test(basename(program))) constructs.set(words, program);
+    }
+    for (const [words, construct] of constructs) {
+      if (!commands.some(relevant) && !scanned.commands.some(relevant)) continue;
       for (const word of words) {
         const span = scanned.spans.get(word);
         spans.set(word, span ?? { start: 0, end: text.length });
@@ -467,11 +481,6 @@ function scanShellCommands(
   let arrayAssignment = false;
   /** Case subjects and patterns expand words, while each arm body runs commands. */
   const cases: ShellCaseState[] = [];
-  const groups: Array<{ end: string; timed: boolean }> = [];
-  /** Whether the current pipeline stage inherits timing from its predecessor. */
-  let timedStage = false;
-  /** A group can be followed by redirections before the next pipeline operator. */
-  let timedGroupEnd: ShellCommand | undefined;
   // Monotone delimiter caches make quoted parameter classification linear:
   // each search resumes past its last match, including an absent end sentinel.
   let parameterClose = -1;
@@ -491,7 +500,7 @@ function scanShellCommands(
     const inPattern = inShellCasePattern(cases.at(-1));
     const controlWord = token.value === "case" || token.value === "esac";
     const keyword = (controlWord || token.value === "in") && !token.quoted && token.unresolved !== true
-      && text.slice(wordStart, end).replaceAll("\\\n", "") === token.value;
+      && text.slice(wordStart, end) === token.value;
     readShellCaseWord(cases, token.value, keyword, controlWord && keyword && commandName(command) === undefined);
     if (!inPattern) command.push(token);
     regexOperand = conditional && !token.quoted && token.value === "=~";
@@ -504,10 +513,7 @@ function scanShellCommands(
   };
   const endCommand = (end: number): void => {
     endWord(end);
-    if (command.length > 0) {
-      if (groups.at(-1)?.timed || timedStage || timedGroupEnd) recordTimedReleaseGroup(command);
-      commands.push(command);
-    }
+    if (command.length > 0) commands.push(command);
     command = [];
   };
 
@@ -527,19 +533,15 @@ function scanShellCommands(
       continue;
     }
     if (character === "#" && !started) {
-      const empty = command.length === 0;
       const newline = text.indexOf("\n", index);
       index = newline === -1 ? text.length : newline;
       endCommand(index);
-      if (!empty) timedStage = false;
-      timedGroupEnd = undefined;
       continue;
     }
     if (character === "\\") {
       const next = text[index + 1];
       index += 1;
       if (next === undefined) break;
-      if (next === "\n") continue;
       value += next;
       if (!started) startsQuoted = false;
       started = true;
@@ -709,7 +711,7 @@ function scanShellCommands(
       wordStart = index;
     }
     if (isOperatorStart(character)) {
-      if (children !== undefined && !arithmetic && !groups.at(-1)?.timed && !timedStage && character === "(" && !started
+      if (children !== undefined && !arithmetic && character === "(" && !started
         && command.every(/** Only shell control words can precede a standalone subshell. */ (token) => ["if", "then", "else", "do", "!"].includes(token.value))) {
         /** Standalone child groups are isolated only for lexical-state consumers. */
         const child = readSubstitution(text, index, 1);
@@ -751,35 +753,8 @@ function scanShellCommands(
         started = true;
         continue;
       }
-      if (character === "(" || character === "{") {
-        endWord(index);
-        const timed = Boolean(groups.at(-1)?.timed || timedStage || hasReleaseTiming(command));
-        endCommand(index);
-        groups.push({ end: character === "(" ? ")" : "}", timed });
-        timedStage = false;
-        timedGroupEnd = undefined;
-        continue;
-      }
-      if (character === groups.at(-1)?.end) {
-        endCommand(index);
-        timedGroupEnd = groups.pop()?.timed ? commands.at(-1) : undefined;
-        timedStage = false;
-        continue;
-      }
-      const pendingStage: boolean = character === "\n" && command.length === 0 && !started && !timedGroupEnd && timedStage;
-      const stage = command.length || started ? command : timedGroupEnd ?? command;
       endCommand(index);
-      timedStage = pendingStage;
-      timedGroupEnd = undefined;
-      if (character === "|") {
-        let next = index + 1;
-        while (text.startsWith("\\\n", next)) next += 2;
-        if (text[next] !== "|") {
-          recordReleasePipeline(stage);
-          timedStage = hasReleaseTiming(stage);
-        }
-        if (text[next] === "|" || text[next] === "&") index = next;
-      }
+      if (character === "|" && (text[index + 1] === "|" || text[index + 1] === "&")) index++;
       continue;
     }
     value += character;
@@ -828,9 +803,7 @@ function scanShellCommands(
       // unattested publish and fails a workflow that is in fact attested.
       const bodies = new Set([...words.filter((word) => !word.startsWith("-")), words.join(" ")]);
       for (const body of bodies) {
-        const evaluated = tokenizeCommands(body, depth + 1);
-        if (hasReleaseTiming(found)) for (const command of evaluated) recordTimedReleaseGroup(command);
-        commands.push(...evaluated);
+        commands.push(...tokenizeCommands(body, depth + 1));
       }
     }
   }
@@ -844,7 +817,8 @@ function scanShellCommands(
  * placeholders preserve outer unresolved words and line indexing. Callers
  * audit each returned child independently; inherited bindings are unproven.
  */
-export function isolateShellChildren(text: string, depth = 0, arithmetic = false): { parent: string; children: ShellChildRegion[] } {
+export function isolateShellChildren(source: string, depth = 0, arithmetic = false): { parent: string; children: ShellChildRegion[] } {
+  const text = joinContinuations(source);
   /** Direct lexical children; nested children are inspected by the caller. */
   const children: ShellChildRegion[] = [];
   scanShellCommands(text, depth, arithmetic, children);
@@ -1204,6 +1178,8 @@ interface ShellLineState {
   quote: string;
   /** A hash begins a comment at an unquoted word boundary. */
   wordStart: boolean;
+  /** A dollar before a removed newline can introduce a substitution. */
+  pendingDollar?: boolean;
   /** An open substitution has its own command quotes and parenthesis depth. */
   substitutions: Array<{ quote: string; wordStart: boolean; depth: number }>;
 }
@@ -1211,12 +1187,17 @@ interface ShellLineState {
 /** Read source quoting before deciding whether a last backslash joins the next line. */
 function joinsShellSourceLine(line: string, state: ShellLineState): boolean {
   let current = state.substitutions.at(-1) ?? state;
+  if (state.pendingDollar) line = "$" + line;
+  state.pendingDollar = false;
   for (let index = 0; index < line.length; index++) {
     const character = line[index];
     if (character === "\\" && current.quote !== "'") {
       if (index === line.length - 1) return true;
       if (!current.quote || isDoubleQuotedShellEscape(line[index + 1])) index++;
       current.wordStart = false;
+    } else if (character === "$" && current.quote !== "'" && index + 2 === line.length && line[index + 1] === "\\") {
+      state.pendingDollar = true;
+      return true;
     } else if (character === "$" && line[index + 1] === "(" && current.quote !== "'") {
       current.wordStart = false;
       const nested = { quote: "", wordStart: true, depth: 1 };
@@ -1254,17 +1235,24 @@ function joinsShellSourceLine(line: string, state: ShellLineState): boolean {
  * @returns The same text with continuations joined.
  */
 export function joinContinuations(text: string): string {
-  const lines = text.split("\n");
-  const bodies = heredocBodyLines(lines);
-  const state: ShellLineState = { quote: "", wordStart: true, substitutions: [] };
-  let joined = "";
-  for (let index = 0; index < lines.length - 1; index++) {
-    const raw = lines[index]!;
-    const line = raw.replace(/\r$/, "");
-    if (!bodies[index] && joinsShellSourceLine(line, state)) joined += line.slice(0, -1);
-    else joined += raw + "\n";
-  }
-  return joined + lines.at(-1)!;
+  return logicalShellSource(text).text;
+}
+
+/** Fold executable continuations once and map logical token positions to physical source. */
+export function logicalShellSource(source: string): { text: string; offsets?: number[] } {
+  if (!/\\\r?\n/.test(source)) return { text: source };
+  const lines = source.split("\n");
+  const states = heredocLineStates(lines);
+  const offsets: number[] = [];
+  let start = 0;
+  const text = lines.map((line, index) => {
+    const value = states[index].continued ? line.replace(/\\\r?$/, "") : line + (index + 1 < lines.length ? "\n" : "");
+    for (let i = 0; i < value.length; i++) offsets.push(start + i);
+    start += line.length + 1;
+    return value;
+  }).join("");
+  offsets.push(source.length);
+  return { text, offsets };
 }
 
 /**
@@ -2038,6 +2026,8 @@ function heredocOpenersIn(line: string, quote: string): Array<{ delimiter: strin
 
 /** Per-line heredoc body classification state. */
 interface HeredocLineState {
+  /** The executable line joins the next physical line. */
+  continued?: boolean;
   /** The line is body data or a terminator, not parent-shell source. */
   body: boolean;
   /** The shell expands substitutions on this body-data line. */
@@ -2046,7 +2036,7 @@ interface HeredocLineState {
 
 /** Classify heredoc body lines while retaining delimiter quote behavior. */
 function heredocLineStates(lines: string[]): HeredocLineState[] {
-  const states = lines.map(() => ({ body: false, expand: false }));
+  const states: HeredocLineState[] = lines.map(() => ({ body: false, expand: false }));
   const text = lines.join("\n");
   const pending: ReturnType<typeof heredocOpenersIn> = [];
   const state: ShellLineState = { quote: "", wordStart: true, substitutions: [] };
@@ -2063,7 +2053,10 @@ function heredocLineStates(lines: string[]): HeredocLineState[] {
       const terminator = candidate === delimiter.delimiter;
       states.fill({ body: true, expand: delimiter.expand && !terminator }, index, index + line.lines);
       if (terminator) pending.shift();
-    } else pending.push(...heredocOpenersIn(line.value, quote));
+    } else {
+      for (let i = 1; i < line.lines; i++) states[index + i - 1].continued = true;
+      pending.push(...heredocOpenersIn(line.value, quote));
+    }
     index += line.lines;
   }
   return states;

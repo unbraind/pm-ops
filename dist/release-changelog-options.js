@@ -9,7 +9,7 @@
  */
 import { describeUnsupportedReleaseHook, isShellAssignment, unsupportedReleaseConstruct, unsupportedReleaseShellMode } from "./release-shell-constructs.js";
 import { basename, posix } from "node:path";
-import { isShellEvaluator, RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand, releaseHookConstructProblem, shellRedirection, withoutRedirections, } from "./shell-scan.js";
+import { isShellEvaluator, RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand, releaseHookConstructProblem, shellRedirection, unwrapShellBuiltin, withoutRedirections, } from "./shell-scan.js";
 import { describeReleaseContextChange, followingReleaseOperator, hasBraceExpansion, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand, isReleaseIterationHeader, isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, releaseLoopScope, releaseOutputProducer, } from "./release-hook-grammar.js";
 /** The flag that makes an untagged heading version-derived. */
 export const DATE_FLAG = "--date-from-version";
@@ -405,7 +405,7 @@ export function canReachGenerator(words, names, seen, writing = false, lifecycle
     const assignments = [];
     const invocation = releaseHookCommand(words, undefined, assignments);
     if (!invocation)
-        return hookSyntaxProblem(words) !== undefined && words.some(mentionsGenerator);
+        return words.some(mentionsGenerator);
     const [program, ...parameters] = invocation;
     const name = basename(program.value);
     if (writing && name === "tee") {
@@ -501,26 +501,6 @@ function interpretedHookFile(name, args, words) {
 /** npm supplies an environment-printing body when the manifest declares none. */
 function isImplicitNpmEnv(forward, body) {
     return forward.runner === "npm" && forward.target === "env" && !body;
-}
-/** Refuse arguments that turn the implicit env body into a command launcher. */
-function implicitNpmEnvArgumentProblem(forward, hook) {
-    if (forward.args.length || forward.unsupported !== undefined) {
-        return describeUnsupportedReleaseHook("arguments forwarded to npm's implicit env", hook);
-    }
-    return undefined;
-}
-/** Prove an implicit npm env sibling is limited to logging or a no-op. */
-function inertImplicitEnvSibling(commands) {
-    return commands.every(words => {
-        const [program, ...args] = withoutRedirections(words);
-        const format = args[args[0]?.value === "--" ? 1 : 0];
-        if (!/^(?:echo|printf|true|:)$/.test(program?.value ?? "") || words.some(word => word.unresolved) || hookSyntaxProblem(words))
-            return false;
-        if (program.value === "printf" && !/^(?!-)(?:[^%]|%%|%s)*$/.test(format?.value ?? "-"))
-            return false;
-        return [...hookRedirects(words)].every(({ operator, path }) => path === "/dev/null"
-            || (/^[12]?>&$/.test(operator) && /^[12]$/.test(path)));
-    });
 }
 /** Detect file execution while allowing a committed helper to read paths as ordinary arguments. */
 function executedHookFile(words, written) {
@@ -630,14 +610,6 @@ function runnerProjectOption([program, ...args]) {
         return undefined;
     return flags.find(word => RELEASE_PROJECT_OPTION.test(word.value))?.value;
 }
-/** Expose the shell command beneath command and builtin prefixes. */
-function unwrapShellBuiltin(words) {
-    let command = releaseHookCommand(words);
-    while (command?.[0].value === "builtin") {
-        command = releaseHookCommand(command.slice(command[1]?.value === "--" ? 2 : 1));
-    }
-    return command;
-}
 /** A release hook cannot change shell parsing, builtin lookup, or pipeline isolation. */
 function unsupportedShellSemantics(words) {
     const first = shellCommandStart(words);
@@ -682,7 +654,7 @@ function shellContextChange(words) {
     const head = inner[0];
     if (!head)
         return undefined;
-    const command = /^(?:builtin$|command$|time$|[A-Za-z_]\w*\+?=)/.test(head.value) ? unwrapShellBuiltin(inner) ?? inner : inner;
+    const command = /^(?:builtin$|command$|[A-Za-z_]\w*\+?=)/.test(head.value) ? unwrapShellBuiltin(inner) ?? inner : inner;
     const [program, ...args] = command;
     const name = basename(program.value);
     if (/^(?:cd|pushd|popd)$/.test(name))
@@ -1010,6 +982,9 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
         }
         const checkContext = releasePath || knownWriters.canGenerate(name)
             || (recipient !== undefined && canReachGenerator([...recipient, ...args], knownWriters));
+        visited.add(name);
+        if (step && !checkContext && !commands.some(words => canReachGenerator(words, releasePaths)))
+            return;
         const writtenCount = written.size;
         const cacheKey = args.length === 0 && !inheritedLoopReads
             ? JSON.stringify([checkContext, configuredHook, lifecycle, configured, uncertainLifecycle, config, name, [...bindings].sort(), [...written].sort()])
@@ -1026,7 +1001,6 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
             memo = { depth, written: [] };
             withoutArgs.set(cacheKey, memo);
         }
-        visited.add(name);
         const invocationNames = checkContext ? names : knownWriters;
         if (uncertainLifecycle && knownWriters.canGenerate(name, undefined, true, [], lifecycle, configured)) {
             const lifecycleProblem = `Cannot determine npm ignore-scripts for lifecycle hook ${JSON.stringify(name)} that may write CHANGELOG.md. Set npm_config_ignore_scripts on the consuming step or use an explicit npm --ignore-scripts=true/false option. A project .npmrc applies when no environment override is present; user/global npm config and external env are uncertain`;
@@ -1052,7 +1026,8 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
             mayHaveChanged ||= mayChangeNpmConfig(effective);
             const forward = forwardToScript(effective);
             const implicitEnv = forward && isImplicitNpmEnv(forward, parsed.get("env")?.text);
-            const implicitEnvProblem = implicitEnv ? implicitNpmEnvArgumentProblem(forward, step?.label ?? name) : undefined;
+            const implicitEnvProblem = implicitEnv && (checkContext || configuredHook || step)
+                ? describeUnsupportedReleaseHook("npm's implicit env", step?.label ?? name) : undefined;
             // pnpm passes its delimiter through verbatim. A nested runner can consume
             // it, but the generator only accepts named options.
             const separators = effective.filter(token => forwardedSeparators.has(token));
@@ -1080,7 +1055,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
                 const clearsCanonical = forward.environment?.clearsCanonical;
                 const fallback = clearsCanonical && previouslyRan ? "unknown" : configured;
                 const policy = forwardedLifecycle(forward.lifecycle, lifecycle, fallback, forward.environment);
-                if (!implicitEnv && !names.has(forward.target) && (forward.optional || !hooks))
+                if (implicitEnv || (!names.has(forward.target) && (forward.optional || !hooks)))
                     continue;
                 const inheritsSetting = forward.lifecycle === undefined && forward.environment === undefined;
                 // An implicit reload can enable a sibling that preparation skipped.
@@ -1091,20 +1066,6 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
                         refuseHook(problem);
                     inspect({ parents, name, names, text, words, effective, spans, forwardedSeparators: separators, contextProblem: problem });
                     return;
-                }
-                // npm supplies its own env body and may run lifecycle siblings even with --if-present.
-                if (implicitEnv) {
-                    if (policy.enabled !== false
-                        && names.sequence("env", true).some(sibling => sibling !== "env" && (checkContext
-                            ? !inertImplicitEnvSibling(parsed.get(sibling).commands)
-                            : knownWriters.canGenerate(sibling)))) {
-                        const problem = describeUnsupportedReleaseHook("npm's implicit env lifecycle", name);
-                        if (hooks)
-                            throw new Error(problem);
-                        inspect({ parents, name, names, text, words, effective, spans, forwardedSeparators: separators, contextProblem: problem });
-                        return;
-                    }
-                    continue;
                 }
                 if (isNpm && entryPoints.has(forward.target) && collectingWorkflowEntries) {
                     const settings = entryLifecycles.get(forward.target) ?? [];
@@ -1350,15 +1311,12 @@ function assertReleaseCoordinate(explicit, packageVersion, advice = "") {
 function assertHeadingOptions(words, mergeDay, packageVersion, names, hook) {
     const args = changelogInvocation(words, names, hook)?.slice(1) ?? [];
     const positions = optionPositions(args);
-    const policies = hookDateOptions(args);
-    if (policies.length) {
+    const option = hookDateOptions(args).at(-1);
+    if (option) {
         const explicit = literalReleaseVersion(args, positions);
-        for (const option of policies) {
-            const day = option.kind === "version" ? calendarRelease(explicit ?? packageVersion).day : option.day;
-            if (day !== mergeDay) {
-                throw new Error(`Prepared release heading day ${day} differs from verified merge commit day ${mergeDay}. ${RETIRE_UNPUBLISHED}`);
-            }
-        }
+        const day = option.kind === "version" ? calendarRelease(explicit ?? packageVersion).day : option.day;
+        if (day !== mergeDay)
+            throw new Error(`Prepared release heading day ${day} differs from verified merge commit day ${mergeDay}. ${RETIRE_UNPUBLISHED}`);
         assertReleaseCoordinate(explicit, packageVersion, " " + RETIRE_UNPUBLISHED);
     }
     assertAllTagsCutoff(args, positions, mergeDay, packageVersion, " " + RETIRE_UNPUBLISHED);
@@ -1621,6 +1579,8 @@ function customRendererOptions(invocation, hook) {
     const options = [];
     for (const index of optionPositions(args, true)) {
         const token = args[index];
+        if (token.unresolved && !literalOptionName(token))
+            refuseHook(describeUnsupportedReleaseHook("dynamic custom renderer option", hook));
         if (token.value === "--")
             return { terminator: token, options };
         if (token.value === INCLUDE_EMPTY_FLAG)
@@ -1645,13 +1605,9 @@ function rendererStatusName(words) {
         return builtin;
     const command = releaseHookCommand(words);
     const name = command && basename(command[0].value);
-    if (isRendererLog(name) && stderrRendererLog(words))
+    if (name === "echo" && stderrRendererLog(words))
         return "stderr log";
     return name && RENDERER_STATUS_COMMANDS.has(name) ? name : undefined;
-}
-/** Identify the logging commands whose output is used to select a renderer. */
-function isRendererLog(program) {
-    return program === "echo" || program === "printf";
 }
 /** Determine whether a literal logging command sends stdout to stderr. */
 function stderrRendererLog(words) {
@@ -1733,7 +1689,7 @@ function finalHookCommand(commands, hasGenerator, scripts, allowStatusOnly, hook
     const producer = releaseOutputProducer(terminal);
     const status = rendererStatusCommand(producer);
     const program = releaseHookCommand(producer)?.[0].value;
-    if (!status && (hasGenerator || !isRendererLog(program && basename(program))))
+    if (!status && (hasGenerator || (program && basename(program)) !== "echo"))
         return terminal;
     const candidates = [...new Set(commands.map(releaseOutputProducer))].filter(words => !isReleaseIterationHeader(words) && releaseHookCommand(words) && !rendererStatusCommand(words));
     if (!status) {
@@ -1779,12 +1735,11 @@ function customForwardDelimiters(invocation, scripts, hasGenerator, allowStatusO
             return { count, terminator, options };
         }
         const text = scripts.get(forward.target);
-        if (isImplicitNpmEnv(forward, text)) {
-            const problem = implicitNpmEnvArgumentProblem(forward, hook);
-            if (problem)
-                refuseHook(problem);
+        if (isImplicitNpmEnv(forward, text))
+            refuseHook(describeUnsupportedReleaseHook("npm's implicit env", hook));
+        if (forward.optional && !text) {
             if (!hasGenerator && !allowStatusOnly)
-                refuseHook(describeUnsupportedReleaseHook("npm's implicit env as a release renderer", hook));
+                refuseHook(describeUnsupportedReleaseHook("missing optional renderer " + forward.target, hook));
             return undefined;
         }
         if (forward.unsupported) {
@@ -1793,7 +1748,7 @@ function customForwardDelimiters(invocation, scripts, hasGenerator, allowStatusO
         if (forward.runner === "npm" && !forward.npmSeparator)
             count++;
         if (!text)
-            return hasGenerator ? undefined : { count }; // An optional missing target runs no command.
+            refuseHook(describeUnsupportedReleaseHook("missing renderer " + forward.target, hook));
         hook = forward.target;
         const { commands, spans } = parseSupportedReleaseHook(text, hook);
         const recipient = commandReceivingArguments(text, commands, spans);

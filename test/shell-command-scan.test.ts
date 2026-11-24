@@ -438,10 +438,16 @@ test("Round HC shell assignment names are parsed before quote removal", () => {
 test("Round HC continuations preserve local substitution quotes and rejoin executable words", () => {
   const literal = "value=\\\ncontinued";
   const command = 'printf "%s" "$(printf \'%s\' \'' + literal + '\')"';
+  assert.equal(joinContinuations("echo ready\\\n"), "echo ready");
+  assert.deepEqual(tokenizeCommands(command.replace("$(", "$\\\n(")), tokenizeCommands(command));
+  assert.equal(joinContinuations(command.replace("$(", "$\\\n(")), command);
+  assert.equal(joinContinuations(command.replace("$(", "$\\\n\\\n(")), command);
   assert.equal(joinContinuations(command), command);
   assert.equal(joinContinuations('printf "%s" "' + literal + '"'), 'printf "%s" "value=continued"');
   assert.equal(joinContinuations(command + '\nprintf "%s" "' + literal + '"'), command + '\nprintf "%s" "value=continued"');
   const nested = `printf "%s" "$( (printf '%s' '${literal}') )"`;
+  const legacy = "echo `echo 'a\\\nb'`";
+  assert.deepEqual(tokenizeCommands(legacy).at(-1)?.map(word => word.value), ["echo", "ab"]);
   assert.equal(joinContinuations(nested), nested);
 });
 

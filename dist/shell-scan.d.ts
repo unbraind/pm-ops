@@ -126,6 +126,8 @@ export declare function tokenizeCommandsWithSpans(text: string): {
     commands: ShellCommand[];
     spans: WeakMap<ShellToken, ShellTokenSpan>;
 };
+/** Expose the shell command beneath command and builtin prefixes. */
+export declare function unwrapShellBuiltin(words: ShellCommand): ShellCommand | undefined;
 /** Identify the first out-of-corpus control form in a package release hook. */
 export declare function releaseHookConstructProblem(commands: readonly ShellCommand[], text: string, spans: WeakMap<ShellToken, ShellTokenSpan>, hook: string, scope: ReleaseShellScope, relevant?: (words: ShellCommand) => boolean): {
     words: ShellCommand;
@@ -138,7 +140,7 @@ export declare function releaseHookConstructProblem(commands: readonly ShellComm
  * placeholders preserve outer unresolved words and line indexing. Callers
  * audit each returned child independently; inherited bindings are unproven.
  */
-export declare function isolateShellChildren(text: string, depth?: number, arithmetic?: boolean): {
+export declare function isolateShellChildren(source: string, depth?: number, arithmetic?: boolean): {
     parent: string;
     children: ShellChildRegion[];
 };
@@ -247,6 +249,11 @@ export interface SourceFile {
  * @returns The same text with continuations joined.
  */
 export declare function joinContinuations(text: string): string;
+/** Fold executable continuations once and map logical token positions to physical source. */
+export declare function logicalShellSource(source: string): {
+    text: string;
+    offsets?: number[];
+};
 /**
  * Strip the YAML block indentation from `run:` block scalars.
  *

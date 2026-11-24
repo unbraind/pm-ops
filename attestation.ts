@@ -17,7 +17,8 @@
  *
  * @packageDocumentation
  */
-import { describeUnsupportedReleaseHook, releaseCommandConstructs, unsupportedReleaseConstruct } from "./release-shell-constructs.ts";
+import { describeUnsupportedReleaseHook, unsupportedReleaseConstruct } from "./release-shell-constructs.ts";
+import { parseReleaseHook } from "./release-hook-grammar.ts";
 import { readRegularText } from "./regular-input.ts";
 import { execFileSync } from "./subprocess.ts";
 import { closeSync, constants, fstatSync, statSync, openSync, readSync } from "node:fs";
@@ -37,7 +38,7 @@ import {
   heredocBodyLines,
   heredocExpansionLines,
   isolateShellChildren,
-  joinContinuations,
+  releaseHookConstructProblem,
   scalarAssignmentEvents,
   segmentShellLine,
   type ShellCommand,
@@ -418,13 +419,12 @@ function startsIfSiblingArm(segment: string): boolean {
  * @param raw - Shell body before lexical child isolation and continuation folding.
  * @param depth - Shared bounded child-recursion depth.
  * @param arithmetic - Inspect only executable children of arithmetic operands.
- * @param workflowHook - A workflow location where publish commands must use supported shell forms.
  * @returns The publish invocations found, in file order.
  */
-function publishInvocationsInShell(source: SourceFile, raw: string, depth = 0, arithmetic = false, workflowHook?: string): PublishInvocation[] {
+function publishInvocationsInShell(source: SourceFile, raw: string, depth = 0, arithmetic = false): PublishInvocation[] {
   if (depth > 8) return [];
   /** Child lexical state is audited separately before parent bindings are expanded. */
-  const isolated = isolateShellChildren(joinContinuations(raw), depth, arithmetic);
+  const isolated = isolateShellChildren(raw, depth, arithmetic);
   /** Original heredoc body positions protect stdin data from array normalization. */
   const originalBodies = heredocBodyLines(isolated.parent.split("\n"));
   /** Fold only supported declarations, retaining their original line count. */
@@ -603,20 +603,17 @@ function publishInvocationsInShell(source: SourceFile, raw: string, depth = 0, a
     }
     return rendered.join("");
   }).join("\n");
-  const found = classifyPublishCommands(source, tokenizeCommands(expanded), workflowHook);
+  const found = classifyPublishCommands(source, tokenizeCommands(expanded));
   for (const child of isolated.children) {
-    found.push(...publishInvocationsInShell(source, child.text, depth + 1, child.arithmetic, workflowHook));
+    found.push(...publishInvocationsInShell(source, child.text, depth + 1, child.arithmetic));
   }
   return found;
 }
 
 /** Classify already separated command words without reinterpreting argv as shell source. */
-function classifyPublishCommands(source: SourceFile, commands: ShellCommand[], workflowHook?: string): PublishInvocation[] {
+function classifyPublishCommands(source: SourceFile, commands: ShellCommand[]): PublishInvocation[] {
   const found: PublishInvocation[] = [];
-  const constructs = workflowHook === undefined ? undefined : releaseCommandConstructs(commands, "workflow");
   for (const command of commands) {
-    const construct = constructs?.get(command);
-    const constructProblem = construct && describeUnsupportedReleaseHook(construct, workflowHook!);
     // Every reading, not just the command's own: a wrapper option that takes a
     // value (`sudo -u root npm publish`) moves the program past where naming it
     // once would look. Missing a publish is a failed audit; offering one that no
@@ -655,7 +652,7 @@ function classifyPublishCommands(source: SourceFile, commands: ShellCommand[], w
       const wrapper = dependencyPublishWrapper(candidate,
         spawnedAsCommand(command) || spawnedAsCommand(candidate));
       if (wrapper !== undefined) {
-        found.push({ file: source.file, program: wrapper, command: candidate, wrapper, ...(constructProblem ? { constructProblem } : {}) });
+        found.push({ file: source.file, program: wrapper, command: candidate, wrapper });
         continue;
       }
       const args = commandArguments(candidate);
@@ -712,7 +709,7 @@ function classifyPublishCommands(source: SourceFile, commands: ShellCommand[], w
       // collapsing them would report one of them as if the other did not exist.
       const unresolvedReason = unresolvedProgram ? "executable expansion"
         : unresolvedArguments ? "publisher arguments from expansion or spawning input" : undefined;
-      found.push({ file: source.file, program, command: candidate, unresolved: unresolvedReason, ...(constructProblem ? { constructProblem } : {}) });
+      found.push({ file: source.file, program, command: candidate, unresolved: unresolvedReason });
     }
   }
   return found;
@@ -1217,7 +1214,7 @@ function wrapperSourceLine(body: ExecutableShellBody, wrapper: string, cursors: 
  */
 function opaquePublishInvocations(source: SourceFile, body: string): PublishInvocation[] {
   const found: PublishInvocation[] = [];
-  const commands = tokenizeCommands(joinContinuations(body));
+  const commands = tokenizeCommands(body);
   const opaqueVariables = new Set<string>();
   for (const command of commands) {
     // A declaration builtin and its option words are not the first
@@ -1271,10 +1268,16 @@ export function publishInvocationsIn(source: SourceFile): PublishInvocation[] {
     const cursors = new Map<string, Iterator<number, undefined>>();
     const hook = !body.disabled && isWorkflowYaml(source.file) ? body.containerJob ?? source.file + ":" + body.line : undefined;
     const invocations = body.argv === undefined
-      ? [...publishInvocationsInShell(source, body.text, 0, false, hook), ...opaquePublishInvocations(source, body.text)]
+      ? [...publishInvocationsInShell(source, body.text), ...opaquePublishInvocations(source, body.text)]
       : publishInvocationsInArgv(source, body.argv);
-    const constructProblem = hook !== undefined && body.containerJob !== undefined
-      ? describeUnsupportedReleaseHook("container job", hook) : undefined;
+    let constructProblem: string | undefined;
+    if (hook && invocations.length) {
+      if (body.containerJob !== undefined) constructProblem = describeUnsupportedReleaseHook("container job", hook);
+      else {
+        const parsed = parseReleaseHook(body.text, "workflow");
+        constructProblem = releaseHookConstructProblem(parsed.commands, body.text, parsed.spans, hook, "workflow")?.problem;
+      }
+    }
     return invocations.map((invocation) => ({
       ...invocation,
       ...(constructProblem ? { constructProblem } : {}),

@@ -31,6 +31,18 @@ Before this fix, release defaults used Node 22.18.0 (bundled npm 10.9.3); caller
 
 `release.yml` delegates to the shared workflow and has no install commands of its own. There are no other npm install commands in the workflow/script corpus. Consumer acceptance subprocesses inherit CI's pinned npm; explicit old-npm refusal controls remain deliberate negative tests. Bun installs continue using Bun.
 
+### Not supported (refused by design)
+
+The pinned fleet contains 142 release hooks and 144 reachable script bodies across 39 manifests. These use direct generators, Node scripts, npm forwarding and Just recipes. One Git bookkeeping hook uses grouped conditionals and redirections. None uses command-position `time`, implicit npm `env`, `printf` or `cat`.
+
+| Construct | Diagnostic | What to do instead |
+| --- | --- | --- |
+| Command-position `time` anywhere in a release hook or participating release or publish step | `release_hook_unsupported_construct` names the step or hook | Remove the prefix or measure the step from the workflow. Argument text such as `echo time` is supported. |
+| `npm run env` without an explicit nonempty script, or an absent `--if-present` target as the only notes renderer | `release_hook_unsupported_construct` names the hook | Declare a renderer in the manifest. Put unrelated diagnostics in their own workflow step. |
+| Any `printf` or `cat` command in a package release hook, including literal logging and here-documents | `release_hook_unsupported_construct` names the command and hook | Move logging or input handling into a committed script. |
+| A dynamic word in a custom renderer's option position | `release_hook_unsupported_construct` names the hook | Use literal option names and pass dynamic data as a known option's value. |
+| Changelog or receipt destination with a symlink component, multiple hard links, a non-file target, or colliding receipt names | The error names the path and reason | Choose distinct filenames below existing real directories. An absent file or regular file with one link is supported. |
+
 ## Inventory
 
 Snapshot: 2026-10-19, freshly fetched `origin/main`. Each readable workflow was read with `git show origin/main:.github/workflows/release.yml` and hashed as raw bytes with MD5. The expected 29 large copies are not the current eligible corpus: **28** package workflows are readable, `pm-observer` has no workflow, and `pm-memory` has no fetchable origin. The core pm-cli repository is outside the authorized scope. No consumer checkout was edited. Several workflows have 134–626 lines, rather than 850–1,050.

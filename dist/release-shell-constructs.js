@@ -3,12 +3,14 @@
 export function unsupportedReleaseConstruct(construct, scope, shell = "bash") {
     if (construct === "pipefail")
         return shell === "sh";
-    return construct === "time prefix" || (construct === "container job" ? scope === "workflow" : scope === "hook");
+    return construct === "container job" ? scope === "workflow" : scope === "hook";
 }
 /** Stable diagnostic code for package hook grammar refusals. */
 export const UNSUPPORTED_RELEASE_HOOK = "release_hook_unsupported_construct";
 /** Report a grammar refusal with owning hook and migration advice. */
 export function describeUnsupportedReleaseHook(construct, hook) {
+    if (construct === "time prefix")
+        construct += " is not supported in release hooks or publish steps; remove it or time the step from the workflow";
     return `${UNSUPPORTED_RELEASE_HOOK}: ${construct} in hook ${JSON.stringify(hook)}. Simplify the hook to the supported forms, or move the logic into a script file.`;
 }
 /** A shell prefix requires an unquoted identifier. The env utility accepts any nonempty name. */
@@ -16,7 +18,7 @@ export function isShellAssignment(word, utility = false) {
     if (utility)
         return /^[^=]+=/.test(word.value);
     const raw = literalWords.get(word);
-    return /^[A-Za-z_]\w*\+?=/.test(raw === undefined ? word.startsQuoted ? "" : word.value : raw.replaceAll("\\\n", ""));
+    return /^[A-Za-z_]\w*\+?=/.test(raw === undefined ? word.startsQuoted ? "" : word.value : raw);
 }
 /** Whether a backslash introduces an escape inside double quotes. */
 export function isDoubleQuotedShellEscape(next) {
@@ -56,58 +58,40 @@ export function readShellCaseWord(stack, value, literal, commandStart) {
     return undefined;
 }
 const literalWords = new WeakMap();
-const pipedToNext = new WeakSet();
-const timedGroupCommands = new WeakSet();
 /** Shell control prefixes that can be followed by a reserved word. */
 const CONTROL_PREFIX = /^(?:\(+|\{|!|if|then|elif|else|do|while|until)$/;
 /** Recognize a standalone brace reserved word at a command boundary. */
 export function isReleaseGroupBrace(brace, words) {
     if (brace === "}")
         return words.length === 0;
-    const source = words.map(word => literalWords.get(word)?.replaceAll("\\\n", ""));
+    const source = words.map(word => literalWords.get(word));
     // Bash accepts a function header with no parentheses before the group.
     const prefix = source.at(-2) === "function" ? source.slice(0, -2) : source;
-    return prefix.every(raw => raw !== undefined && (CONTROL_PREFIX.test(raw) || raw === "time" || raw === "-p" && hasReleaseTiming(words)));
+    return prefix.every(raw => raw !== undefined && CONTROL_PREFIX.test(raw));
 }
-/** Whether a command is governed by a timing prefix, directly or through a group. */
-export function hasReleaseTiming(command) {
-    return timedGroupCommands.has(command) || unsupportedReleaseCommand(command.map(word => literalWords.get(word)), "workflow") === "time prefix";
-}
-/** Associate commands with a timing prefix outside their compound command. */
-export function recordTimedReleaseGroup(command) {
-    timedGroupCommands.add(command);
-}
-/** Preserve physical words even for commands reconstructed inside an evaluator. */
+/** Preserve lexical spelling before quote removal, including words inside an evaluator. */
 export function recordReleaseShellWord(word, raw) {
     literalWords.set(word, raw);
 }
-/** Record when the next command is a stage of the same shell pipeline. */
-export function recordReleasePipeline(words) {
-    pipedToNext.add(words);
-}
-/** Apply the same construct rules and pipeline scope to every shell reader. */
-export function releaseCommandConstructs(commands, scope, rawWord) {
+/** Classify lexical command prefixes without tracking their execution scopes. */
+export function releaseCommandConstructs(commands, scope) {
     const problems = new Map();
-    let pipelineProblem;
     for (const command of commands) {
         const source = command.filter(word => !word.releaseKeyword);
-        const physical = rawWord && source.map(rawWord);
-        const words = physical?.every(word => word !== undefined) ? physical : source.map(word => literalWords.get(word));
-        const construct = pipelineProblem ?? (timedGroupCommands.has(command) ? "time prefix" : unsupportedReleaseCommand(words, scope));
+        const words = source.map(word => literalWords.get(word));
+        const construct = unsupportedReleaseCommand(words, scope);
         if (construct)
             problems.set(command, construct);
-        pipelineProblem = pipedToNext.has(command) ? construct : undefined;
     }
     return problems;
 }
 /** Find an unsupported reserved word in unquoted command position. */
 function unsupportedReleaseCommand(words, scope) {
     let negation;
-    for (const word of words) {
-        if (word === undefined)
+    for (const raw of words) {
+        if (raw === undefined)
             break;
-        const raw = word.replaceAll("\\\n", "");
-        if (/^\(*time$/.test(raw) && unsupportedReleaseConstruct("time prefix", scope))
+        if (/^\(*time$/.test(raw))
             return "time prefix";
         if (/^\(*!$/.test(raw)) {
             if (unsupportedReleaseConstruct("shell negation", scope))
@@ -140,8 +124,7 @@ export function readShellLogicalLine(text, start, joins) {
         if (!joins(line) || newline < 0)
             return { value: value + line, end, lines };
         value += line.slice(0, -1);
-    } while (end < text.length);
-    return { value, end, lines };
+    } while (true);
 }
 /** An odd final backslash escapes the newline after the literal pairs. */
 export function hasShellContinuation(line) {

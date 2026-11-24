@@ -20,6 +20,8 @@ import { parseReleaseHook } from "../release-hook-grammar.ts";
 import { withoutRedirections } from "../shell-scan.ts";
 import { assertReleaseHeadingDate, includeEmptyReleaseSections, optionPositions, resolveChangelogHooks, rewriteReleaseHeadingDate, rewriteReleaseHookDates } from "../release-changelog-options.ts";
 
+/** Ordinary receipt fixtures start below a real directory even on a system with a linked temp root. */
+const temporaryRoot = fs.realpathSync(tmpdir());
 /** Read the actual repository commands so reverting their policy breaks the proof. */
 const scripts = (JSON.parse(readFileSync(resolve("package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
 /** Tags deliberately include consecutive empty windows and a same-day suffix. */
@@ -33,7 +35,7 @@ function versions(markdown: string): string[] {
 
 /** Initialize a real tracker outside Git, with explicit isolated CLI settings. */
 function tracker(prefix = "changelog-sections-"): { root: string; env: NodeJS.ProcessEnv } {
-  const root = mkdtempSync(join(tmpdir(), prefix));
+  const root = mkdtempSync(join(temporaryRoot, prefix));
   const env = { ...process.env, PM_PATH: join(root, ".agents/pm"), PM_AUTHOR: "fixture-agent", GIT_CEILING_DIRECTORIES: dirname(root) };
   execFileSync(process.execPath, [pm, "init", "--defaults", "--agent-guidance", "skip", "--prefix", "sample"], { cwd: root, env });
   writeFileSync(join(root, "package.json"), JSON.stringify({ name: "sample-changelog", version: "2026.10.22" }));
@@ -166,7 +168,7 @@ function fixtureScriptShell(): string {
 }
 
 test("workflow npm uses the fixture shell even with inherited script-shell aliases", t => {
-  const root = mkdtempSync(join(tmpdir(), "release-fixture-shell-"));
+  const root = mkdtempSync(join(temporaryRoot, "release-fixture-shell-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   writeFileSync(join(root, "package.json"), JSON.stringify({ name: "fixture", scripts: { reset: "echo root" } }));
   for (const name of ["NPM_CONFIG_SCRIPT_SHELL", "npm_config_script-shell", "NpM_CoNfIg_ScRiPt_ShElL"]) {
@@ -564,7 +566,7 @@ test("package changelog entry points retain published dependency updates", () =>
 });
 
 test("custom notes keep the saved option before shell terminators and comments", t => {
-  const root = mkdtempSync(join(tmpdir(), "custom-notes-shell-"));
+  const root = mkdtempSync(join(temporaryRoot, "custom-notes-shell-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const manifest = join(root, "package.json");
   const env = releaseStepEnv(root, process.env);
@@ -601,7 +603,7 @@ test("custom notes keep the saved option before shell terminators and comments",
 });
 
 test("custom notes receive the saved argument through npm independently of pre/post generators", t => {
-  const root = mkdtempSync(join(tmpdir(), "custom-notes-argv-"));
+  const root = mkdtempSync(join(temporaryRoot, "custom-notes-argv-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const manifest = join(root, "package.json");
   const inherited = { ...process.env, npm_config_ignore_scripts: "false", NPM_CONFIG_IGNORE_SCRIPTS: "true" };
@@ -651,7 +653,7 @@ test("custom notes receive the saved argument through npm independently of pre/p
 });
 
 test("preparation keeps a status-only changelog check and routes the flag to a renderer", t => {
-  const root = mkdtempSync(join(tmpdir(), "status-only-changelog-"));
+  const root = mkdtempSync(join(temporaryRoot, "status-only-changelog-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const env = isolatedNpmReleaseEnv(root, process.env);
   const prepare = [resolve("scripts/prepare-release-changelog.ts")];
@@ -679,11 +681,11 @@ test("preparation keeps a status-only changelog check and routes the flag to a r
 });
 
 test("a notes generator pipes its output through filters without forwarding generator options to them", t => {
-  const root = mkdtempSync(join(tmpdir(), "notes-pipeline-"));
+  const root = mkdtempSync(join(temporaryRoot, "notes-pipeline-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const env = releaseStepEnv(root, process.env);
   const generator = "node pm-changelog.ts --release-version-from-package --date-from-version --stdout";
-  const pipeline = generator + " | cat | head -n 1";
+  const pipeline = generator + " | head -n 1";
   writeFileSync(join(root, "pm-changelog.ts"), 'console.log(JSON.stringify(process.argv.slice(2)));');
   for (const main of [pipeline, "npm run writer"]) {
     const scripts = { "release:notes": main, "changelog:full": "# skip", "changelog:check": "# skip", writer: pipeline };
@@ -693,8 +695,7 @@ test("a notes generator pipes its output through filters without forwarding gene
     const prepared = JSON.parse(readFileSync(manifest, "utf8")).scripts;
     const changed = pipeline.replace(generator, generator + " --include-empty");
     assert.equal(prepared["release:notes"], main === pipeline ? changed : main);
-    const result = runBashFixture(main === pipeline ? prepared["release:notes"] : prepared.writer,
-      { cwd: root, encoding: "utf8", env });
+    const result = spawnSync(process.execPath, npmRunArgs("release:notes", "--silent"), { cwd: root, encoding: "utf8", env: { ...env, npm_config_loglevel: "silent" } });
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout), [...generator.split(" ").slice(2), "--include-empty"]);
   }
@@ -838,7 +839,7 @@ test("a resumed release passes preparation, continuation and post-tag checks acr
 });
 
 test("preparation and continuation audit the generator reached through Bun and pnpm forwards", () => {
-  const root = mkdtempSync(join(tmpdir(), "bun-hook-forward-"));
+  const root = mkdtempSync(join(temporaryRoot, "bun-hook-forward-"));
   try {
     const day = "2026-10-24";
     const filename = join(root, "package.json");
@@ -897,7 +898,7 @@ test("Bun execution switches preserve direct generator detection and package scr
 });
 
 test("prepare pins forwarded options and continuation refuses their stale merge day", () => {
-  const root = mkdtempSync(join(tmpdir(), "forwarded-heading-"));
+  const root = mkdtempSync(join(temporaryRoot, "forwarded-heading-"));
   try {
     const day = "2026-11-17";
     const filename = join(root, "package.json");
@@ -1033,7 +1034,7 @@ test("preparation refuses a stale all-tags cutoff without writing any hooks", ()
 });
 
 test("preparation keeps custom fallback renderers with an existing empty-section option", t => {
-  const root = mkdtempSync(join(tmpdir(), "release-prepared-fallback-"));
+  const root = mkdtempSync(join(temporaryRoot, "release-prepared-fallback-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const env = isolatedNpmReleaseEnv(root, process.env);
   const manifest = join(root, "package.json");
@@ -1120,7 +1121,7 @@ test("preparation rewrites every date policy without consuming a following flag"
       [`--date-fallback${separator}${quote}2026-10-22${quote}`, "", "--date-from-version"],
     ])),
   ]) {
-    const root = mkdtempSync(join(tmpdir(), "hook-policy-"));
+    const root = mkdtempSync(join(temporaryRoot, "hook-policy-"));
     try {
       const call = (flag: string) => `timeout --signal=KILL 5m pm-changelog --release-version-from-package --include-empty ${flag}`;
       const hooks = {
@@ -1185,7 +1186,7 @@ test("preparation skips changelog lookup guards while preserving executing wrapp
 });
 
 test("preparation adds empty-section policy to each generator and preserves shell text", () => {
-  const root = mkdtempSync(join(tmpdir(), "hook-empty-policy-"));
+  const root = mkdtempSync(join(temporaryRoot, "hook-empty-policy-"));
   try {
     const path = join(root, "package.json");
     const hooks = {
@@ -1209,7 +1210,7 @@ test("preparation adds empty-section policy to each generator and preserves shel
 });
 
 test("preparation follows two forwards and keeps an already-flagged shared generator unchanged", () => {
-  const root = mkdtempSync(join(tmpdir(), "hook-forward-policy-"));
+  const root = mkdtempSync(join(temporaryRoot, "hook-forward-policy-"));
   try {
     const path = join(root, "package.json");
     const env = releaseStepEnv(root, process.env);
@@ -1236,7 +1237,7 @@ test("preparation follows two forwards and keeps an already-flagged shared gener
 
 test("preparation refuses unresolved, cyclic and overlong forwards before writing the manifest", () => {
   assert.throws(() => resolveChangelogHooks(undefined, ["changelog:full"]), /Missing changelog hook: changelog:full/);
-  const root = mkdtempSync(join(tmpdir(), "hook-forward-refusal-"));
+  const root = mkdtempSync(join(temporaryRoot, "hook-forward-refusal-"));
   try {
     const path = join(root, "package.json");
     const env = releaseStepEnv(root, process.env);
@@ -1287,7 +1288,8 @@ test("the publication heading check validates standing calendar coordinates with
 test("preparation refuses an unresolved option instead of erasing the substitution", () => {
   const command = 'pm-changelog --release-version-from-package --date-fallback$(printf x) 2026-11-16';
   for (const day of ["2026-11-17", ""]) {
-    assert.throws(() => rewriteReleaseHeadingDate(command, day), /unresolved option word/i);
+    assert.throws(() => rewriteReleaseHeadingDate(command, day), /unsupported_construct:.*printf/);
+    assert.throws(() => rewriteReleaseHeadingDate(command.replace("printf", "echo"), day), /unresolved option word/i);
   }
 });
 
@@ -1300,7 +1302,7 @@ test("preparation preserves a quoted expansion in a non-date option value", () =
 test("shared date restoration distinguishes printed forwards from executable callers", () => {
   const base = { release: "npm run changes -- 2026-11-16", changes: "pm-changelog --date-fallback" };
   const restore = (help: string) => rewriteReleaseHookDates(new Map(Object.entries({ ...base, help })), ["release"], "");
-  for (const help of ["echo npm run changes", 'env TITLE=x printf "%s" "npm run changes"', "command -v npm run changes", "TITLE=example"]) {
+  for (const help of ["echo npm run changes", 'env TITLE=x echo "npm run changes"', "command -v npm run changes", "TITLE=example"]) {
     assert.equal(restore(help).get("changes"), "pm-changelog --date-from-version");
   }
   for (const caller of ["command npm run changes", "echo npm run changes; npm run changes", 'echo "$(npm run changes)"']) {
@@ -1309,7 +1311,7 @@ test("shared date restoration distinguishes printed forwards from executable cal
 });
 
 test("shared writers keep preview date operands and refuse an incompatible restore before writing", () => {
-  const root = mkdtempSync(join(tmpdir(), "shared-heading-"));
+  const root = mkdtempSync(join(temporaryRoot, "shared-heading-"));
   try {
     const manifest = join(root, "package.json");
     const scripts = { release: "npm run changes -- 2026-11-16", preview: "npm run changes -- 2026-10-01", changes: "pm-changelog --date-fallback" };
@@ -1346,7 +1348,7 @@ test("shared writers keep preview date operands and refuse an incompatible resto
 });
 
 test("mixed generation and check hooks deliver the saved option to their finishing program", t => {
-  const root = mkdtempSync(join(tmpdir(), "mixed-release-hooks-"));
+  const root = mkdtempSync(join(temporaryRoot, "mixed-release-hooks-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const env = releaseStepEnv(root, process.env);
   const generator = "node pm-changelog.ts --release-version-from-package --date-from-version";
@@ -1364,7 +1366,7 @@ test("mixed generation and check hooks deliver the saved option to their finishi
 });
 
 test("prepared lifecycle and notes hooks pass include-empty to a caller-supplied generator entrypoint", t => {
-  const root = mkdtempSync(join(tmpdir(), "forwarded-generator-entry-"));
+  const root = mkdtempSync(join(temporaryRoot, "forwarded-generator-entry-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const manifest = join(root, "package.json");
   const env = { ...isolatedNpmReleaseEnv(root, process.env), npm_config_ignore_scripts: "false" };
@@ -1410,7 +1412,7 @@ test("prepared lifecycle and notes hooks pass include-empty to a caller-supplied
 });
 
 test("generation refuses lifecycle drift and preserves nested npm behavior under a stable policy", t => {
-  const root = mkdtempSync(join(tmpdir(), "prepared-notes-policy-"));
+  const root = mkdtempSync(join(temporaryRoot, "prepared-notes-policy-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const config = join(root, "user.npmrc");
   const env = releaseStepEnv(root, { ...process.env, "NpM_cOnFiG_Ignore-Scripts": "true", NPM_CONFIG_IGNORE_SCRIPTS: "true" });
@@ -1446,7 +1448,7 @@ test("generation refuses lifecycle drift and preserves nested npm behavior under
 });
 
 test("generation detects drift in the nested npm fallback with the active setting held fixed", t => {
-  const root = mkdtempSync(join(tmpdir(), "prepared-npm-fallback-"));
+  const root = mkdtempSync(join(temporaryRoot, "prepared-npm-fallback-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const env = isolatedNpmReleaseEnv(root, process.env);
   const config = env.NPM_CONFIG_USERCONFIG!;
@@ -1483,7 +1485,7 @@ test("generation detects drift in the nested npm fallback with the active settin
 });
 
 test("notes preparation requires a definite nested lifecycle after a helper runs", t => {
-  const root = mkdtempSync(join(tmpdir(), "prepared-notes-nested-"));
+  const root = mkdtempSync(join(temporaryRoot, "prepared-notes-nested-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const env = isolatedNpmReleaseEnv(root, process.env);
   writeFileSync(join(root, ".npmrc"), "ignore-scripts=true\n");
@@ -1533,7 +1535,7 @@ test("Round GQ fixture commands decode quoted flags and operands", () => {
 });
 
 test("Round GS preparation preserves its manifest when the lifecycle receipt cannot be written", t => {
-  const root = mkdtempSync(join(tmpdir(), "release-preparation-receipt-"));
+  const root = mkdtempSync(join(temporaryRoot, "release-preparation-receipt-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const manifest = join(root, "package.json");
   const writer = "pm-changelog --release-version-from-package --date-from-version";
@@ -1545,7 +1547,7 @@ test("Round GS preparation preserves its manifest when the lifecycle receipt can
   const env = { ...releaseStepEnv(root, process.env, "2026-11-23"), npm_config_ignore_scripts: "true" };
   const refused = spawnSync(process.execPath, [prepare, root], { cwd: root, env, encoding: "utf8" });
   assert.equal(refused.status, 1);
-  assert.match(refused.stderr, /EISDIR|EPERM|EACCES/);
+  assert.match(refused.stderr, /expected regular file/);
   assert.equal(readFileSync(manifest, "utf8"), original);
 
   const receipt = join(root, "step-outputs");
@@ -1577,7 +1579,7 @@ test("Round GS GitHub output failure preserves the existing changelog", t => {
   const original = "# Changelog\n\nOriginal changelog.\n";
   const cli = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22"];
   writeFileSync(destination, original);
-  assert.throws(() => runChangelog([...cli, "--json", "--github-output"], root, { ...env, GITHUB_OUTPUT: root }), /EISDIR|EPERM|EACCES/);
+  assert.throws(() => runChangelog([...cli, "--json", "--github-output"], root, { ...env, GITHUB_OUTPUT: root }), /expected regular file/);
   assert.equal(readFileSync(destination, "utf8"), original);
 
   const step = join(root, "step-output");
@@ -1643,7 +1645,7 @@ test("Round GQ GitHub file outputs report the written changelog", t => {
 });
 
 test("Round GQ forwarded custom renderers receive exactly one include-empty option", t => {
-  const root = mkdtempSync(join(tmpdir(), "release-custom-renderer-"));
+  const root = mkdtempSync(join(temporaryRoot, "release-custom-renderer-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const manifest = join(root, "package.json");
   const env = isolatedNpmReleaseEnv(root, process.env);
@@ -1699,11 +1701,11 @@ test("Round GU failed changelog creation leaves existing GitHub receipts intact"
   const cli = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22",
     "--github-output", "--github-step-summary", "-o", "missing/CHANGELOG.md"];
   const receiptEnv = { ...env, GITHUB_OUTPUT: receipt, GITHUB_STEP_SUMMARY: summary };
-  assert.throws(() => runChangelog(cli, root, receiptEnv), /ENOENT/);
+  assert.throws(() => runChangelog(cli, root, receiptEnv), /missing.*expected real directory/);
   assert.equal(readFileSync(receipt, "utf8"), "previous=value\n");
   assert.equal(readFileSync(summary, "utf8"), "Previous summary\n");
   mkdirSync(join(root, "missing"));
-  assert.throws(() => runChangelog(cli, root, { ...receiptEnv, GITHUB_OUTPUT: root }), /EISDIR|EPERM|EACCES/);
+  assert.throws(() => runChangelog(cli, root, { ...receiptEnv, GITHUB_OUTPUT: root }), /expected regular file/);
   assert.equal(existsSync(join(root, "missing", "CHANGELOG.md")), false);
   assert.equal(readFileSync(summary, "utf8"), "Previous summary\n");
   assert.equal(runChangelog(cli, root, receiptEnv), 0);
@@ -1759,7 +1761,7 @@ test("Round HA the fixture preserves option-shaped title operands", () => {
 });
 
 test("Round HA a staging cleanup error cannot undo committed receipts", t => {
-  const root = mkdtempSync(join(tmpdir(), "release-receipt-cleanup-"));
+  const root = mkdtempSync(join(temporaryRoot, "release-receipt-cleanup-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const changelog = join(root, "CHANGELOG.md");
   const summary = join(root, "summary");
@@ -1784,13 +1786,13 @@ test("Round HA a staging cleanup error cannot undo committed receipts", t => {
   for (const file of [summary, output]) assert.equal(readFileSync(file, "utf8"), "old\nnew\n");
   assert.throws(() => writeFileWithReceipts(changelog, "retry\n", () => appendReleaseReceipts([
     { path: summary, text: "retry\n" }, { path: root, text: "retry\n" },
-  ])), /EISDIR|EPERM|EACCES/);
+  ])), /expected regular file/);
   assert.equal(readFileSync(changelog, "utf8"), "new\n");
   assert.equal(readFileSync(summary, "utf8"), "old\nnew\n");
 });
 
 test("Round HA preparation refuses shell pipefail before editing the manifest", t => {
-  const root = mkdtempSync(join(tmpdir(), "release-hook-pipefail-"));
+  const root = mkdtempSync(join(temporaryRoot, "release-hook-pipefail-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const manifest = join(root, "package.json");
   const command = "node notes.mjs";
@@ -1822,14 +1824,18 @@ test("Round HA preparation refuses shell pipefail before editing the manifest", 
   assert.equal(prepare("set -u; ").result.status, 0);
   assert.equal(npmScriptShell("null", "win32"), "cmd.exe");
   assert.equal(npmScriptShell("null", "win32", "custom.cmd"), "custom.cmd");
-  assert.equal(npmScriptShell("null", "linux"), "sh");
-  const defaultShell = process.platform !== "win32" && spawnSync("sh", ["-c", "set -o pipefail"], { stdio: "ignore" }).status === 0;
   const globalConfig = join(root, "global.npmrc");
   writeFileSync(globalConfig, "script-shell=" + (process.platform === "win32" ? fixtureScriptShell().replaceAll("\\", "/") : "/bin/bash") + "\n");
   const configured = { ...env, NPM_CONFIG_GLOBALCONFIG: globalConfig };
   const noOverride = { npm_config_script_shell: undefined };
   const fallback = isolatedNpmReleaseEnv(root, configured);
+  delete fallback.npm_config_script_shell;
   assert.equal(prepare("set -o pipefail; ", unavailable, noOverride, configured).result.status, 0);
+  const shadowBin = join(root, "node_modules", ".bin");
+  mkdirSync(shadowBin, { recursive: true });
+  if (process.platform !== "win32") writeFileSync(join(shadowBin, "sh"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  writeFileSync(manifest, JSON.stringify({ scripts: { probe: "set -o pipefail" } }));
+  const defaultShell = spawnSync(process.execPath, [npmCli(), "run", "--silent", "probe"], { cwd: root, env: fallback, stdio: "ignore" }).status === 0;
   const unconfigured = prepare("set -o pipefail; ", unavailable, noOverride, fallback);
   assert.equal(unconfigured.result.status, defaultShell ? 0 : 1, unconfigured.result.stderr);
   if (process.platform !== "win32") {
@@ -1884,14 +1890,15 @@ test("Round HC release receipts cannot alias the manifest or changelog", t => {
         throw error;
       }
     }
-    assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: receipt }), /same file|alias/i);
-    assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: receipt, GITHUB_OUTPUT: summary }), /same file|alias/i);
+    assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: receipt }), /CHANGELOG.md.*multiple hard links/i);
+    assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: receipt, GITHUB_OUTPUT: summary }), /CHANGELOG.md.*multiple hard links/i);
     assert.equal(readFileSync(path, "utf8"), original);
     assert.equal(readFileSync(summary, "utf8"), "prior");
   }
   assert.throws(() => runChangelog([...args, "--stdout", "--json"], root,
-    { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: path }), /same file|alias/i);
+    { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: path }), /CHANGELOG.md.*multiple hard links/i);
   assert.equal(readFileSync(path, "utf8"), original);
+  rmSync(hardlink);
   const manifest = join(root, "package.json");
   const manifestText = JSON.stringify({ scripts: { notes: "node notes.mjs", check: "true" } });
   writeFileSync(manifest, manifestText);
@@ -1919,14 +1926,14 @@ test("Round HC a dangling receipt symlink cannot become an alias after changelog
     return t.skip("Windows symlink creation requires privilege");
   }
   const args = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22", "--github-step-summary"];
-  assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: receipt }), /same file|alias/i);
+  assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: receipt }), /step-summary.*symlink/i);
   assert.equal(existsSync(release), false);
   assert.equal(lstatSync(receipt).isSymbolicLink(), true);
   const second = join(root, "another-receipt");
   symlinkSync("step-summary", second, "file");
   rmSync(receipt);
   symlinkSync("another-receipt", receipt, "file");
-  assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: receipt }), /symlink cycle/i);
+  assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: receipt }), /step-summary.*symlink/i);
   assert.equal(existsSync(release), false);
 });
 
@@ -1974,8 +1981,8 @@ test("Round HC fixture argument quoting preserves literal titles with Windows pa
   }
 });
 
-test("Round HE receipt writes preserve a dangling changelog symlink on success and rollback", t => {
-  const root = mkdtempSync(join(tmpdir(), "release-receipt-link-"));
+test("Round HE receipt writes refuse a dangling changelog symlink before staging", t => {
+  const root = mkdtempSync(join(temporaryRoot, "release-receipt-link-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const changelog = join(root, "CHANGELOG.md");
   const target = join(root, "docs", "CHANGELOG.md");
@@ -1984,33 +1991,22 @@ test("Round HE receipt writes preserve a dangling changelog symlink on success a
     if (process.platform === "win32" && (error as NodeJS.ErrnoException).code === "EPERM") return t.skip("file symlinks require privileges");
     throw error;
   }
-  assert.throws(() => writeFileWithReceipts(changelog, "candidate\n", () => {
+  let called = false;
+  for (const contents of ["candidate\n", "committed\n"]) {
+    assert.throws(() => writeFileWithReceipts(changelog, contents, () => { called = true; }), /CHANGELOG.md.*symlink/);
     assert.equal(lstatSync(changelog).isSymbolicLink(), true);
-    assert.equal(readFileSync(target, "utf8"), "candidate\n");
-    throw new Error("fixture receipt failure");
-  }), /fixture receipt failure/);
-  assert.equal(lstatSync(changelog).isSymbolicLink(), true);
-  assert.equal(existsSync(target), false);
-  writeFileWithReceipts(changelog, "committed\n", () => {});
-  assert.equal(lstatSync(changelog).isSymbolicLink(), true);
-  assert.equal(readFileSync(target, "utf8"), "committed\n");
+    assert.equal(existsSync(target), false);
+    assert.equal(called, false);
+  }
 });
 
-test("Round HE receipt aliases are checked again after the changelog is installed", t => {
+test("Round HE receipt name collisions are refused before the changelog is installed", t => {
   const { root, env } = tracker();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const changelog = join(root, "CHANGELOG.md");
   const alias = join(root, "changelog.md");
   const summary = join(root, "summary.md");
   const summaryAlias = join(root, "Summary.md");
-  const aliases = new Map([[alias, changelog], [summaryAlias, summary]]);
-  // Simulate an alternate filesystem spelling that becomes visible on install.
-  const realExists = fs.existsSync;
-  const realPath = fs.realpathSync;
-  const exists = t.mock.method(fs, "existsSync", (file: fs.PathLike) => realExists(aliases.get(String(file)) ?? file));
-  const realpath = t.mock.method(fs, "realpathSync", (file: fs.PathLike) => realPath(aliases.get(String(file)) ?? file));
-  syncBuiltinESMExports();
-  t.after(() => { exists.mock.restore(); realpath.mock.restore(); syncBuiltinESMExports(); });
   const args = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22", "--github-step-summary", "--github-output"];
   assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: summaryAlias }), /same file/);
   assert.equal(existsSync(changelog), false);
@@ -2019,11 +2015,93 @@ test("Round HE receipt aliases are checked again after the changelog is installe
   assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: alias }), /same file/);
   assert.equal(existsSync(changelog), false);
   assert.equal(readFileSync(summary, "utf8"), "prior");
-  exists.mock.restore();
-  realpath.mock.restore();
-  syncBuiltinESMExports();
   const distinct = join(root, "output");
   assert.equal(runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: distinct }), 0);
   assert.match(readFileSync(changelog, "utf8"), /^# Changelog/);
   assert.match(readFileSync(distinct, "utf8"), /action=created/);
+});
+
+test("HF prepend checks links in the retained title", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = join(root, "CHANGELOG.md");
+  const base = "https://example.invalid/tracker";
+  const args = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22", "--item-url-base", base];
+  const title = "[dropped](" + base + "/missing.toon)";
+  const history = "# Retained\n\n## Older\n\nHistory.\n";
+  for (const mode of [["--mode=prepend"], ["--mode", "prepend"]]) {
+    writeFileSync(file, history);
+    assert.equal(runChangelog([...args, ...mode, "--check-links", "--title", title], root, env), 0);
+    assert.doesNotMatch(readFileSync(file, "utf8"), /missing.toon/);
+    assert.throws(() => runChangelog([...args, "--check-links", "--title", title], root, env), /missing.toon/);
+  }
+  const prior = readFileSync(file, "utf8");
+  assert.throws(() => runChangelog([...args.slice(0, -2), "--mode=prepend", "--check-links"], root, env), /requires --item-url-base/);
+  assert.equal(readFileSync(file, "utf8"), prior);
+});
+
+test("HF step summary receives Markdown with either stdout format", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const summary = join(root, "summary");
+  const args = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22"];
+  for (const extra of [[], ["--json"]]) {
+    writeFileSync(summary, "prior\n");
+    const stdout = execFileSync(process.execPath, [resolve("scripts/pm-changelog.ts"), ...args, "--mode", "prepend", "--stdout", "--github-step-summary", ...extra],
+      { cwd: root, env: { ...env, GITHUB_STEP_SUMMARY: summary }, encoding: "utf8" });
+    assert.equal(readFileSync(summary, "utf8"), "prior\n" + (extra.length ? JSON.parse(stdout).markdown : stdout));
+  }
+  writeFileSync(summary, "prior\n");
+  const structured = execFileSync(process.execPath, [resolve("scripts/pm-changelog.ts"), ...args, "--stdout", "--changelog-json", "--github-step-summary"],
+    { cwd: root, env: { ...env, GITHUB_STEP_SUMMARY: summary }, encoding: "utf8" });
+  assert.doesNotThrow(() => JSON.parse(structured));
+  assert.equal(readFileSync(summary, "utf8"), "prior\n");
+});
+
+test("HF receipts reject independent hard links without modifying either name", t => {
+  const root = mkdtempSync(join(temporaryRoot, "receipt-path-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = join(root, "CHANGELOG.md");
+  let receipts = 0;
+  const write = (target: string) => writeFileWithReceipts(target, "new", () => { receipts++; });
+  assert.throws(() => writeFileWithReceipts(file, "new", () => { throw new Error("receipt delivery failed"); }), /receipt delivery failed/);
+  assert.equal(existsSync(file), false);
+  writeFileSync(file, "old");
+  const link = join(root, "release-notes.md");
+  linkSync(file, link);
+  assert.throws(() => write(file), /CHANGELOG.md.*link/i);
+  assert.equal(readFileSync(link, "utf8"), "old");
+  assert.equal(lstatSync(file).nlink, 2);
+  rmSync(link);
+  assert.equal(receipts, 0);
+  write(file);
+  assert.equal(receipts, 1);
+});
+
+test("HF directory symlinks before dot-dot and dangling targets refuse every receipt", t => {
+  const root = mkdtempSync(join(temporaryRoot, "receipt-directory-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = join(root, "CHANGELOG.md");
+  const sent: string[] = [];
+  const write = (target: string) => writeFileWithReceipts(target, "new", () => { sent.push(target); });
+  mkdirSync(join(root, "docs", "deep"), { recursive: true });
+  symlinkSync(join(root, "docs", "deep"), join(root, "jump"), "junction");
+  const dotted = join(root, "jump") + sep + ".." + sep + "notes.md";
+  assert.throws(() => write(dotted), /jump.*symlink/i);
+  assert.throws(() => write(dotted.replace("jump" + sep, "jump" + sep + sep)), /jump.*symlink/i);
+  assert.equal(existsSync(join(root, "notes.md")), false);
+  assert.equal(existsSync(join(root, "docs", "notes.md")), false);
+  try { symlinkSync("jump/../notes.md", file, "file"); } catch (error) {
+    if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+  }
+  if (lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) {
+    assert.throws(() => write(file), /CHANGELOG.md.*symlink/);
+    assert.equal(existsSync(join(root, "notes.md")), false);
+    assert.equal(existsSync(join(root, "docs", "notes.md")), false);
+    rmSync(file);
+  }
+  assert.deepEqual(sent, []);
+  write(file);
+  assert.equal(readFileSync(file, "utf8"), "new");
+  assert.deepEqual(sent, [file]);
 });

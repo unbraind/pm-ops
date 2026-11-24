@@ -29,7 +29,7 @@ export declare function refuseHook(construct: string): never;
 /** Describe a context the release manifest cannot represent. */
 export declare function describeReleaseContextChange(construct: string): string;
 /** Split only on unquoted shell list operators. Never execute or recursively guess a payload. */
-export declare function parseReleaseHook(text: string, scope?: ReleaseShellScope): {
+export declare function parseReleaseHook(source: string, scope?: ReleaseShellScope): {
     commands: ShellCommand[];
     spans: WeakMap<ShellToken, ShellTokenSpan>;
     heredocBodies: Map<ShellCommand, ShellToken>;

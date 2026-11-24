@@ -2,7 +2,7 @@
 /** The environments in which release shell source is inspected. */
 export type ReleaseShellScope = "hook" | "workflow";
 /** Shell features whose support depends on their execution context. */
-type ReleaseConstruct = "case arms" | "shell negation" | "pipefail" | "time prefix" | "container job";
+type ReleaseConstruct = "case arms" | "shell negation" | "pipefail" | "container job";
 /** Identify a construct outside the grammar in its current execution context. */
 export declare function unsupportedReleaseConstruct(construct: ReleaseConstruct, scope: ReleaseShellScope, shell?: string): boolean;
 /** Stable diagnostic code for package hook grammar refusals. */
@@ -24,18 +24,12 @@ export declare function inShellCasePattern(state: ShellCaseState | undefined): b
 export declare function readShellCaseWord(stack: ShellCaseState[], value: string, literal: boolean, commandStart: boolean): "open" | "header" | "pattern" | "close" | undefined;
 /** Recognize a standalone brace reserved word at a command boundary. */
 export declare function isReleaseGroupBrace(brace: string, words: readonly object[]): boolean;
-/** Whether a command is governed by a timing prefix, directly or through a group. */
-export declare function hasReleaseTiming(command: readonly object[]): boolean;
-/** Associate commands with a timing prefix outside their compound command. */
-export declare function recordTimedReleaseGroup(command: readonly object[]): void;
-/** Preserve physical words even for commands reconstructed inside an evaluator. */
+/** Preserve lexical spelling before quote removal, including words inside an evaluator. */
 export declare function recordReleaseShellWord(word: object, raw: string): void;
-/** Record when the next command is a stage of the same shell pipeline. */
-export declare function recordReleasePipeline(words: readonly object[]): void;
-/** Apply the same construct rules and pipeline scope to every shell reader. */
+/** Classify lexical command prefixes without tracking their execution scopes. */
 export declare function releaseCommandConstructs<Command extends ReadonlyArray<{
     releaseKeyword?: boolean;
-}>>(commands: readonly Command[], scope: ReleaseShellScope, rawWord?: (word: Command[number]) => string | undefined): Map<Command, string>;
+}>>(commands: readonly Command[], scope: ReleaseShellScope): Map<Command, string>;
 /** Count the physical source characters occupied by a case arm terminator. */
 export declare function shellCaseTerminator(text: string, index: number): number;
 /** Read one logical shell line and retain its physical end for edits. */

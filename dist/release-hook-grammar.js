@@ -4,8 +4,8 @@
  * construct retained on its command. Source spans always refer to the input.
  */
 import { basename } from "node:path";
-import { commandName, isCombinedOutputRedirect, isRedirectionSuffix, isShellEvaluator, recordShellRedirection, releaseHookCommand, shellRedirection, } from "./shell-scan.js";
-import { hasShellContinuation, isDoubleQuotedShellEscape, recordReleaseShellWord, inShellCasePattern, readShellCaseWord, readShellLogicalLine, recordReleasePipeline, shellCaseTerminator, unsupportedReleaseConstruct, UNSUPPORTED_RELEASE_HOOK, } from "./release-shell-constructs.js";
+import { commandName, logicalShellSource, isCombinedOutputRedirect, isRedirectionSuffix, isShellEvaluator, recordShellRedirection, releaseHookCommand, shellRedirection, } from "./shell-scan.js";
+import { hasShellContinuation, isDoubleQuotedShellEscape, recordReleaseShellWord, inShellCasePattern, readShellCaseWord, readShellLogicalLine, shellCaseTerminator, unsupportedReleaseConstruct, UNSUPPORTED_RELEASE_HOOK, } from "./release-shell-constructs.js";
 const problems = new WeakMap();
 const possibleGeneratorTargets = new WeakSet();
 const variableReferences = new WeakMap();
@@ -21,7 +21,7 @@ const braceExpansions = new WeakSet();
 const BACKGROUND_OPERATOR = "Shell background or descriptor operator &";
 const OPAQUE_PIPELINE = "Pipeline to an opaque executable";
 const BRACE_EXPANSION = /(?<!\$)\{(?:[^{}]*,[^{}]*|(?:-?\d+\.\.-?\d+|[A-Za-z]\.\.[A-Za-z])(?:\.\.-?\d+)?)\}/;
-const VARIABLE_REFERENCE = /^(?:\\\n)*(?:\{(?:\\\n)*[!#]?(?:\\\n)*)?([A-Za-z_](?:\w|\\\n)*)/;
+const VARIABLE_REFERENCE = /^(?:\{[!#]?)?([A-Za-z_]\w*)/;
 /** Return the producing command upstream of a supported output filter. */
 export function releaseOutputProducer(command) {
     const producer = pipelineProducers.get(command);
@@ -106,7 +106,8 @@ function isCatHeredoc(words) {
     return inputs === 1;
 }
 /** Split only on unquoted shell list operators. Never execute or recursively guess a payload. */
-export function parseReleaseHook(text, scope = "hook") {
+export function parseReleaseHook(source, scope = "hook") {
+    const { text, offsets } = logicalShellSource(source);
     const heredocBodies = new Map();
     const commands = [];
     const spans = new WeakMap();
@@ -128,7 +129,7 @@ export function parseReleaseHook(text, scope = "hook") {
                 if (word.quoted || !/^(?:while|until|for|select|do|done|if|then|elif|else|fi|\}|\{|!)$/.test(word.value))
                     break;
                 const span = spans.get(word);
-                if (text.slice(span.start, span.end).replaceAll("\\\n", "") !== word.value)
+                if (text.slice(span.start, span.end) !== word.value)
                     break;
                 if (/^(?:if|then|elif|else|fi|do|done|while|until|\})$/.test(word.value)
                     || (word.value === "!" && !unsupportedReleaseConstruct("shell negation", scope)))
@@ -178,9 +179,7 @@ export function parseReleaseHook(text, scope = "hook") {
             continue;
         }
         if (/^[;&|\n]$/.test(ch) && !isCombinedOutputRedirect(text, i)) {
-            let next = i + 1;
-            while (text.startsWith("\\\n", next))
-                next += 2;
+            const next = i + 1;
             const operator = ch + (text[next] ?? "");
             const opener = words;
             if (words.length) {
@@ -190,10 +189,8 @@ export function parseReleaseHook(text, scope = "hook") {
                     followingOperators.set(words, "and");
                 if (ch === "|") {
                     followingOperators.set(words, operator === "||" ? "or" : "pipe");
-                    if (operator !== "||") {
+                    if (operator !== "||")
                         piped.add(words);
-                        recordReleasePipeline(words);
-                    }
                 }
             }
             finishCommand();
@@ -247,10 +244,6 @@ export function parseReleaseHook(text, scope = "hook") {
         }
         if (/\s/.test(ch)) {
             i++;
-            continue;
-        }
-        if (text.startsWith("\\\n", i)) {
-            i += 2;
             continue;
         }
         if (ch === "#") {
@@ -309,19 +302,16 @@ export function parseReleaseHook(text, scope = "hook") {
                     problem = "Incomplete shell escape";
                     break;
                 }
-                const escaped = text[i++];
-                if (escaped !== "\n") {
-                    escapedDelimiter = true;
-                    value += escaped;
-                    if (!quote)
-                        unquoted += "\0";
-                }
+                escapedDelimiter = true;
+                value += text[i++];
+                if (!quote)
+                    unquoted += "\0";
                 continue;
             }
             if (quote !== "'" && (char === "$" || char === "`")) {
                 const reference = char === "$" && VARIABLE_REFERENCE.exec(text.slice(i));
                 if (reference)
-                    references.push(reference[1].replaceAll("\\\n", ""));
+                    references.push(reference[1]);
                 if (!unresolved)
                     fixedName = /^(-[\w-]+)=/.exec(value)?.[1];
                 unresolved = true;
@@ -339,7 +329,7 @@ export function parseReleaseHook(text, scope = "hook") {
             if (!quote && /[()]/.test(char)) {
                 problem ??= "Shell grouping or substitution";
                 if (subshellDepth > 0 || (char === "(" && i === start + 1
-                    && words.every(word => !word.quoted && /^(?:if|then|elif|else|do|\{|!|time|-p)$/.test(word.value)))) {
+                    && words.every(word => !word.quoted && /^(?:if|then|elif|else|do|\{|!)$/.test(word.value)))) {
                     inSubshell = true;
                     subshellDepth += char === "(" ? 1 : -1;
                 }
@@ -370,8 +360,6 @@ export function parseReleaseHook(text, scope = "hook") {
             delimiters.push({ value: redirect ? value.slice(input.operator.length) : value,
                 stripTabs: input.operator.endsWith("-"), expand: !quoted && !escapedDelimiter });
         }
-        if (shellRedirection(token)?.operator.endsWith("&") && text.slice(start, i).includes("\\\n"))
-            continuedDescriptors.add(token);
         if (BRACE_EXPANSION.test(unquoted))
             braceExpansions.add(token);
         if (references.length)
@@ -421,6 +409,14 @@ export function parseReleaseHook(text, scope = "hook") {
         else
             upstream = [];
     }
+    if (offsets)
+        for (const word of commands.flat()) {
+            const span = spans.get(word);
+            const start = offsets[span.start], end = offsets[span.end];
+            if (shellRedirection(word)?.operator.endsWith("&") && end - start !== span.end - span.start)
+                continuedDescriptors.add(word);
+            spans.set(word, { start, end });
+        }
     return { commands, spans, heredocBodies };
 }
 //# sourceMappingURL=release-hook-grammar.js.map

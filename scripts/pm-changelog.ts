@@ -1,7 +1,7 @@
 /** Repository changelog policy over the pinned generator's release windows. */
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { resolve } from "node:path";
+import { isAbsolute, resolve, sep } from "node:path";
 import { parseBootstrapGlobalOptions, resolveImplicitPmRoot, resolvePmRoot } from "@unbrained/pm-cli/sdk";
 import { buildPmListArgs, checkItemLinks, mergeChangelog } from "pm-changelog";
 import { changelogOutputTarget } from "../release-changelog-options.ts";
@@ -32,8 +32,8 @@ function checkMergedLinks(markdown: string, args: readonly string[], positions: 
     || env.PM_PATH?.trim();
   const trackerCwd = resolve(cwd, options["--pm-cwd"] ?? ".");
   const trackerRoot = selectedPath ? resolvePmRoot(trackerCwd, selectedPath) : resolveImplicitPmRoot(trackerCwd);
-  // The child validates that --item-url-base is present and nonempty.
-  checkItemLinks(markdown, trackerRoot, options["--item-url-base"]!);
+  if (!options["--item-url-base"]?.trim()) throw new Error("--check-links requires --item-url-base");
+  checkItemLinks(markdown, trackerRoot, options["--item-url-base"]);
 }
 
 /** Generate once, then use identical normalized bytes for writes, checks and notes. */
@@ -72,6 +72,9 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
   const stepOutput = (!stdout || json) && !separateReport && githubOutputPositions.length > 0;
   if (stepOutput && !env.GITHUB_OUTPUT) throw new Error("--github-output requires GITHUB_OUTPUT");
   if (stepOutput) for (const index of githubOutputPositions) consumed.add(index);
+  const report = stdout && (separateReport || json);
+  const checkMerged = mode === "prepend" && !report && !separateReport && positions.some(index => args[index] === "--check-links");
+  if (checkMerged) for (const index of positions) if (args[index] === "--check-links") consumed.add(index);
   const forwarded = args.filter((_, index) => !consumed.has(index));
   if (forwarded.some(arg => ["--all-release-tags", "--since-previous-tag", "--until-release-tag"].includes(arg))
     && spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, env, encoding: "utf8" }).status !== 0) {
@@ -79,14 +82,16 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
   }
   if (summary && !env.GITHUB_STEP_SUMMARY) throw new Error("--github-step-summary requires GITHUB_STEP_SUMMARY");
   const generator = createRequire(import.meta.url).resolve("pm-changelog/cli");
+  // Keep raw path components until the receipt preflight has inspected them.
+  const inProject = (path: string) => isAbsolute(path) ? path : cwd + sep + path;
+  const requested = inProject(output);
   const destination = resolve(cwd, output);
-  const summaryPath = summary ? resolve(cwd, env.GITHUB_STEP_SUMMARY!) : undefined;
-  const outputPath = stepOutput ? resolve(cwd, env.GITHUB_OUTPUT!) : undefined;
+  const summaryPath = summary && !separateReport ? inProject(env.GITHUB_STEP_SUMMARY!) : undefined;
+  const outputPath = stepOutput ? inProject(env.GITHUB_OUTPUT!) : undefined;
   for (const path of [summaryPath, outputPath]) {
-    if (path) assertDistinctReleaseReceipt(destination, path);
+    if (path) assertDistinctReleaseReceipt(requested, path);
   }
   if (summaryPath && outputPath) assertDistinctReleaseReceipt(summaryPath, outputPath);
-  const report = stdout && (separateReport || json);
   if (report) forwarded.push("--mode", mode);
   const fileReport = !stdout && !separateReport && (stepOutput || json);
   if (fileReport && !json) forwarded.push("--json");
@@ -99,7 +104,7 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
   const markdown = report ? rendered : describeEmptyReleases(generation?.markdown ?? rendered);
   const merged = !report && mode === "prepend" ? mergeChangelog(existing, markdown, { title }) : undefined;
   const result = merged?.markdown ?? markdown;
-  if (!report && mode === "prepend" && positions.some(index => args[index] === "--check-links")) {
+  if (checkMerged) {
     checkMergedLinks(result, args, positions, cwd, env);
   }
   const changed = existing !== result;
@@ -108,28 +113,26 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
     : mergeAction === "unchanged" ? "replaced"
     : mergeAction ?? (existing.trimEnd() ? "replaced" : "created");
   const receipt = generation && { mode, action, changed, bytes: Buffer.byteLength(result), check };
-  const outputRecord = generation && receipt ? { ...generation, ...receipt }
-    : outputPath && stdout ? JSON.parse(rendered) as {
+  const stdoutRecord = stdout && json && !separateReport ? JSON.parse(rendered) as {
+      markdown: string;
       mode: string; action: string; changed: boolean; bytes: number; itemCount: number; excluded_non_change_count: number;
     } : undefined;
+  const outputRecord = generation && receipt ? { ...generation, ...receipt } : stdoutRecord;
+  const summaryMarkdown = stdoutRecord?.markdown ?? result;
   /** Append only receipts for a changelog whose bytes have been written or checked. */
   function writeReceipts(): void {
     const receipts = [];
-    if (summaryPath) receipts.push({ path: summaryPath, text: result });
+    if (summaryPath) receipts.push({ path: summaryPath, text: summaryMarkdown });
     if (outputPath && outputRecord) receipts.push({
       path: outputPath, records: true,
       text: `output=${destination}\nmode=${outputRecord.mode}\naction=${outputRecord.action}\nchanged=${outputRecord.changed}\nitem_count=${outputRecord.itemCount}\nexcluded_non_change_count=${outputRecord.excluded_non_change_count}\nbytes=${outputRecord.bytes}\n`,
     });
     appendReleaseReceipts(receipts);
   }
-  if (!stdout && !check && (summary || stepOutput)) {
-    writeFileWithReceipts(destination, result, () => {
-      if (summaryPath) assertDistinctReleaseReceipt(destination, summaryPath);
-      if (outputPath) assertDistinctReleaseReceipt(destination, outputPath);
-      writeReceipts();
-    });
+  if (!stdout && !check && (summaryPath || stepOutput)) {
+    writeFileWithReceipts(requested, result, writeReceipts);
   } else {
-    if (summaryPath && !outputPath) appendFileSync(summaryPath, result);
+    if (summaryPath && !outputPath) appendFileSync(summaryPath, summaryMarkdown);
     else writeReceipts();
     if (stdout) process.stdout.write(result);
     else if (check) console.error(`Changelog is ${changed ? "out of date" : "up to date"}: ${output}`);

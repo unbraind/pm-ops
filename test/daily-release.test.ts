@@ -267,7 +267,8 @@ test("continuation refuses a pinned heading when the merge day follows preparati
 });
 
 test("continuation detects stale dates immediately followed by shell separators", () => {
-  for (const suffix of ["&&true", ";true", "|cat"]) {
+  assert.throws(() => assertReleaseHeadingDate(["pm-changelog --date-fallback 2026-10-23|cat"], "2026-10-24"), /unsupported_construct:.*cat/);
+  for (const suffix of ["&&true", ";true", "|head"]) {
     assert.throws(() => assertReleaseHeadingDate(["pm-changelog --date-fallback 2026-10-23" + suffix], "2026-10-24"), /2026-10-23.*2026-10-24.*retire-unpublished/);
   }
 });
@@ -290,7 +291,8 @@ test("continuation checks wrapped changelog hooks against the merge day", () => 
 
 test("continuation refuses an unresolved changelog option even when the apparent pin matches", () => {
   const script = 'pm-changelog --release-version-from-package --date-fallback$(printf x) 2026-11-16';
-  assert.throws(() => assertReleaseHeadingDate([script], "2026-11-16"), /unresolved option word/i);
+  assert.throws(() => assertReleaseHeadingDate([script], "2026-11-16"), /unsupported_construct:.*printf/);
+  assert.throws(() => assertReleaseHeadingDate([script.replace("printf", "echo")], "2026-11-16"), /unresolved option word/i);
 });
 
 test("continuation accepts quoted values on fixed non-date options", () => {
