@@ -1,0 +1,23 @@
+id: ops-sdk-host-alignment-1122
+title: Adopt pm-cli 2026.11.24 and refresh pm-ops tooling
+description: "Companion: pm-cli-website-spus. Verify the stale Dependabot failures, update the pm-cli and pm-changelog toolchain, and retain published dependency bullets on changelog regeneration."
+type: Chore
+status: in_progress
+priority: 2
+tags[1]: sdk-migration
+created_at: "2026-11-24T19:30:53.674Z"
+updated_at: "2026-11-24T19:53:08.791Z"
+author: codex-agent
+acceptance_criteria: Adopt the latest released toolchain and verify the host contract on real trackers; Retain published dependency notes in all four changelog entry points; Pass focused local gates and submit the migration for the CI matrix
+comments[1]{created_at,author,text}:
+  "2026-11-24T19:53:07.160Z",codex-agent,"Current main at a901ab9 passed changelog:check with the previous pins. The two archived #266 jobs each passed 1,671 tests with zero failures and two existing skips before changelog:check stopped the gate. The old generator sorted by the general item timestamp. The current generator orders completed entries by completion and other entries by creation. Regeneration moves nine bullets within their existing sections. All 217 bullets, including all 62 dependency bullets, keep their text, release, and category.\n\nThe existing regression covers the four package entry points. Removing each dependency-updates flag in isolation failed one test and restoration passed. The tracker-linked changelog suite passed all eight tests. Node 26 build, typecheck, test build, and lint passed. The two-worker full suite finished with 2,000 passes, zero failures, and two existing opt-in real-repository skips. The pinned SDK required no changes to source or assertions. The full run did not reproduce pm-cli#1775. Committed dist matches a fresh build, docstring lint covered 378 declarations, and prepare, strict tracker health, release section/date verification, publish attestation, and all eight lifecycle policies passed.\n\nThe full npm and Bun release gates, four coverage thresholds, and packed matrices are CI responsibilities. PR CI: https://github.com/unbraind/pm-ops/actions/workflows/ci.yml?query=branch%3Adeps%2Fadopt-pm-cli-host-alignment-1122\n"
+files[3]{path,scope}:
+  package-lock.json,project
+  package.json,project
+  test/changelog-sections.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/changelog-sections.test.ts,project,codex-agent,"2026-11-24T19:32:16.951Z",local_mutation,deps/adopt-pm-cli-host-alignment-1122
+docs[2]{path,scope}:
+  CHANGELOG.md,project
+  docs/ci-tiers.md,project
+body: ""
