@@ -6,11 +6,11 @@ status: in_progress
 priority: 1
 tags[2]: "area:release","gh:unbraind/pm-ops#290"
 created_at: "2026-11-16T19:12:48.646Z"
-updated_at: "2026-11-23T20:44:25.340Z"
+updated_at: "2026-11-24T07:02:08.938Z"
 author: codex-sol
 acceptance_criteria: "An untagged version already on npm selects today; a truly unpublished pending version resumes after rollover; tagged versions, calendar cap, package policy, hasChanges and recovery_tag retain their behavior; registry read errors fail closed; stale merged candidates retire with a clear notice or an explicit safe owner action; targeted gates pass."
-repro_steps: "Give the package a calendar version that already exists on npm but has no git tag and no GitHub Release (a hand-published coordinate). Run the daily release prepare step: the planner equates the untagged version with unpublished intent and never reads the registry, so the registry-held version is selected as the pending candidate; prepare and reconcile then trap on the unpublishable candidate, and its merged candidates can never publish until the coordinate is retired by hand."
-comments[10]{created_at,author,text}:
+repro_steps: "In a disposable checkout of c29fe88470401fb0515563b066a18de821f19029 (the parent of fix 6c96248513125264b67d6b0c7911c9fc9cadfa7d), install the locked dependencies with npm ci --ignore-scripts and run this command:\nnode --input-type=module -e 'import assert from \"node:assert/strict\"; import { decideDailyRelease } from \"./daily-release.ts\"; const plan = decideDailyRelease({ existingPrs: [], mainSha: \"new-main\", lastRelease: { tag: \"v2026.10.16\", sha: \"old-main\" }, today: \"2026.10.19\", hasChanges: true, releaseTags: [\"v2026.10.16\"], currentPackageVersion: \"2026.10.17\", registryHasCurrentVersion: true }); assert.equal(plan.npm_version, \"2026.10.19\");'\nThe probe supplies the positive npm lookup result for an untagged coordinate without contacting the registry. The assertion fails because prepare selects the occupied 2026.10.17 coordinate. The same command at the fix selects 2026.10.19 and exits zero."
+comments[13]{created_at,author,text}:
   "2026-11-16T19:13:57.337Z",codex-sol,"Root cause: decideDailyRelease equates an untagged calendar version with unpublished intent; prepare never reads npm. Existing explicit retirement refuses every occupied npm coordinate and any attempt journal. Plan: fail-closed prepare lookup; separate automatic occupied-candidate retirement only when npm publication predates the trusted preparation run, with no tag or GitHub Release, preserving the exact retired receipt and requiring a current-main probe. This also safely handles failed attempts against a pre-existing immutable coordinate."
   "2026-11-16T19:17:10.947Z",codex-sol,"Implementation: optional registryHasCurrentVersion preserves all other planner rules; prepare accepts only an exact successful npm version response or authoritative E404, refusing errors. Occupied retirement additionally requires registry time predating preparation, unchanged merged source, green protection, no tag/Release, and a current-main probe. Receipt retirement is confirmed before clearing pending; publication modes reject this action. Focused suite now passes 157 tests; typecheck passes. Changelog check currently reports a pre-existing release-heading date mismatch, under baseline verification."
   "2026-11-16T19:17:52.945Z",codex-sol,"Baseline gate evidence: unchanged origin/main at c29fe88 also fails npm run changelog:check. Generated diff changes only the 2026.11.15 heading date from 2026-11-15 to 2026-11-16, matching the tagged commit date. Tracked separately as ops-release-1115-heading-drift; no unrelated changelog or tag edits in this fix."
@@ -21,6 +21,9 @@ comments[10]{created_at,author,text}:
   "2026-11-16T22:21:13.387Z",codex-sol,"Review round Y: pulled the package branch with --ff-only; HEAD 063e79c0d52ef671c0526dc184eb4e9bb1df3d5f matches the requested baseline and PR #291 is open. Reproducing the zero-threshold duplication failure in the retirement tests before extracting or reusing shared helpers. Preserve all retirement and refusal assertions; run the six requested gates; release the claim without closing the item."
   "2026-11-16T22:22:06.427Z",codex-sol,"Red-first npm run duplication failed: 20/38954 duplicated lines (0.05134260923140113%), 147 sources, three clone pairs against threshold 0%. All pairs are in test/release-continuation-adapter.test.ts: 858-862 with 1404-1408; 867-875 with 1412-1420; 1117-1122 with 1444-1449. Extracted probeOutput and assertRetiredBranchReusable; all publication refusals, exact retired receipts, mutation counts, output checks, stale-delivery and registry-history refusals remain asserted."
   "2026-11-16T22:24:14.032Z",codex-sol,"Review round Y final evidence: npm run duplication PASS, 0/38959 duplicated lines, 147 sources, zero clone pairs at the unchanged 0% threshold (baseline: three pairs, 20/38954). npm run typecheck PASS; npm run build:test PASS; npm run lint PASS; node --test test/release-continuation-adapter.test.ts test/daily-release.test.ts test/daily-release-workflow.test.ts PASS, 137/137 with zero failures/skips/cancellations/TODOs; npm run changelog:check PASS. pm test ops-pending-version-registry --run --progress --full-output passed all seven linked commands, including the existing broader 182/182 test suite. Test-result tracking is disabled; evidence is recorded here without changing settings. Diff review confirms the exact retirement outputs, inactive/retired receipts, branch-reuse transition, mutation counts, publication refusals and ambiguous-history/outage/stale-delivery refusals remain checked. PR #291 remains open at the requested baseline before commit. Only the test file and this item with its JSONL history change. Full release:check and remote CI are outside this bounded local gate evidence. Releasing the claim for orchestrator verification; do not close the item or review thread."
+  "2026-11-24T06:44:55.080Z",codex-agent,"Review follow-up: identify the pre-fix commit and verify a repeatable command before and after the historical fix in a disposable checkout."
+  "2026-11-24T06:48:26.537Z",codex-agent,"PRRT_kwDOTOTl1M67L41I: verified the same offline planner assertion in disposable checkouts. At c29fe88470401fb0515563b066a18de821f19029 it fails with actual 2026.10.17 and expected 2026.10.19. At 6c96248513125264b67d6b0c7911c9fc9cadfa7d it passes."
+  "2026-11-24T07:01:57.206Z",codex-agent,The linked planner assertion also passed on the reviewed branch through pm test. The historical before/after run used the pinned lockfile and offline fixture data.
 files[8]{path,scope}:
   .github/workflows/daily-release.yml,project
   daily-release.ts,project
@@ -30,7 +33,7 @@ files[8]{path,scope}:
   test/daily-release.test.ts,project
   test/release-continuation-adapter.test.ts,project
   test/release-continuation.test.ts,project
-tests[7]:
+tests[8]:
   - command: npm run typecheck
     scope: project
     provenance:
@@ -82,6 +85,13 @@ tests[7]:
       created_at: "2026-11-16T22:22:12.590Z"
       source_kind: local_mutation
       source_ref: fix/pending-version-on-registry
+  - command: "node --input-type=module -e 'import assert from \"node:assert/strict\"; import { decideDailyRelease } from \"./daily-release.ts\"; const plan = decideDailyRelease({ existingPrs: [], mainSha: \"new-main\", lastRelease: { tag: \"v2026.10.16\", sha: \"old-main\" }, today: \"2026.10.19\", hasChanges: true, releaseTags: [\"v2026.10.16\"], currentPackageVersion: \"2026.10.17\", registryHasCurrentVersion: true }); assert.equal(plan.npm_version, \"2026.10.19\");'"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-24T06:48:15.901Z"
+      source_kind: local_mutation
+      source_ref: sched-1123-pm-ops-closeout-repro-steps
 docs[1]{path,scope}:
   docs/reusable-release.md,project
 body: ""
