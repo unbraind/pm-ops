@@ -196,8 +196,8 @@ No tracked changes.
 
 ### Fixed
 
-- Honor metrics JSON format and document verified registry activation ([ops-install-routes-1022](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-install-routes-1022.toon))
 - Refuse unsafe diagnostic and artifact inputs before reading ([ops-bounded-input](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-bounded-input.toon))
+- Honor metrics JSON format and document verified registry activation ([ops-install-routes-1022](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-install-routes-1022.toon))
 
 ### Dependencies
 
@@ -412,15 +412,15 @@ No tracked changes.
 
 ### Other
 
-- Refresh pm-ops to latest pm CLI and changelog toolchain ([ops-xfit](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-xfit.toon))
-- Implement ops report command ([ops-u5t3](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-u5t3.toon))
-- Output rendering via renderer-override marker ([ops-kmjq](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/decisions/ops-kmjq.toon))
-- Implement ops scan command ([ops-jxpd](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-jxpd.toon))
-- Real-data test suite against pm fleet ([ops-hadw](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-hadw.toon))
-- Implement ops policy command ([ops-b9rl](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-b9rl.toon))
-- CI + daily release workflow setup ([ops-8d93](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-8d93.toon))
-- Implement ops verify-release command ([ops-621x](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-621x.toon))
 - Align Node engine with pm CLI runtime ([ops-45xp](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-45xp.toon))
+- Refresh pm-ops to latest pm CLI and changelog toolchain ([ops-xfit](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-xfit.toon))
+- Output rendering via renderer-override marker ([ops-kmjq](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/decisions/ops-kmjq.toon))
+- Real-data test suite against pm fleet ([ops-hadw](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-hadw.toon))
+- CI + daily release workflow setup ([ops-8d93](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-8d93.toon))
+- Implement ops report command ([ops-u5t3](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-u5t3.toon))
+- Implement ops verify-release command ([ops-621x](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-621x.toon))
+- Implement ops policy command ([ops-b9rl](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-b9rl.toon))
+- Implement ops scan command ([ops-jxpd](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-jxpd.toon))
 
 ## 2026.9.9 - 2026-09-09
 
@@ -480,7 +480,6 @@ No tracked changes.
 
 ### Fixed
 
-- Finish shell-accurate heredoc and unset handling in publish attestation ([ops-62d1](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-62d1.toon))
 - Repaired the ops-5jp6 history drift that had blocked two stacked release pull requests ([ops-yxej](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-yxej.toon))
 - Three shell-scope and quoting fail-opens attest unproven npm publishes ([ops-p9lb](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-p9lb.toon))
 - A malformed npm reply crashed the release audit, and the docstring already promised it would not ([ops-f5m7](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-f5m7.toon))
@@ -490,15 +489,16 @@ No tracked changes.
 - P2: exit 0 inside the retry loop instead of returning status to loop-level termination ([ops-emii](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-emii.toon))
 - P1: Completeness gate makes a partial release permanent (release:check blocks repair) ([ops-94me](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-94me.toon))
 - The bun install verification retried a cached negative manifest, so published versions were never observed ([ops-i3ie](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-i3ie.toon))
+- Finish shell-accurate heredoc and unset handling in publish attestation ([ops-62d1](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-62d1.toon))
 
 ### Security
 
-- A heredoc body and a discarded binding both let an unattested publish pass the attestation gate ([ops-5jp6](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-5jp6.toon))
 - An arm that opens a nested case skipped the sibling reset, so a publish could borrow a flag from a mutually exclusive arm ([ops-rsbn](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-rsbn.toon))
 - A tracked executable whose name merely ends in package.json has its publish hidden from the audit ([ops-fnbd](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-fnbd.toon))
 - A case opener sharing a segment with its first arm leaks that arm's binding past esac ([ops-csop](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-csop.toon))
 - Branch-local and compound-line publish bindings let an unattested npm publish pass the attestation gate ([ops-brsc](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-brsc.toon))
 - Security: repository-host check matches too loosely (notgithub.com accepted as GitHub) ([ops-042o](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-042o.toon))
+- A heredoc body and a discarded binding both let an unattested publish pass the attestation gate ([ops-5jp6](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-5jp6.toon))
 
 ### Other
 
@@ -525,9 +525,9 @@ No tracked changes.
 
 ### Fixed
 
-- Prevent a failed provenance publish from silently falling back to an unattested publish ([ops-w3ke](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-w3ke.toon))
 - Escaped shell metacharacter in scalar value bypasses the attestation gate ([ops-5mv7](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-5mv7.toon))
 - A multi-line fixture joined with a literal backslash-n made the array-flag case pass without exercising it ([ops-xmb6](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-xmb6.toon))
+- Prevent a failed provenance publish from silently falling back to an unattested publish ([ops-w3ke](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-w3ke.toon))
 
 ### Closed
 
@@ -555,8 +555,8 @@ No tracked changes.
 
 ### Fixed
 
-- The pm CLI compatibility floor was declared only in peerDependencies, which only npm enforces, and not in manifest.json pm_min_version, which is the field the CLI enforces ([ops-zl7a](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-zl7a.toon))
 - A truncated list-all answer corrupts fleet throughput and cycle-time metrics ([ops-x3wc](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-x3wc.toon))
+- The pm CLI compatibility floor was declared only in peerDependencies, which only npm enforces, and not in manifest.json pm_min_version, which is the field the CLI enforces ([ops-zl7a](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-zl7a.toon))
 
 ### Closed
 
