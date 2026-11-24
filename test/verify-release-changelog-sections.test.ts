@@ -171,6 +171,48 @@ test("verify audits a checkout's changelog against injected tags, and the live r
   assert.ok(live.notes.length > 0);
 });
 
+test("the default inventory requires only release tags reachable from the checkout, so a tag created while the run queued does not fail the older snapshot", () => {
+  const root = mkdtempSync(join(tmpdir(), "changelog-section-race-"));
+  const fixtureCommitter = ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"];
+  try {
+    execFileSync("git", ["init", "-q", "--initial-branch=snapshot", "."], { cwd: root });
+    // An older release that is reachable from the snapshot: the default inventory must keep checking it.
+    writeFileSync(join(root, "package.json"), JSON.stringify({ version: "2026.10.18" }));
+    writeFileSync(join(root, "CHANGELOG.md"), "# Changelog\n\n## 2026.10.18 - 2026-10-18\n\n- Older section.\n");
+    execFileSync("git", ["add", "--", "package.json", "CHANGELOG.md"], { cwd: root });
+    execFileSync("git", [...fixtureCommitter, "commit", "-qm", "Release v2026.10.18"], { cwd: root });
+    execFileSync("git", ["tag", "v2026.10.18"], { cwd: root });
+    // The snapshot this run audits: main before the release, own section committed.
+    const snapshotChangelog = "# Changelog\n\n## 2026.10.19 - 2026-10-19\n\n- One section.\n\n## 2026.10.18 - 2026-10-18\n\n- Older section.\n";
+    writeFileSync(join(root, "package.json"), JSON.stringify({ version: "2026.10.19" }));
+    writeFileSync(join(root, "CHANGELOG.md"), snapshotChangelog);
+    execFileSync("git", ["add", "--", "package.json", "CHANGELOG.md"], { cwd: root });
+    execFileSync("git", [...fixtureCommitter, "commit", "-qm", "Snapshot of main"], { cwd: root });
+    execFileSync("git", ["tag", "v2026.10.19"], { cwd: root });
+    // A release lands on a newer snapshot while this run still waits in the
+    // queue: its tag exists in the fetched repository, its section does not
+    // belong to the snapshot under audit.
+    execFileSync("git", ["checkout", "-q", "-b", "release-underway"], { cwd: root });
+    execFileSync("git", [...fixtureCommitter, "commit", "--allow-empty", "-qm", "Release v2026.10.20"], { cwd: root });
+    execFileSync("git", ["tag", "v2026.10.20"], { cwd: root });
+    execFileSync("git", ["checkout", "-q", "snapshot"], { cwd: root });
+    execFileSync("git", ["branch", "-qD", "release-underway"], { cwd: root });
+    // The older snapshot passes its own gate once unreachable tags are out of scope.
+    assert.deepEqual(verify(root).failures, []);
+    // Control: the all-tags inventory still reports the defect shape, so the
+    // fixture really encodes the race the reachable inventory excludes.
+    const failures = verify(root, ["v2026.10.18", "v2026.10.19", "v2026.10.20"]).failures;
+    assert.equal(failures.length, 1);
+    assert.match(failures[0]!, /required release version 2026\.10\.20 has no usable changelog section/);
+    // Default-path control for a historical release: the reachable older tag stays required, so
+    // dropping its section fails the default inventory (an inventory of [] would pass here).
+    writeFileSync(join(root, "CHANGELOG.md"), "# Changelog\n\n## 2026.10.19 - 2026-10-19\n\n- One section.\n");
+    const historical = verify(root).failures;
+    assert.equal(historical.length, 1);
+    assert.match(historical[0]!, /required release version 2026\.10\.18 has no usable changelog section/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("the release gate chain runs the section check before a release starts", () => {
   const scripts = (JSON.parse(readFileSync(resolve("package.json"), "utf8")) as { scripts: Record<string, string> }).scripts;
   assert.match(scripts["release:check"]!, /verify:release-changelog-sections/);

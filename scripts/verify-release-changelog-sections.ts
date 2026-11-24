@@ -89,20 +89,26 @@ export function auditChangelogSections(changelog: string, versions: readonly str
  * Read the complete intended release inventory and audit the checkout's changelog.
  *
  * The tag list is injectable so the suite can drive the rules hermetically;
- * the default reads `git tag` in the checkout, which CI and the release job
- * both fetch before running the gate. The package version is always read from
- * the checkout being checked, even when no corresponding tag exists yet.
+ * the default reads the release tags reachable from the checkout's HEAD
+ * (`git tag --merged HEAD`), which CI and the release job both fetch before
+ * running the gate. Reachability keeps a queued deep run honest about the
+ * tree it actually audits: a release tag created while the run waited in
+ * the queue belongs to a commit the run's snapshot predates, so requiring
+ * that section would fail snapshots of main that predate the release. The
+ * package version is always read from the checkout being checked, even when
+ * no corresponding tag exists yet, so the pre-tagging release job still
+ * audits its own pending version.
  * Non-Git trackers can supply an explicit tag inventory; the default Git read
  * fails with a verifier diagnostic instead of crashing the caller.
  *
  * @param root - Checkout containing `package.json` and `CHANGELOG.md`.
- * @param tags - Git tag names; defaults to the checkout's own tags.
+ * @param tags - Git tag names; defaults to the checkout's own reachable tags.
  * @returns Failures and notes for the checkout.
  */
 export function verify(root: string, tags?: readonly string[]): VerifierResult {
   try {
     const manifest = JSON.parse(readRegularText(join(root, "package.json"))) as { version?: unknown } | null;
-    const inventory = tags ?? parseLines(execFileSync("git", ["tag"], { cwd: root, encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 }));
+    const inventory = tags ?? parseLines(execFileSync("git", ["tag", "--merged", "HEAD"], { cwd: root, encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 }));
     return auditChangelogSections(readRegularText(join(root, "CHANGELOG.md")), requiredVersions(inventory, manifest?.version));
   } catch (error) {
     return { failures: [`release section audit failed: ${String(error)}`], notes: [] };
