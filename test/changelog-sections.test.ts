@@ -1,8 +1,8 @@
 /** Release-window cardinality properties and real CLI policy integration. */
 import assert from "node:assert/strict";
-import fs, { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import fs, { chmodSync, copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
-import { delimiter, dirname, join, resolve, sep } from "node:path";
+import path, { delimiter, dirname, join, resolve, sep, win32 } from "node:path";
 import test from "node:test";
 import { syncBuiltinESMExports } from "node:module";
 import { appendReleaseReceipts, writeFileWithReceipts } from "../scripts/release-file-receipts.ts";
@@ -51,10 +51,15 @@ function releaseTags(root: string, env: NodeJS.ProcessEnv): void {
 }
 
 /** Reuse configured generator arguments while locating the pinned CLI in the source checkout. */
-function args(name: string, command = scripts[name]!): string[] {
+function args(name: string, command = scripts[name]!, pmPath = pm): string[] {
   const { commands } = parseReleaseHook(command);
   assert.equal(commands.length, 1, name + " must be one direct generator command");
-  return withoutRedirections(commands[0]!).slice(2).map(({ value }) => value === "./node_modules/.bin/pm" ? pm : value);
+  const argv = withoutRedirections(commands[0]!).slice(2).map(({ value }) => value);
+  for (const index of fixtureOptionPositions(argv)) {
+    if (argv[index] === "--pm-bin" && argv[index + 1] === "./node_modules/.bin/pm") argv[index + 1] = pmPath;
+    if (argv[index] === "--pm-bin=./node_modules/.bin/pm") argv[index] = "--pm-bin=" + pmPath;
+  }
+  return argv;
 }
 
 /** Match fixture tag and completion days to the date policy selected by preparation. */
@@ -97,7 +102,7 @@ function restoreFixtureDatePolicy(command: string[]): string[] {
 
 /** Encode one argument for the fixture's shell, including literal apostrophes. */
 function quoteFixtureArgument(argument: string): string {
-  return "'" + argument.split(sep).join("/").replaceAll("'", "'\\''") + "'";
+  return "'" + argument.replaceAll("'", "'\\''") + "'";
 }
 
 /** The workflow step this suite executes, read straight from the YAML so reverting its policy breaks the proof. */
@@ -131,8 +136,10 @@ test("the generation fixture requires both lifecycle outputs to be wired in the 
 
 /** Fixture npm scripts that call this repository's generator with the standing policy. */
 function releaseCommands(generator = resolve("scripts/pm-changelog.ts"), node = process.execPath): Record<string, string> {
+  const entry = [node, generator].map(file => file.split(sep).join("/"));
+  const pmPath = pm.split(sep).join("/");
   const commands = Object.fromEntries(["changelog:full", "changelog:check", "release:notes"].map(name => [name,
-    [node, generator, ...restoreFixtureDatePolicy(withoutFixtureIncludeEmpty(args(name)))].map(quoteFixtureArgument).join(" ")
+    [...entry, ...restoreFixtureDatePolicy(withoutFixtureIncludeEmpty(args(name, undefined, pmPath)))].map(quoteFixtureArgument).join(" ")
   ]));
   commands["release:check"] = "npm run changelog:check";
   return commands;
@@ -582,7 +589,9 @@ test("custom notes receive the saved argument through npm independently of pre/p
   const root = mkdtempSync(join(tmpdir(), "custom-notes-argv-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const manifest = join(root, "package.json");
-  const env = { ...releaseStepEnv(root, process.env), npm_config_ignore_scripts: "false" };
+  const inherited = { ...process.env, npm_config_ignore_scripts: "false", NPM_CONFIG_IGNORE_SCRIPTS: "true" };
+  const env = { ...isolatedNpmReleaseEnv(root, inherited), npm_config_ignore_scripts: "false" };
+  assert.deepEqual(Object.keys(env).filter(key => /^npm_config_ignore[-_]scripts$/i.test(key)), ["npm_config_ignore_scripts"]);
   const prepare = [resolve("scripts/prepare-release-changelog.ts")];
   writeFileSync(join(root, "notes.mjs"), 'console.log(JSON.stringify(process.argv.slice(2)));');
   writeFileSync(join(root, "pm-changelog.ts"), 'const args = process.argv.slice(2); require("node:fs").writeFileSync(args[args.indexOf("--output") + 1], JSON.stringify(args));');
@@ -1499,12 +1508,12 @@ test("notes preparation requires a definite nested lifecycle after a helper runs
 test("Round GQ fixture commands decode quoted flags and operands", () => {
   const entry = "node scripts/pm-changelog.ts ";
   for (const options of [
-    `"--date-fallback" '2026-10-24' --title "Release notes" "./node_modules/.bin/pm"`,
-    `--date-fallback=2026-10-24 --title Release\\ notes ./node_modules/.bin/pm`,
+    `"--date-fallback" '2026-10-24' --title "Release notes" --pm-bin "./node_modules/.bin/pm"`,
+    `--date-fallback=2026-10-24 --title Release\\ notes --pm-bin ./node_modules/.bin/pm`,
   ]) {
     const decoded = args("release:notes", entry + options);
     assert.equal(headingDay("2026.10.23", decoded), "2026-10-24");
-    assert.deepEqual(restoreFixtureDatePolicy(decoded), ["--date-from-version", "--title", "Release notes", pm]);
+    assert.deepEqual(restoreFixtureDatePolicy(decoded), ["--date-from-version", "--title", "Release notes", "--pm-bin", pm]);
   }
 });
 
@@ -1742,9 +1751,12 @@ test("Round HA a staging cleanup error cannot undo committed receipts", t => {
   const output = join(root, "output");
   for (const file of [changelog, summary, output]) writeFileSync(file, "old\n");
   const realRemove = fs.rmSync;
-  let refused = 0;
+  let injected = false;
   const cleanup = t.mock.method(fs, "rmSync", (path: string, options?: fs.RmOptions) => {
-    if (String(path).includes(".release-output-") && ++refused === 1) throw new Error("cleanup fixture");
+    if (!injected && String(path).includes(".release-output-")) {
+      injected = true;
+      throw new Error("cleanup fixture");
+    }
     realRemove(path, options);
   });
   syncBuiltinESMExports();
@@ -1752,6 +1764,7 @@ test("Round HA a staging cleanup error cannot undo committed receipts", t => {
   assert.doesNotThrow(() => writeFileWithReceipts(changelog, "new\n", () => appendReleaseReceipts([
     { path: summary, text: "new\n" }, { path: output, text: "new\n" },
   ])));
+  assert.ok(injected, "the cleanup fault was injected");
   assert.equal(readFileSync(changelog, "utf8"), "new\n");
   for (const file of [summary, output]) assert.equal(readFileSync(file, "utf8"), "old\nnew\n");
   assert.throws(() => writeFileWithReceipts(changelog, "retry\n", () => appendReleaseReceipts([
@@ -1808,4 +1821,133 @@ test("Round HA preparation refuses shell pipefail before editing the manifest", 
   const bash = prepare("set -o pipefail; ", process.platform === "win32" ? fixtureScriptShell() : "/bin/bash");
   assert.equal(bash.result.status, 0, bash.result.stderr);
   assert.match(readFileSync(manifest, "utf8"), /notes.mjs --include-empty/);
+});
+
+test("Round HC a summary-only stdout write can append without staging access", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const path = join(root, "summary");
+  writeFileSync(path, "prior");
+  const realStage = fs.mkdtempSync;
+  const mock = t.mock.method(fs, "mkdtempSync", (prefix: string) => {
+    if (prefix.endsWith(".release-output-")) throw new Error("fixture denies staging access");
+    return realStage(prefix);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { mock.mock.restore(); syncBuiltinESMExports(); });
+  const args = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22", "--github-step-summary"];
+  const receiptEnv = { ...env, GITHUB_STEP_SUMMARY: path };
+  assert.equal(runChangelog([...args, "--stdout"], root, receiptEnv), 0);
+  assert.match(readFileSync(path, "utf8"), /^prior# Changelog/);
+  assert.throws(() => runChangelog(args, root, receiptEnv), /fixture denies staging access/);
+  assert.equal(existsSync(join(root, "CHANGELOG.md")), false);
+});
+
+test("Round HC release receipts cannot alias the manifest or changelog", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const path = join(root, "CHANGELOG.md");
+  const alias = join(root, "alias");
+  const hardlink = join(root, "hardlink");
+  const summary = join(root, "summary");
+  const original = "# Changelog\n";
+  writeFileSync(path, original);
+  writeFileSync(summary, "prior");
+  const args = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22", "--github-step-summary", "--github-output"];
+  linkSync(path, hardlink);
+  for (const receipt of [path, hardlink, alias]) {
+    if (receipt === alias) {
+      try { symlinkSync(path, alias, "file"); } catch (error) {
+        if (process.platform === "win32" && (error as NodeJS.ErrnoException).code === "EPERM") break;
+        throw error;
+      }
+    }
+    assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: receipt }), /same file|alias/i);
+    assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: receipt, GITHUB_OUTPUT: summary }), /same file|alias/i);
+    assert.equal(readFileSync(path, "utf8"), original);
+    assert.equal(readFileSync(summary, "utf8"), "prior");
+  }
+  assert.throws(() => runChangelog([...args, "--stdout", "--json"], root,
+    { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: path }), /same file|alias/i);
+  assert.equal(readFileSync(path, "utf8"), original);
+  const manifest = join(root, "package.json");
+  const manifestText = JSON.stringify({ scripts: { notes: "node notes.mjs", check: "true" } });
+  writeFileSync(manifest, manifestText);
+  const preparationEnv = { ...releaseStepEnv(root, env), CHANGELOG_SCRIPT: "notes", NOTES_SCRIPT: "notes", CHANGELOG_CHECK_SCRIPT: "check" };
+  const prepare = (output: string) => spawnSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts"), output],
+    { cwd: root, env: preparationEnv, encoding: "utf8" });
+  assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: summary }), /same file|alias/i);
+  const refused = prepare(manifest);
+  assert.equal(refused.status, 1, refused.stderr);
+  assert.match(refused.stderr, /same file|alias/i);
+  assert.equal(readFileSync(manifest, "utf8"), manifestText);
+  const prepared = prepare(summary);
+  assert.equal(prepared.status, 0, prepared.stderr);
+  assert.match(readFileSync(summary, "utf8"), /^prior\nnpm_lifecycle=/);
+  assert.match(JSON.parse(readFileSync(manifest, "utf8")).scripts.notes, /--include-empty/);
+});
+
+test("Round HC a dangling receipt symlink cannot become an alias after changelog creation", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const release = join(root, "CHANGELOG.md");
+  const receipt = join(root, "step-summary");
+  try { symlinkSync("CHANGELOG.md", receipt, "file"); } catch (error) {
+    if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+    return t.skip("Windows symlink creation requires privilege");
+  }
+  const args = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22", "--github-step-summary"];
+  assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: receipt }), /same file|alias/i);
+  assert.equal(existsSync(release), false);
+  assert.equal(lstatSync(receipt).isSymbolicLink(), true);
+  const second = join(root, "another-receipt");
+  symlinkSync("step-summary", second, "file");
+  rmSync(receipt);
+  symlinkSync("another-receipt", receipt, "file");
+  assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: receipt }), /symlink cycle/i);
+  assert.equal(existsSync(release), false);
+});
+
+test("Round HC output receipts separate an unterminated record and summary appends raw bytes", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const output = join(root, "output");
+  const summary = join(root, "summary");
+  const args = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22", "--github-step-summary", "--github-output"];
+  for (const ending of ["", "\n", "\r\n"]) {
+    writeFileSync(output, "previous=value" + ending);
+    writeFileSync(summary, "raw");
+    assert.equal(runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: output }), 0);
+    assert.match(readFileSync(output, "utf8"), /^previous=value\r?\noutput=/);
+    assert.match(readFileSync(summary, "utf8"), /^raw# Changelog/);
+  }
+  writeFileSync(output, "previous=value");
+  const result = execFileSync(process.execPath, [resolve("scripts/pm-changelog.ts"), ...args.filter(arg => arg !== "--github-step-summary"),
+    "--stdout", "--json"], { cwd: root, env: { ...env, GITHUB_OUTPUT: output }, encoding: "utf8" });
+  const report = JSON.parse(result);
+  assert.equal(report.output, join(root, "CHANGELOG.md"));
+  const records = stepOutputs(readFileSync(output, "utf8"));
+  assert.equal(records.previous, "value");
+  assert.equal(records.output, report.output);
+  assert.equal(records.action, report.action);
+  assert.equal(records.bytes, String(report.bytes));
+});
+
+test("Round HC fixture argument quoting preserves literal titles with Windows path separators", () => {
+  const original = path.sep;
+  try {
+    Object.defineProperty(path, "sep", { value: win32.sep });
+    syncBuiltinESMExports();
+    assert.equal(sep, win32.sep);
+    const title = "API\\CLI";
+    assert.deepEqual(args("fixture", "node generator --title " + quoteFixtureArgument(title)), ["--title", title]);
+    const localPm = "./node_modules/.bin/pm";
+    assert.deepEqual(args("fixture", "node generator --title " + localPm + " --pm-bin " + localPm),
+      ["--title", localPm, "--pm-bin", pm]);
+    assert.deepEqual(args("fixture", "node generator --pm-bin=" + localPm, "path/to/pm"),
+      ["--pm-bin=path/to/pm"]);
+  } finally {
+    Object.defineProperty(path, "sep", { value: original });
+    syncBuiltinESMExports();
+  }
 });

@@ -31,7 +31,7 @@
  *
  * @packageDocumentation
  */
-import { describeUnsupportedReleaseHook, hasShellContinuation, inShellCasePattern, isShellAssignment, readShellCaseWord, readShellLogicalLine, shellCaseTerminator, recordReleasePipeline, recordReleaseShellWord, releaseCommandConstructs } from "./release-shell-constructs.js";
+import { describeUnsupportedReleaseHook, hasShellContinuation, inShellCasePattern, isDoubleQuotedShellEscape, isReleaseTimingGroup, isShellAssignment, readShellCaseWord, readShellLogicalLine, shellCaseTerminator, recordReleasePipeline, recordReleaseShellWord, recordTimedReleaseGroup, releaseCommandConstructs } from "./release-shell-constructs.js";
 const fixedOptionNames = new WeakMap();
 const redirections = new WeakMap();
 const REDIRECTION = /^(?:[0-9]*(?:>>|>\||<>|<<<|<<-?|[<>])&?|&>>?)/;
@@ -349,6 +349,21 @@ export function releaseHookConstructProblem(commands, text, spans, hook, scope, 
         if (relevant(words))
             return { words, problem: describeUnsupportedReleaseHook(construct, hook) };
     }
+    if (/\btime(?:[ \t]+(?:(?:-p|!)[ \t]+)*)?[({]/.test(text.replaceAll("\\\n", ""))) {
+        const lines = text.split("\n");
+        const bodies = heredocBodyLines(lines);
+        const executable = lines.map((line, index) => bodies[index] ? " ".repeat(line.length) : line).join("\n");
+        const scanned = tokenizeCommandsWithSpans(executable);
+        for (const [words, construct] of releaseCommandConstructs(scanned.commands, scope)) {
+            if (!relevant(words))
+                continue;
+            for (const word of words) {
+                const span = scanned.spans.get(word);
+                spans.set(word, span ?? { start: 0, end: text.length });
+            }
+            return { words, problem: describeUnsupportedReleaseHook(construct, hook) };
+        }
+    }
     return undefined;
 }
 /**
@@ -380,6 +395,9 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
     let arrayAssignment = false;
     /** Case subjects and patterns expand words, while each arm body runs commands. */
     const cases = [];
+    const timedGroups = [];
+    /** A pipeline operator after a timed group connects its final command to the next stage. */
+    let timedGroupEnd;
     // Monotone delimiter caches make quoted parameter classification linear:
     // each search resumes past its last match, including an absent end sentinel.
     let parameterClose = -1;
@@ -415,8 +433,11 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
     };
     const endCommand = (end) => {
         endWord(end);
-        if (command.length > 0)
+        if (command.length > 0) {
+            if (timedGroups.length || timedGroupEnd)
+                recordTimedReleaseGroup(command);
             commands.push(command);
+        }
         command = [];
     };
     for (let index = 0; index < text.length; index += 1) {
@@ -641,7 +662,7 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
             wordStart = index;
         }
         if (isOperatorStart(character)) {
-            if (children !== undefined && !arithmetic && character === "(" && !started
+            if (children !== undefined && !arithmetic && timedGroups.length === 0 && character === "(" && !started
                 && command.every(/** Only shell control words can precede a standalone subshell. */ (token) => ["if", "then", "else", "do", "!"].includes(token.value))) {
                 /** Standalone child groups are isolated only for lexical-state consumers. */
                 const child = readSubstitution(text, index, 1);
@@ -684,19 +705,36 @@ function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0)
                 started = true;
                 continue;
             }
+            if (character === "(" || character === "{") {
+                endWord(index);
+                const timed = timedGroups.length > 0 || isReleaseTimingGroup(command);
+                endCommand(index);
+                timedGroupEnd = undefined;
+                if (timed)
+                    timedGroups.push(character === "(" ? ")" : "}");
+                continue;
+            }
+            if (character === timedGroups.at(-1)) {
+                endCommand(index);
+                timedGroups.pop();
+                timedGroupEnd = commands.at(-1);
+                continue;
+            }
             if (character === "|") {
                 let next = index + 1;
                 while (text.startsWith("\\\n", next))
                     next += 2;
                 if (text[next] !== "|")
-                    recordReleasePipeline(command);
+                    recordReleasePipeline(command.length || started ? command : timedGroupEnd ?? command);
                 if (text[next] === "|" || text[next] === "&") {
                     endCommand(index);
+                    timedGroupEnd = undefined;
                     index = next;
                     continue;
                 }
             }
             endCommand(index);
+            timedGroupEnd = undefined;
             continue;
         }
         value += character;
@@ -1095,27 +1133,44 @@ export function commandArguments(input) {
 }
 /** Read source quoting before deciding whether a last backslash joins the next line. */
 function joinsShellSourceLine(line, state) {
+    let current = state.substitutions.at(-1) ?? state;
     for (let index = 0; index < line.length; index++) {
         const character = line[index];
-        if (character === "\\" && state.quote !== "'") {
+        if (character === "\\" && current.quote !== "'") {
             if (index === line.length - 1)
                 return true;
+            if (!current.quote || isDoubleQuotedShellEscape(line[index + 1]))
+                index++;
+            current.wordStart = false;
+        }
+        else if (character === "$" && line[index + 1] === "(" && current.quote !== "'") {
+            current.wordStart = false;
+            const nested = { quote: "", wordStart: true, depth: 1 };
+            state.substitutions.push(nested);
+            current = nested;
             index++;
-            state.wordStart = false;
         }
-        else if (character === state.quote) {
-            state.quote = "";
-            state.wordStart = false;
+        else if (character === current.quote) {
+            current.quote = "";
+            current.wordStart = false;
         }
-        else if (!state.quote) {
-            if (character === "#" && state.wordStart)
+        else if (!current.quote) {
+            if (character === "#" && current.wordStart)
                 break;
             if (character === "'" || character === '"')
-                state.quote = character;
-            state.wordStart = /[\s;&|<>()]/.test(character);
+                current.quote = character;
+            const nested = state.substitutions.at(-1);
+            if (nested && character === "(")
+                nested.depth++;
+            if (nested && character === ")" && --nested.depth === 0) {
+                state.substitutions.pop();
+                current = state.substitutions.at(-1) ?? state;
+                continue;
+            }
+            current.wordStart = /[\s;&|<>()]/.test(character);
         }
     }
-    state.wordStart = !state.quote;
+    current.wordStart = !current.quote;
     return false;
 }
 /**
@@ -1131,7 +1186,7 @@ function joinsShellSourceLine(line, state) {
 export function joinContinuations(text) {
     const lines = text.split("\n");
     const bodies = heredocBodyLines(lines);
-    const state = { quote: "", wordStart: true };
+    const state = { quote: "", wordStart: true, substitutions: [] };
     let joined = "";
     for (let index = 0; index < lines.length - 1; index++) {
         const raw = lines[index];
@@ -1868,7 +1923,8 @@ function heredocOpenersIn(line, quote) {
         let quoted = false;
         for (; cursor < line.length; cursor += 1) {
             const part = line[cursor];
-            if (part === "\\" && delimiterQuote !== "'") {
+            if (part === "\\" && delimiterQuote !== "'"
+                && (delimiterQuote === undefined || isDoubleQuotedShellEscape(line[cursor + 1] ?? ""))) {
                 const escaped = line[cursor + 1];
                 if (escaped === undefined)
                     break;
@@ -1902,7 +1958,7 @@ function heredocLineStates(lines) {
     const states = lines.map(() => ({ body: false, expand: false }));
     const text = lines.join("\n");
     const pending = [];
-    const state = { quote: "", wordStart: true };
+    const state = { quote: "", wordStart: true, substitutions: [] };
     let offset = 0;
     for (let index = 0; index < lines.length;) {
         const delimiter = pending[0];

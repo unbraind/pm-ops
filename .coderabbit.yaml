@@ -13,18 +13,22 @@ reviews:
         GITHUB_ENV writes, pipelines and exit. Preserve the supported workflow forms and prior hook acceptance fixtures.
         Case patterns belong to workflow syntax. The hook grammar refuses case arms and unquoted command negation.
         The pinned hooks and workflows contain no time prefix or container job. Refuse time in release-hook command position and when it governs the release command or pipeline in a workflow.
+        Track timing through grouped release execution and end it at the matching group delimiter.
         Allow independently timed workflow commands and time as ordinary argument data.
         Refuse jobs.<id>.container on a release path.
         Preserve physical edits across expandable here-document and case terminator continuations.
         Join executable continuations while preserving single-quoted data and comment boundaries.
         Use one operand walk for a custom renderer's separators and flags, including option-shaped title values.
-        Quoted operands remain literal, and env uses NAME=value operands independently of shell assignment syntax.
+        Classify shell assignments from the unquoted name and operator. The env utility uses decoded NAME=value operands.
+        Use the shared diagnostic for unsupported shell modes, including set -f and changes to shell builtins.
         A workflow using sh cannot establish a definite environment export after setting pipefail.
         Validate pipefail against the npm-selected shell before preparing or consuming a configured hook.
         Allow implicit npm env on release paths with literal echo, printf, true or colon lifecycle siblings.
         Permit printf formats with plain text, %s and %%, plus literal standard descriptor redirects and /dev/null.
         Refuse file writes, expansions and opaque siblings.
-        Keep missing ordinary optional scripts supported.
+        npm supplies an implicit env body when scripts.env is missing or empty, with or without --if-present.
+        Check lifecycle reloads before accepting that implicit body. Keep missing ordinary optional scripts supported.
+        Refuse release paths through intermediate relays in container jobs. Keep unrelated relays supported.
         Enabled reusable callers require a literal, existing nonblank root script for each explicit hook selector.
         Refuse new constructs outside the supported forms with release_hook_unsupported_construct,
         naming the construct and hook and advising a simpler hook or a separate script file.

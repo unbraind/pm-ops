@@ -7,7 +7,7 @@
  * Source spans belong to the script that wrote each word. Shell evaluation,
  * unknown wrappers and ambiguous policies require a canonical invocation.
  */
-import { describeUnsupportedReleaseHook, isShellAssignment, unsupportedReleaseConstruct } from "./release-shell-constructs.js";
+import { describeUnsupportedReleaseHook, isShellAssignment, unsupportedReleaseConstruct, unsupportedReleaseShellMode } from "./release-shell-constructs.js";
 import { basename, posix } from "node:path";
 import { isShellEvaluator, RELEASE_CONTEXT_VARIABLE, RELEASE_PROJECT_OPTION, releaseHookCommand, releaseHookConstructProblem, shellRedirection, withoutRedirections, } from "./shell-scan.js";
 import { describeReleaseContextChange, followingReleaseOperator, hasBraceExpansion, hookSyntaxProblem, inheritedVariable, isContinuedDescriptor, isIsolatedReleaseCommand, isReleaseIterationHeader, isReleaseLoopCondition, literalOptionName, mentionsGenerator, parseReleaseHook, refuseHook, releaseLoopScope, releaseOutputProducer, } from "./release-hook-grammar.js";
@@ -618,26 +618,6 @@ function runnerProjectOption([program, ...args]) {
         return undefined;
     return flags.find(word => RELEASE_PROJECT_OPTION.test(word.value))?.value;
 }
-/** Find the first set switch outside the shell modes modeled by the hook grammar. */
-function unsupportedSetSwitch(args) {
-    for (let i = 0; i < args.length; i++) {
-        const flag = args[i];
-        if (flag.unresolved)
-            return "set " + flag.value;
-        if (flag.value === "--" || !/^[+-]./.test(flag.value))
-            break;
-        if (/^[+-][eu]+$/.test(flag.value))
-            continue;
-        if (!/^[+-][eu]*o[eu]*$/.test(flag.value))
-            return "set " + flag.value;
-        const option = args[++i];
-        if (option?.unresolved)
-            return "set " + flag.value;
-        if (option && !/^(?:errexit|nounset|pipefail)$/.test(option.value))
-            return "set " + flag.value + " " + option.value;
-    }
-    return undefined;
-}
 /** Expose the shell command beneath command and builtin prefixes. */
 function unwrapShellBuiltin(words) {
     let command = releaseHookCommand(words);
@@ -654,10 +634,7 @@ function unsupportedShellSemantics(words) {
     const command = unwrapShellBuiltin(words.slice(first));
     if (!command)
         return undefined;
-    const [program, ...args] = command;
-    if (program.value === "set")
-        return unsupportedSetSwitch(args);
-    return /^(?:shopt|enable|alias|source|\.)$/.test(program.value) ? program.value : undefined;
+    return unsupportedReleaseShellMode(command);
 }
 /** Find the first resolved script that enables or disables the shell's pipefail option. */
 export function releaseHookUsingPipefail(hooks) {
@@ -745,7 +722,7 @@ function nextShellContext(words, preceding, effective = words) {
     return change?.directory ? change : preceding ?? change;
 }
 /** Apply one context rule to the shell path and the effective argv at each script depth. */
-function releaseContextProblem(words, names, preceding, hookPath = true) {
+function releaseContextProblem(words, names, preceding, hookPath = true, hook = "standalone") {
     if (hookPath) {
         if (words.some(isContinuedDescriptor))
             return "Continued descriptor redirection" + SCRIPT_FILE_ADVICE;
@@ -755,7 +732,7 @@ function releaseContextProblem(words, names, preceding, hookPath = true) {
     }
     const shell = hookPath ? unsupportedShellSemantics(words) : undefined;
     if (shell)
-        return describeReleaseContextChange(shell);
+        return describeUnsupportedReleaseHook(shell, hook);
     const changes = commandContextChanges(words);
     if (preceding)
         changes.unshift(preceding);
@@ -832,10 +809,12 @@ function changelogInvocation(words, scriptNames, hook = "standalone", audit = fa
 class HookScriptNames extends Set {
     scripts;
     allowUnresolvedProjects;
-    constructor(scripts, allowUnresolvedProjects = true) {
+    configuredHooks;
+    constructor(scripts, allowUnresolvedProjects = true, configuredHooks = new Set()) {
         super(scripts.keys());
         this.scripts = scripts;
         this.allowUnresolvedProjects = allowUnresolvedProjects;
+        this.configuredHooks = configuredHooks;
     }
     /** npm skips empty implicit lifecycle scripts and passes args only to main. */
     sequence(name, lifecycle) {
@@ -847,6 +826,8 @@ class HookScriptNames extends Set {
     }
     /** Follow literal script references without recursively evaluating the wrapper's shell payload. */
     canGenerate(name, seen = new Set(), writing = false, args = [], lifecycle = "unknown", configured = lifecycle) {
+        if (this.configuredHooks.has(name))
+            return true;
         if (!this.has(name) || seen.has(name))
             return false;
         const ancestors = new Set(seen).add(name);
@@ -943,6 +924,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
         return [name, { text, scope, ...parseReleaseHook(text, scope) }];
     }));
     const names = new HookScriptNames(parsed);
+    const releasePaths = new HookScriptNames(parsed, false, entryPoints);
     const knownWriters = new HookScriptNames(parsed, false);
     const targeted = new Set();
     /** Read the local script target, arguments, and command-prefix assignments. */
@@ -986,15 +968,12 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
         const { text, commands, spans, scope } = script;
         const step = npm.workflowSteps?.get(name);
         const job = step?.containerJob;
-        const containerCommand = job !== undefined && unsupportedReleaseConstruct("container job", scope) && commands.find(words => {
-            const target = forwardToScript(words)?.target;
-            return (target !== undefined && entryPoints.has(target)) || needsReleaseProject(words, knownWriters);
-        });
+        const containerCommand = job !== undefined && unsupportedReleaseConstruct("container job", scope)
+            && commands.find(words => needsReleaseProject(words, releasePaths));
         const shellConstruct = (releasePath || scope === "workflow") && releaseHookConstructProblem(commands, text, spans, step?.label ?? name, scope, words => {
             if (releasePath)
                 return true;
-            const target = forwardToScript(words)?.target;
-            return (target !== undefined && entryPoints.has(target)) || canReachGenerator(words, knownWriters);
+            return canReachGenerator(words, releasePaths);
         });
         const construct = containerCommand ? {
             words: containerCommand,
@@ -1065,7 +1044,7 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
             const separators = effective.filter(token => forwardedSeparators.has(token));
             const contextProblem = (checkContext ? generatedHookProblem(effective, written, true, loopReads) : undefined)
                 ?? forwardedBindingProblem(effective, bindings)
-                ?? (checkContext ? releaseContextProblem(effective, names, preceding) : undefined);
+                ?? (checkContext ? releaseContextProblem(effective, names, preceding, true, step?.label ?? name) : undefined);
             if (checkContext)
                 preceding = nextShellContext(words, preceding, effective);
             if (contextProblem) {
@@ -1087,21 +1066,9 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
                 const clearsCanonical = forward.environment?.clearsCanonical;
                 const fallback = clearsCanonical && previouslyRan ? "unknown" : configured;
                 const policy = forwardedLifecycle(forward.lifecycle, lifecycle, fallback, forward.environment);
-                if (!names.has(forward.target)) {
-                    // npm's implicit env body can execute preenv/postenv even with --if-present.
-                    if (isNpm && forward.target === "env" && policy.enabled !== false
-                        && names.sequence("env", true).some(sibling => sibling !== "env" && (checkContext
-                            ? !inertImplicitEnvSibling(parsed.get(sibling).commands)
-                            : knownWriters.canGenerate(sibling)))) {
-                        const problem = describeUnsupportedReleaseHook("npm's implicit env lifecycle", name);
-                        if (hooks)
-                            throw new Error(problem);
-                        inspect({ parents, name, names, text, words, effective, spans, forwardedSeparators: separators, contextProblem: problem });
-                        return;
-                    }
-                    if (forward.optional || !hooks)
-                        continue;
-                }
+                const implicitEnv = isNpm && forward.target === "env" && !parsed.get("env")?.text;
+                if (!implicitEnv && !names.has(forward.target) && (forward.optional || !hooks))
+                    continue;
                 const inheritsSetting = forward.lifecycle === undefined && forward.environment === undefined;
                 // An implicit reload can enable a sibling that preparation skipped.
                 if (isNpm && checkContext && !npm.mainOnly && lifecycle === false && config.reloadable && previouslyRan && inheritsSetting
@@ -1111,6 +1078,20 @@ export function visitChangelogScriptCommands(scripts, inspect, hooks, resolved, 
                         refuseHook(problem);
                     inspect({ parents, name, names, text, words, effective, spans, forwardedSeparators: separators, contextProblem: problem });
                     return;
+                }
+                // npm supplies its own env body and may run lifecycle siblings even with --if-present.
+                if (implicitEnv) {
+                    if (policy.enabled !== false
+                        && names.sequence("env", true).some(sibling => sibling !== "env" && (checkContext
+                            ? !inertImplicitEnvSibling(parsed.get(sibling).commands)
+                            : knownWriters.canGenerate(sibling)))) {
+                        const problem = describeUnsupportedReleaseHook("npm's implicit env lifecycle", name);
+                        if (hooks)
+                            throw new Error(problem);
+                        inspect({ parents, name, names, text, words, effective, spans, forwardedSeparators: separators, contextProblem: problem });
+                        return;
+                    }
+                    continue;
                 }
                 if (isNpm && entryPoints.has(forward.target) && collectingWorkflowEntries) {
                     const settings = entryLifecycles.get(forward.target) ?? [];
@@ -1538,6 +1519,11 @@ function finalHookCommands(commands) {
         }
         const isStatus = status !== undefined;
         const redirectOnly = literalRedirectOnly(words);
+        // A separate list can succeed even when an earlier AND-list skipped its last renderer.
+        const masksPreviousFailure = !afterAnd && !afterOr && !terminator && skippedInPreviousList.length > 0
+            && (redirectOnly || isStatus && status !== "false");
+        if (masksPreviousFailure)
+            last = [...new Set([...last, ...skippedInPreviousList])];
         if (afterOr && (redirectOnly || (isStatus && (status !== "false" || producer !== words)))) {
             last = [...new Set([...last, ...skipped])];
         }
@@ -1550,7 +1536,7 @@ function finalHookCommands(commands) {
         if ((!words[0].releaseKeyword || words.length > 1)
             && terminator !== "exit"
             && !redirectOnly
-            && !statusAfterSetupLoop
+            && !statusAfterSetupLoop && !masksPreviousFailure
             && !((alternatives.length > 0 || loopEntries.length > 0 || isReleaseLoopCondition(words)
                 || afterOr || (afterAnd && following !== undefined)) && isStatus)) {
             const prior = afterOr ? last.filter(command => !rendererStatusCommand(releaseOutputProducer(command))) : [];

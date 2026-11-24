@@ -13,8 +13,10 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-import { bashArrayDeclarations, bashArrays, commandArguments, commandName, dedentRunBlocks, expandArrays, heredocBodyLines, joinContinuations, packageScriptCommand, shellRedirection, tokenizeCommands } from "../shell-scan.ts";
+import { bashArrayDeclarations, bashArrays, commandArguments, commandName, dedentRunBlocks, expandArrays, heredocBodyLines, joinContinuations, packageScriptCommand, releaseHookCommand, shellRedirection, tokenizeCommands } from "../shell-scan.ts";
 import { auditPublishAttestation, publishInvocationsIn } from "../attestation.ts";
+import { isShellAssignment } from "../release-shell-constructs.ts";
+import { parseReleaseHook } from "../release-hook-grammar.ts";
 import { isMainInvocation } from "../scripts/main-invocation.ts";
 
 test("quoted YAML command values are recursively tokenized", () => {
@@ -415,5 +417,39 @@ test("Round HA a comment after a separator cannot open a heredoc", () => {
   for (const word of ["name#suffix", "name\\ #suffix", "'#'", "\\#", '"name;"#', "$((1))#suffix"]) {
     const example = "echo " + word + " <<'EOF'\nnpm publish\nEOF";
     assert.deepEqual(heredocBodyLines(example.split("\n")), [false, true, true], word);
+  }
+});
+
+test("Round HC shell assignment names are parsed before quote removal", () => {
+  assert.equal(isShellAssignment({ value: "FOO=bar" }), true);
+  assert.equal(isShellAssignment({ value: "FOO=bar", startsQuoted: true }), false);
+  for (const name of ['FO"O"', 'F\\OO', "F''OO"]) {
+    const [words] = tokenizeCommands(name + '=bar pm-changelog');
+    assert.equal(commandName(words), 'FOO=bar');
+    assert.equal(packageScriptCommand(words)?.[0]?.value, 'FOO=bar');
+    assert.equal(releaseHookCommand(parseReleaseHook(name + '=bar pm-changelog').commands[0])?.[0]?.value, 'FOO=bar');
+  }
+  for (const command of ['FOO="bar" pm-changelog', "env 'FOO=bar' pm-changelog", 'F\\\nOO=bar pm-changelog']) {
+    assert.equal(commandName(tokenizeCommands(command)[0]), 'pm-changelog');
+    assert.equal(releaseHookCommand(parseReleaseHook(command).commands[0])?.[0]?.value, 'pm-changelog');
+  }
+});
+
+test("Round HC continuations preserve local substitution quotes and rejoin executable words", () => {
+  const literal = "value=\\\ncontinued";
+  const command = 'printf "%s" "$(printf \'%s\' \'' + literal + '\')"';
+  assert.equal(joinContinuations(command), command);
+  assert.equal(joinContinuations('printf "%s" "' + literal + '"'), 'printf "%s" "value=continued"');
+  assert.equal(joinContinuations(command + '\nprintf "%s" "' + literal + '"'), command + '\nprintf "%s" "value=continued"');
+  const nested = `printf "%s" "$( (printf '%s' '${literal}') )"`;
+  assert.equal(joinContinuations(nested), nested);
+});
+
+test("Round HC double-quoted here-document delimiters preserve literal backslashes", () => {
+  assert.deepEqual(heredocBodyLines(['cat <<"EO' + "\\"]), [false]);
+  assert.match(joinContinuations('cat <<"EO\\\nF"\nEOF\nprintf ready'), /^cat <<"EOF"/);
+  for (const [delimiter, terminator] of [['EO\\F', 'EO\\F'], ['EO\\"F', 'EO"F']]) {
+    const body = 'cat <<"' + delimiter + '"\nordinary \\\ndata\n' + terminator + '\nnpm pub\\\nlish';
+    assert.equal(joinContinuations(body), body.replace('pub\\\nlish', 'publish'));
   }
 });

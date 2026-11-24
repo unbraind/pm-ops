@@ -7,10 +7,10 @@ status: in_progress
 priority: 2
 tags[3]: "area:release","gh:unbraind/pm-ops#292","gh:unbraind/pm-ops#295"
 created_at: "2026-11-16T19:17:51.165Z"
-updated_at: "2026-11-23T18:50:34.290Z"
+updated_at: "2026-11-24T01:17:36.047Z"
 author: codex-sol
 acceptance_criteria: "Resolve the existing tagged release-heading date policy mismatch; npm run changelog:check and release date checks agree before and after rollover without changing historical tags."
-comments[308]{created_at,author,text}:
+comments[313]{created_at,author,text}:
   "2026-11-16T19:18:50.836Z",codex-sol,"Verified npm run changelog:check fails on untouched origin/main c29fe88 as well as the fix branch. Tag v2026.11.15 targets c29fe88 with commit time 2026-11-16T17:43:01Z. Regeneration changes only the first heading date from 2026-11-15 to 2026-11-16. No historical tags or changelog content were changed for #290."
   "2026-11-16T19:24:41.440Z","harness:claude-code","2026-11-16 20:0xZ (orchestrator): root cause filed as unbraind/pm-ops#292. v2026.11.15 was prepared and tagged on 11-16, prepare rendered the heading from the version (2026-11-15), and after tagging pm-changelog uses the real tag date (2026-11-16, by design per pm-changelog#120). Regenerated CHANGELOG.md in PR #291 so 'npm run changelog:check' passes on this branch (exit 0); main stays red until #291 or another regeneration merges."
   "2026-11-16T22:58:09.756Z",pi-ops-292,"Root cause (issue #292): prepare renders the pending version's heading with --date-from-version, so a resumed candidate (version day before today) is stamped with its version day. The release step then tags it today; pm-changelog by design derives a tagged window's heading from the tag commit date (pm-changelog#120), so post-tag regeneration on unchanged main renders a different day and changelog:check is red on main. The release PR's own CI passes (candidate still untagged), so the failure only appears after the merge.\n\nDesign: use the generator's existing --date-fallback flag (applies only while no release tag exists; ignored once the tag exists, so it matches post-tag invocations byte-for-byte). decideDailyRelease now outputs heading_date: today in RELEASE_TIMEZONE, padded ISO, when the version's calendar day is before today; empty for a same-day release, which is therefore unchanged. The 'Generate changelog and release notes' step, in the same in-place package.json policy rewrite that already appends --include-empty, swaps --date-from-version for --date-fallback <heading_date> in the three changelog scripts when resumed, refreshes a stale pin when a candidate is re-prepared on a later day, and restores --date-from-version when the pending version is current again. The release commit carries the pinned spelling, so the release PR's CI (untagged candidate), prepare's nested release:check and post-tag checks on main all regenerate the same bytes with no follow-up regeneration. The date verifier accepts a pinned --date-fallback day (explicit ISO day only) as an equally clock-free alternative to --date-from-version. Rust/justfile releases (CHANGELOG_DATE derived from the tag name) keep their own spelling and are not touched."
@@ -319,6 +319,11 @@ comments[308]{created_at,author,text}:
   "2026-11-23T18:45:47.601Z",codex-agent,"Greptile thread PRRT_kwDOTOTl1M67Aa0J on 5e24b64 supplies a same-class generated-file counterexample. An implicit env lifecycle sibling may emit a script without invoking the generator itself. Keep a positive allowlist for inert print commands and no-ops on release paths, and refuse opaque commands or file writes using the same diagnostic."
   "2026-11-23T18:47:59.272Z",codex-agent,"The generated-script fixture failed on 5e24b64 before the guard changed. The final proof accepts literal echo, print-only printf, true and colon with inert redirects. It refuses generated files, opaque programs, expansions, printf variable writes and unsafe descriptors with the existing unsupported-construct diagnostic. The original triggering refusal, benign sibling inverse, generated-script case and existing esac fixture all pass."
   "2026-11-23T18:50:31.018Z",codex-agent,"The generated implicit-env fixture passed after a focused revert proof on 5e24b64. The four directly related tests, the PM-linked Round HA command, typecheck, test compilation, lint, zero duplication and docstrings passed. The updated inventory accepts 142 hooks and 144 bodies across 39 manifests. This narrow rule handles the class by refusing unknown lifecycle side effects. The pushed head's hosted results are at https://github.com/unbraind/pm-ops/pull/295/checks."
+  "2026-11-23T23:53:29.159Z",codex-agent,"Round HC pinned corpus census before implementation: 39 manifests, 142 hook roots and 144 reachable script bodies. Package hooks use direct pm-changelog, Node adapters and custom renderers, npm forwarding and Just recipes, quoted words, inline and separate option values, option delimiters and pm-arg passthrough. The Git posthook uses tests, if/then/fi, subshells, stdout and descriptor redirection and AND/OR lists. The 265 pinned workflows and 1062 run bodies also use loops with break and continue, case arms, here-documents, here-strings, GITHUB_ENV writes, pipelines and exit. The corpus contains no release timing prefix or container release job. Apply the shared unsupported-construct diagnostic outside the supported forms and rerun the pinned scan."
+  "2026-11-24T00:08:29.997Z",codex-agent,"Round HC review fetch read all 388 threads, all 14 unresolved comments, and the latest CodeRabbit review with one outside-diff finding on quoted here-document delimiters. The branch merged the new main commit separately. The baseline and first patched corpus runs each accepted 142 hook roots and 144 reached bodies across 39 manifests. Paired fixtures cover the documented findings and inverse cases. Timing and container execution on release paths use the shared refusal, including configured relays. In-place summary-only appends, receipt aliases and GitHub output record separators are checked before reporting success."
+  "2026-11-24T00:24:12.579Z",codex-agent,"Round HC isolated behavioral reverts failed the intended fixture in all 14 thread cases and the outside-diff delimiter case. Refused by design: 66Cqf_ timed-group classification, 66CqgE generic unsupported set-mode diagnostic, 66CqgK configured relay reachability in a container. Corpus fixes: 66CqgN implicit env body, 66CqgT lifecycle reload before optional skip, 66CqgX renderer candidates after a successful redirect, 66Cqge shell assignment source, 66CqhA substitution quote boundaries, and the outside-diff double-quoted delimiter. Data fixes: 66Cqgn direct summary-only append, 66Cqgv receipt alias check, 66Cqg2 output record separator. Hermetic fixtures: 66CqhC Windows path normalization, 66CqhI inherited npm alias isolation, 66CqhO explicit cleanup fault injection."
+  "2026-11-24T00:24:17.203Z",codex-agent,"Four supplemental isolated reverts also failed the intended controls: JSON stdout receipt ownership, a dangling symlink that would become a release alias, a title identical to the pinned CLI path, and timing carried through a grouped pipeline. Real npm 11.21.0 exercised six combinations of missing, empty and explicit env bodies with and without optional forwarding. The pinned candidate again accepted 39 manifests, 142 hooks and 144 reached bodies. Existing pre-diff continuation output handling has a separate follow-up, ops-continuation-output-separator."
+  "2026-11-24T01:17:33.984Z",codex-agent,"Round HC final gates passed. The frozen release-heading acceptance executed the full npm release check and left no temporary checkout. The direct Bun release check also passed. Each full gate ran 2359 tests with 2357 passing, zero failures and two opt-in real-repository skips, plus 100 percent lines, branches, functions and statements across 56 measured sources. Both dependency audits reported zero vulnerabilities. The intermediate frozen run exposed one missing EOF-delimiter coverage arm, now exercised. The final focused sweep passed 47 tests, the identity suite passed four, the self-host fixture passed one and the pinned pm-linked command passed. Typecheck, test build, lint, zero duplication, docstrings, changelog and release verifiers passed. The live tracker passed strict health with extensions disabled. The default extension host reports a local pm-github version skew, and validate reports the same completeness finding as the start snapshot. Checks for the pushed head will appear at https://github.com/unbraind/pm-ops/pull/295/checks."
 files[48]:
   - path: .coderabbit.yaml
     scope: project
@@ -417,10 +422,11 @@ files[48]:
     scope: project
   - path: test/shell-command-scan.test.ts
     scope: project
+    note: Round HC assignment and continuation inverse fixtures
   - path: test/verify-release-changelog-date.test.ts
     scope: project
     note: Round GU root hook selector controls
-tests[95]:
+tests[96]:
   - command: npm run typecheck
     scope: project
     provenance:
@@ -1097,10 +1103,17 @@ tests[95]:
       created_at: "2026-11-23T17:26:17.642Z"
       source_kind: local_mutation
       source_ref: fix/release-hook-wrapper-options-bm
+  - command: node --test --test-concurrency=2 --test-name-pattern='Round HC|custom notes receive the saved argument|a staging cleanup error' test/release-hook-grammar.test.ts test/shell-command-scan.test.ts test/changelog-sections.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-24T00:08:39.346Z"
+      source_kind: local_mutation
+      source_ref: fix/release-hook-wrapper-options-bm
 docs[5]:
   - path: .coderabbit.yaml
     scope: project
-    note: Documents pinned release grammar and scoped refusals
+    note: Round HC pinned release construct scope and generic refusal
   - path: CHANGELOG.md
     scope: project
   - path: docs/reusable-release.md

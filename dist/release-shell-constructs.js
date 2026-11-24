@@ -13,7 +13,14 @@ export function describeUnsupportedReleaseHook(construct, hook) {
 }
 /** A shell prefix requires an unquoted identifier. The env utility accepts any nonempty name. */
 export function isShellAssignment(word, utility = false) {
-    return utility ? /^[^=]+=/.test(word.value) : !word.startsQuoted && /^[A-Za-z_]\w*\+?=/.test(word.value);
+    if (utility)
+        return /^[^=]+=/.test(word.value);
+    const raw = literalWords.get(word);
+    return /^[A-Za-z_]\w*\+?=/.test(raw === undefined ? word.startsQuoted ? "" : word.value : raw.replaceAll("\\\n", ""));
+}
+/** Whether a backslash introduces an escape inside double quotes. */
+export function isDoubleQuotedShellEscape(next) {
+    return /["$`\\\n]/.test(next);
 }
 /** A case can read its next pattern or the remaining words in a started pattern. */
 export function inShellCasePattern(state) {
@@ -50,6 +57,19 @@ export function readShellCaseWord(stack, value, literal, commandStart) {
 }
 const literalWords = new WeakMap();
 const pipedToNext = new WeakSet();
+const timedGroupCommands = new WeakSet();
+/** Whether a group opener immediately follows an unquoted timing prefix. */
+export function isReleaseTimingGroup(words) {
+    const source = words.map(word => literalWords.get(word)?.replaceAll("\\\n", ""));
+    const timing = source.findIndex(word => word === "time");
+    return timing >= 0
+        && source.slice(0, timing).every(word => word !== undefined && /^(?:!|if|then|elif|else|do|while|until)$/.test(word))
+        && source.slice(timing + 1).every(word => word === "-p" || word === "!");
+}
+/** Associate commands with a timing prefix outside their compound command. */
+export function recordTimedReleaseGroup(command) {
+    timedGroupCommands.add(command);
+}
 /** Preserve physical words even for commands reconstructed inside an evaluator. */
 export function recordReleaseShellWord(word, raw) {
     literalWords.set(word, raw);
@@ -66,7 +86,7 @@ export function releaseCommandConstructs(commands, scope, rawWord) {
         const source = command.filter(word => !word.releaseKeyword);
         const physical = rawWord && source.map(rawWord);
         const words = physical?.every(word => word !== undefined) ? physical : source.map(word => literalWords.get(word));
-        const construct = pipelineProblem ?? unsupportedReleaseCommand(words, scope);
+        const construct = pipelineProblem ?? (timedGroupCommands.has(command) ? "time prefix" : unsupportedReleaseCommand(words, scope));
         if (construct)
             problems.set(command, construct);
         pipelineProblem = pipedToNext.has(command) ? construct : undefined;
@@ -119,5 +139,31 @@ export function readShellLogicalLine(text, start, joins) {
 /** An odd final backslash escapes the newline after the literal pairs. */
 export function hasShellContinuation(line) {
     return /(?<!\\)(?:\\\\)*\\$/.test(line);
+}
+/** Find the first set switch outside the shell modes modeled by the hook grammar. */
+function unsupportedSetSwitch(args) {
+    for (let i = 0; i < args.length; i++) {
+        const flag = args[i];
+        if (flag.unresolved)
+            return "set " + flag.value;
+        if (flag.value === "--" || !/^[+-]./.test(flag.value))
+            break;
+        if (/^[+-][eu]+$/.test(flag.value))
+            continue;
+        if (!/^[+-][eu]*o[eu]*$/.test(flag.value))
+            return "set " + flag.value;
+        const option = args[++i];
+        if (option?.unresolved)
+            return "set " + flag.value;
+        if (option && !/^(?:errexit|nounset|pipefail)$/.test(option.value))
+            return "set " + flag.value + " " + option.value;
+    }
+    return undefined;
+}
+/** Unsupported modes change parsing, builtin lookup, or pipeline isolation. */
+export function unsupportedReleaseShellMode([program, ...args]) {
+    if (program.value === "set")
+        return unsupportedSetSwitch(args);
+    return /^(?:shopt|enable|alias|source|\.)$/.test(program.value) ? program.value : undefined;
 }
 //# sourceMappingURL=release-shell-constructs.js.map

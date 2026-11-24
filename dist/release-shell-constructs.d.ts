@@ -14,12 +14,18 @@ export declare function isShellAssignment(word: {
     value: string;
     startsQuoted?: boolean;
 }, utility?: boolean): boolean;
+/** Whether a backslash introduces an escape inside double quotes. */
+export declare function isDoubleQuotedShellEscape(next: string): boolean;
 /** The current position within each nested shell case. */
 export type ShellCaseState = "subject" | "in" | "pattern" | "pattern-data" | "body";
 /** A case can read its next pattern or the remaining words in a started pattern. */
 export declare function inShellCasePattern(state: ShellCaseState | undefined): boolean;
 /** Classify case words before a scanner treats them as executable argv. */
 export declare function readShellCaseWord(stack: ShellCaseState[], value: string, literal: boolean, commandStart: boolean): "open" | "header" | "pattern" | "close" | undefined;
+/** Whether a group opener immediately follows an unquoted timing prefix. */
+export declare function isReleaseTimingGroup(words: readonly object[]): boolean;
+/** Associate commands with a timing prefix outside their compound command. */
+export declare function recordTimedReleaseGroup(command: readonly object[]): void;
 /** Preserve physical words even for commands reconstructed inside an evaluator. */
 export declare function recordReleaseShellWord(word: object, raw: string): void;
 /** Record when the next command is a stage of the same shell pipeline. */
@@ -38,5 +44,10 @@ export declare function readShellLogicalLine(text: string, start: number, joins:
 };
 /** An odd final backslash escapes the newline after the literal pairs. */
 export declare function hasShellContinuation(line: string): boolean;
+/** Unsupported modes change parsing, builtin lookup, or pipeline isolation. */
+export declare function unsupportedReleaseShellMode([program, ...args]: readonly {
+    value: string;
+    unresolved?: boolean;
+}[]): string | undefined;
 export {};
 //# sourceMappingURL=release-shell-constructs.d.ts.map

@@ -24,7 +24,14 @@ export function describeUnsupportedReleaseHook(construct: string, hook: string):
 
 /** A shell prefix requires an unquoted identifier. The env utility accepts any nonempty name. */
 export function isShellAssignment(word: { value: string; startsQuoted?: boolean }, utility = false): boolean {
-  return utility ? /^[^=]+=/.test(word.value) : !word.startsQuoted && /^[A-Za-z_]\w*\+?=/.test(word.value);
+  if (utility) return /^[^=]+=/.test(word.value);
+  const raw = literalWords.get(word);
+  return /^[A-Za-z_]\w*\+?=/.test(raw === undefined ? word.startsQuoted ? "" : word.value : raw.replaceAll("\\\n", ""));
+}
+
+/** Whether a backslash introduces an escape inside double quotes. */
+export function isDoubleQuotedShellEscape(next: string): boolean {
+  return /["$`\\\n]/.test(next);
 }
 
 /** The current position within each nested shell case. */
@@ -69,6 +76,21 @@ export function readShellCaseWord(
 
 const literalWords = new WeakMap<object, string>();
 const pipedToNext = new WeakSet<readonly object[]>();
+const timedGroupCommands = new WeakSet<readonly object[]>();
+
+/** Whether a group opener immediately follows an unquoted timing prefix. */
+export function isReleaseTimingGroup(words: readonly object[]): boolean {
+  const source = words.map(word => literalWords.get(word)?.replaceAll("\\\n", ""));
+  const timing = source.findIndex(word => word === "time");
+  return timing >= 0
+    && source.slice(0, timing).every(word => word !== undefined && /^(?:!|if|then|elif|else|do|while|until)$/.test(word))
+    && source.slice(timing + 1).every(word => word === "-p" || word === "!");
+}
+
+/** Associate commands with a timing prefix outside their compound command. */
+export function recordTimedReleaseGroup(command: readonly object[]): void {
+  timedGroupCommands.add(command);
+}
 
 /** Preserve physical words even for commands reconstructed inside an evaluator. */
 export function recordReleaseShellWord(word: object, raw: string): void {
@@ -91,7 +113,7 @@ export function releaseCommandConstructs<Command extends ReadonlyArray<{ release
     const source = command.filter(word => !word.releaseKeyword);
     const physical = rawWord && source.map(rawWord);
     const words = physical?.every(word => word !== undefined) ? physical : source.map(word => literalWords.get(word));
-    const construct = pipelineProblem ?? unsupportedReleaseCommand(words, scope);
+    const construct = pipelineProblem ?? (timedGroupCommands.has(command) ? "time prefix" : unsupportedReleaseCommand(words, scope));
     if (construct) problems.set(command, construct);
     pipelineProblem = pipedToNext.has(command) ? construct : undefined;
   }
@@ -141,4 +163,25 @@ export function readShellLogicalLine(text: string, start: number, joins: (line: 
 /** An odd final backslash escapes the newline after the literal pairs. */
 export function hasShellContinuation(line: string): boolean {
   return /(?<!\\)(?:\\\\)*\\$/.test(line);
+}
+
+/** Find the first set switch outside the shell modes modeled by the hook grammar. */
+function unsupportedSetSwitch(args: readonly { value: string; unresolved?: boolean }[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const flag = args[i];
+    if (flag.unresolved) return "set " + flag.value;
+    if (flag.value === "--" || !/^[+-]./.test(flag.value)) break;
+    if (/^[+-][eu]+$/.test(flag.value)) continue;
+    if (!/^[+-][eu]*o[eu]*$/.test(flag.value)) return "set " + flag.value;
+    const option = args[++i];
+    if (option?.unresolved) return "set " + flag.value;
+    if (option && !/^(?:errexit|nounset|pipefail)$/.test(option.value)) return "set " + flag.value + " " + option.value;
+  }
+  return undefined;
+}
+
+/** Unsupported modes change parsing, builtin lookup, or pipeline isolation. */
+export function unsupportedReleaseShellMode([program, ...args]: readonly { value: string; unresolved?: boolean }[]): string | undefined {
+  if (program.value === "set") return unsupportedSetSwitch(args);
+  return /^(?:shopt|enable|alias|source|\.)$/.test(program.value) ? program.value : undefined;
 }

@@ -10,7 +10,7 @@ import {
 } from "./shell-scan.ts";
 
 import {
-  hasShellContinuation, inShellCasePattern, readShellCaseWord, readShellLogicalLine, recordReleasePipeline, shellCaseTerminator, unsupportedReleaseConstruct, UNSUPPORTED_RELEASE_HOOK,
+  hasShellContinuation, isDoubleQuotedShellEscape, recordReleaseShellWord, inShellCasePattern, readShellCaseWord, readShellLogicalLine, recordReleasePipeline, shellCaseTerminator, unsupportedReleaseConstruct, UNSUPPORTED_RELEASE_HOOK,
   type ReleaseShellScope, type ShellCaseState,
 } from "./release-shell-constructs.ts";
 
@@ -284,7 +284,7 @@ export function parseReleaseHook(text: string, scope: ReleaseShellScope = "hook"
       i++;
       if (char === quote) { quote = ""; continue; }
       if (!quote && (char === "'" || char === '"')) { quoted = true; quote = char; unquoted += "\0"; continue; }
-      if (char === "\\" && quote !== "'" && (!quote || /["$`\\\n]/.test(text[i]))) {
+      if (char === "\\" && quote !== "'" && (!quote || isDoubleQuotedShellEscape(text[i]))) {
         if (i === text.length) { problem = "Incomplete shell escape"; break; }
         const escaped = text[i++];
         if (escaped !== "\n") {
@@ -324,6 +324,7 @@ export function parseReleaseHook(text: string, scope: ReleaseShellScope = "hook"
     if (caseWord && problem !== "Shell command substitution") continue;
     const token: ShellToken = { value, startsQuoted, quoted, unresolved };
     recordShellRedirection(token, text, start, i);
+    recordReleaseShellWord(token, text.slice(start, i));
     const redirect = shellRedirection(token);
     if (redirect && /^\d*<<-?$/.test(redirect.operator)) {
       if (heredoc < 0) heredoc = text.lastIndexOf("\n", start - 1) + 1;

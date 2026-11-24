@@ -5,7 +5,7 @@
  */
 import { basename } from "node:path";
 import { commandName, isCombinedOutputRedirect, isRedirectionSuffix, isShellEvaluator, recordShellRedirection, releaseHookCommand, shellRedirection, } from "./shell-scan.js";
-import { hasShellContinuation, inShellCasePattern, readShellCaseWord, readShellLogicalLine, recordReleasePipeline, shellCaseTerminator, unsupportedReleaseConstruct, UNSUPPORTED_RELEASE_HOOK, } from "./release-shell-constructs.js";
+import { hasShellContinuation, isDoubleQuotedShellEscape, recordReleaseShellWord, inShellCasePattern, readShellCaseWord, readShellLogicalLine, recordReleasePipeline, shellCaseTerminator, unsupportedReleaseConstruct, UNSUPPORTED_RELEASE_HOOK, } from "./release-shell-constructs.js";
 const problems = new WeakMap();
 const possibleGeneratorTargets = new WeakSet();
 const variableReferences = new WeakMap();
@@ -304,7 +304,7 @@ export function parseReleaseHook(text, scope = "hook") {
                 unquoted += "\0";
                 continue;
             }
-            if (char === "\\" && quote !== "'" && (!quote || /["$`\\\n]/.test(text[i]))) {
+            if (char === "\\" && quote !== "'" && (!quote || isDoubleQuotedShellEscape(text[i]))) {
                 if (i === text.length) {
                     problem = "Incomplete shell escape";
                     break;
@@ -358,6 +358,7 @@ export function parseReleaseHook(text, scope = "hook") {
             continue;
         const token = { value, startsQuoted, quoted, unresolved };
         recordShellRedirection(token, text, start, i);
+        recordReleaseShellWord(token, text.slice(start, i));
         const redirect = shellRedirection(token);
         if (redirect && /^\d*<<-?$/.test(redirect.operator)) {
             if (heredoc < 0)

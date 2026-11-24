@@ -912,7 +912,7 @@ test("release hooks refuse shell modes and builtins that can invalidate the pars
     ["builtin -- . ./settings.sh", "."],
   ]) {
     const refuses = (error: unknown) => error instanceof Error
-      && error.message.includes("context change " + construct + ".") && error.message.includes("Use a direct pm-changelog");
+      && error.message.includes("release_hook_unsupported_construct: " + construct + " in hook") && error.message.includes("script file");
     const hook = prefix + "; " + writer;
     const scripts = { "changelog:full": "npm run hook", hook };
     const map = new Map(Object.entries(scripts));
@@ -925,7 +925,7 @@ test("release hooks refuse shell modes and builtins that can invalidate the pars
     assert.equal(result.failures.length, 1, hook);
     assert.ok(refuses(new Error(result.failures[0])), result.failures[0]);
   }
-  assert.throws(() => resolveChangelogHooks({ "changelog:full": ". ./writer.sh" }, ["changelog:full"]), /context change \./);
+  assert.throws(() => resolveChangelogHooks({ "changelog:full": ". ./writer.sh" }, ["changelog:full"]), /release_hook_unsupported_construct: \. in hook/);
   assert.deepEqual(auditInvocations([workflow("source ./settings.sh; echo ready", writer)]).failures, []);
   assert.equal(includeEmptyReleaseSections("source ./settings.sh; echo ready"), "source ./settings.sh; echo ready");
 });
@@ -3798,4 +3798,130 @@ test("Round HA implicit npm env refuses siblings that can generate executable fi
   const printOnly = { [hook]: command.replace("sh generate.sh", generator), preenv: "printf '%s\\n' inspected >&2; printf 'ready 100%%'; true; : > /dev/null" };
   assert.deepEqual([...resolveChangelogHooks(printOnly, [hook], true).keys()], [hook]);
   assert.deepEqual(audit(printOnly), []);
+});
+
+test("Round HC generated timing groups agree across all release readers", () => {
+  const name = "release:notes";
+  const generator = "pm-changelog " + standing;
+  const publish = "npm publish --provenance";
+  const diagnostic = /release_hook_unsupported_construct:.*time prefix.*script file/;
+  for (const time of ["time", "time -p", "time -p !", "ti\\\nme"]) {
+    for (const group of [
+      (command: string) => "(" + command + ")",
+      (command: string) => "{ " + command + "; }",
+      (command: string) => "(echo outer; (" + command + "))",
+    ]) {
+      for (const prefix of ["", "echo ready; "]) {
+        const wrap = (command: string) => time + " " + group(prefix + command);
+        const hook = wrap(generator);
+        const scripts = { [name]: hook };
+        const manifest = { file: "package.json", text: JSON.stringify({ scripts }) };
+        assert.throws(() => resolveChangelogHooks(scripts, [name]), diagnostic);
+        assert.throws(() => rewriteReleaseHookDates(new Map([[name, hook]]), [name], day), diagnostic);
+        const audits = [auditPublishAttestation([workflow(wrap(publish))]),
+          auditInvocations([manifest]), auditInvocations([workflow(hook)])];
+        for (const audit of audits) assert.match(audit.failures[0] ?? "", diagnostic, hook);
+        const { commands, spans } = tokenizeCommandsWithSpans(hook);
+        const command = (words: typeof commands[number]) => words.some(word => word.value === "pm-changelog");
+        assert.match(releaseHookConstructProblem(commands, hook, spans, name, "workflow", command)?.problem ?? "", diagnostic);
+        assert.deepEqual(auditInvocations([workflow(wrap("echo ordinary") + "; " + generator)]).failures, []);
+        assert.deepEqual(auditPublishAttestation([workflow(wrap("echo ordinary") + "; " + publish)]).failures, []);
+      }
+    }
+  }
+});
+
+test("Round HC timing includes a grouped pipeline stage and its downstream command", () => {
+  const generator = "pm-changelog " + standing;
+  const publish = "npm publish --provenance";
+  const diagnostic = /release_hook_unsupported_construct:.*time prefix/;
+  assert.throws(() => rewriteReleaseHeadingDate("time(" + generator + ")", day), diagnostic);
+  assert.match(auditInvocations([workflow("time(" + generator + ")")]).failures[0] ?? "", diagnostic);
+  assert.match(auditInvocations([workflow("bash -c 'time (" + generator + ")'")]).failures[0] ?? "", diagnostic);
+  assert.match(auditPublishAttestation([workflow("if true; then time (" + publish + "); fi")]).failures[0] ?? "", diagnostic);
+  for (const suffix of ["|", "|&", "> preview.log |", "> preview.log |&"]) {
+    const prefix = "time (echo ready) " + suffix + " ";
+    assert.match(auditInvocations([workflow(prefix + generator)]).failures[0] ?? "", diagnostic);
+    assert.match(auditPublishAttestation([workflow(prefix + publish)]).failures[0] ?? "", diagnostic);
+  }
+  const data = "cat <<'EOF' > preview.log\ntime (" + generator + ")\nEOF\n";
+  assert.deepEqual(auditInvocations([workflow(data + generator)]).failures, []);
+  assert.deepEqual(auditInvocations([workflow("time (echo ready) || " + generator)]).failures, []);
+  assert.deepEqual(auditPublishAttestation([workflow("time (echo ready) || " + publish)]).failures, []);
+});
+
+test("Round HC unsupported hook shell mode has the owning hook diagnostic", () => {
+  const name = "release:notes";
+  const generator = "pm-changelog " + standing;
+  for (const prefix of ["set -f; ", "builtin set -o noglob; "]) {
+    const body = prefix + generator;
+    const scripts = { [name]: body };
+    const manifest = { file: "package.json", text: JSON.stringify({ scripts }) };
+    const diagnostic = /release_hook_unsupported_construct:.*set.*release:notes.*script file/;
+    assert.throws(() => resolveChangelogHooks(scripts, [name]), diagnostic);
+    assert.throws(() => rewriteReleaseHookDates(new Map([[name, body]]), [name], day), diagnostic);
+    assert.match(auditInvocations([manifest]).failures[0] ?? "", diagnostic);
+  }
+  for (const prelude of ["set -eu; ", "set -- -f; "]) {
+    assert.doesNotThrow(() => resolveChangelogHooks({ [name]: prelude + generator }, [name]));
+  }
+});
+
+test("Round HC container refusal follows configured custom hook relays", () => {
+  const manifest = { file: "package.json", text: JSON.stringify({ scripts: {
+    "release:notes": "node notes.mjs", relay: "npm run inner", inner: "npm run release:notes",
+    unrelated: "npm run smoke", smoke: "node smoke.mjs", generator: "pm-changelog " + standing,
+  } }) };
+  const job = (run: string, container?: string) => ({ file: ".github/workflows/release.yml",
+    text: stringify({ jobs: { release: { container, steps: [{ run }] } } }),
+  });
+  assert.match(auditInvocations([manifest, job("npm run relay", "node:24")]).failures[0] ?? "",
+    /release_hook_unsupported_construct:.*container job.*relay.*script file/);
+  assert.match(auditInvocations([manifest, workflow("time npm run relay")]).failures[0] ?? "",
+    /release_hook_unsupported_construct:.*time prefix/);
+  assert.deepEqual(auditInvocations([manifest, job("npm run unrelated", "node:24")]).failures, []);
+  assert.deepEqual(auditInvocations([manifest, job("npm run relay")]).failures, []);
+});
+
+test("Round HC implicit npm env allows missing and empty built-in bodies", () => {
+  const name = "changelog:full";
+  const generator = "pm-changelog " + standing;
+  for (const flags of ["", "--if-present "]) {
+    const invoke = "npm run " + flags + "env";
+    const body = invoke + " >/dev/null; " + generator;
+    for (const scripts of [{ preenv: "echo ready" }, { env: "", preenv: "echo ready" }]) {
+      assert.deepEqual([...resolveChangelogHooks({ ...scripts, [name]: body }, [name], true)], [[name, body]]);
+    }
+    const explicit = { [name]: body, env: generator };
+    assert.equal(resolveChangelogHooks(explicit, [name], true).get("env"), generator);
+    assert.throws(() => resolveChangelogHooks({ postenv: "npm run writer", writer: generator, env: "", [name]: body }, [name], true),
+      /release_hook_unsupported_construct:.*implicit env/);
+  }
+  assert.doesNotThrow(() => resolveChangelogHooks({ [name]: "npm run --if-present absent; " + generator }, [name], false));
+  assert.throws(() => resolveChangelogHooks({ [name]: "npm run absent; " + generator }, [name], false), /missing or empty/);
+});
+
+test("Round HC implicit npm env checks reloads even when the forward is optional", () => {
+  const name = "changelog:full";
+  const generator = "pm-changelog " + standing;
+  for (const flags of ["--if-present ", ""]) {
+    const invoke = "npm run " + flags + "env";
+    const relay = "relay";
+    const changed = { [name]: "npm --ignore-scripts=false run " + relay, [relay]: "printf '%s\\n' ignore-scripts=false > .npmrc; " + invoke + "; " + generator,
+      postenv: "npm run writer", writer: generator };
+    assert.throws(() => resolveChangelogHooks(changed, [name], false), /Cannot verify nested npm lifecycle.*env/);
+    const pinned = { ...changed, [relay]: changed[relay].replace("npm run", "npm --ignore-scripts=true run") };
+    assert.deepEqual([...resolveChangelogHooks(pinned, [name], false).keys()], [name, relay]);
+  }
+});
+
+test("Round HC a final redirect can make a skipped renderer path succeed", () => {
+  const first = "node primary.mjs";
+  const tail = " && test -f marker && node secondary.mjs";
+  assert.equal(includeEmptyCustomHook(first + tail, new Map()), first + tail + " --include-empty");
+  for (const operator of ["; ", "\n", "; :; "]) {
+    assert.throws(() => includeEmptyCustomHook(first + tail + operator + "> preview.log", new Map()), /alternative renderers/);
+  }
+  const accepted = first + " --include-empty" + tail + " --include-empty; > preview.log";
+  assert.equal(includeEmptyCustomHook(accepted, new Map()), accepted);
 });

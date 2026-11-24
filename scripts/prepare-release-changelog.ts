@@ -6,10 +6,12 @@ import {
   visitChangelogScriptCommands,
 } from "../release-changelog-options.ts";
 import { assertProjectNpmScriptShell, projectNpmLifecyclePolicy } from "./project-npm-lifecycle.ts";
-import { appendReleaseReceipts, writeFileWithReceipts } from "./release-file-receipts.ts";
+import { appendReleaseReceipts, assertDistinctReleaseReceipt, writeFileWithReceipts } from "./release-file-receipts.ts";
 
 try {
   const manifest = resolve("package.json");
+  const output = process.argv[2];
+  if (output) assertDistinctReleaseReceipt(manifest, output);
   const pkg = JSON.parse(readFileSync(manifest, "utf8"));
   const headingDate = (process.env.RELEASE_HEADING_DATE || "").trim();
   let changed = false;
@@ -59,10 +61,9 @@ try {
       changed = true;
     }
   }
-  const output = process.argv[2];
   /** Record the policy used by the saved manifest. */
   const writeReceipt = (path: string) => appendReleaseReceipts([{
-    path, text: "npm_lifecycle=" + lifecycle.active + "\nnpm_lifecycle_configured=" + lifecycle.configured + "\n",
+    path, records: true, text: "npm_lifecycle=" + lifecycle.active + "\nnpm_lifecycle_configured=" + lifecycle.configured + "\n",
   }]);
   if (changed) {
     const prepared = JSON.stringify(pkg, null, 2) + "\n";

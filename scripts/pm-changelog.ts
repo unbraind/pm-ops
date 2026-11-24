@@ -1,5 +1,5 @@
 /** Repository changelog policy over the pinned generator's release windows. */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { parseBootstrapGlobalOptions, resolveImplicitPmRoot, resolvePmRoot } from "@unbrained/pm-cli/sdk";
@@ -7,7 +7,7 @@ import { buildPmListArgs, checkItemLinks, mergeChangelog } from "pm-changelog";
 import { changelogOutputTarget } from "../release-changelog-options.ts";
 import { execFileSync, spawnSync } from "../subprocess.ts";
 import { isMainInvocation } from "./main-invocation.ts";
-import { appendReleaseReceipts, writeFileWithReceipts } from "./release-file-receipts.ts";
+import { appendReleaseReceipts, assertDistinctReleaseReceipt, writeFileWithReceipts } from "./release-file-receipts.ts";
 
 /** Retain empty releases without adding an empty Unreleased window after tagging. */
 export function describeEmptyReleases(markdown: string): string {
@@ -69,7 +69,7 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
   const separateReport = format?.trim().toLowerCase() === "json"
     || positions.some(index => ["--summary", "--changelog-json", "--suggest-semver", "--audit-evidence"].includes(args[index]!))
     || args[0] === "audit";
-  const stepOutput = !stdout && !separateReport && githubOutputPositions.length > 0;
+  const stepOutput = (!stdout || json) && !separateReport && githubOutputPositions.length > 0;
   if (stepOutput && !env.GITHUB_OUTPUT) throw new Error("--github-output requires GITHUB_OUTPUT");
   if (stepOutput) for (const index of githubOutputPositions) consumed.add(index);
   const forwarded = args.filter((_, index) => !consumed.has(index));
@@ -80,6 +80,12 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
   if (summary && !env.GITHUB_STEP_SUMMARY) throw new Error("--github-step-summary requires GITHUB_STEP_SUMMARY");
   const generator = createRequire(import.meta.url).resolve("pm-changelog/cli");
   const destination = resolve(cwd, output);
+  const summaryPath = summary ? resolve(cwd, env.GITHUB_STEP_SUMMARY!) : undefined;
+  const outputPath = stepOutput ? resolve(cwd, env.GITHUB_OUTPUT!) : undefined;
+  for (const path of [summaryPath, outputPath]) {
+    if (path) assertDistinctReleaseReceipt(destination, path);
+  }
+  if (summaryPath && outputPath) assertDistinctReleaseReceipt(summaryPath, outputPath);
   const report = stdout && (separateReport || json);
   if (report) forwarded.push("--mode", mode);
   const fileReport = !stdout && !separateReport && (stepOutput || json);
@@ -102,19 +108,24 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
     : mergeAction === "unchanged" ? "replaced"
     : mergeAction ?? (existing.trimEnd() ? "replaced" : "created");
   const receipt = generation && { mode, action, changed, bytes: Buffer.byteLength(result), check };
+  const outputRecord = generation && receipt ? { ...generation, ...receipt }
+    : outputPath && stdout ? JSON.parse(rendered) as {
+      mode: string; action: string; changed: boolean; bytes: number; itemCount: number; excluded_non_change_count: number;
+    } : undefined;
   /** Append only receipts for a changelog whose bytes have been written or checked. */
   function writeReceipts(): void {
     const receipts = [];
-    if (summary) receipts.push({ path: resolve(cwd, env.GITHUB_STEP_SUMMARY!), text: result });
-    if (stepOutput && generation && receipt) receipts.push({
-      path: resolve(cwd, env.GITHUB_OUTPUT!),
-      text: `output=${destination}\nmode=${mode}\naction=${receipt.action}\nchanged=${changed}\nitem_count=${generation.itemCount}\nexcluded_non_change_count=${generation.excluded_non_change_count}\nbytes=${receipt.bytes}\n`,
+    if (summaryPath) receipts.push({ path: summaryPath, text: result });
+    if (outputPath && outputRecord) receipts.push({
+      path: outputPath, records: true,
+      text: `output=${destination}\nmode=${outputRecord.mode}\naction=${outputRecord.action}\nchanged=${outputRecord.changed}\nitem_count=${outputRecord.itemCount}\nexcluded_non_change_count=${outputRecord.excluded_non_change_count}\nbytes=${outputRecord.bytes}\n`,
     });
     appendReleaseReceipts(receipts);
   }
   if (!stdout && !check && (summary || stepOutput)) writeFileWithReceipts(destination, result, writeReceipts);
   else {
-    writeReceipts();
+    if (summaryPath && !outputPath) appendFileSync(summaryPath, result);
+    else writeReceipts();
     if (stdout) process.stdout.write(result);
     else if (check) console.error(`Changelog is ${changed ? "out of date" : "up to date"}: ${output}`);
     else writeFileSync(destination, result);
