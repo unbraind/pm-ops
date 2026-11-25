@@ -9,12 +9,14 @@ reviews:
         Package hooks use direct pm-changelog, Node adapters and custom renderers, npm forwards and Just recipes,
         quoted words, inline and separate option operands, option-position delimiters and pm-arg passthrough.
         The Git bookkeeping posthook uses tests, if/then/fi, subshells, stdout and descriptor redirects, and &&/|| lists.
-        The pinned workflow bodies also contain loops with break/continue, case arms, here-documents and here-strings,
-        GITHUB_ENV writes, pipelines and exit. Preserve the supported workflow forms and prior hook acceptance fixtures.
+        The 265 pinned workflows contain 1062 executable bodies with loops and break/continue, if, case, top-level
+        here-documents, here-strings, redirects, pipelines, exit, assignments, command substitutions and quoted GITHUB_ENV reads/writes.
+        Preserve these workflow forms and the earlier hook acceptance fixtures.
         Case patterns belong to workflow syntax. The hook grammar refuses case arms and unquoted command negation.
         time, npm's implicit env, and changelog paths that are not plain single-link files below real directories
         are refused lexically by design; do not propose modelling them. Check command-position time across the whole
-        participating release or publish step. Quoted time and argument data are supported.
+        participating release or publish step. Ordinary argument data such as echo time is supported.
+        Trailing bash -c positional words parsed as a timing prefix stay refused in participating release or publish steps.
         None of the 144 hook bodies logs with printf or uses cat. Both commands are refused in package release hooks.
         Use release_hook_unsupported_construct for those shell forms and for a missing optional sole renderer.
         Directory or file links and ambiguous receipt destinations receive a path and reason before writes.
@@ -22,7 +24,14 @@ reviews:
         Preserve physical edits across expandable here-document and case terminator continuations.
         Join executable continuations while preserving single-quoted data and comment boundaries.
         Require literal custom renderer option names. Refuse dynamic names with release_hook_unsupported_construct.
-        A known option can take a dynamic or option-shaped value, including a title.
+        A known option can take a quoted scalar or an option-shaped value. Refuse a non-scalar separate --title operand
+        in a custom renderer, an unresolved redirect-only command in a package hook, and a here-document opener inside
+        a double-quoted command substitution in a participating release or publish body with release_hook_unsupported_construct.
+        Existing refusals cover conditional directory changes affecting generator context, workflow case directly in a loop condition
+        in the date audit, and date-like --pm-arg operands rejected by the pinned PM CLI.
+        The pinned manifests contain zero workspace roots, script-shell mutations, or release hooks using pipefail.
+        Retain the refusal when npm cannot prove pipefail support in an implicit workspace member or when the runtime shell rejects it.
+        PATH-selected Node wrappers that depend on their symlink invocation path are outside the shipped runtime.
         Classify shell assignments from the unquoted name and operator. The env utility uses decoded NAME=value operands.
         Use the shared diagnostic for unsupported shell modes, including set -f and changes to shell builtins.
         A workflow using sh cannot establish a definite environment export after setting pipefail.

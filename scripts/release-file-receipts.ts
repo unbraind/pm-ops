@@ -1,10 +1,18 @@
 /** Keep release step output receipts aligned with filesystem changes. */
-import { accessSync, chmodSync, constants, copyFileSync, lstatSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync, type Stats } from "node:fs";
+import { accessSync, appendFileSync, chmodSync, constants, copyFileSync, lstatSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync, type Stats } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-/** Replace a staged release file before sending receipts, and restore it if receipt delivery fails. */
-export function writeFileWithReceipts(target: string, contents: string | Buffer, writeReceipts: () => void): void {
+/** Guard every release file write and roll back staged writes when a dependent receipt fails. */
+export function writeFileWithReceipts(target: string, contents: string | Buffer, receipts?: (() => void) | "append"): void {
   const present = plainReleasePath(target);
+  if (receipts === "append") {
+    appendFileSync(target, contents);
+    return;
+  }
+  if (!receipts) {
+    writeFileSync(target, contents);
+    return;
+  }
   if (present) accessSync(target, constants.W_OK);
   const directory = mkdtempSync(join(dirname(target), ".release-output-"));
   const staged = join(directory, "next");
@@ -18,7 +26,7 @@ export function writeFileWithReceipts(target: string, contents: string | Buffer,
     }
     renameSync(staged, target);
     try {
-      writeReceipts();
+      receipts();
     } catch (error) {
       if (present) {
         // Preserve the recovery copy if the filesystem refuses to restore it.
@@ -40,7 +48,7 @@ export function writeFileWithReceipts(target: string, contents: string | Buffer,
 }
 
 /** Check ancestors in source order, including directories traversed before a literal "..". */
-function plainReleasePath(path: string, directory = false): Stats | undefined {
+export function plainReleasePath(path: string, directory = false): Stats | undefined {
   const parent = dirname(path);
   if (parent !== path) plainReleasePath(parent, true);
   // After checking the parent, discard trailing separators so lstat sees the component itself.

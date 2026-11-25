@@ -684,7 +684,7 @@ test("manifest scripts must be an object and only string commands are scanned", 
 
 test("fallback dates accept matching shell quotes and adjacent separators", () => {
   for (const nameQuote of ["", "'", '"']) for (const valueQuote of ["", "'", '"']) {
-    for (const assignment of [" ", "="]) for (const suffix of ["", "&&true", ";true", "|cat"]) {
+    for (const assignment of [" ", "="]) for (const suffix of ["", "&&true", ";true", "|head"]) {
       const flag = `${nameQuote}--date-fallback${nameQuote}${assignment}${valueQuote}2026-10-23${valueQuote}${suffix}`;
       const result = auditInvocations([{ file: "package.json", text: manifest(`pm-changelog --release-version-from-package ${flag}`) }]);
       assert.deepEqual(result.failures, [], flag);
@@ -828,4 +828,12 @@ test("Round HA configured all-tags cutoffs use the effective real calendar day",
   assert.match(audit(base + " --all-release-tags --until 2026-02-30")[0] ?? "", /Invalid --until.*real YYYY-MM-DD/);
   assert.deepEqual(audit(base + " --all-release-tags --until 2026-02-30 --until 2026-02-28"), []);
   assert.deepEqual(audit(base + " --until 2026-02-30"), []);
+});
+
+test("Round HG cat pipelines are workflow forms and refused in configured package hooks", () => {
+  const body = FLAGGED + "|cat";
+  const pkg = (hook: string) => ({ file: "package.json", text: JSON.stringify({ scripts: { "release:notes": hook } }) });
+  assert.deepEqual(auditInvocations([{ file: ".github/workflows/release.yml", text: workflowRun(body) }]).failures, []);
+  assert.match(auditInvocations([pkg(body)]).failures[0] ?? "", /release_hook_unsupported_construct: cat in hook "release:notes".*script file/);
+  assert.deepEqual(auditInvocations([pkg(FLAGGED + "|head")]).failures, []);
 });

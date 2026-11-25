@@ -1,17 +1,18 @@
 /** Persist the date and empty-section policies used by release changelog hooks. */
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   changelogArguments, includeEmptyCustomHook, includeEmptyForwardedGenerators, includeEmptyReleaseSections, resolveChangelogHooks, rewriteReleaseHookDates,
   visitChangelogScriptCommands,
 } from "../release-changelog-options.ts";
 import { assertProjectNpmScriptShell, projectNpmLifecyclePolicy } from "./project-npm-lifecycle.ts";
-import { appendReleaseReceipts, assertDistinctReleaseReceipt, writeFileWithReceipts } from "./release-file-receipts.ts";
+import { appendReleaseReceipts, assertDistinctReleaseReceipt, plainReleasePath, writeFileWithReceipts } from "./release-file-receipts.ts";
 
 try {
   const manifest = resolve("package.json");
   const output = process.argv[2];
   if (output) assertDistinctReleaseReceipt(manifest, output);
+  else plainReleasePath(manifest);
   const pkg = JSON.parse(readFileSync(manifest, "utf8"));
   const headingDate = (process.env.RELEASE_HEADING_DATE || "").trim();
   let changed = false;
@@ -67,8 +68,7 @@ try {
   }]);
   if (changed) {
     const prepared = JSON.stringify(pkg, null, 2) + "\n";
-    if (output) writeFileWithReceipts(manifest, prepared, () => writeReceipt(output));
-    else writeFileSync(manifest, prepared);
+    writeFileWithReceipts(manifest, prepared, output ? () => writeReceipt(output) : undefined);
   } else if (output) writeReceipt(output);
 } catch (error) {
   console.error((error as Error).message);

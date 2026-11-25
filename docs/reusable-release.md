@@ -33,7 +33,7 @@ Before this fix, release defaults used Node 22.18.0 (bundled npm 10.9.3); caller
 
 ### Not supported (refused by design)
 
-The pinned fleet contains 142 release hooks and 144 reachable script bodies across 39 manifests. These use direct generators, Node scripts, npm forwarding and Just recipes. One Git bookkeeping hook uses grouped conditionals and redirections. None uses command-position `time`, implicit npm `env`, `printf` or `cat`.
+The pinned fleet contains 142 release hooks and 144 reachable script bodies across 39 manifests. Package hooks use direct generators, Node scripts, npm forwarding, and Just recipes, with literal option positions and quoted, inline, and separate operands. The Git bookkeeping posthook uses grouped conditionals, stdout and descriptor redirections, and `&&` and `||`. Pinned workflow bodies also use loops with `break` and `continue`, `case` arms, top-level here-documents, here-strings, pipelines, `exit`, scalar assignments, command substitutions, and quoted `GITHUB_ENV` writes and reads.
 
 | Construct | Diagnostic | What to do instead |
 | --- | --- | --- |
@@ -41,7 +41,17 @@ The pinned fleet contains 142 release hooks and 144 reachable script bodies acro
 | `npm run env` without an explicit nonempty script, or an absent `--if-present` target as the only notes renderer | `release_hook_unsupported_construct` names the hook | Declare a renderer in the manifest. Put unrelated diagnostics in their own workflow step. |
 | Any `printf` or `cat` command in a package release hook, including literal logging and here-documents | `release_hook_unsupported_construct` names the command and hook | Move logging or input handling into a committed script. |
 | A dynamic word in a custom renderer's option position | `release_hook_unsupported_construct` names the hook | Use literal option names and pass dynamic data as a known option's value. |
-| Changelog or receipt destination with a symlink component, multiple hard links, a non-file target, or colliding receipt names | The error names the path and reason | Choose distinct filenames below existing real directories. An absent file or regular file with one link is supported. |
+| A separate custom renderer `--title` value that shell expansion can split or remove | `release_hook_unsupported_construct` names the operand and hook | Quote the operand, for example `--title "$TITLE"`. |
+| Redirect-only command with an unresolved destination in a package release hook | `release_hook_unsupported_construct` names the redirect and hook | Use a literal filename or move the redirection into a committed script. |
+| A here-document opener inside a double-quoted command substitution in a participating release or publish body | `release_hook_unsupported_construct` names the construct and hook | Use a top-level here-document or move the substitution into a committed script. |
+| Conditional directory changes that make the generator's project context ambiguous | `context change cd` (or the corresponding directory-changing command) | Leave directory changes outside the package hook or use a committed script. |
+| `case` directly in a `while` or `until` condition in a workflow changelog hook | The date audit reports `Shell grouping or substitution` | Use an ordinary loop condition and move the `case` into the body or a script. |
+| `bash -c` with a trailing positional word interpreted by the audit as a `time` prefix | `release_hook_unsupported_construct` names the timing prefix | Pass only the command string, or use a committed script when positional arguments are needed. |
+| Date flags passed as `--pm-arg` data | Preparation reports a missing date policy on the unversioned shape. The PM CLI reports `unknown_option` when given that operand. | Pass release date flags to the generator and reserve `--pm-arg` for supported PM CLI arguments. |
+| Changing npm's `script-shell` between changelog and notes hooks when notes require `pipefail` | The incompatible shell exits nonzero and generation stops | Keep the configured npm script shell stable through the release, or move shell-specific setup into a committed script. |
+| `pipefail` in a hook run as an implicit npm workspace member when the shell probe reports `ENOWORKSPACES` | `release_hook_unsupported_construct` names `pipefail` and the hook | Use a standalone npm project for the hook, or move the shell option into a committed script. |
+| A PATH-selected Node wrapper with behavior that depends on its symlink invocation path | The lifecycle probe reports `unknown` if the wrapper cannot run through its real path | Use the Node installation selected by the reusable workflow. |
+| Changelog, manifest, or receipt destination with a symlink component, multiple hard links, a non-file target, or colliding receipt names | The error names the path and reason | Choose distinct filenames below existing real directories. An absent file or regular file with one link is supported. |
 
 ## Inventory
 

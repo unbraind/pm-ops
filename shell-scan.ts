@@ -356,7 +356,11 @@ interface ShellChildRegion {
   arithmetic: boolean;
   /** Standalone subshells have no unresolved output word in their parent. */
   subshell?: true;
+  /** This command substitution began inside a double-quoted word. */
+  doubleQuoted?: boolean;
 }
+
+const nestedHeredocs = new WeakSet<ShellCommand>();
 
 /**
  * Split shell text into the simple commands it contains.
@@ -416,7 +420,16 @@ export function unwrapShellBuiltin(words: ShellCommand): ShellCommand | undefine
   return command;
 }
 
-/** Identify the first out-of-corpus control form in a package release hook. */
+/** Detect a redirect-only command whose destination can expand at runtime. */
+function unresolvedRedirectOnly(words: ShellCommand): boolean {
+  return withoutRedirections(words).every(word => word.releaseKeyword)
+    && words.some((word, index) => {
+      const redirect = shellRedirection(word);
+      return redirect && (redirect.joined ? word : words[index + 1])?.unresolved;
+    });
+}
+
+/** Identify the first out-of-corpus form in a participating release body. */
 export function releaseHookConstructProblem(
   commands: readonly ShellCommand[], text: string, spans: WeakMap<ShellToken, ShellTokenSpan>, hook: string, scope: ReleaseShellScope,
   relevant: (words: ShellCommand) => boolean = () => true,
@@ -424,15 +437,20 @@ export function releaseHookConstructProblem(
   for (const [words, construct] of releaseCommandConstructs(commands, scope)) {
     if (commands.some(relevant)) return { words, problem: describeUnsupportedReleaseHook(construct, hook) };
   }
+  const redirect = scope === "hook" && commands.find(unresolvedRedirectOnly);
+  if (redirect) return { words: redirect, problem: describeUnsupportedReleaseHook("unresolved redirect-only command", hook) };
   if (commands.every(words => words.every(word => spans.has(word)))) {
     const lines = text.split("\n");
     const bodies = heredocBodyLines(lines);
     const executable = lines.map((line, index) => bodies[index] ? " ".repeat(line.length) : line).join("\n");
     const scanned = tokenizeCommandsWithSpans(executable);
     const constructs = releaseCommandConstructs(scanned.commands, scope);
-    if (scope === "hook") for (const words of scanned.commands) {
-      const program = unwrapShellBuiltin(words)?.[0].value;
-      if (program && /^(?:printf|cat)$/.test(basename(program))) constructs.set(words, program);
+    for (const words of scanned.commands) {
+      if (nestedHeredocs.has(words)) constructs.set(words, "here-document in a double-quoted command substitution");
+      else if (scope === "hook") {
+        const program = unwrapShellBuiltin(words)?.[0].value;
+        if (program && /^(?:printf|cat)$/.test(basename(program))) constructs.set(words, program);
+      }
     }
     for (const [words, construct] of constructs) {
       if (!commands.some(relevant) && !scanned.commands.some(relevant)) continue;
@@ -576,7 +594,8 @@ function scanShellCommands(
           const { inner: body, end } = readSubstitution(text, index);
           // Arithmetic text is an operand, while command substitutions inside
           // it still execute. Retain that mode instead of inventing commands.
-          nested.push({ start: index, end, text: body, arithmetic: inner !== "`" && text[index + 2] === "(" });
+          nested.push({ start: index, end, text: body, arithmetic: inner !== "`" && text[index + 2] === "(",
+            doubleQuoted: inner === "$" });
           unresolvedAt ??= value.length;
           index = end;
           continue;
@@ -774,7 +793,11 @@ function scanShellCommands(
     const start = body.start + (backquoted ? 1 : 2);
     const end = body.end - Number(text[body.end - 1] === "`");
     const childSpans = !backquoted || text.slice(start, end) === body.text ? spans : undefined;
-    commands.push(...scanShellCommands(body.text, depth + 1, body.arithmetic, undefined, childSpans, offset + start));
+    const inner = scanShellCommands(body.text, depth + 1, body.arithmetic, undefined, childSpans, offset + start);
+    if (body.doubleQuoted) for (const words of inner) {
+      if (words.some(word => /^\d*<<-?$/.test(shellRedirection(word)?.operator ?? ""))) nestedHeredocs.add(words);
+    }
+    commands.push(...inner);
   }
   for (const found of [...commands]) {
     // A YAML key's value is shell text, and it may arrive as ONE quoted word:

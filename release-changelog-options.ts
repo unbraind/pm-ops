@@ -1627,6 +1627,9 @@ function customRendererOptions(invocation: ShellCommand, hook: string): { termin
     const next = args[index + 1];
     if (VALUE_OPTIONS.has(token.value)) {
       if (!next) refuseHook(describeUnsupportedReleaseHook("Missing custom renderer operand for " + token.value, hook));
+      if (token.value === "--title" && next.multipleWords) {
+        refuseHook(describeUnsupportedReleaseHook("non-scalar custom renderer --title operand", hook));
+      }
     } else if (/^--?[a-z]/i.test(token.value) && !token.value.includes("=") && !RENDERER_SWITCHES.has(token.value)
       && (!next || next.value === INCLUDE_EMPTY_FLAG || next.value === "--")) {
       refuseHook(describeUnsupportedReleaseHook("Ambiguous custom renderer operand for " + token.value, hook));

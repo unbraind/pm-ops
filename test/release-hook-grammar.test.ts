@@ -2170,10 +2170,15 @@ test("literal standalone redirects leave the renderer and its forwarding boundar
   const ambiguous = "node primary.mjs; if test -f input; then node alternative.mjs; fi; >preview.log";
   assert.throws(() => includeEmptyCustomHook(ambiguous, new Map()), /alternative renderers/);
   const unresolved = "if test -f input; then " + generator + '; else >"$DYNAMIC"; fi';
-  assert.throws(() => includeEmptyCustomHook(unresolved, new Map(), true), /alternative renderers/);
+  assert.throws(() => includeEmptyCustomHook(unresolved, new Map(), true), /release_hook_unsupported_construct:.*unresolved redirect-only command.*release:notes/);
+  const missingRenderer = "if test -f input; then node notes.mjs --include-empty; else MODE=fast; fi";
+  assert.throws(() => includeEmptyCustomHook(missingRenderer, new Map()), /alternative renderers/);
+  const prepared = missingRenderer.replace("MODE=fast", "node fallback.mjs --include-empty");
+  assert.equal(includeEmptyCustomHook(prepared, new Map()), prepared);
   const status = "node notes.mjs; if test -f input; then >preview.log; fi";
   assert.equal(includeEmptyCustomHook(status, new Map()), status.replace("notes.mjs", "notes.mjs --include-empty"));
-  assert.equal(includeEmptyCustomHook("node notes.mjs; >\"$DYNAMIC\"", new Map()), "node notes.mjs; >\"$DYNAMIC\"");
+  assert.throws(() => includeEmptyCustomHook('node notes.mjs; >"$DYNAMIC"', new Map()),
+    /release_hook_unsupported_construct:.*unresolved redirect-only command.*release:notes.*script file/);
 });
 
 test("an uncertain npm lifecycle refuses copies into CHANGELOG.md and permits copies out", () => {
@@ -4145,4 +4150,65 @@ test("HF custom renderer dynamic option positions require a known operand", () =
     assert.throws(() => includeEmptyCustomHook(name + ' "$RENDER_ARGS"', scripts), /unsupported_construct:.*option/);
     assert.equal(includeEmptyCustomHook(name + ' --title "$TITLE"', scripts), name + ' --title "$TITLE" --include-empty');
   }
+});
+
+test("Round HG package hook logging documentation agrees with preparation and workflow scope", () => {
+  const generator = "pm-changelog " + standing;
+  for (const command of ["printf 'start\\n'; ", "cat README.md >/dev/null; "]) {
+    assert.throws(() => resolveChangelogHooks({ "release:notes": command + generator }, ["release:notes"]),
+      /release_hook_unsupported_construct:.*(?:printf|cat).*release:notes.*script file/);
+    assert.deepEqual(auditInvocations([workflow(command + generator)]).failures, []);
+  }
+  assert.throws(() => resolveChangelogHooks({ "release:notes": "npm run env" }, ["release:notes"]), /implicit env/);
+  assert.equal(resolveChangelogHooks({ "release:notes": "npm run env", env: generator }, ["release:notes"]).get("env"), generator);
+  const readme = readFileSync(resolve("README.md"), "utf8");
+  assert.match(readme, /`printf` and `cat` are refused in package release hooks/);
+  assert.match(readme, /implicit `env`.*declared `scripts\.env`/s);
+});
+
+test("Round HG conditional directory changes remain outside the supported hook grammar", () => {
+  const writer = "pm-changelog " + standing;
+  const hook = (prepare: string) => "if test -f marker; then " + prepare + "; else " + writer + "; fi";
+  assert.throws(() => resolveChangelogHooks({ "release:notes": hook("cd docs") }, ["release:notes"]), /context change cd.*Use a direct/);
+  assert.doesNotThrow(() => resolveChangelogHooks({ "release:notes": hook("git add -- CHANGELOG.md") }, ["release:notes"]));
+});
+
+test("Round HG custom renderer titles require one shell word", () => {
+  const prefix = "node notes.mjs --title ";
+  const diagnostic = /release_hook_unsupported_construct:.*non-scalar custom renderer --title operand.*release:notes.*script file/;
+  for (const value of ["$TITLE", "${TITLE}"]) {
+    assert.throws(() => includeEmptyCustomHook(prefix + value, new Map()), diagnostic);
+  }
+  assert.equal(includeEmptyCustomHook(prefix + '"$TITLE"', new Map()), prefix + '"$TITLE" --include-empty');
+});
+
+test("Round HG loop conditions with workflow case already fail date inspection", () => {
+  const writer = "pm-changelog " + standing;
+  const conditional = 'case "$MODE" in fast) ' + writer + " ;; esac";
+  for (const loop of ["while", "until"]) {
+    const body = loop + " " + conditional + "; do break; done";
+    assert.match(auditInvocations([workflow(body)]).failures[0] ?? "", /Shell grouping or substitution/);
+    const publishing = body.replace(writer, "npm publish");
+    assert.match(auditPublishAttestation([workflow(publishing)]).failures[0] ?? "", /would publish an unattested artifact/);
+    assert.deepEqual(auditInvocations([workflow(loop + " test -f marker; do break; done; " + conditional)]).failures, []);
+  }
+});
+
+test("Round HG quoted command substitutions refuse nested here-document openers", () => {
+  const writer = "pm-changelog " + standing;
+  const body = ['value="$(cat <<\'PAYLOAD\'', "first\\", "second", "PAYLOAD", ')"', writer].join("\n");
+  const diagnostic = /release_hook_unsupported_construct:.*here-document in a double-quoted command substitution.*script file/;
+  assert.match(auditInvocations([workflow(body)]).failures[0] ?? "", diagnostic);
+  assert.match(auditPublishAttestation([workflow(body.replace(writer, "npm publish --provenance"))]).failures[0] ?? "", diagnostic);
+  const ordinary = ["cat <<'PAYLOAD' >preview.log", "first\\", "second", "PAYLOAD", 'value="$(cat <<< "text")"', 'result="$((1 << 2))"', writer].join("\n");
+  assert.deepEqual(auditInvocations([workflow(ordinary)]).failures, []);
+});
+
+test("Round HG interpreter timing refusals still accept ordinary argument data", () => {
+  const audit = (body: string) => auditPublishAttestation([workflow(body)]).failures;
+  const diagnostic = /release_hook_unsupported_construct:.*time prefix.*script file/;
+  assert.match(audit("bash -c 'npm publish --provenance' 'time'")[0] ?? "", diagnostic);
+  assert.match(audit("bash -c 'time npm publish --provenance'")[0] ?? "", diagnostic);
+  assert.deepEqual(audit("bash -c 'npm publish --provenance'"), []);
+  assert.deepEqual(audit("echo time; npm publish --provenance"), []);
 });

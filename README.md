@@ -708,6 +708,10 @@ can contain spaces, newlines, a literal `#`, or an operator.
   Piping generator commands or text into an opaque executable is refused. File checks such as `test` and `[`, command lookups
   such as `command -v`, printed text and package administration are data.
   The date verifier skips direct generator commands without a version input.
+- `printf` and `cat` are refused in package release hooks. Move logging or input
+  handling into a committed script. Workflow `run` bodies can use these commands
+  in supported forms. npm's implicit `env` target is refused on release paths.
+  A declared `scripts.env` entry follows the same rules as any other script.
 
 Keep generator option names literal. Put dynamic scalar values in a quoted
 operand, for example `--title "$TITLE"`. Shell evaluators, command substitutions,

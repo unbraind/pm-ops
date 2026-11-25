@@ -1,5 +1,5 @@
 /** Repository changelog policy over the pinned generator's release windows. */
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { isAbsolute, resolve, sep } from "node:path";
 import { parseBootstrapGlobalOptions, resolveImplicitPmRoot, resolvePmRoot } from "@unbrained/pm-cli/sdk";
@@ -7,7 +7,7 @@ import { buildPmListArgs, checkItemLinks, mergeChangelog } from "pm-changelog";
 import { changelogOutputTarget } from "../release-changelog-options.ts";
 import { execFileSync, spawnSync } from "../subprocess.ts";
 import { isMainInvocation } from "./main-invocation.ts";
-import { appendReleaseReceipts, assertDistinctReleaseReceipt, writeFileWithReceipts } from "./release-file-receipts.ts";
+import { appendReleaseReceipts, assertDistinctReleaseReceipt, plainReleasePath, writeFileWithReceipts } from "./release-file-receipts.ts";
 
 /** Retain empty releases without adding an empty Unreleased window after tagging. */
 export function describeEmptyReleases(markdown: string): string {
@@ -66,9 +66,11 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
     else if (arg === "--title") title = args[index + 1];
     else if (arg.startsWith("--title=")) title = arg.slice("--title=".length);
   }
-  const separateReport = format?.trim().toLowerCase() === "json"
-    || positions.some(index => ["--summary", "--changelog-json", "--suggest-semver", "--audit-evidence"].includes(args[index]!))
-    || args[0] === "audit";
+  const jsonFormat = format?.trim().toLowerCase() === "json";
+  const compactReport = positions.some(index => args[index] === "--summary");
+  const auditReport = args[0] === "audit" || positions.some(index => args[index] === "--audit-evidence");
+  const separateReport = jsonFormat || compactReport || auditReport
+    || positions.some(index => ["--changelog-json", "--suggest-semver"].includes(args[index]!));
   const stepOutput = (!stdout || json) && !separateReport && githubOutputPositions.length > 0;
   if (stepOutput && !env.GITHUB_OUTPUT) throw new Error("--github-output requires GITHUB_OUTPUT");
   if (stepOutput) for (const index of githubOutputPositions) consumed.add(index);
@@ -86,12 +88,13 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
   const inProject = (path: string) => isAbsolute(path) ? path : cwd + sep + path;
   const requested = inProject(output);
   const destination = resolve(cwd, output);
-  const summaryPath = summary && !separateReport ? inProject(env.GITHUB_STEP_SUMMARY!) : undefined;
+  const textSummary = stdout && compactReport && !jsonFormat && !auditReport;
+  const summaryPath = summary && (!separateReport || textSummary) ? inProject(env.GITHUB_STEP_SUMMARY!) : undefined;
   const outputPath = stepOutput ? inProject(env.GITHUB_OUTPUT!) : undefined;
-  for (const path of [summaryPath, outputPath]) {
-    if (path) assertDistinctReleaseReceipt(requested, path);
-  }
+  if (summaryPath) assertDistinctReleaseReceipt(requested, summaryPath);
+  if (outputPath) assertDistinctReleaseReceipt(requested, outputPath);
   if (summaryPath && outputPath) assertDistinctReleaseReceipt(summaryPath, outputPath);
+  if (!stdout && !check && !summaryPath && !outputPath) plainReleasePath(requested);
   if (report) forwarded.push("--mode", mode);
   const fileReport = !stdout && !separateReport && (stepOutput || json);
   if (fileReport && !json) forwarded.push("--json");
@@ -129,14 +132,13 @@ export function runChangelog(args: readonly string[], cwd = process.cwd(), env =
     });
     appendReleaseReceipts(receipts);
   }
-  if (!stdout && !check && (summaryPath || stepOutput)) {
-    writeFileWithReceipts(requested, result, writeReceipts);
+  if (!stdout && !check) {
+    writeFileWithReceipts(requested, result, summaryPath || stepOutput ? writeReceipts : undefined);
   } else {
-    if (summaryPath && !outputPath) appendFileSync(summaryPath, summaryMarkdown);
+    if (summaryPath && !outputPath) writeFileWithReceipts(summaryPath, summaryMarkdown, "append");
     else writeReceipts();
     if (stdout) process.stdout.write(result);
-    else if (check) console.error(`Changelog is ${changed ? "out of date" : "up to date"}: ${output}`);
-    else writeFileSync(destination, result);
+    else console.error(`Changelog is ${changed ? "out of date" : "up to date"}: ${output}`);
   }
   if (generation && json) {
     const { markdown: _markdown, ...generated } = generation;

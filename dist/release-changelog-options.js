@@ -1589,6 +1589,9 @@ function customRendererOptions(invocation, hook) {
         if (VALUE_OPTIONS.has(token.value)) {
             if (!next)
                 refuseHook(describeUnsupportedReleaseHook("Missing custom renderer operand for " + token.value, hook));
+            if (token.value === "--title" && next.multipleWords) {
+                refuseHook(describeUnsupportedReleaseHook("non-scalar custom renderer --title operand", hook));
+            }
         }
         else if (/^--?[a-z]/i.test(token.value) && !token.value.includes("=") && !RENDERER_SWITCHES.has(token.value)
             && (!next || next.value === INCLUDE_EMPTY_FLAG || next.value === "--")) {

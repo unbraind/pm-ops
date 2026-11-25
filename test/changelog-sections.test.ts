@@ -1876,29 +1876,30 @@ test("Round HC release receipts cannot alias the manifest or changelog", t => {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const path = join(root, "CHANGELOG.md");
   const alias = join(root, "alias");
-  const hardlink = join(root, "hardlink");
   const summary = join(root, "summary");
   const original = "# Changelog\n";
   writeFileSync(path, original);
   writeFileSync(summary, "prior");
   const args = ["--pm-root", ".agents/pm", "--pm-bin", pm, "--include-empty", "--version", "2026.10.22", "--github-step-summary", "--github-output"];
-  linkSync(path, hardlink);
-  for (const receipt of [path, hardlink, alias]) {
-    if (receipt === alias) {
-      try { symlinkSync(path, alias, "file"); } catch (error) {
-        if (process.platform === "win32" && (error as NodeJS.ErrnoException).code === "EPERM") break;
-        throw error;
-      }
-    }
-    assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: receipt }), /CHANGELOG.md.*multiple hard links/i);
-    assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: receipt, GITHUB_OUTPUT: summary }), /CHANGELOG.md.*multiple hard links/i);
+  assert.equal(lstatSync(path).nlink, 1);
+  const verifyAlias = (receipt: string, diagnostic: RegExp) => {
+    assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: receipt }), diagnostic);
+    assert.throws(() => runChangelog(args, root, { ...env, GITHUB_STEP_SUMMARY: receipt, GITHUB_OUTPUT: summary }), diagnostic);
     assert.equal(readFileSync(path, "utf8"), original);
+    assert.equal(readFileSync(receipt, "utf8"), original);
     assert.equal(readFileSync(summary, "utf8"), "prior");
+  };
+  verifyAlias(path, /same file/i);
+  try { symlinkSync(path, alias, "file"); } catch (error) {
+    if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+  }
+  if (existsSync(alias)) {
+    verifyAlias(alias, /alias.*symlink/i);
+    assert.equal(lstatSync(alias).isSymbolicLink(), true);
   }
   assert.throws(() => runChangelog([...args, "--stdout", "--json"], root,
-    { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: path }), /CHANGELOG.md.*multiple hard links/i);
+    { ...env, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: path }), /same file/i);
   assert.equal(readFileSync(path, "utf8"), original);
-  rmSync(hardlink);
   const manifest = join(root, "package.json");
   const manifestText = JSON.stringify({ scripts: { notes: "node notes.mjs", check: "true" } });
   writeFileSync(manifest, manifestText);
@@ -2104,4 +2105,145 @@ test("HF directory symlinks before dot-dot and dangling targets refuse every rec
   write(file);
   assert.equal(readFileSync(file, "utf8"), "new");
   assert.deepEqual(sent, [file]);
+});
+
+test("Round HG direct changelog writes require a plain single-link path", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = join(root, "CHANGELOG.md");
+  const linked = join(root, "linked.md");
+  const original = "# Before\n";
+  writeFileSync(file, original);
+  const args = ["--include-empty", "--version", "2026.10.22", "--pm-bin", pm];
+  linkSync(file, linked);
+  assert.throws(() => runChangelog(args, root, env), /CHANGELOG.md.*multiple hard links/);
+  assert.equal(readFileSync(file, "utf8"), original);
+  assert.equal(readFileSync(linked, "utf8"), original);
+  rmSync(linked);
+  try { symlinkSync(file, linked, "file"); } catch (error) {
+    if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+  }
+  if (existsSync(linked)) {
+    assert.throws(() => runChangelog([...args, "--output", linked], root, env), /linked.md.*symlink/);
+    assert.equal(readFileSync(file, "utf8"), original);
+  }
+  const directory = join(root, "docs");
+  const alias = join(root, "shortcut");
+  mkdirSync(directory);
+  symlinkSync(directory, alias, "junction");
+  const throughAlias = alias + sep + ".." + sep + "CHANGELOG.md";
+  assert.throws(() => runChangelog([...args, "--output", throughAlias], root, env), /shortcut.*symlink/);
+  assert.equal(readFileSync(file, "utf8"), original);
+  assert.equal(runChangelog(args, root, env), 0);
+  assert.match(readFileSync(file, "utf8"), /^# Changelog/);
+});
+
+test("Round HG manifest preparation without a receipt guards the destination", t => {
+  const root = mkdtempSync(join(temporaryRoot, "release-manifest-path-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = join(root, "package.json");
+  const original = JSON.stringify({ scripts: { notes: "node notes.mjs", check: "true" } });
+  const previous = join(root, "previous.json");
+  writeFileSync(previous, original);
+  const env = { ...releaseStepEnv(root, process.env), CHANGELOG_SCRIPT: "notes", CHANGELOG_CHECK_SCRIPT: "check", NOTES_SCRIPT: "notes" };
+  const prepare = () => spawnSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")], { cwd: root, env, encoding: "utf8" });
+  linkSync(previous, file);
+  const hardlink = prepare();
+  assert.equal(hardlink.status, 1, hardlink.stdout + hardlink.stderr);
+  assert.match(hardlink.stderr, /package.json.*multiple hard links/);
+  assert.equal(readFileSync(previous, "utf8"), original);
+  rmSync(file);
+  try { symlinkSync(previous, file, "file"); } catch (error) {
+    if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+  }
+  if (existsSync(file)) {
+    const symlink = prepare();
+    assert.equal(symlink.status, 1, symlink.stdout + symlink.stderr);
+    assert.match(symlink.stderr, /package.json.*symlink/);
+    assert.equal(readFileSync(previous, "utf8"), original);
+    rmSync(file);
+  }
+  writeFileSync(file, original);
+  const accepted = prepare();
+  assert.equal(accepted.status, 0, accepted.stderr);
+  assert.match(readFileSync(file, "utf8"), /notes.mjs --include-empty/);
+});
+
+test("Round HG compact text reports are appended before stdout and leave the changelog intact", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const summary = join(root, "summary");
+  const changelog = join(root, "CHANGELOG.md");
+  writeFileSync(summary, "prior\n");
+  writeFileSync(changelog, "# Prior\n");
+  const options = { cwd: root, env, encoding: "utf8" as const };
+  execFileSync(process.execPath, [pm, "create", "task", "Fixture compact report", "--id", "sample-compact"], options);
+  const args = [resolve("scripts/pm-changelog.ts"), "--pm-bin", pm, "--summary", "--status", "open", "--stdout"];
+  const report = (flags: string[], receiptPath = summary) => spawnSync(process.execPath, [...args, ...flags],
+    { cwd: root, env: { ...env, GITHUB_STEP_SUMMARY: receiptPath }, encoding: "utf8" });
+  const plain = report([]);
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.match(plain.stdout, /Fixture compact report/);
+  assert.equal(readFileSync(summary, "utf8"), "prior\n");
+  const append = report(["--github-step-summary"]);
+  assert.equal(append.status, 0, append.stderr);
+  assert.equal(append.stdout, plain.stdout);
+  const appended = "prior\n" + plain.stdout;
+  assert.equal(readFileSync(summary, "utf8"), appended);
+  for (const options of [["--format=json"], ["--audit-evidence"]]) {
+    const structured = report(["--github-step-summary", ...options]);
+    assert.equal(structured.status, 0, structured.stderr);
+    assert.equal(readFileSync(summary, "utf8"), appended, options.join(" "));
+  }
+  const refused = report(["--github-step-summary"], changelog);
+  assert.equal(refused.status, 1, refused.stderr);
+  assert.match(refused.stderr, /same file/);
+  assert.equal(refused.stdout, "");
+  assert.equal(readFileSync(changelog, "utf8"), "# Prior\n");
+});
+
+test("Round HG a release date flag passed through pm-arg is refused by the pinned PM CLI", t => {
+  const { root, env } = tracker();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const direct = ["--stdout", "--pm-bin", pm];
+  assert.throws(() => runChangelog([...direct, "--pm-arg", "--date-from-version"], root, env), /unknown_option/);
+  assert.equal(runChangelog([...direct, "--pm-arg", "--output-budget", "--pm-arg", "unbounded"], root, env), 0);
+  assert.equal(existsSync(join(root, "CHANGELOG.md")), false);
+});
+
+test("Round HG workspace shell probes and shell changes fail closed with npm", { skip: process.platform === "win32" }, t => {
+  const root = mkdtempSync(join(temporaryRoot, "release-shell-policy-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const child = join(root, "child");
+  mkdirSync(child);
+  const unsupported = join(root, "no-pipefail");
+  writeFileSync(unsupported, "#!/bin/sh\ncase \"$*\" in *pipefail*) echo 'pipefail unsupported' >&2; exit 2;; esac\nexec sh \"$@\"\n",
+    { mode: 0o755 });
+  const notes = "set -o pipefail; echo notes";
+  writeFileSync(join(child, "package.json"), JSON.stringify({ name: "fixture-child", scripts: { notes, check: "true" } }));
+  const full = `npm config set --location=project script-shell ${quoteFixtureArgument(unsupported)}`;
+  const project = (workspaces?: string[]) => JSON.stringify({ name: "fixture", workspaces, scripts: { full, notes, steady: "echo notes" } });
+  writeFileSync(join(root, "package.json"), project(["child"]));
+  const npmrc = join(root, ".npmrc");
+  const gitShell = execFileSync("bash", ["-c", "command -v bash"], { encoding: "utf8" }).trim();
+  writeFileSync(npmrc, `script-shell=${gitShell}\n`);
+  const env = isolatedNpmReleaseEnv(root, process.env);
+  delete env.npm_config_script_shell;
+  const npm = (cwd: string, ...args: string[]) =>
+    spawnSync(process.execPath, [npmCli(), ...args], { cwd, env, encoding: "utf8" });
+  assert.match(npm(child, "run", "--silent", "notes").stdout, /^notes/m);
+  assert.match(npm(child, "config", "get", "script-shell").stderr, /ENOWORKSPACES/);
+  const prepare = spawnSync(process.execPath, [resolve("scripts/prepare-release-changelog.ts")],
+    { cwd: child, env: { ...env, CHANGELOG_SCRIPT: "notes", CHANGELOG_CHECK_SCRIPT: "check", NOTES_SCRIPT: "notes" }, encoding: "utf8" });
+  assert.equal(prepare.status, 1, prepare.stdout + prepare.stderr);
+  assert.match(prepare.stderr, /release_hook_unsupported_construct:.*pipefail.*notes/);
+  writeFileSync(join(root, "package.json"), project());
+  const before = npm(root, "run", "--silent", "notes");
+  assert.equal(before.status, 0, before.stderr);
+  const setShell = npm(root, "run", "--silent", "full");
+  assert.equal(setShell.status, 0, setShell.stderr);
+  const after = npm(root, "run", "--silent", "notes");
+  assert.equal(after.status, 2, after.stderr);
+  assert.match(after.stderr, /pipefail unsupported/);
+  assert.equal(npm(root, "run", "--silent", "steady").stdout.trim(), "notes");
 });

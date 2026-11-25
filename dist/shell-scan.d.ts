@@ -90,6 +90,8 @@ interface ShellChildRegion {
     arithmetic: boolean;
     /** Standalone subshells have no unresolved output word in their parent. */
     subshell?: true;
+    /** This command substitution began inside a double-quoted word. */
+    doubleQuoted?: boolean;
 }
 /**
  * Split shell text into the simple commands it contains.
@@ -128,7 +130,7 @@ export declare function tokenizeCommandsWithSpans(text: string): {
 };
 /** Expose the shell command beneath command and builtin prefixes. */
 export declare function unwrapShellBuiltin(words: ShellCommand): ShellCommand | undefined;
-/** Identify the first out-of-corpus control form in a package release hook. */
+/** Identify the first out-of-corpus form in a participating release body. */
 export declare function releaseHookConstructProblem(commands: readonly ShellCommand[], text: string, spans: WeakMap<ShellToken, ShellTokenSpan>, hook: string, scope: ReleaseShellScope, relevant?: (words: ShellCommand) => boolean): {
     words: ShellCommand;
     problem: string;

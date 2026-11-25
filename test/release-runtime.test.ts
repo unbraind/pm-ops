@@ -359,6 +359,16 @@ test("lifecycle probing uses the Node interpreter selected by a POSIX npm launch
   assert.equal(probePolicy(), "unknown:unknown", "no Node on PATH");
   writeFileSync(join(launcherOnly, "node"), "#!/bin/sh\nkill -TERM $$\n", { mode: 0o755 });
   assert.equal(probePolicy(), "unknown:unknown", "the selected interpreter terminated without a result");
+  const wrapperHome = join(root, "wrapper");
+  mkdirSync(wrapperHome);
+  const wrapper = join(wrapperHome, "node");
+  writeFileSync(wrapper, '#!/bin/sh\nexec "${0%/*}/companion" "$@"\n', { mode: 0o755 });
+  rmSync(join(launcherOnly, "node"));
+  symlinkSync(wrapper, join(launcherOnly, "node"));
+  symlinkSync(join(selected, "node"), join(launcherOnly, "companion"));
+  assert.match(execFileSync("npm", ["--version"],
+    { cwd: project, env: { ...env, PATH: launcherOnly }, encoding: "utf8" }), /^\d+\.\d+\.\d+/);
+  assert.equal(probePolicy(), "unknown:unknown", "a symlink-relative Node wrapper cannot prove a policy through its canonical path");
   const unknown = join(root, "npm-cli.js");
   writeFileSync(unknown, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   rmSync(join(selected, "npm"));
