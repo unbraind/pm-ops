@@ -223,6 +223,22 @@ test("verify reports a policy whose subject statuses differ", () => {
   );
 });
 
+test("verify compares operation selectors as sets and reports added or missing scopes", () => {
+  const policy = CANONICAL_BY_ID.get("completeness-issue")!;
+  const scoped = { ...policy, subject: { ...policy.subject, operations: ["create", "close"] } };
+  const reordered = { ...scoped, subject: { ...scoped.subject, operations: ["close", "create"] } };
+  const document = { version: 1, enforcement: "refuse", policies: [scoped] } as const;
+  const contract = { enforcement: "refuse", policies: [scoped] } as const;
+  assert.deepEqual(verify({ ...document, policies: [reordered] }, contract).failures, []);
+  assert.deepEqual(verify({ ...document, policies: [policy] }, contract).failures, [
+    "policy completeness-issue: subject operations [*], canonical requires [create,close]",
+  ]);
+  assert.deepEqual(verify(document, { ...contract, policies: [policy] }).failures, [
+    "policy completeness-issue: subject operations [create,close], canonical requires [*]",
+  ]);
+  assert.match(verify({ ...document, policies: [] }, contract).failures[0]!, /operations=\[create,close\]/);
+});
+
 test("verify reports a policy whose description differs", () => {
   const doc = canonicalDocument();
   const drifted = withOverrides("completeness-decision", {

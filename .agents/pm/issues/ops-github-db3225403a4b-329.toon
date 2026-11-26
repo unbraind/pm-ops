@@ -1,0 +1,39 @@
+id: ops-github-db3225403a4b-329
+title: "Gated issue sync has failed for 30 days: the tracker's workflow policy refuses every import (repro_steps, expected_result, resolution)"
+description: "GH issue #329: https://github.com/unbraind/pm-ops/issues/329 · author @unbraind · created 2026-11-26T10:27:06Z · updated 2026-11-26T10:27:37Z"
+type: Issue
+status: open
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#329","github_author:unbraind"
+created_at: "2026-11-26T10:27:06Z"
+updated_at: "2026-11-26T20:46:12.828Z"
+author: pm-github
+comments[7]{created_at,author,text}:
+  "2026-11-26T20:24:45.761Z",codex-agent,"Baseline origin/main 525b958, pm CLI 2026.11.24 and scheduled pm-github 2026.11.25. The gated dry run verified 28 issues (27 new, one matched). Apply exited 1: Workflow policy refused import: completeness-issue (require_fields), fleet-closed-resolution (require_fields). Missing: repro_steps, expected_result, resolution. The SDK recorded a refusal in workspace history and reported normal compensation. Testing the pinned policy operation selector against the import and direct lifecycle writes."
+  "2026-11-26T20:29:09.783Z",codex-agent,"Selected operation-scoped enforcement. GitHub atomic finalization uses the SDK import operation; native creation, editing, closure, restore and normalization continue to enforce the two rules. Descriptive content and GitHub closing reasons do not substitute for the three pm evidence fields. The published fleet defaults stay intact. Scratch gated dry run planned 27 creates and one update; apply committed those 28 writes with zero privacy findings across 56 files; repeat wrote zero."
+  "2026-11-26T20:33:38.060Z",codex-agent,"Upstream follow-up: ops-bczs tracks https://github.com/unbraind/pm-github/issues/291. Atomic preview missed the policy refusal. Plain import uses native close and leaves a newly created mirror open on refusal. The scoped atomic path treats source finalization as import."
+  "2026-11-26T20:36:45.213Z",codex-agent,"Revert proof in a disposable clone: restoring the unscoped policy made 3 tests fail (installed contract, TOON/JSON scopes, staged SDK finalization). Removing close from the scoped operations made the manual closure test fail because it was accepted. Reverting the verifier comparison made the operation drift test fail. With the candidate, the linked Node test command passed 43 of 43, with zero skips. Explicit paths keep temporary tracker fixtures independent of the linked runner context."
+  "2026-11-26T20:36:47.557Z",codex-agent,"Adoption blocker: changing only schema/policies.json fails strict health with history_drift_workspace_state_mismatch. Two pinned pm schema policy-put operations append to history/_workspace.jsonl. A scratch clone with those audit entries passed strict health before and after the live gated apply. PR 295 already changes that history file. No supported caller input changes policy scope before the import, and pm-github 2026.11.26 leaves the importer path intact. The candidate stays uncommitted because shelving the audit would break the tracker. No push, PR or candidate CI run. Scheduled recovery and alert issue 328 remain open."
+  "2026-11-26T20:36:49.057Z",codex-agent,"Local typecheck, build, test typecheck, lint, docstrings (379 declarations across 50 files), identity (4 tests), and candidate privacy (0 findings, 14 files) passed. npm and Bun policy verifiers and native Bun JSON policy output passed. The live native Bun preview timed out fetching GitHub issues. Audited scratch apply and repeat were verified with the repository-pinned CLI and npm-installed extension."
+  "2026-11-26T20:46:10.122Z",codex-agent,"Resumed with approval to extend workspace history on this branch. The pinned CLI applied both policy definitions and appended two schema:policy-put events. The origin/main workspace history is a byte-identical prefix. Strict health passed in the worktree and in the scratch clone before and after importing. Branch proof with pm-github 2026.11.25: dry run planned 26 creates and 2 updates across 28 issues with zero writes. Apply created 26 and updated 2, with zero skips and 0 privacy findings across 56 files. Repeat reported unchanged with zero writes and byte-identical tracker state. Manual incomplete closed Issue creation returned workflow_policy_refused with exit 4. Linked tests passed 43 of 43 with no skips. Typecheck, build, test typecheck, lint, docstrings, and the npm and Bun policy verifier and package export checks passed."
+files[5]{path,scope}:
+  .agents/pm/schema/policies.json,project
+  lifecycle-policy.ts,project
+  scripts/verify-lifecycle-policy.ts,project
+  test/lifecycle-policy.test.ts,project
+  test/verify-lifecycle-policy.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/lifecycle-policy.test.ts test/verify-lifecycle-policy.test.ts,project,codex-agent,"2026-11-26T20:29:08.654Z",local_mutation,fix/issue-sync-passes-tracker-policy
+docs[1]{path,scope}:
+  docs/issue-sync-policy.md,project
+github_close_reason: ""
+github_closed_at: ""
+github_created_at: "2026-11-26T10:27:06Z"
+github_link_only: false
+github_number: 329
+github_release: ""
+github_state: open
+github_state_reason: unspecified
+github_updated_at: "2026-11-26T10:27:37Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/329"
+body: "## What happens\n\nThe scheduled \"Sync GitHub issues into pm\" run of this repository has failed on every one of the last 30 days. With the version mismatch between the pm CLI and pm-github out of the way (2026-11-26), the remaining cause is visible:\n\n> Atomic GitHub import transaction … failed … Underlying error: Workflow policy refused import: completeness-issue (require_fields), fleet-closed-resolution (require_fields). Missing: repro_steps, expected_result, resolution. Audit appended to tracker-relative history/_workspace.jsonl …\n\n([run of 2026-11-26](https://github.com/unbraind/pm-ops/actions/runs/45793905360))\n\nThis tracker's workflow policy requires `repro_steps` and `expected_result` on Issue items and `resolution` on closed ones. The importer creates and updates items from GitHub issues and cannot supply those fields, so the policy refuses the whole import. The failure raised no alert until now because the caller granted `issues: read` (fixed by the alert-permission change).\n\n## Expected\n\nDecide one of these and implement it with tests:\n\n1. The policy exempts importer-owned mutations (items with GitHub provenance are completed by people later), or\n2. the importer maps what it has (for example the issue body to `repro_steps`/`expected_result`, the GitHub closing reason and closing pull request to `resolution`) so that imported items satisfy the policy, or\n3. the policy applies to state transitions made by people and agents, not to mirrored state.\n\n## Acceptance\n\n- The gated import dry run and apply pass on main with the tracker's policy active: `pm github import unbraind/pm-ops --state all --atomic --gate --dry-run --with-comments`.\n- The policy still refuses an incomplete Issue item created by hand.\n- The scheduled sync is green, and its tracking issue (if one was opened) is closed by the recovery."

@@ -97,6 +97,13 @@
         ],
         "statuses": [
           "closed"
+        ],
+        "operations": [
+          "create",
+          "update",
+          "close",
+          "restore",
+          "normalize"
         ]
       },
       "description": "An issue records a defect or gap; closing it without reproduction steps and the expected behaviour leaves no way to tell a fix from a disappearance.",
@@ -152,6 +159,13 @@
       "subject": {
         "statuses": [
           "closed"
+        ],
+        "operations": [
+          "create",
+          "update",
+          "close",
+          "restore",
+          "normalize"
         ]
       },
       "description": "A closed item carries a resolution so the history stream records the outcome, not only that the item stopped being open.",

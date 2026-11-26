@@ -68,6 +68,8 @@ export interface PolicySubject {
     readonly types?: readonly string[];
     /** Statuses the policy guards; the fleet's rules all guard `closed`. */
     readonly statuses: readonly string[];
+    /** Native mutation operation names; omitted means every operation. */
+    readonly operations?: readonly string[];
 }
 /** One declared workflow policy. */
 export interface WorkflowPolicy {

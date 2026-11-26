@@ -1,0 +1,13 @@
+id: ops-bczs
+title: Align pm-github import preview and plain lifecycle finalization
+description: Follow-up to pm-ops issue 329 for the published importer.
+type: Issue
+status: open
+priority: 2
+tags[1]: "gh:unbraind/pm-github#291"
+created_at: "2026-11-26T20:33:37.129Z"
+updated_at: "2026-11-26T20:33:37.129Z"
+author: codex-agent
+repro_steps: On pm CLI 2026.11.24 and pm-github 2026.11.25 the atomic preview accepted the plan that apply refused. With operation-scoped policy a plain import of closed GitHub issue 128 attempted native close and left a new mirror open.
+expected_result: Preview evaluates the same policy-aware mutation plan as apply. Plain import shares source finalization or refuses before creating a partial mirror.
+body: ""
