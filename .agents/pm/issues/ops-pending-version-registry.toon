@@ -2,14 +2,19 @@ id: ops-pending-version-registry
 title: Skip registry-held pending versions and retire stale release candidates
 description: "Fix gh:unbraind/pm-ops#290: an untagged package version is resumed even when npm already holds it, trapping prepare and reconcile on an unpublishable candidate."
 type: Issue
-status: in_progress
+status: closed
 priority: 1
 tags[2]: "area:release","gh:unbraind/pm-ops#290"
 created_at: "2026-11-16T19:12:48.646Z"
-updated_at: "2026-11-24T07:02:08.938Z"
+updated_at: "2026-11-26T13:29:11.495Z"
+closed_at: "2026-11-26T13:29:11.479Z"
+completed_at: "2026-11-17T02:54:10.000Z"
 author: codex-sol
 acceptance_criteria: "An untagged version already on npm selects today; a truly unpublished pending version resumes after rollover; tagged versions, calendar cap, package policy, hasChanges and recovery_tag retain their behavior; registry read errors fail closed; stale merged candidates retire with a clear notice or an explicit safe owner action; targeted gates pass."
 repro_steps: "In a disposable checkout of c29fe88470401fb0515563b066a18de821f19029 (the parent of fix 6c96248513125264b67d6b0c7911c9fc9cadfa7d), install the locked dependencies with npm ci --ignore-scripts and run this command:\nnode --input-type=module -e 'import assert from \"node:assert/strict\"; import { decideDailyRelease } from \"./daily-release.ts\"; const plan = decideDailyRelease({ existingPrs: [], mainSha: \"new-main\", lastRelease: { tag: \"v2026.10.16\", sha: \"old-main\" }, today: \"2026.10.19\", hasChanges: true, releaseTags: [\"v2026.10.16\"], currentPackageVersion: \"2026.10.17\", registryHasCurrentVersion: true }); assert.equal(plan.npm_version, \"2026.10.19\");'\nThe probe supplies the positive npm lookup result for an untagged coordinate without contacting the registry. The assertion fails because prepare selects the occupied 2026.10.17 coordinate. The same command at the fix selects 2026.10.19 and exits zero."
+resolution: "Delivered by https://github.com/unbraind/pm-ops/pull/291 (merge cf4315d8fa55, head dc696bbf44c7)"
+expected_result: "An untagged version already on npm selects today; a truly unpublished pending version resumes after rollover; tagged versions, calendar cap, package policy, hasChanges and recovery_tag retain their behavior; registry read errors fail closed; stale merged candidates retire with a clear notice or an explicit safe owner action; targeted gates pass."
+actual_result: "Merged at 2026-11-17T02:54:10Z; required checks satisfied; successful head checks: CodeQL, CodeRabbit, Greptile Review, Release lock compatibility (22.18.0), Release lock compatibility (26), codeql, test (22), test (26), windows-consumers (22), windows-consumers (26)"
 comments[13]{created_at,author,text}:
   "2026-11-16T19:13:57.337Z",codex-sol,"Root cause: decideDailyRelease equates an untagged calendar version with unpublished intent; prepare never reads npm. Existing explicit retirement refuses every occupied npm coordinate and any attempt journal. Plan: fail-closed prepare lookup; separate automatic occupied-candidate retirement only when npm publication predates the trusted preparation run, with no tag or GitHub Release, preserving the exact retired receipt and requiring a current-main probe. This also safely handles failed attempts against a pre-existing immutable coordinate."
   "2026-11-16T19:17:10.947Z",codex-sol,"Implementation: optional registryHasCurrentVersion preserves all other planner rules; prepare accepts only an exact successful npm version response or authoritative E404, refusing errors. Occupied retirement additionally requires registry time predating preparation, unchanged merged source, green protection, no tag/Release, and a current-main probe. Receipt retirement is confirmed before clearing pending; publication modes reject this action. Focused suite now passes 157 tests; typecheck passes. Changelog check currently reports a pre-existing release-heading date mismatch, under baseline verification."
@@ -94,4 +99,5 @@ tests[8]:
       source_ref: sched-1123-pm-ops-closeout-repro-steps
 docs[1]{path,scope}:
   docs/reusable-release.md,project
+close_reason: "{\"pr\":291,\"url\":\"https://github.com/unbraind/pm-ops/pull/291\",\"merge_commit_sha\":\"cf4315d8fa55c47261a0415343c925675bf685ff\",\"head_sha\":\"dc696bbf44c72eb76a7c20f43c829e1898123ef4\",\"merged_at\":\"2026-11-17T02:54:10Z\",\"checks\":[\"CodeQL\",\"CodeRabbit\",\"Greptile Review\",\"Release lock compatibility (22.18.0)\",\"Release lock compatibility (26)\",\"codeql\",\"test (22)\",\"test (26)\",\"windows-consumers (22)\",\"windows-consumers (26)\"]}"
 body: ""

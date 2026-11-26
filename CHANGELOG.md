@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Skip registry-held pending versions and retire stale release candidates ([ops-pending-version-registry](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-pending-version-registry.toon))
+- Daily release coverage gate fails: continuation tests inherit the release job's NPM_PROJECT_PATH ([ops-hg5r](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-hg5r.toon))
+
 ## 2026.11.24 - 2026-11-25
 
 ### Other
