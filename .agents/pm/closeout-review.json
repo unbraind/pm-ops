@@ -1,16 +1,35 @@
 {
-  "needs_review": [
+  "needs_review": [],
+  "refused": [
     {
       "item": "ops-d8k3",
-      "action": "needs_review",
+      "action": "refuse",
+      "pr": 112,
+      "reason": "SDK close refused: workflow_policy_refused. Supply required fields: repro_steps.",
       "candidates": [
         112
       ],
       "missing_evidence": [
         {
           "pr": 112,
-          "code": "required_checks_unverified",
-          "reason": "GitHub GET /repos/unbraind/pm-ops/branches/main/protection/required_status_checks failed; verify token read access and retry: HTTP 403. Required-check metadata unavailable; declare --required-checks (workflow input required-checks) to verify the required contexts. GITHUB_TOKEN cannot read administration-only branch protection."
+          "code": "close_refused",
+          "reason": "SDK close refused: workflow_policy_refused. Supply required fields: repro_steps."
+        }
+      ]
+    },
+    {
+      "item": "ops-tdot",
+      "action": "refuse",
+      "pr": 315,
+      "reason": "SDK close refused: workflow_policy_refused. Supply required fields: repro_steps.",
+      "candidates": [
+        315
+      ],
+      "missing_evidence": [
+        {
+          "pr": 315,
+          "code": "close_refused",
+          "reason": "SDK close refused: workflow_policy_refused. Supply required fields: repro_steps."
         }
       ]
     }
