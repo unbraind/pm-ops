@@ -19,3 +19,9 @@ fixture commit and repository, so they can exercise successful recovery with a
 real git repository. These transformed envelopes are not claimed to be signed;
 the injected npm audit boundary supplies verification outcomes. Production
 accepts bundles only after the real npm signature-audit process succeeds.
+
+`launchers/npm-11.21.0/` stores byte-for-byte copies of `bin/npm` and
+`bin/npm.cmd` as JSON strings with their upstream license. The Windows launcher
+probe tests write these templates to disposable installations, including on
+hosts whose npm distribution omits Windows launchers.
+[npm CLI v11.21.0](https://github.com/npm/cli/tree/v11.21.0/bin)

@@ -13,13 +13,69 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-import { bashArrayDeclarations, bashArrays, dedentRunBlocks, expandArrays, joinContinuations, tokenizeCommands } from "../shell-scan.ts";
+import { bashArrayDeclarations, bashArrays, commandArguments, commandName, dedentRunBlocks, expandArrays, heredocBodyLines, joinContinuations, packageScriptCommand, releaseHookCommand, shellRedirection, tokenizeCommands } from "../shell-scan.ts";
 import { auditPublishAttestation, publishInvocationsIn } from "../attestation.ts";
+import { isShellAssignment } from "../release-shell-constructs.ts";
+import { parseReleaseHook } from "../release-hook-grammar.ts";
 import { isMainInvocation } from "../scripts/main-invocation.ts";
 
 test("quoted YAML command values are recursively tokenized", () => {
   const commands = tokenizeCommands('run: "npm publish --access public"');
   assert.ok(commands.some((command) => command.map((token) => token.value).join(" ") === "npm publish --access public"));
+});
+
+test("the command prefix ends after each timeout's duration", () => {
+  const [tokens] = tokenizeCommands('timeout -k 2s 60 timeout --foreground "$LIMIT" npm --version');
+  assert.equal(commandName(tokens!), "npm");
+  assert.deepEqual(commandArguments(tokens!).map(({ value }) => value), ["--version"]);
+});
+
+test("exec options use decoded argv while shell assignments still require an unquoted name", () => {
+  for (const option of ["-a", '"-a"', "'-a'"]) {
+    const [command] = tokenizeCommands(`exec ${option} release-hook npm run writer`);
+    assert.equal(commandName(command), "npm");
+    assert.deepEqual(packageScriptCommand(command)?.map(word => word.value), ["npm", "run", "writer"]);
+  }
+  for (const prefix of ["TITLE=release", '"TITLE=release"']) {
+    const [command] = tokenizeCommands(`${prefix} npm run writer`);
+    assert.equal(commandName(command), prefix.startsWith('"') ? "TITLE=release" : "npm");
+  }
+});
+
+test("joined numeric redirection targets preserve the next option", () => {
+  for (const redirect of ["2>1", "2>>1", "2>&1", "2> 1", "<> input", "<<- EOF"]) {
+    const [tokens] = tokenizeCommands(`npm publish ${redirect} --provenance`);
+    assert.deepEqual(commandArguments(tokens!).map(({ value }) => value), ["publish", "--provenance"], redirect);
+  }
+});
+
+test("continued descriptor duplication preserves the remaining argv", () => {
+  const continuation = "\\" + "\n";
+  for (const redirect of ["2>" + continuation + "&1", "2" + continuation + ">&1", "2>&" + continuation + "1"]) {
+    const commands = tokenizeCommands("printf " + redirect + " example | cat");
+    assert.deepEqual(commands.map(commandName), ["printf", "cat"]);
+    assert.deepEqual(commandArguments(commands[0]).map(word => word.value), ["example"], redirect);
+  }
+  for (const literal of ['2">"', "2\\>"]) {
+    const commands = tokenizeCommands("printf " + literal + continuation + "& cat");
+    assert.deepEqual(commands.map(commandName), ["printf", "cat"]);
+    assert.deepEqual(commandArguments(commands[0]).map(word => word.value), ["2>"], literal);
+  }
+});
+
+test("attached combined output redirections end the word and standalone ampersands end the command", () => {
+  const literal = tokenizeCommands("printf 'hi&>out'&echo done");
+  assert.deepEqual(literal.map(commandName), ["printf", "echo"]);
+  assert.deepEqual(commandArguments(literal[0]).map(word => word.value), ["hi&>out"]);
+  for (const operator of ["&>", "&>>"]) {
+    for (const space of [" ", ""]) {
+      const commands = tokenizeCommands("printf hi" + space + operator + "'release log'&echo done");
+      assert.deepEqual(commands.map(commandName), ["printf", "echo"]);
+      assert.deepEqual(commandArguments(commands[0]).map(word => word.value), ["hi"]);
+      assert.equal(commands[0][2].value, operator + "release log");
+      assert.deepEqual(shellRedirection(commands[0][2]), { operator, joined: true });
+    }
+  }
 });
 
 test("an unknown array reference is left in place rather than erased", () => {
@@ -121,9 +177,7 @@ test("the main-invocation guard answers both ways", () => {
 test("a backslash continuation makes one logical command out of several lines", () => {
   assert.equal(
     joinContinuations("npm publish \\\n  --provenance \\\n  --access public\n"),
-    // The joiner replaces the backslash-newline with a single space and leaves
-    // the continuation line's own indentation, which the tokeniser then eats.
-    "npm publish  --provenance  --access public\n",
+    "npm publish   --provenance   --access public\n",
   );
   // A backslash that does not end a line is an ordinary character.
   assert.equal(joinContinuations("printf 'a\\tb'\n"), "printf 'a\\tb'\n");
@@ -306,5 +360,102 @@ test("the exported YAML dedenter preserves quoted-key decoding independently of 
   }
   for (const key of ["\"ru\\nn\"", "\"no\\qte\"", "\"r\\UFFFFFFFFn\"", "\"r\\uD800n\"", "'NOTE''S'", "\"NO\\\"TE\""]) {
     assert.equal(dedentRunBlocks(`  ${key}: |\n    npm publish --provenance`), `  ${key}: |\n`, key);
+  }
+});
+
+test("quoted and escaped redirection characters stay in argv", () => {
+  for (const literal of ['2">"', "2'>'", String.raw`2\>`]) {
+    const [command] = tokenizeCommands(`pm-changelog --title ${literal} --check 2>"release log"`);
+    assert.deepEqual(commandArguments(command).map(word => word.value), ["--title", "2>", "--check"], literal);
+  }
+});
+
+test("a clobber redirection keeps its target out of argv without consuming a later pipe", () => {
+  for (const redirect of ['2>|"release log"', '>| "release log"']) {
+    const commands = tokenizeCommands(`pm-changelog ${redirect} --check | cat`);
+    assert.deepEqual(commands.map(commandName), ["pm-changelog", "cat"]);
+    assert.deepEqual(commandArguments(commands[0]).map(word => word.value), ["--check"], redirect);
+  }
+});
+
+
+test("unquoted file redirects split attached arguments while retaining descriptor and data words", () => {
+  for (const [source, args, redirects] of [
+    ["printf hello>preview.log", ["hello"], [{ operator: ">", joined: true }]],
+    ["printf hello>> preview.log", ["hello"], [{ operator: ">>", joined: false }]],
+    ["printf hello2>preview.log", ["hello2"], [{ operator: ">", joined: true }]],
+    ["printf hello 2>preview.log", ["hello"], [{ operator: "2>", joined: true }]],
+    ["printf hello<input", ["hello"], [{ operator: "<", joined: true }]],
+    ["printf hello <input>output", ["hello"], [{ operator: "<", joined: true }, { operator: ">", joined: true }]],
+    ["printf hello < input>output", ["hello"], [{ operator: "<", joined: false }, { operator: ">", joined: true }]],
+    ["printf hello>first>output", ["hello"], [{ operator: ">", joined: true }, { operator: ">", joined: true }]],
+    ['printf "2">preview.log', ["2"], [{ operator: ">", joined: true }]],
+    [String.raw`printf \2>preview.log`, ["2"], [{ operator: ">", joined: true }]],
+    ["printf 'hello>preview.log'", ["hello>preview.log"], []],
+    [String.raw`printf hello\>preview.log`, ["hello>preview.log"], []],
+  ] as const) {
+    const [command] = tokenizeCommands(source);
+    assert.deepEqual(commandArguments(command).map(word => word.value), args, source);
+    assert.deepEqual(command.map(shellRedirection).filter(Boolean), redirects, source);
+  }
+});
+
+test("Round HA continuations remove exactly the executable newline", () => {
+  const input = "printf '%s' first\\ \\\nsecond\nprintf '%s' first\\\n  second";
+  const logical = "printf '%s' first\\ second\nprintf '%s' first  second";
+  assert.equal(joinContinuations(input), logical);
+  assert.deepEqual(tokenizeCommands(joinContinuations(input)).map(tokens => tokens.slice(2).map(word => word.value)),
+    [["first second"], ["first", "second"]]);
+});
+
+test("Round HA a comment after a separator cannot open a heredoc", () => {
+  for (const separator of [";", "&&", "||", "|", "&", ")"]) {
+    const example = "echo ready" + separator + "# << EOF\nnpm publish --provenance";
+    assert.deepEqual(heredocBodyLines(example.split("\n")), [false, false], separator);
+  }
+  assert.deepEqual(heredocBodyLines(["((1))# << EOF", "npm publish"]), [false, false]);
+  for (const word of ["name#suffix", "name\\ #suffix", "'#'", "\\#", '"name;"#', "$((1))#suffix"]) {
+    const example = "echo " + word + " <<'EOF'\nnpm publish\nEOF";
+    assert.deepEqual(heredocBodyLines(example.split("\n")), [false, true, true], word);
+  }
+});
+
+test("Round HC shell assignment names are parsed before quote removal", () => {
+  assert.equal(isShellAssignment({ value: "FOO=bar" }), true);
+  assert.equal(isShellAssignment({ value: "FOO=bar", startsQuoted: true }), false);
+  for (const name of ['FO"O"', 'F\\OO', "F''OO"]) {
+    const [words] = tokenizeCommands(name + '=bar pm-changelog');
+    assert.equal(commandName(words), 'FOO=bar');
+    assert.equal(packageScriptCommand(words)?.[0]?.value, 'FOO=bar');
+    assert.equal(releaseHookCommand(parseReleaseHook(name + '=bar pm-changelog').commands[0])?.[0]?.value, 'FOO=bar');
+  }
+  for (const command of ['FOO="bar" pm-changelog', "env 'FOO=bar' pm-changelog", 'F\\\nOO=bar pm-changelog']) {
+    assert.equal(commandName(tokenizeCommands(command)[0]), 'pm-changelog');
+    assert.equal(releaseHookCommand(parseReleaseHook(command).commands[0])?.[0]?.value, 'pm-changelog');
+  }
+});
+
+test("Round HC continuations preserve local substitution quotes and rejoin executable words", () => {
+  const literal = "value=\\\ncontinued";
+  const command = 'printf "%s" "$(printf \'%s\' \'' + literal + '\')"';
+  assert.equal(joinContinuations("echo ready\\\n"), "echo ready");
+  assert.deepEqual(tokenizeCommands(command.replace("$(", "$\\\n(")), tokenizeCommands(command));
+  assert.equal(joinContinuations(command.replace("$(", "$\\\n(")), command);
+  assert.equal(joinContinuations(command.replace("$(", "$\\\n\\\n(")), command);
+  assert.equal(joinContinuations(command), command);
+  assert.equal(joinContinuations('printf "%s" "' + literal + '"'), 'printf "%s" "value=continued"');
+  assert.equal(joinContinuations(command + '\nprintf "%s" "' + literal + '"'), command + '\nprintf "%s" "value=continued"');
+  const nested = `printf "%s" "$( (printf '%s' '${literal}') )"`;
+  const legacy = "echo `echo 'a\\\nb'`";
+  assert.deepEqual(tokenizeCommands(legacy).at(-1)?.map(word => word.value), ["echo", "ab"]);
+  assert.equal(joinContinuations(nested), nested);
+});
+
+test("Round HC double-quoted here-document delimiters preserve literal backslashes", () => {
+  assert.deepEqual(heredocBodyLines(['cat <<"EO' + "\\"]), [false]);
+  assert.match(joinContinuations('cat <<"EO\\\nF"\nEOF\nprintf ready'), /^cat <<"EOF"/);
+  for (const [delimiter, terminator] of [['EO\\F', 'EO\\F'], ['EO\\"F', 'EO"F']]) {
+    const body = 'cat <<"' + delimiter + '"\nordinary \\\ndata\n' + terminator + '\nnpm pub\\\nlish';
+    assert.equal(joinContinuations(body), body.replace('pub\\\nlish', 'publish'));
   }
 });

@@ -163,6 +163,63 @@ test("planning calls the measured TypeScript module and keeps PR payloads in fil
   assert.ok(merge.indexOf('release_commit="$(git rev-parse HEAD)"') < merge.indexOf('remote_branch_sha='));
 });
 
+test("prepare rebuilds and checks the trusted planner before loading it", () => {
+  const prepare = workflow.jobs.prepare.steps;
+  const build = step("Verify trusted release tool build");
+  const guard = prepare.findIndex(step => step.name === "Enforce continuation runtime floor");
+  assert.ok(guard >= 0, "prepare must enforce the continuation runtime floor");
+  assert.ok(prepare.indexOf(build) > guard);
+  assert.ok(prepare.indexOf(build) < prepare.indexOf(step("Install pinned release tools")));
+  assert.ok(prepare.indexOf(step("Install pinned release tools")) < prepare.indexOf(step("Decide release")));
+  assert.equal(build.if, undefined);
+  assert.equal(build["continue-on-error"], undefined);
+  assert.match(build.run, /cd "\$\{CONTINUATION_SCRIPT%\/scripts\/\*\}"/);
+  assert.match(build.run, /npm ci .*--ignore-scripts/);
+  assert.match(build.run, /rm -rf -- dist\/\s+npm run build\s+git diff --exit-code -- dist\//);
+  assert.match(build.run, /git status --porcelain=v1 --untracked-files=all --ignored=matching -- dist\//);
+  const candidate = step("Update release version");
+  assert.match(candidate.run, /if \[\[ -n "\$BUILD_SCRIPT" \]\]; then\s+rm -rf -- dist\s+npm run "\$BUILD_SCRIPT"\s+fi/);
+});
+
+test("prepare rejects obsolete tracked tools and leaves the candidate checkout alone", t => {
+  const candidate = mkdtempSync(join(tmpdir(), "trusted-planner-"));
+  t.after(() => rmSync(candidate, { recursive: true, force: true }));
+  const trusted = join(candidate, "tools");
+  mkdirSync(join(trusted, "dist"), { recursive: true });
+  mkdirSync(join(candidate, "dist"));
+  writeFileSync(join(candidate, "dist/candidate.js"), "candidate");
+  writeFileSync(join(trusted, "package.json"), JSON.stringify({
+    name: "fixture", version: "1.0.0", scripts: { build: "node build.cjs" },
+  }));
+  writeFileSync(join(trusted, "package-lock.json"), JSON.stringify({
+    name: "fixture", version: "1.0.0", lockfileVersion: 3, packages: { "": { name: "fixture", version: "1.0.0" } },
+  }));
+  writeFileSync(join(trusted, "build.cjs"), 'const fs = require("node:fs"); fs.mkdirSync("dist", { recursive: true }); fs.writeFileSync("dist/tool.js", "current");');
+  writeFileSync(join(trusted, "dist/tool.js"), "current");
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: trusted });
+  git("init", "-q");
+  const excludes = join(candidate, "global-excludes");
+  writeFileSync(excludes, "dist/\n");
+  git("config", "core.excludesFile", excludes);
+  assert.equal(git("check-ignore", "dist/tool.js").toString().trim(), "dist/tool.js");
+  git("add", "--force", "--", "dist/tool.js");
+  git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--no-gpg-sign", "-qm", "Reproducible output");
+  // npm exec exports its own project's allow-scripts setting. The Actions
+  // step installs a separate checkout, where npm rejects that inherited flag.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "npm_config_allow_scripts"));
+  const check = () => runBashFixture(step("Verify trusted release tool build").run, {
+    cwd: candidate, encoding: "utf8", env: { ...env, CONTINUATION_SCRIPT: join(trusted, "scripts/release-continuation.ts") },
+  });
+  const clean = check();
+  assert.equal(clean.status, 0, clean.stdout + clean.stderr);
+  writeFileSync(join(trusted, "dist/obsolete.js"), "obsolete");
+  git("add", "--force", "--", "dist/obsolete.js");
+  const stale = check();
+  assert.notEqual(stale.status, 0);
+  assert.match(stale.stdout, /deleted file mode[\s\S]*obsolete/);
+  assert.equal(readFileSync(join(candidate, "dist/candidate.js"), "utf8"), "candidate");
+});
+
 test("caller template and migration examples cover the union of every nested job permission", () => {
   const template = readFileSync(new URL("../templates/release-caller.yml", import.meta.url), "utf8");
   const docs = readFileSync(new URL("../docs/reusable-release.md", import.meta.url), "utf8");
@@ -925,4 +982,150 @@ test("publication provenance expectation comes from the executing job independen
     // job context is available in step env, not in job-level env.
     assert.doesNotMatch(JSON.stringify(job.env), /job\.workflow_ref|signer_workflow/);
   }
+});
+
+
+test("decision checks the expected commit day even when the configured release calendar is a day ahead", () => {
+  const root = mkdtempSync(join(tmpdir(), "release-heading-decision-"));
+  try {
+    const module = join(root, "decision.cjs"), output = join(root, "output");
+    writeFileSync(join(root, "prs.json"), "[]");
+    writeFileSync(join(root, "tags"), "");
+    const plan = step("Decide release").run;
+    const decision = plan.slice(plan.indexOf('node --input-type=module - "$release_prs_file"'));
+    for (const [version, heading, release, pass] of [
+      ["2026.10.23", undefined, true, false], ["2026.10.23", "", true, false],
+      ["2026.10.23", "2026-10-25", true, false], ["2026.10.23", "2026-10-24", true, true],
+      ["2026.10.24", undefined, true, true], ["2026.10.25", "2026-10-24", true, true],
+      ["2026.10.23", undefined, false, true],
+    ] as const) {
+      writeFileSync(module, "exports.decideDailyRelease = facts => { if (facts.expectedCommitTimestamp !== '2026-10-24T23:30:00Z') throw Error('missing committer timestamp'); return "
+        + JSON.stringify({ npm_version: version, heading_date: heading, should_release: release }) + "; };");
+      writeFileSync(output, "");
+      const result = runBashFixture('release_prs_file="$PR_FILE"\ntags_file="$TAG_FILE"\n' + decision, { cwd: root, encoding: "utf8", env: {
+        ...process.env, PM_OPS_MODULE: module, PR_FILE: join(root, "prs.json"), TAG_FILE: join(root, "tags"), GITHUB_OUTPUT: output,
+        RELEASE_TODAY: "2026.10.25", RELEASE_COMMIT_TIMESTAMP: "2026-10-24T23:30:00Z",
+      } });
+      assert.equal(result.status === 0, pass, result.stdout + result.stderr);
+      if (!pass) {
+        assert.match(result.stderr, /Release decision returned an incorrect heading_date/);
+        assert.equal(readFileSync(output, "utf8"), "", "no partial decision may escape");
+      }
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("continuation enforces the merge day before publish and still tags after midnight or during recovery", () => {
+  const steps = workflow.jobs.release.steps;
+  const check = step("Check prepared heading day before publication");
+  assert.ok(steps.includes(check));
+  assert.equal(check["continue-on-error"], undefined);
+  assert.ok(steps.indexOf(check) < steps.indexOf(step("Publish npm package")));
+  assert.ok(steps.indexOf(check) < steps.indexOf(step("Push release tag")));
+  assert.equal(check.if, "steps.continue.outputs.action == 'publish' && !inputs.rust");
+  assert.equal(check.run, 'node "$CONTINUATION_SCRIPT" heading-date');
+  const tagStep = step("Push release tag");
+  const tag = tagStep.run;
+  for (const [action, mergeDay, pinDay, allowed, movesHead] of [
+    ["publish", "2026-10-24", "2026-10-24", true, false],
+    ["publish", "2026-10-24", "2026-10-24", true, true],
+    ["recover", "2026-10-25", "2026-10-24", true, false],
+    ["publish", "2026-10-25", "2026-10-24", false, false],
+    ["publish", "2026-10-23", null, true, false],
+    ["publish", "2026-10-24", null, false, false],
+  ] as const) {
+    const root = mkdtempSync(join(tmpdir(), "release-heading-tag-"));
+    try {
+      const remote = join(root, "origin.git"), project = join(root, "project");
+      mkdirSync(project);
+      execFileSync("git", ["init", "--quiet", "--bare", remote]);
+      execFileSync("git", ["init", "--quiet", project]);
+      const globalConfig = join(root, "host-gitconfig");
+      writeFileSync(globalConfig, "[push]\ngpgSign = true\n[tag]\ngpgSign = true\n");
+      const env = {
+        ...process.env, GIT_CONFIG_GLOBAL: globalConfig, IS_RUST: "false", RELEASE_TAG: "v2026.10.23-2",
+        CONTINUATION_SCRIPT: fileURLToPath(new URL("../scripts/release-continuation.ts", import.meta.url)), NPM_PROJECT_PATH: project,
+        CHANGELOG_SCRIPT: "changelog", CHANGELOG_CHECK_SCRIPT: "changelog", NOTES_SCRIPT: "changelog", RELEASE_TIMEZONE: "Europe/Vienna",
+        GIT_AUTHOR_DATE: "2026-10-22T12:00:00Z", GIT_COMMITTER_DATE: `${mergeDay}T00:30:00+02:00`,
+      };
+      const git = (...args: string[]) => execFileSync("git", args, { cwd: project, env, encoding: "utf8" }).trim();
+      git("config", "--local", "tag.gpgSign", "false");
+      git("config", "--local", "push.gpgSign", "false");
+      const dateOption = pinDay ? `"--date-fallback" '${pinDay}'` : "--date-from-version";
+      writeFileSync(join(project, "package.json"), JSON.stringify({
+        version: "2026.10.23-2", scripts: { changelog: `pm-changelog --release-version-from-package ${dateOption}` },
+      }));
+      git("add", "package.json");
+      git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--no-gpg-sign", "--quiet", "-m", "Verified merge");
+      const verified = git("rev-parse", "HEAD");
+      git("remote", "add", "origin", remote);
+      git("push", "--quiet", "origin", "HEAD:refs/heads/main");
+      // A normal publication must pass the check. Recovery bypasses it because
+      // npm already accepted the artifact. The wall clock is after both days.
+      assert.ok(Date.now() > Date.parse(`${mergeDay}T23:59:59+02:00`));
+      if (action === "publish") {
+        const before = runBashFixture(check.run, { cwd: project, encoding: "utf8", env });
+        assert.equal(before.status === 0, allowed, before.stdout + before.stderr);
+        if (!allowed) {
+          const preparedDay = pinDay ?? "2026-10-23";
+          assert.ok(before.stderr.includes(`Prepared release heading day ${preparedDay} differs from verified merge commit day ${mergeDay}. Refusing to publish. Manually dispatch the workflow with retire-unpublished`),
+            before.stderr);
+          assert.equal(git("ls-remote", "--tags", "origin"), "");
+          continue;
+        }
+      }
+      if (movesHead) {
+        // An extra publisher may move to a different commit with the same tree and date.
+        git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--no-gpg-sign", "--allow-empty", "-qm", "Moved by publish hook");
+        assert.notEqual(git("rev-parse", "HEAD"), verified);
+        assert.equal(git("rev-parse", "HEAD^{tree}"), git("rev-parse", verified + "^{tree}"));
+      }
+      const result = runBashFixture(tag, { cwd: project, encoding: "utf8", env: { ...env, MERGED_SHA: verified } });
+      if (movesHead) {
+        assert.equal(result.status, 1, result.stdout + result.stderr);
+        assert.match(result.stdout, /HEAD.*verified merge commit/);
+        assert.equal(git("tag", "--list"), "");
+        assert.equal(git("ls-remote", "--tags", "origin"), "");
+        continue;
+      }
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      assert.equal(git("rev-list", "-n", "1", env.RELEASE_TAG), verified);
+      assert.match(git("ls-remote", "--tags", "origin"), new RegExp(`^${verified}\\s+refs/tags/${env.RELEASE_TAG}$`));
+      if (action === "recover") assert.match(result.stdout, /::warning::.*continuing to tag/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
+  assert.equal(tagStep.env?.MERGED_SHA, "${{ needs.reconcile.outputs.merged_sha }}");
+});
+
+test("both heading checks receive the active and configured lifecycle values recorded for the verified candidate", () => {
+  const generation = step("Generate changelog and release notes");
+  const manifest = step("Record immutable release candidate");
+  const policy = step("Prepare npm changelog hooks");
+  assert.equal(workflow.jobs.prepare.steps.indexOf(policy) + 1, workflow.jobs.prepare.steps.indexOf(generation));
+  assert.doesNotMatch(policy.run, /npm run/);
+  const checks = workflow.jobs.release.steps.filter(entry => entry.run?.includes('"$CONTINUATION_SCRIPT" heading-date'));
+  assert.equal(checks.length, 2);
+  for (const [name, prepared, candidate] of [
+    ["PREPARED_NPM_LIFECYCLE", "npm_lifecycle", "npmLifecycle"],
+    ["PREPARED_NPM_LIFECYCLE_CONFIGURED", "npm_lifecycle_configured", "npmLifecycleConfigured"],
+  ]) {
+    assert.equal(generation.env?.[name], "${{ steps." + policy.id + ".outputs." + prepared + " }}");
+    assert.equal(manifest.env?.[name], "${{ steps." + policy.id + ".outputs." + prepared + " }}");
+    for (const entry of checks) assert.equal(entry.env?.[name], "${{ steps.continue.outputs." + candidate + " }}");
+  }
+});
+
+test("Round GW env operands and shell assignments have different name syntax", () => {
+  for (const assignment of ["'cache-mode=fixture'", "'1cache=fixture'", "'cache.mode=fixture'"]) {
+    assert.throws(() => assertNoNpmInstalls("env " + assignment + " npm ci"), /must not install/);
+    assertNoNpmInstalls("env " + assignment + " echo npm ci");
+    assertNoNpmInstalls(assignment + " npm ci");
+  }
+});
+
+test("Round GW scanner keeps the command after a parenthesized esac pattern", () => {
+  const body = (command: string) => 'case "$MODE" in (esac) ' + command + ' ;; esac';
+  assert.throws(() => assertNoNpmInstalls(body("npm ci")), /must not install/);
+  assertNoNpmInstalls(body("echo npm ci"));
+  assertNoNpmInstalls('case "$MODE" in esac\necho npm ci');
 });

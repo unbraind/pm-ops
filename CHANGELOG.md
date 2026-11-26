@@ -2,6 +2,10 @@
 
 ## 2026.11.24 - 2026-11-25
 
+### Fixed
+
+- Verify the clean trusted release-tool build before daily release planning ([ops-b2bs](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-b2bs.toon))
+
 ### Other
 
 - Keep published dependency bullets when releases also have tracker items ([ops-changelog-dependency-updates](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-changelog-dependency-updates.toon))

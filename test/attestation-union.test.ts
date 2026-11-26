@@ -1173,9 +1173,14 @@ test("quoted heredoc delimiters are scanned as literal terminators", () => {
   assert.deepEqual(heredocBodyLines(["cat <<<word", "FLAG=--provenance"]), [false, false]);
   assert.deepEqual(heredocBodyLines(["(( 1 + (2) ))", "FLAG=--provenance"]), [false, false]);
   assert.deepEqual(heredocBodyLines(["cat <<- EOF", "payload", "EOF"]), [false, true, true]);
-  assert.deepEqual(heredocBodyLines(["cat <<EOF\\", "payload", "EOF"]), [false, true, true]);
+  assert.deepEqual(heredocBodyLines(["cat <<EOF\\", "payload", "EOF", "EOFpayload", "npm publish"]),
+    [false, false, true, true, false]);
+  assert.deepEqual(heredocBodyLines(["cat <<EO\\", "F", "payload", "EOF", "npm publish"]),
+    [false, false, true, true, false]);
+  assert.deepEqual(heredocBodyLines(["cat <<EOF\\"]), [false]);
   assert.deepEqual(heredocBodyLines(["echo $((1 << 2))", "FLAG=--provenance"]), [false, false]);
-  assert.deepEqual(heredocBodyLines(["cat <<'EO\"F'", "payload", "EOF"]), [false, true, true]);
+  assert.deepEqual(heredocBodyLines(["cat <<'EO\"F'", "payload", "EOF", 'EO"F', "npm publish"]),
+    [false, true, true, true, false]);
   assert.deepEqual(heredocBodyLines(["cat <<EOF; echo hi", "payload", "EOF"]), [false, true, true]);
   assert.deepEqual(heredocBodyLines(["cat <<'EOF", "payload"]), [false, false]);
 });
@@ -1241,6 +1246,12 @@ test("a real manifest is still read as a manifest", () => {
   }]);
   assert.equal(result.failures.length, 0, "an attested manifest publish must still pass");
   assert.equal(result.recognition.kind, "recognized");
+});
+
+test("the publish scanner discovers the release workflow while launcher specimens stay data", () => {
+  const sources = trackedPublishSources(resolve(import.meta.dirname, ".."));
+  assert.ok(sources.includes(".github/workflows/daily-release.yml"));
+  assert.deepEqual(sources.filter(file => file.startsWith("test/fixtures/launchers/npm-11.21.0/")), []);
 });
 
 test("a binding made before a case block survives an opener that shares its first arm", () => {

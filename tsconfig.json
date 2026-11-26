@@ -20,7 +20,8 @@
     ]
   },
   "include": [
-    "*.ts"
+    "*.ts",
+    "scripts/project-npm-lifecycle.ts"
   ],
   "exclude": [
     "node_modules",

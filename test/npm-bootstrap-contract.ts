@@ -1,6 +1,6 @@
 /** Inspect every command in bootstrap steps rather than exempting the whole script. */
 import assert from "node:assert/strict";
-import { commandArguments, commandName, tokenizeCommands } from "../shell-scan.ts";
+import { commandArguments, commandName, tokenizeCommands, withoutRedirections } from "../shell-scan.ts";
 
 /** npm configuration options with a separate value before the subcommand. */
 const VALUE_FLAGS = new Set(["--prefix", "--cache", "--registry", "--userconfig", "--globalconfig", "--workspace", "-w", "--tag", "--access", "--otp", "--loglevel", "--omit", "--include", "--before", "--auth-type", "--provenance-file", "--location", "-L", "--package", "-p",
@@ -33,14 +33,15 @@ function acquiringExec(words: string[]): boolean {
 /** Enumerate npm installation commands across shell separators and install aliases. */
 export function npmInstalls(script: string): string[][] {
   const installs: string[][] = [];
-  for (const command of tokenizeCommands(script)) {
+  for (const tokens of tokenizeCommands(script)) {
+    const command = withoutRedirections(tokens);
     // Preserve exec/x as npm subcommands instead of consuming them as shell
     // wrappers. Keep command positions, so printed arguments remain inert.
     const originalWords = new Map<object, string>();
     const protectedCommand = command.map((token, index) => {
       const value = /^(?:exec|x)$/.test(token.value) && /(?:^|[\\/])npm(?:\.cmd)?$/.test(command[index - 1]?.value ?? "")
         ? `npm-subcommand-${token.value}` : /(?:^|[\\/])timeout$/.test(token.value) ? "npm-check-timeout" : token.value;
-      const protectedToken = { ...token, value };
+      const protectedToken = token.value === value ? token : { ...token, value };
       originalWords.set(protectedToken, token.value);
       return protectedToken;
     });

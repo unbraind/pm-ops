@@ -31,6 +31,45 @@
  *
  * @packageDocumentation
  */
+import { describeUnsupportedReleaseHook, hasShellContinuation, inShellCasePattern, isDoubleQuotedShellEscape, isReleaseGroupBrace, isShellAssignment, readShellCaseWord, readShellLogicalLine, shellCaseTerminator, recordReleaseShellWord, releaseCommandConstructs } from "./release-shell-constructs.js";
+const fixedOptionNames = new WeakMap();
+const redirections = new WeakMap();
+const REDIRECTION = /^(?:[0-9]*(?:>>|>\||<>|<<<|<<-?|[<>])&?|&>>?)/;
+/** Recognize Bash combined output redirection across physical line continuations. */
+export function isCombinedOutputRedirect(source, index) {
+    return source.startsWith("&>", index);
+}
+/** Whether this operator continues a literal redirection after shell line joining. */
+export function isRedirectionSuffix(source, start, end) {
+    const operator = source[end];
+    if (operator !== "&" && operator !== "|")
+        return false;
+    const prefix = source.slice(start, end);
+    return operator === "&" ? /^[0-9]*[<>]>?$/.test(prefix) : /^[0-9]*>$/.test(prefix);
+}
+/** A file redirect ends an attached word except after a literal descriptor or an incomplete operator. */
+function startsFileRedirect(source, start, end, character) {
+    const prefix = source.slice(start, end);
+    const continuation = character === ">" ? /^(?:[0-9]*[<>]?|&>?)$/ : /^[0-9]*<{0,2}$/;
+    return !continuation.test(prefix);
+}
+/** Record operators from the original source, where quoting and escapes are still visible. */
+export function recordShellRedirection(token, source, start, end) {
+    if (!REDIRECTION.test(token.value))
+        return;
+    const raw = source.slice(start, end);
+    const operator = REDIRECTION.exec(raw)?.[0];
+    if (operator !== undefined)
+        redirections.set(token, { operator, joined: raw.length > operator.length });
+}
+/** The literal shell operator and whether its destination is part of this word. */
+export function shellRedirection(token) {
+    return redirections.get(token);
+}
+/** A literal option name followed by an equals sign and a single-word expansion. */
+export function fixedOptionName(token) {
+    return fixedOptionNames.get(token);
+}
 /**
  * Words that precede a command without being the command.
  *
@@ -135,6 +174,7 @@ const PREFIX_OPTIONS_WITH_OPERAND = new Map([
     ["yarn", new Set(["-p", "--package", "--cwd"])],
     ["bunx", new Set(["-p", "--package"])],
     ["env", new Set(["-u", "--unset", "-C", "--chdir"])],
+    ["exec", new Set(["-a"])],
     ["sudo", new Set(["-u", "--user", "-g", "--group", "-p", "--prompt", "-h", "--host", "-r", "--role", "-t", "--type", "-C", "--close-from", "-D", "--chdir", "-R", "--chroot", "-U", "--other-user"])],
     ["doas", new Set(["-u", "-C"])],
     ["nice", new Set(["-n", "--adjustment"])],
@@ -165,6 +205,10 @@ function basename(word) {
  * The command-prefix scan exposes BusyBox sh/ash applets as these shell names.
  */
 const SHELL_EVALUATORS = new Set(["eval", "bash", "sh", "dash", "zsh", "ksh", "mksh", "ash", "yash", "posh"]);
+/** Whether this program's shell text is scanned recursively. */
+export function isShellEvaluator(program) {
+    return SHELL_EVALUATORS.has(program);
+}
 /** True when the character ends a word outside of quotes. */
 function isOperatorStart(character) {
     return character === ";"
@@ -261,6 +305,7 @@ function readSubstitution(text, start, prefixLength = 2) {
     }
     return { inner: text.slice(start + prefixLength, index), end: Math.min(index + 1, text.length) };
 }
+const nestedHeredocs = new WeakSet();
 /**
  * Split shell text into the simple commands it contains.
  *
@@ -280,14 +325,83 @@ function readSubstitution(text, start, prefixLength = 2) {
  * @returns Every simple command found, outermost first.
  */
 export function tokenizeCommands(text, depth = 0) {
-    return scanShellCommands(text, depth, false);
+    return scanShellCommands(joinContinuations(text), depth, false);
+}
+/**
+ * Find commands and retain source offsets for words that can be edited in place.
+ * Words reconstructed from evaluator arguments or decoded escapes may have no
+ * direct source span. The commands are still returned for verification.
+ */
+export function tokenizeCommandsWithSpans(text) {
+    const spans = new WeakMap();
+    const logical = logicalShellSource(text);
+    const commands = scanShellCommands(logical.text, 0, false, undefined, spans);
+    if (logical.offsets)
+        for (const word of commands.flat()) {
+            const span = spans.get(word);
+            if (span)
+                spans.set(word, { start: logical.offsets[span.start], end: logical.offsets[span.end] });
+        }
+    return { commands, spans };
+}
+/** Expose the shell command beneath command and builtin prefixes. */
+export function unwrapShellBuiltin(words) {
+    let command = releaseHookCommand(words);
+    while (command?.[0].value === "builtin") {
+        command = releaseHookCommand(command.slice(command[1]?.value === "--" ? 2 : 1));
+    }
+    return command;
+}
+/** Detect a redirect-only command whose destination can expand at runtime. */
+function unresolvedRedirectOnly(words) {
+    return withoutRedirections(words).every(word => word.releaseKeyword)
+        && words.some((word, index) => {
+            const redirect = shellRedirection(word);
+            return redirect && (redirect.joined ? word : words[index + 1])?.unresolved;
+        });
+}
+/** Identify the first out-of-corpus form in a participating release body. */
+export function releaseHookConstructProblem(commands, text, spans, hook, scope, relevant = () => true) {
+    for (const [words, construct] of releaseCommandConstructs(commands, scope)) {
+        if (commands.some(relevant))
+            return { words, problem: describeUnsupportedReleaseHook(construct, hook) };
+    }
+    const redirect = scope === "hook" && commands.find(unresolvedRedirectOnly);
+    if (redirect)
+        return { words: redirect, problem: describeUnsupportedReleaseHook("unresolved redirect-only command", hook) };
+    if (commands.every(words => words.every(word => spans.has(word)))) {
+        const lines = text.split("\n");
+        const bodies = heredocBodyLines(lines);
+        const executable = lines.map((line, index) => bodies[index] ? " ".repeat(line.length) : line).join("\n");
+        const scanned = tokenizeCommandsWithSpans(executable);
+        const constructs = releaseCommandConstructs(scanned.commands, scope);
+        for (const words of scanned.commands) {
+            if (nestedHeredocs.has(words))
+                constructs.set(words, "here-document in a double-quoted command substitution");
+            else if (scope === "hook") {
+                const program = unwrapShellBuiltin(words)?.[0].value;
+                if (program && /^(?:printf|cat)$/.test(basename(program)))
+                    constructs.set(words, program);
+            }
+        }
+        for (const [words, construct] of constructs) {
+            if (!commands.some(relevant) && !scanned.commands.some(relevant))
+                continue;
+            for (const word of words) {
+                const span = scanned.spans.get(word);
+                spans.set(word, span ?? { start: 0, end: text.length });
+            }
+            return { words, problem: describeUnsupportedReleaseHook(construct, hook) };
+        }
+    }
+    return undefined;
 }
 /**
  * Scan public tokens or collect lexical children without entering their scopes.
  * Arithmetic mode suppresses operand commands while retaining executable children.
  * The public entry retains its existing signature and token object contract.
  */
-function scanShellCommands(text, depth, arithmetic, children) {
+function scanShellCommands(text, depth, arithmetic, children, spans, offset = 0) {
     if (depth > 8)
         return [];
     const commands = [];
@@ -296,10 +410,11 @@ function scanShellCommands(text, depth, arithmetic, children) {
     let command = [];
     let value = "";
     let quoted = false;
-    let unresolved = false;
+    let unresolvedAt;
     let multipleWords = false;
     let startsQuoted = false;
     let started = false;
+    let wordStart = 0;
     /** An incomplete quoted word cannot prove the remaining executable source. */
     let unterminated = false;
     /** Conditional operands are words, including regex metacharacters. */
@@ -314,45 +429,45 @@ function scanShellCommands(text, depth, arithmetic, children) {
     // each search resumes past its last match, including an absent end sentinel.
     let parameterClose = -1;
     let parameterAt = -1;
-    const endWord = () => {
+    const endWord = (end) => {
         if (!started)
             return;
-        const token = unresolved ? { value, quoted, unresolved, startsQuoted } : { value, quoted, startsQuoted };
+        const token = unresolvedAt === undefined ? { value, quoted, startsQuoted } : { value, quoted, unresolved: true, startsQuoted };
+        recordShellRedirection(token, text, wordStart, end);
+        recordReleaseShellWord(token, text.slice(wordStart, end));
         if (quoted && multipleWords)
             token.multipleWords = true;
-        const caseState = cases.at(-1);
-        const keyword = !token.quoted && token.unresolved !== true;
-        if (caseState === "pattern") {
-            if (keyword && token.value === "esac")
-                cases.pop();
+        if (unresolvedAt !== undefined && quoted && !multipleWords) {
+            const name = /^(-{1,2}[A-Za-z0-9_-]+)=/.exec(value.slice(0, unresolvedAt))?.[1];
+            if (name !== undefined)
+                fixedOptionNames.set(token, name);
         }
-        else {
-            if (caseState === "subject")
-                cases[cases.length - 1] = "in";
-            else if (caseState === "in" && keyword && token.value === "in")
-                cases[cases.length - 1] = "pattern";
-            else if (keyword && token.value === "case" && commandName(command) === undefined)
-                cases.push("subject");
-            else if (caseState === "body" && keyword && token.value === "esac" && commandName(command) === undefined)
-                cases.pop();
+        spans?.set(token, { start: offset + wordStart, end: offset + end });
+        const inPattern = inShellCasePattern(cases.at(-1));
+        const controlWord = token.value === "case" || token.value === "esac";
+        const keyword = (controlWord || token.value === "in") && !token.quoted && token.unresolved !== true
+            && text.slice(wordStart, end) === token.value;
+        readShellCaseWord(cases, token.value, keyword, controlWord && keyword && commandName(command) === undefined);
+        if (!inPattern)
             command.push(token);
-        }
         regexOperand = conditional && !token.quoted && token.value === "=~";
         value = "";
         quoted = false;
-        unresolved = false;
+        unresolvedAt = undefined;
         multipleWords = false;
         startsQuoted = false;
         started = false;
     };
-    const endCommand = () => {
-        endWord();
+    const endCommand = (end) => {
+        endWord(end);
         if (command.length > 0)
             commands.push(command);
         command = [];
     };
     for (let index = 0; index < text.length; index += 1) {
         const character = text[index];
+        if (!started)
+            wordStart = index;
         if (!started && text.startsWith("[[", index) && isBraceBoundary(text[index + 2])
             && commandName(command) === undefined) {
             conditional = true;
@@ -360,7 +475,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
         if (conditional && !started && text.startsWith("]]", index) && isBraceBoundary(text[index + 2])) {
             value = "]]";
             started = true;
-            endCommand();
+            endCommand(index + 2);
             conditional = false;
             index += 1;
             continue;
@@ -368,7 +483,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
         if (character === "#" && !started) {
             const newline = text.indexOf("\n", index);
             index = newline === -1 ? text.length : newline;
-            endCommand();
+            endCommand(index);
             continue;
         }
         if (character === "\\") {
@@ -376,8 +491,6 @@ function scanShellCommands(text, depth, arithmetic, children) {
             index += 1;
             if (next === undefined)
                 break;
-            if (next === "\n")
-                continue;
             value += next;
             if (!started)
                 startsQuoted = false;
@@ -416,13 +529,14 @@ function scanShellCommands(text, depth, arithmetic, children) {
                     const { inner: body, end } = readSubstitution(text, index);
                     // Arithmetic text is an operand, while command substitutions inside
                     // it still execute. Retain that mode instead of inventing commands.
-                    nested.push({ start: index, end, text: body, arithmetic: inner !== "`" && text[index + 2] === "(" });
-                    unresolved = true;
+                    nested.push({ start: index, end, text: body, arithmetic: inner !== "`" && text[index + 2] === "(",
+                        doubleQuoted: inner === "$" });
+                    unresolvedAt ??= value.length;
                     index = end;
                     continue;
                 }
                 if (inner === "$") {
-                    unresolved = true;
+                    unresolvedAt ??= value.length;
                     if (text[index + 1] === "@")
                         multipleWords = true;
                     else if (text[index + 1] === "{") {
@@ -454,7 +568,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
             // Unquoted process substitutions execute in every word context too.
             // Only dollar-prefixed arithmetic expansions suppress operand commands.
             nested.push({ start: index, end, text: inner, arithmetic: character === "$" && text[index + 2] === "(" });
-            unresolved = true;
+            unresolvedAt ??= value.length;
             multipleWords = true;
             index = end - 1;
             if (!started)
@@ -501,8 +615,8 @@ function scanShellCommands(text, depth, arithmetic, children) {
                     end += 1;
                 }
             }
+            unresolvedAt ??= value.length;
             value += text.slice(index, end);
-            unresolved = true;
             multipleWords = true;
             if (!started)
                 startsQuoted = false;
@@ -523,17 +637,17 @@ function scanShellCommands(text, depth, arithmetic, children) {
             continue;
         }
         if (character === "$" && (!regexOperand || /[A-Za-z0-9_@*#$?!-]/u.test(text[index + 1] ?? ""))) {
-            unresolved = true;
+            unresolvedAt ??= value.length;
             multipleWords = true;
         }
         if (character === " " || character === "\t" || character === "\r") {
-            endWord();
+            endWord(index);
             continue;
         }
         if (conditional && isOperatorStart(character)) {
             // Conditional control operators separate operands, never commands.
             if (!regexOperand && (character === "&" || character === "|")) {
-                endWord();
+                endWord(index);
                 continue;
             }
             // Only substitutions above introduce executable children in [[ ... ]].
@@ -542,28 +656,33 @@ function scanShellCommands(text, depth, arithmetic, children) {
             continue;
         }
         if (cases.at(-1) === "pattern" && value === "esac" && !quoted && isOperatorStart(character))
-            endWord();
-        if (cases.at(-1) === "pattern") {
+            endWord(index);
+        if (inShellCasePattern(cases.at(-1))) {
             if (character === ")") {
-                endCommand();
+                endCommand(index);
                 cases[cases.length - 1] = "body";
             }
             else if (character === "(" && !started) {
-                // Bash permits an optional opening parenthesis before an arm pattern.
+                cases[cases.length - 1] = "pattern-data";
             }
             else if (character === "|" || character === "\n")
-                endWord();
+                endWord(index);
             else {
                 value += character;
                 started = true;
             }
             continue;
         }
-        if (cases.at(-1) === "body" && character === ";" && (text[index + 1] === ";" || text[index + 1] === "&")) {
-            endCommand();
+        const armEnd = cases.at(-1) === "body" && character === ";" ? shellCaseTerminator(text, index) : 0;
+        if (armEnd) {
+            endCommand(index);
             cases[cases.length - 1] = "pattern";
-            index += text[index + 1] === ";" && text[index + 2] === "&" ? 2 : 1;
+            index += armEnd - 1;
             continue;
+        }
+        if (started && (character === "<" || character === ">") && startsFileRedirect(text, wordStart, index, character)) {
+            endWord(index);
+            wordStart = index;
         }
         if (isOperatorStart(character)) {
             if (children !== undefined && !arithmetic && character === "(" && !started
@@ -572,7 +691,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
                 const child = readSubstitution(text, index, 1);
                 nested.push({ start: index, end: child.end, text: child.inner, arithmetic: text[index + 1] === "(", subshell: true });
                 index = child.end - 1;
-                endCommand();
+                endCommand(index);
                 continue;
             }
             // `{` and `}` are reserved WORDS, not metacharacters: they delimit a
@@ -587,7 +706,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
             // followed by a real metacharacter or whitespace, never by another brace.
             // The other operator characters are metacharacters that always end a word.
             if (character === "{" || character === "}") {
-                if (started || !isBraceBoundary(text[index + 1])) {
+                if (started || !isBraceBoundary(text[index + 1]) || !isReleaseGroupBrace(character, command)) {
                     value += character;
                     if (!started)
                         startsQuoted = false;
@@ -595,15 +714,23 @@ function scanShellCommands(text, depth, arithmetic, children) {
                     continue;
                 }
             }
-            // `2>&1` is one redirection, not a command ended by a backgrounding `&`.
-            // The `&` belongs to the word only while that word is still an operator
-            // awaiting its target.
-            if (character === "&" && /^[0-9]*[<>]>?$/.test(value)) {
+            if (isCombinedOutputRedirect(text, index)) {
+                endWord(index);
+                wordStart = index;
+                value = character;
+                started = true;
+                continue;
+            }
+            // Keep descriptor duplication and clobber redirections in the same
+            // command. A quoted or escaped operator prefix cannot introduce them.
+            if (isRedirectionSuffix(text, wordStart, index)) {
                 value += character;
                 started = true;
                 continue;
             }
-            endCommand();
+            endCommand(index);
+            if (character === "|" && (text[index + 1] === "|" || text[index + 1] === "&"))
+                index++;
             continue;
         }
         value += character;
@@ -611,7 +738,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
             startsQuoted = false;
         started = true;
     }
-    endCommand();
+    endCommand(text.length);
     if (unterminated || conditional || arrayAssignment || cases.length > 0)
         commands.push([{ value: "$", quoted: false, unresolved: true, startsQuoted: false }]);
     if (arithmetic)
@@ -620,8 +747,19 @@ function scanShellCommands(text, depth, arithmetic, children) {
         children.push(...nested);
         return commands;
     }
-    for (const body of nested)
-        commands.push(...scanShellCommands(body.text, depth + 1, body.arithmetic));
+    for (const body of nested) {
+        const backquoted = text[body.start] === "`";
+        const start = body.start + (backquoted ? 1 : 2);
+        const end = body.end - Number(text[body.end - 1] === "`");
+        const childSpans = !backquoted || text.slice(start, end) === body.text ? spans : undefined;
+        const inner = scanShellCommands(body.text, depth + 1, body.arithmetic, undefined, childSpans, offset + start);
+        if (body.doubleQuoted)
+            for (const words of inner) {
+                if (words.some(word => /^\d*<<-?$/.test(shellRedirection(word)?.operator ?? "")))
+                    nestedHeredocs.add(words);
+            }
+        commands.push(...inner);
+    }
     for (const found of [...commands]) {
         // A YAML key's value is shell text, and it may arrive as ONE quoted word:
         // `run: "npm publish"` leaves a single token holding the whole command, so
@@ -641,7 +779,7 @@ function scanShellCommands(text, depth, arithmetic, children) {
         // evaluator at all.
         for (const candidate of commandCandidates(found)) {
             const name = commandName(candidate);
-            if (name === undefined || !SHELL_EVALUATORS.has(name))
+            if (name === undefined || !isShellEvaluator(name))
                 continue;
             const words = candidate.slice(1).map((argument) => argument.value);
             // The shell joins an evaluator's words with a space and evaluates the
@@ -650,8 +788,9 @@ function scanShellCommands(text, depth, arithmetic, children) {
             // them and `eval "npm" "publish" "--provenance"` reconstructs as an
             // unattested publish and fails a workflow that is in fact attested.
             const bodies = new Set([...words.filter((word) => !word.startsWith("-")), words.join(" ")]);
-            for (const body of bodies)
+            for (const body of bodies) {
                 commands.push(...tokenizeCommands(body, depth + 1));
+            }
         }
     }
     return commands;
@@ -663,7 +802,8 @@ function scanShellCommands(text, depth, arithmetic, children) {
  * placeholders preserve outer unresolved words and line indexing. Callers
  * audit each returned child independently; inherited bindings are unproven.
  */
-export function isolateShellChildren(text, depth = 0, arithmetic = false) {
+export function isolateShellChildren(source, depth = 0, arithmetic = false) {
+    const text = joinContinuations(source);
     /** Direct lexical children; nested children are inspected by the caller. */
     const children = [];
     scanShellCommands(text, depth, arithmetic, children);
@@ -681,48 +821,20 @@ export function isolateShellChildren(text, depth = 0, arithmetic = false) {
     return { parent: arithmetic ? "" : parent, children };
 }
 /**
- * True when an unquoted word is a redirection operator rather than a command word.
- *
- * A redirection and its target are not part of the command the shell runs, so
- * `> /dev/null npm publish` runs npm. A scan that reads words in order sees `>`
- * as the program and audits nothing. The forms accepted here are the ones a
- * workflow actually writes: the plain operators, a file-descriptor prefix
- * (`2>`, `2>>`), the duplicating forms (`>&`, `2>&1`, `&>`), and the read-write
- * form `<>`. `<>` has to be named explicitly: it is not `<` followed by `>`, so
- * without it the operator was read as a joined redirection that consumes no
- * target, its target `/dev/null` became the command word, and the real
- * `npm publish` after it was never audited.
- *
- * @param token - One command word.
- * @returns True when the word is a redirection operator.
- */
-function isRedirection(token) {
-    if (token.startsQuoted)
-        return false;
-    return /^(?:[0-9]*(?:>>?|<>|<<?<?)&?[0-9-]*|&>>?)$/.test(token.value);
-}
-/**
- * Drop a command's redirections, so only the words it runs remain.
- *
- * An operator written apart from its target (`> file`) consumes the word after
- * it; one written joined to it (`>file`, `2>&1`) consumes nothing further.
+ * Drop redirections from argv. Match the operator first so only a bare
+ * operator consumes a separate target, even when a joined target is numeric.
  *
  * @param command - One simple command's tokens.
  * @returns The command without its redirections.
  */
-function withoutRedirections(command) {
+export function withoutRedirections(command) {
     const kept = [];
     for (let index = 0; index < command.length; index += 1) {
         const token = command[index];
-        if (!isRedirection(token)) {
-            // A joined form such as `>file` or `2>&1` is one word and takes no target.
-            if (!token.startsQuoted && /^(?:[0-9]*>>?|[0-9]*<<?<?|&>>?)[^\s]/.test(token.value))
-                continue;
+        const redirect = shellRedirection(token);
+        if (!redirect)
             kept.push(token);
-            continue;
-        }
-        // A bare operator takes the next word as its target.
-        if (!/&[0-9-]$/.test(token.value))
+        else if (!redirect.joined)
             index += 1;
     }
     return kept;
@@ -758,9 +870,10 @@ function withoutRedirections(command) {
  * wrapper class.
  *
  * @param command - One simple command's tokens.
+ * @param preserveBunRun - Keep Bun script execution available to package-script callers.
  * @returns The program index and whether a spawning wrapper was consumed.
  */
-function scanCommandPrefix(command) {
+function scanCommandPrefix(command, preserveBunRun = false) {
     let index = 0;
     let sawPrefix = false;
     let spawned = false;
@@ -769,7 +882,7 @@ function scanCommandPrefix(command) {
     let lastPrefix;
     while (index < command.length) {
         const token = command[index];
-        if (!token.startsQuoted && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(token.value)) {
+        if (isShellAssignment(token, lastPrefix === "env")) {
             index += 1;
             continue;
         }
@@ -780,6 +893,15 @@ function scanCommandPrefix(command) {
             lastPrefix = base;
             index += 1;
             continue;
+        }
+        // A command lookup consumes its operands as names. Only the execution
+        // form of the builtin is a wrapper around the next program.
+        if (base === "command") {
+            let option = index + 1;
+            while (command[option]?.value === "-p")
+                option += 1;
+            if (/^-p*[vV][pvV]*$/.test(command[option]?.value ?? ""))
+                return { index, spawned };
         }
         if (COMMAND_PREFIXES.has(base)) {
             sawPrefix = true;
@@ -795,13 +917,14 @@ function scanCommandPrefix(command) {
             index += 1;
             continue;
         }
-        if (second !== undefined && TWO_WORD_PREFIXES.get(base)?.has(second.value) === true) {
+        if (second !== undefined && TWO_WORD_PREFIXES.get(base)?.has(second.value) === true
+            && !(preserveBunRun && base === "bun" && second.value === "run")) {
             sawPrefix = true;
             lastPrefix = base;
             index += 2;
             continue;
         }
-        if (sawPrefix && !token.startsQuoted && token.value.startsWith("-")) {
+        if (sawPrefix && (!token.startsQuoted || lastPrefix === "timeout" || lastPrefix === "exec") && token.value.startsWith("-")) {
             // Consume the option's operand too when the prefix that introduced it
             // takes one, so the operand is never mistaken for the program. `env -u
             // parallel npm --version` must not read `parallel` as a spawning wrapper.
@@ -809,6 +932,13 @@ function scanCommandPrefix(command) {
             if (lastPrefix !== undefined && PREFIX_OPTIONS_WITH_OPERAND.get(lastPrefix)?.has(token.value) === true) {
                 index += 1;
             }
+            continue;
+        }
+        // timeout consumes one positional duration after its options, then the
+        // command begins. The duration can itself come from a shell expansion.
+        if (lastPrefix === "timeout") {
+            lastPrefix = undefined;
+            index += 1;
             continue;
         }
         // The YAML `run` key carries executable shell text as its value:
@@ -899,7 +1029,7 @@ export function commandName(input) {
  * A command with no wrapper yields exactly one reading, so ordinary commands
  * are unaffected.
  *
- * @param command - One simple command's tokens.
+ * @param input - One simple command's tokens.
  * @returns Each candidate reading, the command's own first.
  */
 export function commandCandidates(input) {
@@ -918,6 +1048,83 @@ export function commandCandidates(input) {
     }
     return candidates;
 }
+/** Read the first executable command, retaining Bun's run subcommand so callers can resolve scripts. */
+export function packageScriptCommand(input) {
+    const command = withoutRedirections(input);
+    const { index } = scanCommandPrefix(command, true);
+    return index < command.length ? command.slice(index) : undefined;
+}
+/** Canonical release wrappers and the option spellings that take no separate operand. */
+const RELEASE_WRAPPERS = {
+    timeout: /^(?:--(?:foreground|preserve-status|verbose)|-[pv])$/,
+    nice: /^-\d+$/,
+    env: /^(?:-i|--ignore-environment)$/,
+    command: /^-p$/,
+    exec: /^-[cl]+$/,
+    stdbuf: /^-[ioe].+$/,
+    time: /^-p$/,
+    npx: /^(?:-y|--yes|--no-install)$/,
+    bunx: /^(?:--bun|--no-install)$/,
+    npm: /^(?:-y|--yes)$/,
+};
+/** Options that can select a project other than the release hook's own manifest. */
+export const RELEASE_PROJECT_OPTION = /^(?:-[Cw]|--(?:prefix|cwd|dir|chdir|filter|workspace|(?:no-)?workspaces|(?:no-)?include-workspace-root)(?:=|$))/;
+/** Environment names whose values can change npm or the generator's behavior. */
+export const RELEASE_CONTEXT_VARIABLE = /^(?:npm_config_[\w-]+|pm_\w+)(?=\+?=|$)/i;
+/** Locate a release command using only wrappers with explicit argv boundaries. */
+export function releaseHookCommand(input, context, assignments) {
+    const words = withoutRedirections(input);
+    let i = 0;
+    while (words[i]?.releaseKeyword)
+        i++;
+    while (i < words.length && isShellAssignment(words[i])) {
+        const assignment = words[i++];
+        assignments?.push(assignment);
+        const variable = RELEASE_CONTEXT_VARIABLE.exec(assignment.value)?.[0];
+        if (variable)
+            context?.push({ construct: variable + " assignment" });
+    }
+    while (i < words.length) {
+        const token = words[i];
+        const name = basename(token.value);
+        const pair = (name === "npm" && words[i + 1]?.value === "exec") || (name === "bun" && words[i + 1]?.value === "x");
+        const wrapper = pair && name === "bun" ? "bunx" : name;
+        if (!Object.hasOwn(RELEASE_WRAPPERS, wrapper) || (name === "npm" && !pair) || token.unresolved)
+            break;
+        const start = i;
+        i += pair ? 2 : 1;
+        while (i < words.length && words[i].value.startsWith("-")) {
+            const flag = words[i++].value;
+            if (flag === "--")
+                break;
+            if ((wrapper === "env" || wrapper === "npm" || wrapper === "npx" || wrapper === "bunx") && RELEASE_PROJECT_OPTION.test(flag)) {
+                context?.push({ construct: (wrapper === "npm" ? "npm exec" : wrapper) + " " + flag, directory: true });
+                return words.slice(start);
+            }
+            if ((wrapper === "env" && /^(?:-$|-[iu]|--(?:ignore-environment|unset)(?:=|$))/.test(flag))
+                || (wrapper === "exec" && RELEASE_WRAPPERS.exec.test(flag) && flag.includes("c"))) {
+                context?.push({ construct: wrapper + " " + flag });
+            }
+            const options = PREFIX_OPTIONS_WITH_OPERAND.get(wrapper);
+            if (options?.has(flag))
+                i++;
+            else if (!options?.has(flag.split("=")[0]) && !RELEASE_WRAPPERS[wrapper].test(flag))
+                return words.slice(start);
+        }
+        if (wrapper === "env") {
+            while (i < words.length && isShellAssignment(words[i], true)) {
+                const assignment = words[i++];
+                assignments?.push(assignment);
+                const variable = RELEASE_CONTEXT_VARIABLE.exec(assignment.value)?.[0];
+                if (variable)
+                    context?.push({ construct: "env " + variable + " assignment" });
+            }
+        }
+        if (wrapper === "timeout")
+            i++;
+    }
+    return i < words.length ? words.slice(i) : undefined;
+}
 /**
  * List a command's arguments -- everything after its program name.
  *
@@ -927,6 +1134,55 @@ export function commandCandidates(input) {
 export function commandArguments(input) {
     const command = withoutRedirections(input);
     return command.slice(skipCommandPrefix(command) + 1);
+}
+/** Read source quoting before deciding whether a last backslash joins the next line. */
+function joinsShellSourceLine(line, state) {
+    let current = state.substitutions.at(-1) ?? state;
+    if (state.pendingDollar)
+        line = "$" + line;
+    state.pendingDollar = false;
+    for (let index = 0; index < line.length; index++) {
+        const character = line[index];
+        if (character === "\\" && current.quote !== "'") {
+            if (index === line.length - 1)
+                return true;
+            if (!current.quote || isDoubleQuotedShellEscape(line[index + 1]))
+                index++;
+            current.wordStart = false;
+        }
+        else if (character === "$" && current.quote !== "'" && index + 2 === line.length && line[index + 1] === "\\") {
+            state.pendingDollar = true;
+            return true;
+        }
+        else if (character === "$" && line[index + 1] === "(" && current.quote !== "'") {
+            current.wordStart = false;
+            const nested = { quote: "", wordStart: true, depth: 1 };
+            state.substitutions.push(nested);
+            current = nested;
+            index++;
+        }
+        else if (character === current.quote) {
+            current.quote = "";
+            current.wordStart = false;
+        }
+        else if (!current.quote) {
+            if (character === "#" && current.wordStart)
+                break;
+            if (character === "'" || character === '"')
+                current.quote = character;
+            const nested = state.substitutions.at(-1);
+            if (nested && character === "(")
+                nested.depth++;
+            if (nested && character === ")" && --nested.depth === 0) {
+                state.substitutions.pop();
+                current = state.substitutions.at(-1) ?? state;
+                continue;
+            }
+            current.wordStart = /[\s;&|<>()]/.test(character);
+        }
+    }
+    current.wordStart = !current.quote;
+    return false;
 }
 /**
  * Collapse shell and YAML line continuations so one logical command is one string.
@@ -939,7 +1195,25 @@ export function commandArguments(input) {
  * @returns The same text with continuations joined.
  */
 export function joinContinuations(text) {
-    return text.replace(/\\\r?\n\s*/g, " ");
+    return logicalShellSource(text).text;
+}
+/** Fold executable continuations once and map logical token positions to physical source. */
+export function logicalShellSource(source) {
+    if (!/\\\r?\n/.test(source))
+        return { text: source };
+    const lines = source.split("\n");
+    const states = heredocLineStates(lines);
+    const offsets = [];
+    let start = 0;
+    const text = lines.map((line, index) => {
+        const value = states[index].continued ? line.replace(/\\\r?$/, "") : line + (index + 1 < lines.length ? "\n" : "");
+        for (let i = 0; i < value.length; i++)
+            offsets.push(start + i);
+        start += line.length + 1;
+        return value;
+    }).join("");
+    offsets.push(source.length);
+    return { text, offsets };
 }
 /**
  * A `run:` block-scalar header: the key, an indicator, and nothing else.
@@ -1597,11 +1871,12 @@ function literalShellWord(raw) {
  * @param line - One source line, with continuations already joined.
  * @returns The heredocs opened, in the order bash will read their bodies.
  */
-function heredocOpenersIn(line) {
+function heredocOpenersIn(line, quote) {
     const openers = [];
-    let single = false;
-    let double = false;
+    let single = quote === "'";
+    let double = quote === '"';
     let arithmeticDepth = 0;
+    let wordStart = quote === "";
     for (let index = 0; index < line.length; index += 1) {
         const character = line[index];
         if (arithmeticDepth > 0) {
@@ -1612,24 +1887,29 @@ function heredocOpenersIn(line) {
             continue;
         }
         if (character === "\\" && !single) {
+            wordStart = false;
             index += 1;
             continue;
         }
         if (character === "'" && !double) {
+            wordStart = false;
             single = !single;
             continue;
         }
         if (character === '"' && !single) {
+            wordStart = false;
             double = !double;
             continue;
         }
         if (!single && character === "$" && line[index + 1] === "(" && line[index + 2] === "(") {
             arithmeticDepth = 2;
+            wordStart = false;
             index += 2;
             continue;
         }
         if (!single && !double && character === "(" && line[index + 1] === "(") {
             arithmeticDepth = 2;
+            wordStart = true;
             index += 1;
             continue;
         }
@@ -1637,8 +1917,9 @@ function heredocOpenersIn(line) {
             continue;
         // A `#` opens a comment only at the start of a word, which is how bash
         // reads it: `foo#bar` is one word, not a command and a comment.
-        if (character === "#" && (index === 0 || /\s/.test(line[index - 1])))
+        if (character === "#" && wordStart)
             break;
+        wordStart = /[\s;&|<>()]/.test(character);
         if (character !== "<" || line[index + 1] !== "<")
             continue;
         if (line[index + 2] === "<") {
@@ -1659,7 +1940,8 @@ function heredocOpenersIn(line) {
         let quoted = false;
         for (; cursor < line.length; cursor += 1) {
             const part = line[cursor];
-            if (part === "\\" && delimiterQuote !== "'") {
+            if (part === "\\" && delimiterQuote !== "'"
+                && (delimiterQuote === undefined || isDoubleQuotedShellEscape(line[cursor + 1] ?? ""))) {
                 const escaped = line[cursor + 1];
                 if (escaped === undefined)
                     break;
@@ -1669,8 +1951,8 @@ function heredocOpenersIn(line) {
                 cursor += 1;
                 continue;
             }
-            if (part === "'" || part === '"') {
-                delimiterQuote = delimiterQuote === undefined ? part : delimiterQuote === part ? undefined : delimiterQuote;
+            if ((part === "'" || part === '"') && (delimiterQuote === undefined || delimiterQuote === part)) {
+                delimiterQuote = delimiterQuote === undefined ? part : undefined;
                 consumed = true;
                 quoted = true;
                 continue;
@@ -1683,6 +1965,7 @@ function heredocOpenersIn(line) {
         if (!consumed || delimiterQuote !== undefined)
             continue;
         openers.push({ delimiter, stripTabs, expand: !quoted });
+        wordStart = false;
         index = cursor - 1;
     }
     return openers;
@@ -1690,19 +1973,30 @@ function heredocOpenersIn(line) {
 /** Classify heredoc body lines while retaining delimiter quote behavior. */
 function heredocLineStates(lines) {
     const states = lines.map(() => ({ body: false, expand: false }));
-    /** Delimiters still awaiting their terminator, in the order bash closes them. */
-    let pending = [];
-    for (let index = 0; index < lines.length; index += 1) {
-        const line = lines[index];
-        if (pending.length > 0) {
-            const candidate = (pending[0].stripTabs ? line.replace(/^\t+/, "") : line).replace(/\r$/, "");
-            const terminator = candidate === pending[0].delimiter;
-            states[index] = { body: true, expand: pending[0].expand && !terminator };
+    const text = lines.join("\n");
+    const pending = [];
+    const state = { quote: "", wordStart: true, substitutions: [] };
+    let offset = 0;
+    for (let index = 0; index < lines.length;) {
+        const delimiter = pending[0];
+        const quote = state.quote;
+        const line = readShellLogicalLine(text, offset, delimiter
+            ? value => delimiter.expand && hasShellContinuation(value)
+            : value => joinsShellSourceLine(value, state));
+        offset = line.end;
+        if (delimiter) {
+            const candidate = delimiter.stripTabs ? line.value.replace(/^\t+/, "") : line.value;
+            const terminator = candidate === delimiter.delimiter;
+            states.fill({ body: true, expand: delimiter.expand && !terminator }, index, index + line.lines);
             if (terminator)
-                pending = pending.slice(1);
-            continue;
+                pending.shift();
         }
-        pending.push(...heredocOpenersIn(line));
+        else {
+            for (let i = 1; i < line.lines; i++)
+                states[index + i - 1].continued = true;
+            pending.push(...heredocOpenersIn(line.value, quote));
+        }
+        index += line.lines;
     }
     return states;
 }

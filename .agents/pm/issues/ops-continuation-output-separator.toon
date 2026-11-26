@@ -1,0 +1,14 @@
+id: ops-continuation-output-separator
+title: Separate GitHub output records in release continuation
+description: The pre-existing continuation output writer in scripts/release-continuation.ts can join a new key=value record to existing unterminated GITHUB_OUTPUT bytes. The preparation and changelog writers now separate records. The continuation writer predates the heading PR diff.
+type: Issue
+status: open
+priority: 3
+tags[2]: "area:release",follow-up
+created_at: "2026-11-24T00:20:23.121Z"
+updated_at: "2026-11-24T00:20:26.312Z"
+author: codex-agent
+acceptance_criteria: Exercise a continuation run with an existing unterminated record and a run with a properly terminated record. Preserve both preceding and new records.
+files[1]{path,scope}:
+  scripts/release-continuation.ts,project
+body: ""

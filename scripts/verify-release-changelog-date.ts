@@ -10,6 +10,15 @@
  * the other from the version -- and the release would fail on the divergence
  * rather than on the stale date the flag exists to remove.
  *
+ * When the version day differs from the expected squash commit day, the
+ * release commit pins `--date-fallback <ISO day>` in place of
+ * `--date-from-version` while the version is pending. The pinned day is as clock-free as the flag it
+ * replaces -- it stays fixed in the committed script -- so the scan accepts
+ * either spelling, and rejects `--date-fallback` without an explicit day
+ * because that would silently fall back to the clock, and rejects a pinned
+ * day that does not exist on the calendar because a heading dated
+ * `2026-02-30` proves the pin was never checked against one.
+ *
  * The analysis is separated from the I/O so the rules below are executed by the
  * test suite against fixtures rather than only against this repository, which
  * happens to satisfy them.
@@ -21,34 +30,40 @@ import { execFileSync } from "../subprocess.ts";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { isMap, isScalar, LineCounter, parseDocument, type YAMLMap } from "yaml";
 import {
-  bashArrays,
-  expandArrays,
-  joinContinuations,
+  type ShellCommand,
+  type ShellToken,
   type SourceFile,
   type VerifierResult,
 } from "./shell-command-scan.ts";
 import { isMainInvocation } from "./main-invocation.ts";
 import { tallyFlaggedInvocations } from "../invocation-audit.ts";
+import { executableShellBodies } from "../attestation.ts";
+import { assertAllTagsCutoff, canReachGenerator, hasVersionInput, generatedWriterProblem, changelogArguments, DATE_FLAG, FALLBACK_DATE_FLAG, readReleaseDateOptions, needsReleaseProject, npmLifecycle, visitChangelogScriptCommands, type WorkflowReleaseStep } from "../release-changelog-options.ts";
 
-/** Every spelling that tells the generator which version it is rendering.
- *
- * All three matter. `--release-version` is a declared alias of `--version`, and
- * a workflow that names the pending tag explicitly uses one of those two rather
- * than `--release-version-from-package`. A scan that recognised only the
- * package-derived spelling skipped exactly the release-time invocations it was
- * written to protect. */
-export const VERSION_INPUTS = ["--release-version-from-package", "--release-version", "--version"] as const;
+import { describeReleaseContextChange, parseReleaseHook, refuseHook } from "../release-hook-grammar.ts";
+import { releaseHookConstructProblem } from "../shell-scan.ts";
+import { describeUnsupportedReleaseHook } from "../release-shell-constructs.ts";
 
-/** The flag under audit: it makes the no-tag heading version-derived. */
-export const DATE_FLAG = "--date-from-version";
+export { DATE_FLAG, VERSION_INPUTS, isRealCalendarDay } from "../release-changelog-options.ts";
 
 /** One generator invocation found in a tracked file. */
 export interface Invocation {
   /** File the invocation was found in. */
   file: string;
-  /** The logical command, with continuations joined and arrays expanded. */
+  /** The starting line in the source file, when available. */
+  line?: number;
+  /** The package script that supplies this command. */
+  script?: string;
+  /** The source command, with arrays expanded. */
   command: string;
+  /** The generator's shell arguments, with quoting removed. */
+  args: ShellToken[];
+  /** The command or its option words could not be resolved. */
+  problem?: string;
+  /** The parsed heading-date policies on the invocation. */
+  options: ReturnType<typeof readReleaseDateOptions>;
 }
 
 /**
@@ -91,32 +106,172 @@ export function stripComment(command: string): string {
  * @returns The invocations found, in file order.
  */
 export function invocationsIn(source: SourceFile): Invocation[] {
-  const text = joinContinuations(source.text);
-  const arrays = bashArrays(text);
-  const found: Invocation[] = [];
-  for (const raw of text.split("\n")) {
-    if (/^\s*#/.test(raw)) continue;
-    if (!/pm-changelog|dist\/cli\.js/.test(raw)) continue;
-    // Split on shell separators AFTER expanding arrays. One line can hold
-    // several invocations -- a package.json script chaining two generator calls
-    // with `&&` is the common case -- and judging the line as a whole lets a
-    // flagged call cover for an unflagged one beside it.
-    //
-    // `&&`, `||` and `;` need no surrounding whitespace to separate commands,
-    // and `flagged&&unflagged` is valid shell: requiring whitespace left the
-    // two calls in one segment where the first one's flag covered the second.
-    // A bare `|` is only treated as a separator when whitespace-delimited,
-    // because an unspaced pipe is far more likely to be inside an argument --
-    // an alternation in a regex, say -- and splitting there would separate a
-    // version input from its own flag and report a defect that is not present.
-    for (const raw_segment of expandArrays(raw, arrays).split(/\s*(?:&&|\|\||;)\s*|\s\|\s/)) {
-      const segment = stripComment(raw_segment);
-      if (!/pm-changelog|dist\/cli\.js/.test(segment)) continue;
-      if (!VERSION_INPUTS.some((flag) => segment.includes(flag))) continue;
-      found.push({ file: source.file, command: segment });
+  return invocationsAcross([source]);
+}
+
+/** Decode script bodies before shell parsing, retaining the owning file for diagnostics. */
+function manifestScripts(source: SourceFile): Map<string, { text: string; line?: number }> {
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(source.text);
+  } catch (error) {
+    throw new Error(`${source.file}: invalid JSON`, { cause: error });
+  }
+  if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
+    throw new Error(`${source.file}: manifest must be an object`);
+  }
+  const { scripts = {} } = manifest as { scripts?: unknown };
+  if (scripts === null || typeof scripts !== "object" || Array.isArray(scripts)) {
+    throw new Error(`${source.file}: scripts must be an object`);
+  }
+  const lines = new LineCounter();
+  const { contents } = parseDocument<YAMLMap>(source.text, { schema: "json", uniqueKeys: false, lineCounter: lines });
+  // JSON.parse already proved the root is a map and retains the last duplicate key.
+  const scriptMap = contents!.items.slice().reverse().find(({ key }) => isScalar(key) && key.value === "scripts")?.value;
+  const locations = new Map<string, number>();
+  if (isMap(scriptMap)) {
+    for (const { key } of scriptMap.items) {
+      if (isScalar(key) && typeof key.value === "string" && key.range) locations.set(key.value, lines.linePos(key.range[0]).line);
     }
   }
+  return new Map(Object.entries(scripts).filter((entry): entry is [string, string] =>
+    typeof entry[1] === "string" && entry[1].trim() !== "")
+    .map(([name, text]) => [name, { text, line: locations.get(name) }]));
+}
+
+/** Reusable release hook inputs and their standalone root-manifest defaults. */
+const HOOK_INPUTS = [
+  ["changelog-script", "changelog:full"],
+  ["changelog-check-script", "changelog:check"],
+  ["notes-script", "release:notes"],
+] as const;
+
+/** A root project can be omitted or spelled with only current-directory components. */
+function isRootProject(directory: unknown): boolean {
+  return directory === undefined || (typeof directory === "string" && /^(?:\.\/+)*\.?$/.test(directory));
+}
+
+/** A named path component stays nested because the workflow rejects parent-directory components. */
+function maySelectRootProject(directory: unknown): boolean {
+  if (typeof directory !== "string") return isRootProject(directory);
+  const [prefix, ...remaining] = directory.split(/\$\{\{(?:'[^']*'|[^'}])*\}\}/);
+  return isRootProject(prefix) && remaining.every(part => !/[^./]|\.\./.test(part));
+}
+
+/** Include literal root hooks and report unresolved selectors at their workflow input. */
+function addConfiguredHooks(
+  source: SourceFile, entries: Set<string>, explicit: Array<{ name: string; input: string; source: Invocation }>, found: Invocation[],
+): void {
+  const lines = new LineCounter();
+  const document = parseDocument(source.text, { lineCounter: lines });
+  if (document.errors[0]) throw document.errors[0];
+  const workflow = document.toJS() as { jobs?: Record<string, { if?: unknown; uses?: string; with?: Record<string, unknown> } | null> } | null;
+  for (const [id, job] of Object.entries(workflow?.jobs ?? {})) {
+    if (job?.if === false) continue;
+    if (typeof job?.uses !== "string" || !/(?:^|\/)\.github\/workflows\/daily-release\.ya?ml(?:@[^\s]+)?$/.test(job.uses)) continue;
+    if (job.with?.rust === true || job.with?.["release-enabled"] === false) continue;
+    if (!maySelectRootProject(job.with?.["npm-project-dir"])) continue;
+    for (const [input, defaultName] of HOOK_INPUTS) {
+      if (!job.with || !Object.hasOwn(job.with, input)) {
+        entries.add(defaultName);
+        continue;
+      }
+      const name = job.with[input];
+      const inputNode = document.getIn(["jobs", id, "with", input], true);
+      const selector: Invocation = {
+        file: source.file,
+        line: isScalar(inputNode) && inputNode.range ? lines.linePos(inputNode.range[0]).line : undefined,
+        command: JSON.stringify(name), args: [], options: [],
+      };
+      if (typeof name === "string" && /^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$/.test(name)) {
+        explicit.push({ name, input, source: selector });
+      } else found.push({
+        ...selector, problem: describeUnsupportedReleaseHook("unresolved selector (use a literal script name)", input),
+      });
+    }
+  }
+}
+
+/** Flag a nested workflow command without following its forwards into the root manifest. */
+function inspectProjectStep(file: string, text: string, line: number, directory: unknown): Invocation[] {
+  const { commands, spans, heredocBodies } = parseReleaseHook(text, "workflow");
+  const construct = releaseHookConstructProblem(commands, text, spans, file + ":" + line, "workflow", words => canReachGenerator(words));
+  if (construct) {
+    return inspectCommand(construct.words, { file, line, command: text }, new Set(), construct.problem);
+  }
+  const written = new Set<string>();
+  const words = commands.find(command => generatedWriterProblem(command, written, heredocBodies.get(command)) || needsReleaseProject(command));
+  if (!words) return [];
+  return inspectCommand(words, {
+    file, line, command: text.slice(spans.get(words[0])!.start, spans.get(words.at(-1)!)!.end),
+  }, new Set(), describeReleaseContextChange(`working-directory ${JSON.stringify(directory)}`));
+}
+
+/** Workflow forwards and manifest forwards share the same effective argument graph. */
+function invocationsAcross(sources: SourceFile[]): Invocation[] {
+  const scripts = new Map<string, string>();
+  const origins = new Map<string, Pick<Invocation, "file" | "line" | "script">>();
+  const projectConfig = sources.find(source => source.file === ".npmrc")?.text;
+  const workflowSteps = new Map<string, WorkflowReleaseStep>();
+  const found: Invocation[] = [];
+  const projectEntryPoints = new Set<string>();
+  const explicit: Array<{ name: string; input: string; source: Invocation }> = [];
+  for (const source of sources) {
+    if (source.file === ".npmrc") continue;
+    if (source.file === "package.json") {
+      for (const [name, { text, line }] of manifestScripts(source)) {
+        scripts.set(name, text);
+        origins.set(name, { file: source.file, line, script: name });
+      }
+    } else {
+      if (/^\.github\/workflows\/.*\.ya?ml$/.test(source.file)) addConfiguredHooks(source, projectEntryPoints, explicit, found);
+      for (const { text, line, workingDirectory, environment, disabled, containerJob } of executableShellBodies(source)) {
+        if (disabled) continue;
+        if (!isRootProject(workingDirectory) && containerJob === undefined) {
+          found.push(...inspectProjectStep(source.file, text, line, workingDirectory));
+          continue;
+        }
+        const key = "\0run" + origins.size;
+        origins.set(key, { file: source.file, line });
+        scripts.set(key, text);
+        workflowSteps.set(key, {
+          label: source.file + ":" + line,
+          containerJob,
+          lifecycle: {
+            active: npmLifecycle(projectConfig, environment),
+            configured: npmLifecycle(projectConfig, { ...environment, npm_config_ignore_scripts: "" }),
+          },
+        });
+      }
+    }
+  }
+  for (const selector of explicit) {
+    const { name, input, source } = selector;
+    if (scripts.has(name)) projectEntryPoints.add(name);
+    else found.push({ ...source, problem: describeUnsupportedReleaseHook(`missing or blank root script ${JSON.stringify(name)} selected by ${input}`, name) });
+  }
+  const entryPoints = new Set([...HOOK_INPUTS.map(([, name]) => name), ...projectEntryPoints]);
+  visitChangelogScriptCommands(scripts, ({ name, names, text, words, effective, spans, contextProblem, configuredHook }) => {
+    const first = spans.get(words[0])!.start;
+    const last = spans.get(words.at(-1)!)!.end;
+    found.push(...inspectCommand(effective, { ...origins.get(name)!, command: text.slice(first, last) }, names, contextProblem, configuredHook));
+  }, undefined, undefined, entryPoints, { lifecycle: npmLifecycle(projectConfig), workflowSteps, projectEntryPoints });
   return found;
+}
+
+/** Extract the date policy and retain any diagnostic for this command. */
+function inspectCommand(words: ShellCommand, source: Pick<Invocation, "file" | "line" | "script" | "command">, scriptNames: ReadonlySet<string>, contextProblem?: string, configuredHook = false): Invocation[] {
+  try {
+    if (contextProblem) refuseHook(contextProblem);
+    const args = changelogArguments(words, scriptNames, source.script ?? source.file);
+    if (args === undefined) return [];
+    if (configuredHook) assertAllTagsCutoff(args);
+    if (!hasVersionInput(args)) return [];
+    const options = readReleaseDateOptions(args);
+    return [{ ...source, args, options }];
+  } catch (error) {
+    return [{ ...source, args: [], options: [], problem: (error as Error).message }];
+  }
 }
 
 /**
@@ -131,16 +286,30 @@ export function invocationsIn(source: SourceFile): Invocation[] {
  * @returns Failures and per-file notes.
  */
 export function auditInvocations(sources: SourceFile[]): VerifierResult {
-  const invocations = sources.flatMap(invocationsIn);
+  const invocations = invocationsAcross(sources);
   return tallyFlaggedInvocations(
     invocations,
-    (invocation) => invocation.command.includes(DATE_FLAG)
-      ? null
-      : `${invocation.file}: a generator invocation carries a version input but not ${DATE_FLAG}: `
-        + invocation.command.trim().slice(0, 160),
+    ({ file, line, script, command, options, problem }) => {
+      let location = [file, line].filter(part => part !== undefined).join(":");
+      if (script !== undefined) location += ` (script ${JSON.stringify(script)})`;
+      const excerpt = command.trim().slice(0, 160);
+      if (problem !== undefined) return `${location}: ${problem}: ${excerpt}`;
+      let hasPolicy = false;
+      for (const option of options) {
+        if (option.kind === "missing-day") {
+          return `${location}: every ${FALLBACK_DATE_FLAG} must pin an explicit YYYY-MM-DD day: ${excerpt}`;
+        }
+        if (option.kind === "invalid-day") {
+          return `${location}: a pinned ${FALLBACK_DATE_FLAG} day does not exist on the calendar (${option.day}): ${excerpt}`;
+        }
+        hasPolicy = true;
+      }
+      if (hasPolicy) return null;
+      return `${location}: a generator invocation carries a version input but neither ${DATE_FLAG} nor a pinned ${FALLBACK_DATE_FLAG} day: ${excerpt}`;
+    },
     {
       noun: "generator",
-      flag: DATE_FLAG,
+      flag: `a release date policy (${DATE_FLAG} or a pinned ${FALLBACK_DATE_FLAG} day)`,
       emptyScan: "no generator invocation was found in any tracked file - the scan is looking in the wrong place",
     },
   );
@@ -255,7 +424,7 @@ export function generateHeading(bin: string, args: string[], cwd: string): Headi
 export function verify(root: string, today: string): VerifierResult {
   const tracked = execFileSync(
     "git",
-    ["ls-files", "--", "package.json", ".github/workflows/*.yml", ".github/workflows/*.yaml"],
+    ["ls-files", "--", "package.json", ".npmrc", ".github/workflows/*.yml", ".github/workflows/*.yaml"],
     { cwd: root, encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 },
   )
     .trimEnd()

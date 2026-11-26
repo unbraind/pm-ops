@@ -14,3 +14,11 @@ export function runBashFixture(script: string, options: SpawnSyncOptionsWithStri
     return spawnSync("bash", ["--noprofile", "--norc", ...flags, path], options);
   } finally { rmSync(root, { recursive: true, force: true }); }
 }
+
+/** Read single-line GitHub output receipts, preserving the entire value. */
+export function stepOutputs(contents: string): Record<string, string> {
+  return Object.fromEntries(contents.split(/\r?\n/).flatMap(line => {
+    const delimiter = line.indexOf("=");
+    return delimiter < 0 ? [] : [[line.slice(0, delimiter), line.slice(delimiter + 1)]];
+  }));
+}

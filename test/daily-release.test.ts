@@ -1,6 +1,7 @@
 /** Behavioral regressions for the decisions executed by the shared workflow. */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { assertReleaseHeadingDate } from "../release-continuation.ts";
 import { decideDailyRelease, ownsReleasePullRequest, selectReleasePullRequests, latestReleaseTag, stampCargoVersion, releaseVersion, stampExtensionVersion, verifyPublishedProvenance, type DailyReleaseInput, type ReleasePullRequest } from "../daily-release.ts";
 
 /** Make a GitHub-shaped owned PR, overriding individual security facts per case. */
@@ -10,7 +11,9 @@ function pr(number: number, headRefName = "release/2026.10.18", extra: Partial<R
 
 /** Independent release facts, with main advanced since yesterday's published tag. */
 function facts(extra: Partial<DailyReleaseInput> = {}): DailyReleaseInput {
-  return { today: "2026.10.19", mainSha: "new-main", lastRelease: { tag: "v2026.10.18", sha: "old-main" }, existingPrs: [], hasChanges: true, releaseTags: ["v2026.10.18"], ...extra };
+  const today = extra.today ?? "2026.10.19";
+  const day = today === "invalid" ? "2026-10-19" : today.split(".").map(part => part.padStart(2, "0")).join("-");
+  return { today, expectedCommitTimestamp: day + "T03:00:00Z", mainSha: "new-main", lastRelease: { tag: "v2026.10.18", sha: "old-main" }, existingPrs: [], hasChanges: true, releaseTags: ["v2026.10.18"], ...extra };
 }
 
 test("ownership refuses forks, missing authors, humans, lookalike bots, and non-date release branches", () => {
@@ -31,7 +34,7 @@ test("selection finds eligible PRs beyond 30 and orders numeric dates then PR nu
 
 test("stale release PRs are rebuilt from current main; superseded cleanup lists only owned PRs", () => {
   const plan = decideDailyRelease(facts({ existingPrs: [pr(30, "release/2026.10.17"), pr(99, "release/2026.10.19", { isCrossRepository: true }), pr(50), pr(51, undefined, { author: { login: "human" } })] }));
-  assert.deepEqual(plan, { should_release: true, recovery_tag: "", action: "refresh", tag: "v2026.10.19", npm_version: "2026.10.19", base_sha: "new-main", release_branch: "release/2026.10.18", pr_number: 50, superseded_pr_numbers: "30" });
+  assert.deepEqual(plan, { should_release: true, recovery_tag: "", action: "refresh", tag: "v2026.10.19", npm_version: "2026.10.19", heading_date: "", base_sha: "new-main", release_branch: "release/2026.10.18", pr_number: 50, superseded_pr_numbers: "30" });
 });
 
 test("daily decisions skip same-day spelling variants and suffixes, unchanged trees and unchanged heads", () => {
@@ -117,6 +120,60 @@ test("canonical release names are byte-identical for the first run and resume", 
   assert.equal(resume.release_branch, first.release_branch);
 });
 
+test("a resumed version is stamped with the tag day; a current version keeps its own day", () => {
+  // Same-day releases keep the version-derived heading: no pinned date is
+  // written, so the standing policy (and its gate) applies unchanged.
+  for (const version of ["2026.10.19", "2026.10.19-2", "invalid"]) {
+    assert.equal(decideDailyRelease(facts({ currentPackageVersion: version })).heading_date, "", version);
+  }
+  assert.equal(decideDailyRelease(facts({ currentPackageVersion: "2026.10.18" })).heading_date, "", "a tagged version is not resumed");
+  // A resumed version's day has passed, so its heading must carry the day the
+  // release step tags - today, padded ISO, from any coordinate spelling.
+  const resumed = decideDailyRelease(facts({ today: "2026.10.06", releaseTags: ["v2026.10.04"], currentPackageVersion: "2026.10.5" }));
+  assert.equal(resumed.heading_date, "2026-10-06");
+  const unpadded = decideDailyRelease(facts({ today: "2026.8.9", releaseTags: ["v2026.08.08"], currentPackageVersion: "2026.8.8-2" }));
+  assert.equal(unpadded.heading_date, "2026-08-09");
+  const reviewed = decideDailyRelease(facts({ packageVersion: "2026.10.12" }));
+  assert.equal(reviewed.heading_date, "2026-10-19", "a maintainer-reviewed old version is tagged today");
+  const scheduleOnly = decideDailyRelease(facts({ packageVersion: "2026.10.12", expectedCommitTimestamp: undefined }));
+  assert.equal(scheduleOnly.npm_version, "2026.10.12");
+  assert.equal(scheduleOnly.heading_date, "");
+});
+
+test("heading-date comparisons handle year and month rollovers, future days and non-calendar inputs", () => {
+  for (const [version, today, expected] of [
+    ["2025.12.31", "2026.1.1", "2026-01-01"],
+    ["2027.1.1", "2026.12.31", "2026-12-31"],
+    ["2026.9.30", "2026.10.1", "2026-10-01"],
+    ["2028.2.29", "2028.3.1", "2028-03-01"],
+    ["2026.11.1", "2026.10.31", "2026-10-31"],
+    ["2026.10.20", "2026.10.19", "2026-10-19"],
+    ["1.2.3", "2026.10.19", ""],
+    ["2026.10.18", "invalid", ""],
+  ]) {
+    const plan = decideDailyRelease(facts({ packageVersion: version, today: today! }));
+    assert.equal(plan.heading_date, expected, `${version} against ${today}`);
+  }
+});
+
+test("the heading pin uses the expected committer day on either side of the release-calendar date", () => {
+  for (const [today, timestamp, version, pin] of [
+    ["2026.11.7", "2026-11-06T23:30:00Z", "2026.11.5", "2026-11-06"],
+    ["2026.11.7", "2026-11-06T23:30:00Z", "2026.11.6", ""],
+    ["2026.11.7", "2026-11-06T23:30:00Z", "2026.11.7", "2026-11-06"],
+    ["2026.11.6", "2026-11-07T00:30:00Z", "2026.11.6", "2026-11-07"],
+  ]) {
+    assert.equal(decideDailyRelease(facts({ today, expectedCommitTimestamp: timestamp, packageVersion: version })).heading_date, pin);
+  }
+});
+
+test("heading-date planning rejects calendar coordinates on nonexistent days", () => {
+  assert.throws(() => decideDailyRelease(facts({ packageVersion: "2026.2.30" })), /invalid calendar day.*2026\.2\.30/i);
+  assert.throws(() => decideDailyRelease(facts({ currentPackageVersion: "2026.2.30" })), /invalid calendar day.*2026\.2\.30/i);
+  assert.throws(() => decideDailyRelease(facts({ today: "2026.2.30" })), /invalid calendar day.*2026\.2\.30/i);
+  assert.throws(() => decideDailyRelease(facts({ expectedCommitTimestamp: "2026-02-30T23:30:00Z" })), /expected a committer timestamp/i);
+});
+
 test("canonical release names format the reviewed package coordinate instead of today's date", () => {
   const plan = decideDailyRelease(facts({ packageVersion: "2026.8.9-2" }));
   assert.equal(plan.tag, "v2026.08.09-2");
@@ -191,4 +248,55 @@ test("Cargo stamping preserves dependency and metadata versions and refuses inhe
   assert.equal(stampCargoVersion("[package]\nversion = 'old'\n", "2026.10.19"), '[package]\nversion = "2026.10.19"\n');
   assert.throws(() => stampCargoVersion('[workspace]\nversion = "x"\n', "x"), /no package table/);
   assert.throws(() => stampCargoVersion('[package]\nversion.workspace = true\n[dependencies]\nversion = "wrong table"\n', "x"), /no literal version/);
+});
+
+
+test("continuation refuses a pinned heading when the merge day follows preparation", () => {
+  const standing = "pm-changelog --release-version-from-package --date-from-version";
+  assertReleaseHeadingDate([
+    standing,
+    'pm-changelog --item-url-base "https://example.test/ --date-fallback=2026-10-24"',
+    'echo "--date-fallback" 2026-10-24',
+  ], "2026-10-25", "2026.10.25");
+  for (const nameQuote of ["", '"', "'"]) for (const valueQuote of ["", '"', "'"]) for (const separator of [" ", "="]) {
+    const script = `pm-changelog ${nameQuote}--date-fallback${nameQuote}${separator}${valueQuote}2026-10-24${valueQuote}`;
+    assertReleaseHeadingDate([script], "2026-10-24");
+    assert.throws(() => assertReleaseHeadingDate([standing, script], "2026-10-25", "2026.10.25"), /2026-10-24.*2026-10-25.*Refusing to publish. Manually dispatch the workflow with retire-unpublished/);
+    assert.throws(() => assertReleaseHeadingDate([script + " && pm-changelog --date-fallback 2026-10-23"], "2026-10-24"), /retire-unpublished/);
+  }
+});
+
+test("continuation detects stale dates immediately followed by shell separators", () => {
+  assert.throws(() => assertReleaseHeadingDate(["pm-changelog --date-fallback 2026-10-23|cat"], "2026-10-24"), /unsupported_construct:.*cat/);
+  for (const suffix of ["&&true", ";true", "|head"]) {
+    assert.throws(() => assertReleaseHeadingDate(["pm-changelog --date-fallback 2026-10-23" + suffix], "2026-10-24"), /2026-10-23.*2026-10-24.*retire-unpublished/);
+  }
+});
+
+test("continuation rejects a stale pin on a version-qualified generator", () => {
+  const script = 'npx --yes pm-changelog@2026.11.6 --release-version-from-package "--date-fallback"=2026-11-16';
+  assertReleaseHeadingDate([script], "2026-11-16");
+  assert.throws(() => assertReleaseHeadingDate([script], "2026-11-17"), /2026-11-16.*2026-11-17.*retire-unpublished/);
+});
+
+test("continuation checks wrapped changelog hooks against the merge day", () => {
+  for (const wrapper of ["timeout 60", "timeout --signal=KILL 5m", "nice -n 5"]) {
+    const script = `${wrapper} pm-changelog --release-version-from-package --date-fallback 2026-11-16`;
+    assertReleaseHeadingDate([script], "2026-11-16");
+    assert.throws(() => assertReleaseHeadingDate([script], "2026-11-17"), /2026-11-16.*2026-11-17.*retire-unpublished/);
+  }
+  assert.throws(() => assertReleaseHeadingDate(["custom-wrapper pm-changelog --date-from-version"], "2026-11-17"),
+    /unrecognized wrapper/i);
+});
+
+test("continuation refuses an unresolved changelog option even when the apparent pin matches", () => {
+  const script = 'pm-changelog --release-version-from-package --date-fallback$(printf x) 2026-11-16';
+  assert.throws(() => assertReleaseHeadingDate([script], "2026-11-16"), /unsupported_construct:.*printf/);
+  assert.throws(() => assertReleaseHeadingDate([script.replace("printf", "echo")], "2026-11-16"), /unresolved option word/i);
+});
+
+test("continuation accepts quoted values on fixed non-date options", () => {
+  const script = 'pm-changelog --date-fallback 2026-11-16 --item-url-base="$ITEM_URL_BASE"';
+  assertReleaseHeadingDate([script], "2026-11-16");
+  assert.throws(() => assertReleaseHeadingDate([script], "2026-11-17"), /2026-11-16.*2026-11-17.*retire-unpublished/);
 });

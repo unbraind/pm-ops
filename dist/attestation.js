@@ -17,12 +17,14 @@
  *
  * @packageDocumentation
  */
+import { describeUnsupportedReleaseHook, unsupportedReleaseConstruct } from "./release-shell-constructs.js";
+import { parseReleaseHook } from "./release-hook-grammar.js";
 import { readRegularText } from "./regular-input.js";
 import { execFileSync } from "./subprocess.js";
 import { closeSync, constants, fstatSync, statSync, openSync, readSync } from "node:fs";
 import { resolve } from "node:path";
 import { isNode, parse, parseDocument } from "yaml";
-import { bashArrayDeclarations, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, declarationPrefixLength, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, isolateShellChildren, joinContinuations, scalarAssignmentEvents, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
+import { bashArrayDeclarations, blockDepthChange, caseDepthChange, commandArguments, commandCandidates, commandName, declarationPrefixLength, expandArrays, expandScalars, heredocBodyLines, heredocExpansionLines, isolateShellChildren, releaseHookConstructProblem, scalarAssignmentEvents, segmentShellLine, spawnedAsCommand, startsEnclosingCaseArm, tokenizeCommands, unsetNames, } from "./shell-scan.js";
 import { tallyFlaggedInvocations } from "./invocation-audit.js";
 import { inspectReleaseCaller } from "./release-caller.js";
 /** The flag that attaches a build attestation to the published tarball. */
@@ -356,7 +358,7 @@ function publishInvocationsInShell(source, raw, depth = 0, arithmetic = false) {
     if (depth > 8)
         return [];
     /** Child lexical state is audited separately before parent bindings are expanded. */
-    const isolated = isolateShellChildren(joinContinuations(raw), depth, arithmetic);
+    const isolated = isolateShellChildren(raw, depth, arithmetic);
     /** Original heredoc body positions protect stdin data from array normalization. */
     const originalBodies = heredocBodyLines(isolated.parent.split("\n"));
     /** Fold only supported declarations, retaining their original line count. */
@@ -869,8 +871,173 @@ function publishInvocationsInArgv(source, argv) {
     }
     return found;
 }
+/** Read a run default while preserving an unresolved defaults expression. */
+function defaultRunSetting(container, key) {
+    const run = mapping(mapping(container)?.defaults)?.run;
+    return typeof run === "string" ? run : mapping(run)?.[key];
+}
+const IGNORE_SCRIPTS_ENV = "npm_config_ignore_scripts";
+const ENV_PATH = /^(?:"\$(?:GITHUB_ENV|\{GITHUB_ENV\})"|\$(?:GITHUB_ENV|\{GITHUB_ENV\}))(?:\s+#.*)?$/;
+const READ_ENV_FILE = /^cat\s+("?)\$(?:GITHUB_ENV|\{GITHUB_ENV\})\1(?:\s+#.*)?$/;
+/** Merge runner environment layers, retaining the winning spelling for shell reads. */
+function mergeWorkflowEnvironment(windows, ...layers) {
+    if (!windows)
+        return Object.fromEntries(layers.flatMap(layer => Object.entries(layer ?? {})));
+    const entries = new Map();
+    for (const layer of layers) {
+        for (const [key, value] of Object.entries(layer ?? {}))
+            entries.set(key.toLowerCase(), [key, value]);
+    }
+    return Object.fromEntries(entries.values());
+}
+/** Decode one literal NAME=value record emitted by echo or printf. */
+function literalEnvironmentRecord(print, environment) {
+    const variable = /^echo "([A-Za-z_]\w*)=\$(\w+)"$/.exec(print);
+    if (variable) {
+        const value = environment?.[variable[2]];
+        return typeof value === "string" && /^[\w.-]*$/.test(value) ? variable[1] + "=" + value : undefined;
+    }
+    const echo = /^(?:echo\s+|printf\s+(['"])%s\\n\1\s+)(['"]?)([A-Za-z_]\w*=[\w.-]*)\2$/.exec(print);
+    if (echo)
+        return echo[3];
+    const literal = /^printf\s+(['"])([A-Za-z_]\w*=[\w.-]*)\\n\1$/.exec(print);
+    if (literal)
+        return literal[2];
+    const format = /^printf\s+(['"])([A-Za-z_]\w*=)%s\\n\1\s+(['"]?)([\w.-]+)\3$/.exec(print);
+    return format ? format[2] + format[4] : undefined;
+}
+/** Model one runner environment file, which starts empty for each step. */
+function writtenIgnoreScripts(text, conditionalStep, environment, errexit, windows, shell) {
+    let records = new Map();
+    let mayStopBeforeOverwrite = false;
+    let maySkipLaterSteps = false;
+    let mayStopOnFailure = errexit;
+    let nounset = false;
+    let uncertainShellOptions = false;
+    const branches = [];
+    let mayFailAtEnd = false;
+    const lines = text.split(/\r?\n/);
+    const bodies = heredocBodyLines(lines);
+    for (const [index, part] of lines.entries()) {
+        const line = part.trim();
+        if (bodies[index])
+            continue;
+        if (/^cat <<'[\w.-]+'$/.test(line)) {
+            mayFailAtEnd = false;
+            continue;
+        }
+        if (/^if test -f [\w.-]+; then$/.test(line)) {
+            branches.push({ incomingNounset: nounset, nounset: false, incomingErrexit: mayStopOnFailure, errexit: false, failed: false });
+            mayFailAtEnd = false;
+            continue;
+        }
+        const branch = branches.at(-1);
+        if (branch && (line === "else" || /^elif test -f [\w.-]+; then$/.test(line))) {
+            branch.failed ||= mayFailAtEnd;
+            branch.nounset ||= nounset;
+            nounset = branch.incomingNounset;
+            branch.errexit ||= mayStopOnFailure;
+            mayStopOnFailure = branch.incomingErrexit;
+            mayFailAtEnd = false;
+            continue;
+        }
+        if (branch && line === "fi") {
+            branches.pop();
+            mayFailAtEnd ||= branch.failed;
+            nounset ||= branch.nounset;
+            mayStopOnFailure ||= branch.errexit;
+            continue;
+        }
+        if (!line || line.startsWith("#"))
+            continue;
+        mayFailAtEnd = false;
+        const shellOptions = /^set -(?:([eu]+)|([eu]*o)[ \t]+(pipefail))$/.exec(line);
+        const optionFlags = shellOptions?.[1] ?? shellOptions?.[2] ?? "";
+        if (shellOptions?.[3] && unsupportedReleaseConstruct("pipefail", "workflow", shell)) {
+            uncertainShellOptions = true;
+            maySkipLaterSteps = true;
+        }
+        if (optionFlags.includes("e")) {
+            mayStopOnFailure = true;
+            if (branches.length === 0)
+                errexit = true;
+        }
+        if (optionFlags.includes("u"))
+            nounset = true;
+        if (shellOptions || /^(?:true|:|echo [\w .-]+)$/.test(line))
+            continue;
+        const readRunnerEnv = READ_ENV_FILE.exec(line);
+        if (readRunnerEnv) {
+            mayFailAtEnd = !readRunnerEnv[1];
+            if (mayFailAtEnd && mayStopOnFailure)
+                maySkipLaterSteps = true;
+            continue;
+        }
+        const redirect = line.indexOf(">");
+        if (redirect < 0)
+            return undefined;
+        const append = line[redirect + 1] === ">";
+        const destination = line.slice(redirect + (append ? 2 : 1)).trimStart();
+        if (!ENV_PATH.test(destination))
+            return undefined;
+        // Bash can split an unquoted runner path. Under errexit, only consumers
+        // that can run after a failure can see the state before such a write.
+        const unquoted = !destination.startsWith('"');
+        mayFailAtEnd = unquoted;
+        if (maySkipLaterSteps || (unquoted && mayStopOnFailure))
+            mayStopBeforeOverwrite = true;
+        const print = line.slice(0, redirect).trimEnd();
+        const record = literalEnvironmentRecord(print, environment);
+        if (record === undefined) {
+            const read = /^cat [\w./-]+$/.test(print);
+            const echo = /^echo "\$(\w+)"$/.exec(print);
+            if (!read && !echo)
+                return undefined;
+            // A failed read or an unset expansion can leave the earlier contents in place.
+            const operand = echo && environment?.[echo[1]];
+            const mayBeUnset = typeof operand !== "string" || operand.includes("${{");
+            if (read ? mayStopOnFailure : nounset && mayBeUnset)
+                mayStopBeforeOverwrite = true;
+            records = undefined;
+            continue;
+        }
+        const conditional = conditionalStep || uncertainShellOptions || branches.length > 0 || (unquoted && !errexit);
+        if (!append) {
+            if (conditional) {
+                if (records)
+                    for (const [key, [name]] of records)
+                        records.set(key, [name, uncertainEnvironmentRecord(name)]);
+            }
+            else
+                records = new Map();
+        }
+        const [name, value] = record.split("=");
+        if (records && !/^(?:GITHUB_|RUNNER_|NODE_OPTIONS$)/i.test(name)) {
+            const key = windows ? name.toLowerCase() : name;
+            records.set(key, [name, conditional ? uncertainEnvironmentRecord(name) : value]);
+        }
+    }
+    return records && { records: Object.fromEntries(records.values()), mayStopBeforeOverwrite, maySkipLaterSteps: maySkipLaterSteps || mayFailAtEnd };
+}
+/** Preserve uncertainty without treating a possibly unset expansion as a literal. */
+function uncertainEnvironmentRecord(name) {
+    return /^npm_config_ignore[-_]scripts$/i.test(name) ? "unknown" : undefined;
+}
+/** Keep the names an opaque step may have left in the runner environment. */
+function invalidateWorkflowExports(...layers) {
+    return Object.fromEntries(layers.flatMap(layer => Object.keys(layer).map(name => [name, uncertainEnvironmentRecord(name)])));
+}
+/** Recognize the explicit spelling of the runner's implicit success condition. */
+function isSuccessCondition(condition) {
+    return /^\s*success\s*\(\s*\)\s*$/i.test(condition.trim().replace(/^\$\{\{([\s\S]*)\}\}$/, "$1"));
+}
+/** Check whether the runner's implicit success condition can be overridden. */
+function canRunAfterFailure(condition) {
+    return typeof condition === "string" && /\b(?:always|cancelled|failure|success)\s*\(/i.test(condition)
+        && !isSuccessCondition(condition);
+}
 /** Extract structured commands together with their original scalar source ranges. */
-function executableShellBodies(source) {
+export function executableShellBodies(source) {
     if (COMPOSE_PATH.test(source.file))
         return composeExecutableBodies(source);
     if (!MANIFEST_PATH.test(source.file) && !isWorkflowYaml(source.file)) {
@@ -898,14 +1065,94 @@ function executableShellBodies(source) {
         : Object.entries(mapping(data?.jobs) ?? {}).map(([key, value]) => ({ path: ["jobs", key], value }));
     const bodies = [];
     for (const container of containers) {
-        const steps = mapping(container.value)?.steps;
+        const job = mapping(container.value);
+        const steps = job?.steps;
         if (!Array.isArray(steps))
             continue;
+        const containerJob = job.container !== undefined && unsupportedReleaseConstruct("container job", "workflow");
+        const runner = job["runs-on"];
+        const posixRunner = [runner].flat().some(label => typeof label === "string" && /^(?:ubuntu-|macos-|linux$|macos$)/i.test(label));
+        const windowsRunner = [runner].flat().some(label => typeof label === "string" && /^windows(?:-|$)/i.test(label));
+        const defaultShell = defaultRunSetting(job, "shell") ?? defaultRunSetting(data, "shell");
+        const baseEnvironment = mergeWorkflowEnvironment(windowsRunner, mapping(data?.env), mapping(job.env));
+        let inherited = Object.create(null);
+        let unknownNames = false;
+        let definiteLifecycleWrite = false;
+        let uncertainOnFailure = false;
+        let failureMaySkipLaterSteps = false;
         for (const [index, value] of steps.entries()) {
             const step = mapping(value);
-            if (step === undefined || !Object.hasOwn(step, "run"))
+            if (step === undefined || !Object.hasOwn(step, "run")) {
+                if (step?.if !== false) {
+                    inherited = invalidateWorkflowExports(baseEnvironment, inherited);
+                    unknownNames = true;
+                    definiteLifecycleWrite = false;
+                }
                 continue;
-            bodies.push(bodyAt([...container.path, "steps", index, "run"], step.run));
+            }
+            const body = bodyAt([...container.path, "steps", index, "run"], step.run);
+            const directory = step["working-directory"] ?? defaultRunSetting(job, "working-directory") ?? defaultRunSetting(data, "working-directory");
+            if (directory !== undefined)
+                body.workingDirectory = directory;
+            if (job.if === false || step.if === false)
+                body.disabled = true;
+            if (containerJob) {
+                body.containerJob = String(container.path[1]);
+                bodies.push(body);
+                continue;
+            }
+            const stepEnv = mergeWorkflowEnvironment(windowsRunner, mapping(step.env));
+            const environment = mergeWorkflowEnvironment(windowsRunner, baseEnvironment, inherited, stepEnv);
+            const afterFailure = canRunAfterFailure(step.if);
+            const priorUncertain = (uncertainOnFailure && afterFailure)
+                || [data?.env, job.env, step.env].some(layer => typeof layer === "string");
+            const stepLifecycle = Object.entries(stepEnv).some(([key, value]) => (windowsRunner ? key.toLowerCase() : key) === IGNORE_SCRIPTS_ENV
+                && [true, false, "true", "false"].includes(value));
+            // Later definite writes can restore individual names on the successful path.
+            // Other spellings of the same npm setting may still be present.
+            const producerEnvironment = priorUncertain || (unknownNames && afterFailure) ? stepEnv
+                : unknownNames ? mergeWorkflowEnvironment(windowsRunner, inherited, stepEnv) : environment;
+            // npm's canonical key must also be the key the audit clears when it
+            // computes the configured fallback. Bash reads still use the winning case.
+            body.environment = windowsRunner
+                ? Object.fromEntries(Object.entries(environment).map(([key, value]) => [
+                    key.toLowerCase() === IGNORE_SCRIPTS_ENV ? IGNORE_SCRIPTS_ENV : key, value,
+                ]))
+                : environment;
+            if (!stepLifecycle && (priorUncertain || (unknownNames && (!definiteLifecycleWrite || afterFailure)))) {
+                body.environment = { ...body.environment, [IGNORE_SCRIPTS_ENV]: "unknown" };
+            }
+            if (!body.disabled) {
+                const shell = step.shell ?? defaultShell;
+                const shellKnown = shell === undefined ? posixRunner : typeof shell === "string" && /^(?:bash|sh|(?:bash|sh) (?:-e )?\{0\}|bash --noprofile --norc -eo pipefail \{0\})$/.test(shell);
+                const condition = step.if;
+                const conditional = (condition !== undefined && condition !== true && !(typeof condition === "string" && isSuccessCondition(condition)))
+                    || Boolean(step["continue-on-error"]);
+                const errexit = shell !== "bash {0}" && shell !== "sh {0}";
+                const shellProgram = typeof shell === "string" && /^sh(?: |$)/.test(shell) ? "sh" : "bash";
+                const writes = shellKnown ? writtenIgnoreScripts(body.text, conditional, producerEnvironment, errexit, windowsRunner, shellProgram) : undefined;
+                if (writes === undefined) {
+                    inherited = invalidateWorkflowExports(baseEnvironment, inherited);
+                    unknownNames = true;
+                    definiteLifecycleWrite = false;
+                }
+                else {
+                    inherited = mergeWorkflowEnvironment(windowsRunner, inherited, writes.records);
+                    for (const [key, record] of Object.entries(writes.records)) {
+                        if (failureMaySkipLaterSteps && uncertainEnvironmentRecord(key) !== undefined)
+                            uncertainOnFailure = true;
+                        if ((windowsRunner ? key.toLowerCase() : key) === IGNORE_SCRIPTS_ENV) {
+                            definiteLifecycleWrite = record === "true" || record === "false";
+                        }
+                    }
+                    if (writes.mayStopBeforeOverwrite)
+                        uncertainOnFailure = true;
+                    // A failed step can prevent a later successful-path export.
+                    if (writes.maySkipLaterSteps && step["continue-on-error"] !== true)
+                        failureMaySkipLaterSteps = true;
+                }
+            }
+            bodies.push(body);
         }
     }
     return bodies;
@@ -938,7 +1185,7 @@ function wrapperSourceLine(body, wrapper, cursors) {
  */
 function opaquePublishInvocations(source, body) {
     const found = [];
-    const commands = tokenizeCommands(joinContinuations(body));
+    const commands = tokenizeCommands(body);
     const opaqueVariables = new Set();
     for (const command of commands) {
         // A declaration builtin and its option words are not the first
@@ -992,12 +1239,24 @@ function opaquePublishInvocations(source, body) {
 export function publishInvocationsIn(source) {
     return executableShellBodies(source).flatMap((body) => {
         const cursors = new Map();
-        return (body.argv === undefined
+        const hook = !body.disabled && isWorkflowYaml(source.file) ? body.containerJob ?? source.file + ":" + body.line : undefined;
+        const invocations = body.argv === undefined
             ? [...publishInvocationsInShell(source, body.text), ...opaquePublishInvocations(source, body.text)]
-            : publishInvocationsInArgv(source, body.argv))
-            .map((invocation) => invocation.wrapper === undefined ? invocation : {
-            ...invocation, line: wrapperSourceLine(body, invocation.wrapper, cursors),
-        });
+            : publishInvocationsInArgv(source, body.argv);
+        let constructProblem;
+        if (hook && invocations.length) {
+            if (body.containerJob !== undefined)
+                constructProblem = describeUnsupportedReleaseHook("container job", hook);
+            else {
+                const parsed = parseReleaseHook(body.text, "workflow");
+                constructProblem = releaseHookConstructProblem(parsed.commands, body.text, parsed.spans, hook, "workflow")?.problem;
+            }
+        }
+        return invocations.map((invocation) => ({
+            ...invocation,
+            ...(constructProblem ? { constructProblem } : {}),
+            ...(invocation.wrapper === undefined ? {} : { line: wrapperSourceLine(body, invocation.wrapper, cursors) }),
+        }));
     });
 }
 /**
@@ -1054,6 +1313,8 @@ export function auditPublishAttestation(sources) {
         }
     }
     const { failures, notes } = tallyFlaggedInvocations(invocations, (invocation) => {
+        if (invocation.constructProblem !== undefined)
+            return invocation.file + ": " + invocation.constructProblem;
         if (invocation.wrapper !== undefined) {
             return `${invocation.file}:${invocation.line}: cannot certify provenance for third-party publish wrapper`
                 + ` \`${invocation.wrapper}\`; dependency source is outside the tracked audit boundary: ${renderCommand(invocation.command)}`;
