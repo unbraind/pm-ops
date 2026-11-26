@@ -122,7 +122,8 @@ function sameFields(installed, canonical) {
 /** Describe a policy's subject for a drift message. */
 function describeSubject(subject) {
     const types = subject.types ? subject.types.join(",") : "*";
-    return `types=[${types}] statuses=[${subject.statuses.join(",")}]`;
+    const operations = subject.operations ? ` operations=[${subject.operations.join(",")}]` : "";
+    return `types=[${types}] statuses=[${subject.statuses.join(",")}]${operations}`;
 }
 /** Describe a policy's rule for a drift message. */
 function describeRule(rule) {
@@ -160,6 +161,11 @@ function policyDrift(installed, canonical) {
     if (installed.subject.statuses.length !== canonical.subject.statuses.length ||
         !installed.subject.statuses.every((s, i) => s === canonical.subject.statuses[i])) {
         failures.push(`policy ${canonical.id}: subject statuses [${installed.subject.statuses.join(",")}], canonical requires [${canonical.subject.statuses.join(",")}]`);
+    }
+    const installedOperations = installed.subject.operations;
+    const canonicalOperations = canonical.subject.operations;
+    if (!sameFields(installedOperations ?? [], canonicalOperations ?? [])) {
+        failures.push(`policy ${canonical.id}: subject operations [${installedOperations?.join(",") ?? "*"}], canonical requires [${canonicalOperations?.join(",") ?? "*"}]`);
     }
     if (installed.description !== canonical.description) {
         failures.push(`policy ${canonical.id}: description differs from the canonical text`);

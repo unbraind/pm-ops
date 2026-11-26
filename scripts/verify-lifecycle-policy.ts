@@ -1,5 +1,5 @@
 /**
- * Command-line launcher for the canonical lifecycle-policy drift checker.
+ * Command-line launcher for the pm-ops tracker's lifecycle-policy drift checker.
  *
  * Shells out to the repo-pinned `pm` binary for `pm schema policies --json`,
  * hands the parsed policy document to the pure {@link verify} function, prints
@@ -26,6 +26,22 @@ import {
 import { isMainInvocation } from "./main-invocation.ts";
 
 export * from "../lifecycle-policy.ts";
+
+/** Native lifecycle writes that can introduce or change closed-item evidence. */
+const LOCAL_LIFECYCLE_OPERATIONS = ["create", "update", "close", "restore", "normalize"] as const;
+
+/**
+ * The pm-ops tracker scopes two fleet rules to local lifecycle writes. GitHub
+ * issue finalization is evaluated as `import` by the pinned SDK.
+ */
+export const TRACKER_LIFECYCLE_POLICY: CanonicalLifecyclePolicy = {
+  ...CANONICAL_FLEET_LIFECYCLE_POLICY,
+  policies: CANONICAL_FLEET_LIFECYCLE_POLICY.policies.map((policy) =>
+    policy.id === "completeness-issue" || policy.id === "fleet-closed-resolution"
+      ? { ...policy, subject: { ...policy.subject, operations: LOCAL_LIFECYCLE_OPERATIONS } }
+      : policy,
+  ),
+};
 
 /** The executor signature `readInstalledPolicies` accepts. */
 export interface PolicyExecutor {
@@ -129,6 +145,9 @@ function narrowPolicy(value: unknown): WorkflowPolicy {
   const s = subject as Record<string, unknown>;
   if (s.types !== undefined && !isStringArray(s.types)) throw new Error(`policy ${v.id}: subject.types is not a string array`);
   if (!isStringArray(s.statuses)) throw new Error(`policy ${v.id}: subject.statuses is not a string array`);
+  if (s.operations !== undefined && (!isStringArray(s.operations) || s.operations.length === 0)) {
+    throw new Error(`policy ${v.id}: subject.operations is not a non-empty string array`);
+  }
   const rule = v.rule;
   if (typeof rule !== "object" || rule === null) throw new Error(`policy ${v.id}: rule is missing`);
   const r = rule as Record<string, unknown>;
@@ -138,7 +157,7 @@ function narrowPolicy(value: unknown): WorkflowPolicy {
     id: v.id,
     effect: v.effect,
     description: v.description,
-    subject: { types: s.types, statuses: s.statuses },
+    subject: { types: s.types, statuses: s.statuses, operations: s.operations },
     rule: { kind: "require_fields", fields: r.fields },
   };
 }
@@ -195,14 +214,14 @@ export function readInstalledPolicies(
  *
  * @param root - Repository root to verify.
  * @param exec - The executor to run `pm`; defaults to {@link defaultExec}.
- * @param canonical - The canonical contract to compare against; defaults to
- *   {@link CANONICAL_FLEET_LIFECYCLE_POLICY}.
+ * @param canonical - The contract to compare against; defaults to
+ *   {@link TRACKER_LIFECYCLE_POLICY}.
  * @returns The drift report.
  */
 export function verifyRepo(
   root: string,
   exec: PolicyExecutor = defaultExec,
-  canonical: CanonicalLifecyclePolicy = CANONICAL_FLEET_LIFECYCLE_POLICY,
+  canonical: CanonicalLifecyclePolicy = TRACKER_LIFECYCLE_POLICY,
 ): LifecyclePolicyDrift {
   return verify(readInstalledPolicies(root, exec), canonical);
 }
@@ -210,9 +229,9 @@ export function verifyRepo(
 /**
  * The instant the canonical contract was adopted, as an ISO-8601 timestamp.
  *
- * The completeness validator is retroactive: it evaluates every closed item
- * against the currently installed policies, including items closed long before
- * those policies existed. Those items cannot satisfy the contract honestly —
+ * The completeness validator evaluates state-only rules retroactively,
+ * including on items closed before those rules existed. Those items cannot
+ * satisfy the contract honestly —
  * the evidence a rule asks for was never recorded, and inventing it produces a
  * field that restates the title and says nothing. A first attempt at this
  * contract did exactly that in twelve items, and because the policies are

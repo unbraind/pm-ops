@@ -13,11 +13,13 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "../subprocess.ts";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { decode } from "@toon-format/toon";
+import { commitItemMutations, previewItemMutations, type BulkItemMutation } from "@unbrained/pm-cli/sdk";
 
 import {
   CANONICAL_FLEET_LIFECYCLE_POLICY,
@@ -26,6 +28,7 @@ import {
   type WorkflowPolicy,
 } from "../lifecycle-policy.ts";
 import {
+  TRACKER_LIFECYCLE_POLICY,
   defaultExec,
   parsePoliciesOutput,
   readScopedCompleteness,
@@ -40,6 +43,8 @@ import {
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const PM_BIN = resolvePmBinary(repoRoot);
+const TRACKER_PATH = join(".agents", "pm");
+const POLICIES_PATH = join(TRACKER_PATH, "schema", "policies.json");
 
 function reportScopedResult(scoped: Parameters<typeof reportCompleteness>[0]): { lines: string[]; exitCode: number } {
   const lines: string[] = [];
@@ -53,7 +58,7 @@ function pm(
   cwd: string,
   args: readonly string[],
 ): { status: number; stdout: string; stderr: string } {
-  const result = spawnSync(PM_BIN, args as string[], {
+  const result = spawnSync(PM_BIN, ["--pm-path", join(cwd, TRACKER_PATH), ...args], {
     cwd,
     encoding: "utf-8",
     maxBuffer: 64 * 1024 * 1024,
@@ -198,6 +203,12 @@ test("parsePoliciesOutput rejects a malformed policy", () => {
   assert.throws(() => parsePoliciesOutput(envelope([{ id: "x", effect: "refuse", description: "d" }])), /subject is missing/);
   assert.throws(() => parsePoliciesOutput(envelope([{ id: "x", effect: "refuse", description: "d", subject: {} }])), /subject\.statuses is not a string array/);
   assert.throws(() => parsePoliciesOutput(envelope([{ id: "x", effect: "refuse", description: "d", subject: { types: "Task", statuses: ["closed"] } }])), /subject\.types is not a string array/);
+  for (const operations of ["close", [], [""]]) {
+    assert.throws(
+      () => parsePoliciesOutput(envelope([{ id: "x", effect: "refuse", description: "d", subject: { statuses: ["closed"], operations } }])),
+      /subject\.operations is not a non-empty string array/,
+    );
+  }
   assert.throws(() => parsePoliciesOutput(envelope([{ id: "x", effect: "refuse", description: "d", subject: { statuses: ["closed"] } }])), /rule is missing/);
   assert.throws(() => parsePoliciesOutput(envelope([{ id: "x", effect: "refuse", description: "d", subject: { statuses: ["closed"] }, rule: { kind: "forbid" } }])), /rule\.kind is not require_fields/);
   assert.throws(() => parsePoliciesOutput(envelope([{ id: "x", effect: "refuse", description: "d", subject: { statuses: ["closed"] }, rule: { kind: "require_fields" } }])), /rule\.fields is not a string array/);
@@ -232,7 +243,7 @@ test("verifyRepo verifies through the injected executor and canonical", () => {
         policies: [...CANONICAL_FLEET_POLICIES],
       },
     });
-  const drift = verifyRepo(repoRoot, exec);
+  const drift = verifyRepo(repoRoot, exec, CANONICAL_FLEET_LIFECYCLE_POLICY);
   assert.equal(drift.failures.length, 1);
   assert.match(drift.failures[0]!, /^enforcement is "advise"/);
 });
@@ -253,7 +264,7 @@ test("runIfMain runs only as the entry point", () => {
         result: {
           version: 1,
           enforcement: "refuse",
-          policies: [...CANONICAL_FLEET_POLICIES],
+          policies: TRACKER_LIFECYCLE_POLICY.policies,
         },
       });
     assert.equal(runIfMain(["node", scriptPath], scriptUrl, repoRoot, passing), true);
@@ -355,10 +366,89 @@ test("non-vacuity: verify detects a mutated installed policy effect", () => {
 });
 
 test("non-vacuity: the repo's own installed policies match the canonical contract", () => {
-  // pm-ops is the first repo that runs under the contract it publishes, so its
-  // own installed document must report no drift.
   const drift = verifyRepo(repoRoot);
   assert.deepEqual(drift.failures, [], `pm-ops must satisfy its own contract: ${drift.failures.join("; ")}`);
+});
+
+test("schema policies reports the same operation selectors in TOON and JSON", () => {
+  const json = readInstalledPolicies(repoRoot);
+  const toon = decode(pmOk(repoRoot, ["schema", "policies", "--format", "toon"])) as {
+    result: { policies: { id: string; subject: string }[] };
+  };
+  const toonById = new Map(toon.result.policies.map(({ id, subject }) => [id, JSON.parse(subject)]));
+  for (const { id, subject } of json.policies) {
+    assert.deepEqual(JSON.parse(JSON.stringify(subject)), toonById.get(id), id);
+  }
+  assert.deepEqual(json.policies.filter((policy) => policy.subject.operations).map(({ id }) => id), [
+    "completeness-issue",
+    "fleet-closed-resolution",
+  ]);
+});
+
+/** Initialize a non-git tracker with the installed repository policy. */
+function initIssueSyncTracker(cwd: string): string {
+  pmOk(cwd, ["init", "--yes", "--prefix", "ops-"]);
+  copyFileSync(join(repoRoot, POLICIES_PATH), join(cwd, POLICIES_PATH));
+  return join(cwd, TRACKER_PATH);
+}
+
+test("the pinned SDK previews and applies a closed GitHub mirror without invented evidence", async (t) => {
+  const cwd = mkdtempSync(join(tmpdir(), "lifecycle-policy-sync-"));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const pmRoot = initIssueSyncTracker(cwd);
+  const id = "ops-github-fixture-1";
+  const closedAt = "2026-10-01T08:30:00.000Z";
+  const mutations: readonly BulkItemMutation[] = [
+    { op: "create", id, options: { type: "Issue", title: "Mirrored issue", status: "open" } },
+    { op: "update", id, options: { description: "Original issue description" } },
+    { op: "finalize", id, set: { status: "closed", closed_at: closedAt, completed_at: closedAt } },
+  ];
+  const transaction = { pmRoot, transactionId: "github-import-policy-fixture", author: "pm-github", mutations };
+  const preview = await previewItemMutations(transaction);
+  assert.equal(preview.validated, true);
+  const projected = preview.records.at(-1)?.item;
+  assert.equal(projected?.status, "closed");
+  assert.equal(projected.closed_at, closedAt);
+  assert.equal(pm(cwd, ["get", id]).status, 3);
+
+  const apply = { ...transaction, createCompensation: "delete" } as const;
+  const committed = await commitItemMutations(apply);
+  assert.equal(committed.status, "committed");
+  const { item } = pmJson<{ item: Record<string, unknown> }>(cwd, ["get", id]);
+  assert.equal(item.status, projected.status);
+  assert.equal(item.closed_at, projected.closed_at);
+  assert.equal(item.completed_at, closedAt);
+  for (const field of ["repro_steps", "expected_result", "resolution"]) {
+    assert.equal(item[field], undefined, field);
+  }
+  const historyPath = join(pmRoot, "history", `${id}.jsonl`);
+  const history = readFileSync(historyPath, "utf8");
+  assert.match(history, /"op":"import"/);
+  await commitItemMutations(apply);
+  assert.equal(readFileSync(historyPath, "utf8"), history);
+});
+
+test("manual closed creation, closure and removal of evidence still enforce both rules", (t) => {
+  const cwd = mkdtempSync(join(tmpdir(), "lifecycle-policy-manual-"));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  initIssueSyncTracker(cwd);
+  const author = ["--author", "pm-github"];
+  const create = ["create", "Issue", "--title", "Manual issue", "--tags", "gh:example/tracker#1", ...author];
+  const createdClosed = pm(cwd, [...create, "--status", "closed", "--close-reason", "done"]);
+  assert.equal(createdClosed.status, 4, createdClosed.stderr);
+  assert.match(createdClosed.stderr, /completeness-issue.*fleet-closed-resolution/);
+
+  const { id } = pmJson<{ id: string }>(cwd, create);
+  const close = ["close", id, "--reason", "done", ...author];
+  const refusedClose = pm(cwd, close);
+  assert.equal(refusedClose.status, 4, refusedClose.stderr);
+  assert.match(refusedClose.stderr, /completeness-issue.*fleet-closed-resolution/);
+  pmOk(cwd, ["update", id, "--repro-steps", "Reproduce the defect", "--expected-result", "Expected behavior", ...author]);
+  pmOk(cwd, [...close, "--resolution", "Fixed and tested"]);
+
+  const refusedUpdate = pm(cwd, ["update", id, "--unset", "repro_steps,expected_result,resolution", ...author]);
+  assert.equal(refusedUpdate.status, 4, refusedUpdate.stderr);
+  assert.match(refusedUpdate.stderr, /completeness-issue.*fleet-closed-resolution/);
 });
 test("adoption scoping fails governed work and reports pre-adoption work as backlog", () => {
   const violations = [

@@ -73,6 +73,8 @@ export interface PolicySubject {
   readonly types?: readonly string[];
   /** Statuses the policy guards; the fleet's rules all guard `closed`. */
   readonly statuses: readonly string[];
+  /** Native mutation operation names; omitted means every operation. */
+  readonly operations?: readonly string[];
 }
 
 /** One declared workflow policy. */
@@ -227,7 +229,8 @@ function sameFields(
 /** Describe a policy's subject for a drift message. */
 function describeSubject(subject: PolicySubject): string {
   const types = subject.types ? subject.types.join(",") : "*";
-  return `types=[${types}] statuses=[${subject.statuses.join(",")}]`;
+  const operations = subject.operations ? ` operations=[${subject.operations.join(",")}]` : "";
+  return `types=[${types}] statuses=[${subject.statuses.join(",")}]${operations}`;
 }
 
 /** Describe a policy's rule for a drift message. */
@@ -282,6 +285,13 @@ function policyDrift(
   ) {
     failures.push(
       `policy ${canonical.id}: subject statuses [${installed.subject.statuses.join(",")}], canonical requires [${canonical.subject.statuses.join(",")}]`,
+    );
+  }
+  const installedOperations = installed.subject.operations;
+  const canonicalOperations = canonical.subject.operations;
+  if (!sameFields(installedOperations ?? [], canonicalOperations ?? [])) {
+    failures.push(
+      `policy ${canonical.id}: subject operations [${installedOperations?.join(",") ?? "*"}], canonical requires [${canonicalOperations?.join(",") ?? "*"}]`,
     );
   }
   if (installed.description !== canonical.description) {
