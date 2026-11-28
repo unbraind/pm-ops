@@ -1,0 +1,25 @@
+id: ops-github-db3225403a4b-170
+title: "Publish-attestation scanner: a multi-line quoted string inside a command substitution is misread as an unprovable executable expansion"
+description: "GH issue #170: https://github.com/unbraind/pm-ops/issues/170 · author @unbraind · state reason completed · created 2026-10-15T09:17:05Z · updated 2026-10-15T19:34:29Z"
+type: Issue
+status: closed
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#170","github_author:unbraind"
+created_at: "2026-10-15T09:17:05Z"
+updated_at: "2026-11-28T08:57:51.585Z"
+closed_at: "2026-10-15T19:34:29Z"
+completed_at: "2026-10-15T19:34:29Z"
+author: pm-github
+release: v2026.10.16
+close_reason: "Closed on GitHub as completed on 2026-10-15T19:34:29Z; closing PR https://github.com/unbraind/pm-ops/pull/171 (\"Preserve multiline shell quotes and scan Compose executable fields\")"
+github_close_reason: "Closed on GitHub as completed on 2026-10-15T19:34:29Z; closing PR https://github.com/unbraind/pm-ops/pull/171 (\"Preserve multiline shell quotes and scan Compose executable fields\")"
+github_closed_at: "2026-10-15T19:34:29Z"
+github_created_at: "2026-10-15T09:17:05Z"
+github_link_only: false
+github_number: 170
+github_release: v2026.10.16
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-10-15T19:34:29Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/170"
+body: "## Summary\n\nThe canonical publish-attestation verifier (`pm-ops@2026.10.14`, the `attestation` export) refuses a release workflow that contains no unproven publish. When a command substitution contains a quoted string that spans a newline, the quote state is reset at the newline. A later, unrelated `gh api graphql` mutation in the same step is then reported as:\n\n```\nFAIL - .github/workflows/release.yml: cannot prove executable expansion; refusing an unresolved publish path\n```\n\nThis is a false positive. It fails closed, which is safe, but it forces workflow rewrites that have nothing to do with publishing.\n\n## Minimal reproduction (scanner input)\n\n```sh\nnpm publish --provenance\nids=\"$(gh api graphql --jq '.nodes[]\n| .id')\"\ngh api graphql -f query='mutation($t:ID!){resolveReviewThread(input:{threadId:$t}){thread{isResolved}}}' -F t=\"$ids\" >/dev/null 2>&1 && echo \"$ids\" >> \"$GITHUB_STEP_SUMMARY\" || true\n```\n\nPutting the `--jq` program on a single line makes the same input pass.\n\n## Where it surfaced\n\npm-review#11 (gated sync rollout) bumped pm-ops to 2026.10.14. Its release workflow resolves review threads with a multi-line `--jq` filter, and the verifier test `publish attestation verifier audits the tracked repository as main` started failing although main was green on the older pm-ops. pm-review worked around it by moving the thread resolution into a typed `scripts/*.ts` helper; the scanner itself is unchanged.\n\n## Expected\n\nQuote state carries across newlines inside `$( … )`, as in bash, so a multi-line single- or double-quoted argument does not end the quoted region. The fix must keep failing closed on genuinely unresolved expansions in command position. That needs adversarial tests for both directions, including multi-line quoted strings that do and do not hide a command."

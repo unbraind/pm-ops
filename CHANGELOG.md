@@ -4,8 +4,13 @@
 
 ### Fixed
 
+- Gated issue sync has failed for 30 days: the tracker's workflow policy refuses every import (repro_steps, expected_result, resolution) ([ops-github-db3225403a4b-329](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-329.toon))
 - Skip registry-held pending versions and retire stale release candidates ([ops-pending-version-registry](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-pending-version-registry.toon))
 - Daily release coverage gate fails: continuation tests inherit the release job's NPM_PROJECT_PATH ([ops-hg5r](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-hg5r.toon))
+
+### Closed
+
+- Closed: Daily gated issue sync is failing ([ops-github-db3225403a4b-328](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-328.toon))
 
 ## 2026.11.24 - 2026-11-25
 
@@ -27,7 +32,9 @@ No tracked changes.
 
 ## 2026.11.19 - 2026-11-19
 
-No tracked changes.
+### Closed
+
+- Closed: Operator retirement refuses a candidate whose recorded publish attempts all failed before npm accepted the tarball ([ops-github-db3225403a4b-302](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-302.toon))
 
 ## 2026.11.18 - 2026-11-18
 
@@ -35,11 +42,20 @@ No tracked changes.
 
 - Global npm update guard mistakes comment words and redirect targets for packages ([ops-global-update-operands](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-global-update-operands.toon))
 
+### Closed
+
+- Closed: Parallel Deep jobs fail while replacing the global npm CLI ([ops-github-db3225403a4b-284](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-284.toon))
+
 ### Dependencies
 
 - Bump taiki-e/install-action from 2.90.3 to 2.90.4 ([#299](https://github.com/unbraind/pm-ops/pull/299))
 
 ## 2026.11.17 - 2026-11-17
+
+### Closed
+
+- Closed: Daily release: restart read-only prepare at the new main head instead of losing the day when a PR merges during preparation ([ops-github-db3225403a4b-286](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-286.toon))
+- Closed: Daily release resumes an untagged version that npm already holds (hand-published first versions never release) ([ops-github-db3225403a4b-290](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-290.toon))
 
 ### Dependencies
 
@@ -64,6 +80,12 @@ No tracked changes.
 - Parse the candidate receipt independently of surrounding bot summaries ([ops-release-receipt-boundary](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-receipt-boundary.toon))
 - Derive provenance signer from the actual publishing workflow ref ([ops-release-publishing-signer](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-publishing-signer.toon))
 - Report current release blockers instead of remembered approval ([ops-release-current-diagnosis](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-release-current-diagnosis.toon))
+
+### Closed
+
+- Closed: Release provenance uses preparation workflow pin as publishing signer, rejecting resumed local publication ([ops-github-db3225403a4b-270](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-270.toon))
+- Closed: Release preparation refuses every run when a review bot appends a summary after the candidate receipt in a bot PR body ('Malformed candidate receipt', pm-ops releases failing since 11-11) ([ops-github-db3225403a4b-269](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-269.toon))
+- Closed: Release step blames workflow approval for every timed-out release PR: the awaiting_approval flag is sticky, so failed CI, BEHIND and DIRTY are misreported ([ops-github-db3225403a4b-268](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-268.toon))
 
 ### Dependencies
 
@@ -185,6 +207,10 @@ No tracked changes.
 
 - Point the npm homepage at the package catalog and link the author ([ops-dyh7](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/chores/ops-dyh7.toon))
 
+### Closed
+
+- Closed: Point the npm homepage at the package's website and link the author ([ops-github-db3225403a4b-209](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-209.toon))
+
 ### Dependencies
 
 - Bump jscpd ([#213](https://github.com/unbraind/pm-ops/pull/213))
@@ -201,6 +227,10 @@ No tracked changes.
 
 - Refuse unsafe diagnostic and artifact inputs before reading ([ops-bounded-input](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-bounded-input.toon))
 - Honor metrics JSON format and document verified registry activation ([ops-install-routes-1022](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-install-routes-1022.toon))
+
+### Closed
+
+- Closed: Diagnostic plan input can block indefinitely on a FIFO before resource budgets ([ops-github-db3225403a4b-195](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-195.toon))
 
 ### Dependencies
 
@@ -281,6 +311,11 @@ No tracked changes.
 
 ## 2026.10.16 - 2026-10-16
 
+### Closed
+
+- Closed: Publish-attestation scanner: \[\[ =~ regex \]\] operands and array assignments with quoted parentheses read as unresolved publish paths ([ops-github-db3225403a4b-172](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-172.toon))
+- Closed: Publish-attestation scanner: a multi-line quoted string inside a command substitution is misread as an unprovable executable expansion ([ops-github-db3225403a4b-170](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-170.toon))
+
 ### Dependencies
 
 - Bump pm-changelog ([#174](https://github.com/unbraind/pm-ops/pull/174))
@@ -301,6 +336,11 @@ No tracked changes.
 
 - Reject unresolved alias and function publish indirection in canonical attestation auditor ([ops-publish-indirection](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-publish-indirection.toon))
 - Keep merge-driver prepare read-only during npm pack and publish ([ops-pack-prepare](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-pack-prepare.toon))
+
+### Closed
+
+- Closed: Canonical publish-attestation auditor misses publishes routed through aliases, forwarding functions and xargs ([ops-github-db3225403a4b-149](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-149.toon))
+- Closed: prepare-merge-driver template mutates .git/config during npm pack ([ops-github-db3225403a4b-148](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-148.toon))
 
 ## 2026.10.13 - 2026-10-13
 
@@ -343,9 +383,15 @@ No tracked changes.
 
 - Auto-merge green Dependabot updates and group the pm toolchain into one daily PR ([ops-k1lf](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/tasks/ops-k1lf.toon))
 
+### Closed
+
+- Closed: Docstring and duplication gates silently skip .tsx sources (walker filters .ts; jscpd runs --format typescript only) ([ops-github-db3225403a4b-128](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-128.toon))
+
 ## 2026.10.4 - 2026-10-04
 
-No tracked changes.
+### Closed
+
+- Closed: prepare-merge-driver probe: lstatSync only suppresses ENOENT, so an unreadable or looping ancestor node_modules crashes the prepare hook with a raw fs error ([ops-github-db3225403a4b-135](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-135.toon))
 
 ## 2026.9.29 - 2026-09-29
 
@@ -549,6 +595,7 @@ No tracked changes.
 ### Closed
 
 - Closed: The identity gate deadlocks the one remediation its own failure message prescribes ([ops-wsi9](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-wsi9.toon))
+- Closed: merge-receipts labels two canonical fence patterns as stale, inviting someone to delete extension merge protection ([ops-github-db3225403a4b-44](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-44.toon))
 
 ### Dependencies
 
@@ -560,10 +607,6 @@ No tracked changes.
 
 - A truncated list-all answer corrupts fleet throughput and cycle-time metrics ([ops-x3wc](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-x3wc.toon))
 - The pm CLI compatibility floor was declared only in peerDependencies, which only npm enforces, and not in manifest.json pm_min_version, which is the field the CLI enforces ([ops-zl7a](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-zl7a.toon))
-
-### Closed
-
-- Closed: merge-receipts labels two canonical fence patterns as stale, inviting someone to delete extension merge protection ([ops-github-db3225403a4b-44](https://github.com/unbraind/pm-ops/blob/main/.agents/pm/issues/ops-github-db3225403a4b-44.toon))
 
 ## 2026.8.16 - 2026-08-16
 

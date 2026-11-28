@@ -1,0 +1,25 @@
+id: ops-github-db3225403a4b-209
+title: Point the npm homepage at the package's website and link the author
+description: "GH issue #209: https://github.com/unbraind/pm-ops/issues/209 · author @unbraind · state reason completed · created 2026-10-25T21:56:09Z · updated 2026-10-26T08:22:45Z"
+type: Issue
+status: closed
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#209","github_author:unbraind"
+created_at: "2026-10-25T21:56:09Z"
+updated_at: "2026-11-28T08:57:52.220Z"
+closed_at: "2026-10-26T08:22:45Z"
+completed_at: "2026-10-26T08:22:45Z"
+author: pm-github
+release: v2026.10.26
+close_reason: "Closed on GitHub as completed on 2026-10-26T08:22:45Z; closing PR https://github.com/unbraind/pm-ops/pull/214 (\"Point the npm homepage at the package catalog and link the author\")"
+github_close_reason: "Closed on GitHub as completed on 2026-10-26T08:22:45Z; closing PR https://github.com/unbraind/pm-ops/pull/214 (\"Point the npm homepage at the package catalog and link the author\")"
+github_closed_at: "2026-10-26T08:22:45Z"
+github_created_at: "2026-10-25T21:56:09Z"
+github_link_only: false
+github_number: 209
+github_release: v2026.10.26
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-10-26T08:22:45Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/209"
+body: "## Why\n\nOn npm, `pm-ops` links **Homepage** to `https://github.com/unbraind/pm-ops#readme`, the same place as the Repository link beside it. The package has its page in the pm cli package catalog: https://pm-cli.unbrained.dev/packages/pm-ops. Pointing npm there gives people a useful place to land and lets search engines tie the package to its website. The author field (`\"@unbrained\"`) has no link to the person behind the work.\n\n## What to change\n\nIn `package.json`:\n\n```json\n\"homepage\": \"https://pm-cli.unbrained.dev/packages/pm-ops\",\n\"author\": { \"name\": \"unbrained\", \"url\": \"https://unbrained.dev/about\" },\n```\n\n- Currently: `\"homepage\": \"https://github.com/unbraind/pm-ops#readme\"`, `\"author\": \"@unbrained\"`.\n- Keep `repository` and `bugs` as they are.\n- Set the repository's GitHub website (About → Website) to the same address (currently empty): `gh repo edit unbraind/pm-ops --homepage https://pm-cli.unbrained.dev/packages/pm-ops`.\n- npm takes the new fields with the next published version.\n\n## Acceptance\n\n- [ ] `npm view pm-ops homepage` prints `https://pm-cli.unbrained.dev/packages/pm-ops` after the next release.\n- [ ] `npm view pm-ops author` includes the url `https://unbrained.dev/about`.\n- [ ] The GitHub repository's website is `https://pm-cli.unbrained.dev/packages/pm-ops`.\n\n## Context\n\nChecked 2026-10-25 with `npm view` and the GitHub API. The same change has been filed in every published unbrained package's repository (pm-cli as unbraind/pm-cli#1594, its extensions, pm-web and the agent-ready clis), so they all link the same way: the product page as homepage, https://unbrained.dev/about as the author."

@@ -1,0 +1,21 @@
+id: ops-github-db3225403a4b-304
+title: Verify Bun-installed libraries without requiring PM extension activation
+description: "GH issue #304: https://github.com/unbraind/pm-ops/issues/304 · author @unbraind · created 2026-11-19T08:34:22Z · updated 2026-11-19T08:34:22Z"
+type: Issue
+status: open
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#304","github_author:unbraind"
+created_at: "2026-11-19T08:34:22Z"
+updated_at: "2026-11-28T08:57:54.493Z"
+author: pm-github
+github_close_reason: ""
+github_closed_at: ""
+github_created_at: "2026-11-19T08:34:22Z"
+github_link_only: false
+github_number: 304
+github_release: ""
+github_state: open
+github_state_reason: unspecified
+github_updated_at: "2026-11-19T08:34:22Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/304"
+body: "[PM Brand release 44483605182](https://github.com/unbraind/pm-brand/actions/runs/44483605182) published `pm-brand@2026.11.19`. The [post-publication Bun job](https://github.com/unbraind/pm-brand/actions/runs/44483605182/job/135423724499) completed `bun add` and tracker initialization, then `pm package install ./node_modules/pm-brand --project` exited 2 because there was no extension manifest. The final diagnostic labeled this a mirror problem although Bun had installed the package.\n\n[Brand’s release source](https://github.com/unbraind/pm-brand/tree/612269272d95affdccead5016f71797e546110c6) documents an asset/SDK library and standalone CLI, not a PM extension. The public npm archives for 2026.10.17 and 2026.11.19 have the same 152 file paths; neither declares `pm` metadata in `package.json` or ships an `extensions/` directory. This is archive inspection, not a runtime test.\n\n[The shared Ops verifier at the caller’s pinned revision](https://github.com/unbraind/pm-ops/blob/c46a2419c63af3b348e6b559b0733ab0d9942cc7/.github/workflows/daily-release.yml#L1706-L1749) activates every Bun-installed artifact as a PM extension. A library that meets its documented contract can therefore fail and never reach caller-specific acceptance.\n\nAcceptance: retain exact-version Bun install verification; use a supported import or standalone executable smoke check for library artifacts and require activation for extension artifacts. Cover one fixture of each type and keep the missing-manifest error for a declared extension. Distinguish registry/install failures from activation or post-install smoke failures in the final diagnostic."

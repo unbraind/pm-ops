@@ -1,0 +1,25 @@
+id: ops-github-db3225403a4b-286
+title: "Daily release: restart read-only prepare at the new main head instead of losing the day when a PR merges during preparation"
+description: "GH issue #286: https://github.com/unbraind/pm-ops/issues/286 · author @unbraind · state reason completed · created 2026-11-16T09:06:55Z · updated 2026-11-17T07:36:18Z"
+type: Issue
+status: closed
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#286","github_author:unbraind"
+created_at: "2026-11-16T09:06:55Z"
+updated_at: "2026-11-28T08:57:53.830Z"
+closed_at: "2026-11-17T07:36:18Z"
+completed_at: "2026-11-17T07:36:18Z"
+author: pm-github
+release: v2026.11.17
+close_reason: "Closed on GitHub as completed on 2026-11-17T07:36:18Z; closing PR https://github.com/unbraind/pm-ops/pull/293 (\"fix: restart daily preparation when main advances\")"
+github_close_reason: "Closed on GitHub as completed on 2026-11-17T07:36:18Z; closing PR https://github.com/unbraind/pm-ops/pull/293 (\"fix: restart daily preparation when main advances\")"
+github_closed_at: "2026-11-17T07:36:18Z"
+github_created_at: "2026-11-16T09:06:55Z"
+github_link_only: false
+github_number: 286
+github_release: v2026.11.17
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-11-17T07:36:18Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/286"
+body: "## Observed\n\nCallers of `daily-release.yml@7687a35` (v2026.11.14) lose their daily release when any PR merges to main between the scheduled trigger and the end of `prepare`:\n\n- [pm-review run 43707938636](https://github.com/unbraind/pm-review/actions/runs/43707938636): the 03:23Z schedule was created at 11:14Z and its `prepare` job ran at 15:27Z. It stopped with `Default branch advanced; retry at its current head.`, because #87 had merged in the meantime.\n- pm-review is approved for release, and npm has not moved past its 2026-10-26 first publish (2026.10.12).\n\nOn 2026-11-15 and 11-16, GitHub fired the scheduled triggers 4–8 h late, and hosted `prepare` jobs queued for hours during the midday peak. Active repositories merge several PRs in that window, so a daily `prepare` that must see an unchanged main can fail every day.\n\n`docs/reusable-release.md` (invariant 6) says that \"a changed base permits a fresh preparation on the next daily run\". That retry is 24 h away, and it fails the same way.\n\n## Proposal\n\n`prepare` is read-only (`contents: read`), so when main moves before preparation is accepted it can restart at the new head inside the same run:\n\n- Bounded: for example 3 attempts. The run still fails closed with today's message when main keeps moving.\n- Same-day cap unchanged: the GitHub Release date check and the no `-N` rule stay as they are.\n- `request` keeps its lease check: a move after preparation still refuses the branch write, so the invariant about mutating only a verified base is untouched.\n- The summary logs each restart (old head → new head), so the hourly reconcile and operators can see it.\n\nAlternatively, or in addition, the hourly `reconcile-only` run could admit one fresh preparation when today's scheduled preparation failed only on base movement and no candidate exists yet. That keeps one auto-release per day.\n\n## Acceptance\n\n- A merge to main during `prepare` no longer costs the day's release. A test drives a moved base on the first attempt and an unchanged base on the second.\n- The refusal path is unchanged when main moves on every attempt.\n- The docs replace \"next daily run\" with the new behaviour.\n\n\n---\n\n### GitHub comments (1)\n\n> **@unbraind** (2026-11-16T19:39:26Z)\n>\n> Another occurrence on 2026-11-16, in pm-rl. Daily Release run started 11:48Z and finished 15:59Z: the request job queued for hours on the shared pool. It failed with `main advanced from b7d1d03 to 360ec7e while preparing the release`. The advancing commit was a Dependabot auto-merge (#181, dev dependencies, merged 14:14Z), so the orchestrator's merge gate (`release_in_flight`) cannot prevent this: GitHub auto-merge merges on its own. pm-rl still has not published since 2026.7.31. Restarting prepare at the new main head, as proposed here, would have released it."

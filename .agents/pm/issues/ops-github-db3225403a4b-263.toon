@@ -1,0 +1,21 @@
+id: ops-github-db3225403a4b-263
+title: Classify npm argv in the bootstrap contract with one option table instead of piecemeal token checks
+description: "GH issue #263: https://github.com/unbraind/pm-ops/issues/263 · author @unbraind · created 2026-11-09T09:02:17Z · updated 2026-11-09T11:25:12Z"
+type: Issue
+status: open
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#263","github_author:unbraind"
+created_at: "2026-11-09T09:02:17Z"
+updated_at: "2026-11-28T08:57:52.564Z"
+author: pm-github
+github_close_reason: ""
+github_closed_at: ""
+github_created_at: "2026-11-09T09:02:17Z"
+github_link_only: false
+github_number: 263
+github_release: ""
+github_state: open
+github_state_reason: unspecified
+github_updated_at: "2026-11-09T11:25:12Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/263"
+body: "## Why\n\nThe npm-runtime release PR (pull request 260: install Dependabot lockfiles with a pinned npm) went through seven review rounds. Its later findings in `test/npm-bootstrap-contract.ts` all come from one class: the contract classifies npm argv with hand-rolled token checks, and each round finds another npm option form it misreads.\n\n## Open findings to close as one change\n\n1. Separate-value npm options (`--prefix <dir>`, `--cache <dir>`, `-C <dir>`, and so on) are not recognized, so their value is read as a positional argument or command.\n2. `npm exec` (and `npm x` / `npx`) can acquire a package implicitly even without `--package`, and the contract does not detect that.\n3. Arguments meant for the child command after `--` (or after the exec target) are scanned as npm package options.\n\n## Proposed fix\n\nClassify argv with one table of npm's options: flag or value-taking, and the aliases for each. Stop at `--` and at the exec target. Back the table with must-refuse and must-allow corpora covering separate-value, `=value` and short forms, implicit acquisition, and child arguments, plus a revert proof.\n\n## Acceptance\n\n- The three findings are covered by the corpora.\n- Every command the release and CI workflows currently run still passes the contract.\n- Reverting the table fails the corpus test.\n\n\n---\n\n### GitHub comments (1)\n\n> **@unbraind** (2026-11-09T11:25:11Z)\n>\n> More findings from the final review of the npm-runtime PR (pull request 260, head 1a48114), to close in the same change:\n> \n> 4. Treat `npm update` as an installation command (it can acquire packages).\n> 5. Count positional `npm exec <pkg>` commands as potential installs. This is the implicit-acquisition case from item 2, now also seen without `--package`.\n> 6. Keep child arguments after the exec target out of package-option detection. This restates item 3.\n> 7. `test/release-runtime.test.ts:191`: make the Node on PATH distinguishable from the caller's Node in the bootstrap matrix, so a test that picks the wrong one fails."

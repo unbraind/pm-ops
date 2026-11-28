@@ -1,0 +1,25 @@
+id: ops-github-db3225403a4b-302
+title: Operator retirement refuses a candidate whose recorded publish attempts all failed before npm accepted the tarball
+description: "GH issue #302: https://github.com/unbraind/pm-ops/issues/302 · author @unbraind · state reason completed · created 2026-11-19T02:40:53Z · updated 2026-11-19T06:27:22Z"
+type: Issue
+status: closed
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#302","github_author:unbraind"
+created_at: "2026-11-19T02:40:53Z"
+updated_at: "2026-11-28T08:57:54.329Z"
+closed_at: "2026-11-19T06:27:22Z"
+completed_at: "2026-11-19T06:27:22Z"
+author: pm-github
+release: v2026.11.19
+close_reason: "Closed on GitHub as completed on 2026-11-19T06:27:22Z; closing PR https://github.com/unbraind/pm-ops/pull/303 (\"Allow operator retirement after failed npm publish attempts\")"
+github_close_reason: "Closed on GitHub as completed on 2026-11-19T06:27:22Z; closing PR https://github.com/unbraind/pm-ops/pull/303 (\"Allow operator retirement after failed npm publish attempts\")"
+github_closed_at: "2026-11-19T06:27:22Z"
+github_created_at: "2026-11-19T02:40:53Z"
+github_link_only: false
+github_number: 302
+github_release: v2026.11.19
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-11-19T06:27:22Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/302"
+body: "`decideUnpublishedRetirement` (release-continuation.ts:130-135 at c46a2419, v2026.11.18) only retires when `registry === \"absent\" && !e.attempted && tagSha === null && releaseSha === null`. The publish step records an attempt BEFORE calling `npm publish`. If every attempt then fails and npm never accepts the tarball (network failure, OIDC refusal), the candidate is unpublished and untagged but `attempted` is true. Retirement is refused, and every later run blocks on the same candidate, with no operator recovery path.\n\nFound while adopting the pinned flow in pm-vcs (pm-vcs#207, CodeRabbit thread `PRRT_kwDOToJT7M65RYFK`); the caller already exposes and forwards `retire-unpublished`.\n\n**Expected:** when the registry is verifiably absent for that version, with no tag and no GitHub Release, a recorded-but-failed attempt can be retired explicitly (`retire-unpublished=true`). The refusal should stay for any attempt where npm shows the version, or where the registry check is ambiguous.\n\n**Fix direction:** distinguish an 'attempted, registry absent after the attempt window' state from 'attempted, outcome unknown'. Require the live registry check to come after the attempt's recorded time plus a settle delay. Add fixtures for all three cases.\n\n---\n\n### GitHub comments (1)\n\n> **@coderabbitai[bot]** (2026-11-19T02:41:16Z)\n>\n> <!-- coderabbit-ai-generated:v1 -->\n> \n> <!-- This is an auto-generated issue plan by CodeRabbit -->\n> <details>\n> <summary>🔗 Related PRs</summary>\n> <dl>\n> <dd>\n> <br>\n> \n> unbraind/pm-ops#250 - Free release runners while protected PR checks run [merged]\n> </dd>\n> </dl>\n> </details>\n> \n> ---\n> <details>\n> <summary>📝 Issue Planner</summary>\n> <dl>\n> <dd>\n> <br>\n> \n> <sub>Check the box below or use the `@coderabbitai plan` command to generate an implementation plan and prompts that you can use with your favorite coding assistant.</sub>\n> \n> - [ ] <!-- {\"checkboxId\":\"8d4f2b9c-3e1a-4f7c-a9b2-d5e8f1c4a7b9\"} --> Create Plan\n> </dd>\n> </dl>\n> </details>\n> \n> \n> ---\n> <details>\n> <summary> 🧪 Issue enrichment is currently in open beta.</summary>\n> <dl>\n> <dd>\n> <br>\n> \n> \n> You can configure auto-planning by selecting labels in the issue_enrichment configuration.\n> \n> To disable automatic issue enrichment, add the following to your `.coderabbit.yaml`:\n> ```yaml\n> issue_enrichment:\n>   auto_enrich:\n>     enabled: false\n> ```\n> </dd>\n> </dl>\n> </details>\n> \n> 💬 Have feedback or questions? Drop into our [discord](https://discord.gg/coderabbit)!"

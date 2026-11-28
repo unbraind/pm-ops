@@ -1,0 +1,25 @@
+id: ops-github-db3225403a4b-328
+title: Daily gated issue sync is failing
+description: "GH issue #328: https://github.com/unbraind/pm-ops/issues/328 · author @github-actions[bot] · state reason completed · created 2026-11-26T09:41:54Z · updated 2026-11-26T21:21:52Z"
+type: Issue
+status: closed
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#328","github_author:github-actions[bot]"
+created_at: "2026-11-26T09:41:54Z"
+updated_at: "2026-11-28T08:57:55.344Z"
+closed_at: "2026-11-26T21:21:52Z"
+completed_at: "2026-11-26T21:21:52Z"
+author: pm-github
+release: v2026.11.27
+close_reason: "Closed on GitHub as completed on 2026-11-26T21:21:52Z"
+github_close_reason: "Closed on GitHub as completed on 2026-11-26T21:21:52Z"
+github_closed_at: "2026-11-26T21:21:52Z"
+github_created_at: "2026-11-26T09:41:54Z"
+github_link_only: false
+github_number: 328
+github_release: v2026.11.27
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-11-26T21:21:52Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/328"
+body: "Failing step: Gated GitHub to pm import\nRun URL: https://github.com/unbraind/pm-ops/actions/runs/45793905360/attempts/1\nRules: none\n\n\n---\n\n### GitHub comments (1)\n\n> **@coderabbitai[bot]** (2026-11-26T09:42:17Z)\n>\n> <!-- coderabbit-ai-generated:v1 -->\n> \n> <!-- This is an auto-generated issue plan by CodeRabbit -->\n> <details>\n> <summary>🔗 Related PRs</summary>\n> <dl>\n> <dd>\n> <br>\n> \n> unbraind/pm-ops#327 - Let the gated sync's failure alert open its tracking issue [closed]\n> unbraind/pm-ops#287 - Fix the scheduled issue sync: Node 22 lockfile and a stale issue mirror that tripped the import privacy gate [merged]\n> unbraind/pm-ops#324 - Pin pm-github 2026.11.25 so the gated sync works with the installed pm CLI again [closed]\n> unbraind/pm-ops#281 - Pin pm-github 2026.11.15 so sync and closeout stop holding runners while CI runs [closed]\n> </dd>\n> </dl>\n> </details>\n> \n> ---\n> <details>\n> <summary>📝 Issue Planner</summary>\n> <dl>\n> <dd>\n> <br>\n> \n> <sub>Check the box below or use the `@coderabbitai plan` command to generate an implementation plan and prompts that you can use with your favorite coding assistant.</sub>\n> \n> - [ ] <!-- {\"checkboxId\":\"8d4f2b9c-3e1a-4f7c-a9b2-d5e8f1c4a7b9\"} --> Create Plan\n> </dd>\n> </dl>\n> </details>\n> \n> \n> ---\n> <details>\n> <summary> 🧪 Issue enrichment is currently in open beta.</summary>\n> <dl>\n> <dd>\n> <br>\n> \n> \n> You can configure auto-planning by selecting labels in the issue_enrichment configuration.\n> \n> To disable automatic issue enrichment, add the following to your `.coderabbit.yaml`:\n> ```yaml\n> issue_enrichment:\n>   auto_enrich:\n>     enabled: false\n> ```\n> </dd>\n> </dl>\n> </details>\n> \n> 💬 Have feedback or questions? Drop into our [discord](https://discord.gg/coderabbit)!"

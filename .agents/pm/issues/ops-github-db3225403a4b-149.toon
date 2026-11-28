@@ -1,0 +1,25 @@
+id: ops-github-db3225403a4b-149
+title: "Canonical publish-attestation auditor misses publishes routed through aliases, forwarding functions and xargs"
+description: "GH issue #149: https://github.com/unbraind/pm-ops/issues/149 · author @unbraind · state reason completed · created 2026-10-07T22:21:35Z · updated 2026-10-13T19:07:01Z"
+type: Issue
+status: closed
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#149","github_author:unbraind"
+created_at: "2026-10-07T22:21:35Z"
+updated_at: "2026-11-28T08:57:51.361Z"
+closed_at: "2026-10-13T19:07:01Z"
+completed_at: "2026-10-13T19:07:01Z"
+author: pm-github
+release: v2026.10.14
+close_reason: "Closed on GitHub as completed on 2026-10-13T19:07:01Z; closing commit https://github.com/unbraind/pm-ops/commit/370fdb851e828b27decb4185a60f7a6a825c1723"
+github_close_reason: "Closed on GitHub as completed on 2026-10-13T19:07:01Z; closing commit https://github.com/unbraind/pm-ops/commit/370fdb851e828b27decb4185a60f7a6a825c1723"
+github_closed_at: "2026-10-13T19:07:01Z"
+github_created_at: "2026-10-07T22:21:35Z"
+github_link_only: false
+github_number: 149
+github_release: v2026.10.14
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-10-13T19:07:01Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/149"
+body: "The canonical publish-attestation auditor checks that every `npm publish` invocation in a release workflow carries `--provenance`. It does not resolve indirection, so these shapes pass unchecked:\n- shell aliases;\n- functions that forward \"$@\" to `npm publish`;\n- `xargs` routed through a variable.\n\n[pm-web#176](https://github.com/unbraind/pm-web/pull/176) reproduced these against the built package and added a conservative local layer in pm-web's copy. Any publish path it cannot resolve is rejected (it fails closed), backed by an adversarial corpus of 66 tests.\n\nEvery other fleet package still runs the canonical auditor without that layer. Move the rejection rules and the adversarial corpus into the canonical pm-ops auditor, roll it out through the usual template re-copy, and then drop the local layer in pm-web.\n\nVerification on pm-web#176: with pm-web's copy reverted to the canonical version, 35 of 67 indirection tests fail; with the layer, all pass."
