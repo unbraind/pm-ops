@@ -1,0 +1,21 @@
+id: ops-github-db3225403a4b-277
+title: Node 22 frozen install blocks gated closeout on the current lockfile
+description: "GH issue #277: https://github.com/unbraind/pm-ops/issues/277 · author @unbraind · created 2026-11-14T13:32:34Z · updated 2026-11-14T13:32:34Z"
+type: Issue
+status: open
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#277","github_author:unbraind"
+created_at: "2026-11-14T13:32:34Z"
+updated_at: "2026-11-28T08:57:53.465Z"
+author: pm-github
+github_close_reason: ""
+github_closed_at: ""
+github_created_at: "2026-11-14T13:32:34Z"
+github_link_only: false
+github_number: 277
+github_release: ""
+github_state: open
+github_state_reason: unspecified
+github_updated_at: "2026-11-14T13:32:34Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/277"
+body: "The [gated closeout job](https://github.com/unbraind/pm-ops/actions/runs/43587382061/job/132424681521) on main `7687a35d7522482bd8361d60dbc2589e9afbc81c` fails before tracker processing: `npm ci --ignore-scripts` exits 1, `Invalid: lock file's glob@13.0.6 does not satisfy glob@13.0.7`.\n\n**Reproduced:** Copy only the exact [manifest](https://github.com/unbraind/pm-ops/blob/7687a35d7522482bd8361d60dbc2589e9afbc81c/package.json) and [lockfile](https://github.com/unbraind/pm-ops/blob/7687a35d7522482bd8361d60dbc2589e9afbc81c/package-lock.json) into a disposable directory. On Linux x64 with the official Node 22.18.0 distribution and bundled npm 10.9.3, run `npm ci --ignore-scripts --no-audit --no-fund --dry-run`. Same exit 1 and mismatch; both source hashes remain unchanged. The prior Node 24.22.1/npm 11.9.0 dry-run passed on those bytes. This is a toolchain-specific reproducible setup failure; it is not evidence of a tracker mutation or release failure.\n\n**Expected / acceptance:** The committed dependency graph installs frozen on the exact Node 22 closeout toolchain and the other supported runtime lane(s); confirm the real gated workflow proceeds to the read/plan phase. Preserve the frozen-install, audit and tracker guards, and add an exact pinned-toolchain frozen-install regression check. Do not replace npm ci with a mutable install to mask the mismatch."

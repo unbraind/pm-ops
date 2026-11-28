@@ -1,0 +1,21 @@
+id: ops-github-db3225403a4b-314
+title: "Daily Release: an interrupted retire-unpublished run cannot be completed by a retry"
+description: "GH issue #314: https://github.com/unbraind/pm-ops/issues/314 · author @unbraind · created 2026-11-23T01:50:03Z · updated 2026-11-23T02:58:34Z"
+type: Issue
+status: open
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#314","github_author:unbraind"
+created_at: "2026-11-23T01:50:03Z"
+updated_at: "2026-11-28T08:57:54.655Z"
+author: pm-github
+github_close_reason: ""
+github_closed_at: ""
+github_created_at: "2026-11-23T01:50:03Z"
+github_link_only: false
+github_number: 314
+github_release: ""
+github_state: open
+github_state_reason: unspecified
+github_updated_at: "2026-11-23T02:58:34Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/314"
+body: "Reported by CodeRabbit on unbraind/pm-lint#85 (thread `PRRT_kwDOVHTnEc66qaG8`), against the pinned Daily Release `retire-unpublished` path. It needs verification against `scripts/release-continuation.ts` (`retireUnpublished` branch) and `release-continuation.ts` (`decideUnpublishedRetirement`).\n\n## Claim\n\n1. The first run saves the retired receipt, and then GitHub rejects the PR close request.\n2. The release PR stays open with auto-merge disabled.\n3. A second `retire-unpublished` dispatch finds no active receipt and exits without closing the PR.\n\nThe first run changed durable state but failed, and a retry cannot finish it.\n\n## Expected\n\nRetirement can be retried. A rerun finds an owned, still-open release PR that carries a retired receipt, re-runs the safety checks (no tag, no GitHub Release, version absent on npm, settle window passed), and completes the close. Retired receipts stay excluded from the publication path.\n\n## Acceptance\n\n- A fixture where the close request fails after the receipt is saved. A second dispatch completes the close, idempotently.\n- A retired receipt is never picked up for publication.\n- A successful single-run retirement is unchanged.\n\n\n---\n\n### GitHub comments (1)\n\n> **@unbraind** (2026-11-23T02:56:41Z)\n>\n> Independently reproduced against the exact Daily Release revision pinned by the Lint pilot, [`7687a35d`](https://github.com/unbraind/pm-ops/tree/7687a35d7522482bd8361d60dbc2589e9afbc81c), using the existing synthetic adapter harness on Node 24.22.3. No actual PR, registry, or workflow was mutated.\n> \n> - Start with an owned open/unmerged PR, untouched publication state, and `RETIRE_UNPUBLISHED=true`. Fail only the third mocked write (`PATCH {state: \"closed\"}`), after the comment and retired receipt are persisted. The first run throws, and the fixture verifies the retirement marker has the exact original artifact ID, the active marker is gone, and `--disable-auto` was invoked.\n> - Restore the close endpoint and probe again. The command returns only `pending=false`, issues no additional writes, and leaves the fixture PR open.\n> - Controls: uninterrupted retirement closes the same open fixture; normal reconciliation keeps the retired receipt out of the publication path. The existing native retirement test also passes (3 focused tests total).\n> \n> This confirms the interruption/retry case in the pinned revision, not an observed live failure. Please retain the publication exclusion in the recovery test.\n> \n> Also reproduced all three focused outcomes on the source for the current [`v2026.11.22` tag](https://github.com/unbraind/pm-ops/tree/v2026.11.22) with that revision's lockfile installed. Its release-continuation adapter matched the observed default-branch adapter byte for byte."

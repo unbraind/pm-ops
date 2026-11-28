@@ -1,0 +1,25 @@
+id: ops-github-db3225403a4b-172
+title: "Publish-attestation scanner: [[ =~ regex ]] operands and array assignments with quoted parentheses read as unresolved publish paths"
+description: "GH issue #172: https://github.com/unbraind/pm-ops/issues/172 · author @unbraind · state reason completed · created 2026-10-15T18:27:29Z · updated 2026-10-15T21:35:47Z"
+type: Issue
+status: closed
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#172","github_author:unbraind"
+created_at: "2026-10-15T18:27:29Z"
+updated_at: "2026-11-28T08:57:51.799Z"
+closed_at: "2026-10-15T21:35:47Z"
+completed_at: "2026-10-15T21:35:47Z"
+author: pm-github
+release: v2026.10.16
+close_reason: "Closed on GitHub as completed on 2026-10-15T21:35:47Z; closing PR https://github.com/unbraind/pm-ops/pull/173 (\"Read [[ =~ ]] regex operands and array assignments as words so version checks and pathspec arrays stop failing the attestation gate\")"
+github_close_reason: "Closed on GitHub as completed on 2026-10-15T21:35:47Z; closing PR https://github.com/unbraind/pm-ops/pull/173 (\"Read [[ =~ ]] regex operands and array assignments as words so version checks and pathspec arrays stop failing the attestation gate\")"
+github_closed_at: "2026-10-15T21:35:47Z"
+github_created_at: "2026-10-15T18:27:29Z"
+github_link_only: false
+github_number: 172
+github_release: v2026.10.16
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-10-15T21:35:47Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/172"
+body: "## Summary\n\nOn current `main` (6ec0512, released as 2026.10.15) the publish-attestation verifier refuses two fleet workflows that contain no unproven publish. Both repositories pin pm-ops 2026.10.6, where they pass, so the next Dependabot pm-ops bump will fail their `verify:release-publish-attestation` test.\n\n| Repository | File | Construct | Verdict on main |\n|---|---|---|---|\n| pm-changelog | `.github/workflows/release.yml:110` | `if [[ \"$current_version\" =~ ^([0-9]+)\\.([0-9]+)\\.([0-9]+)(-[0-9]+)?$ ]]; then` | `cannot prove executable expansion; refusing an unresolved publish path: ?$ ]]` |\n| pm-github | `.github/workflows/pm-github-sync.yml:80` | `[[ \"${PM_GITHUB_VERSION}\" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9]+)?$ ]] \\|\\| { …; exit 1; }` | same |\n| pm-github | `.github/workflows/pm-github-sync.yml:131` | `sync_scope=(\":(top,literal)${PM_SYNC_TRACKER}\" ':(top,literal)CHANGELOG.md' …)` | `… unresolved publish path: :(top,literal)${PM_SYNC_TRACKER} …` |\n\n## How this was measured\n\nThe verifier from 6ec0512 (`dist/attestation.js`, `verify(root)` + `report`) was run against every fleet checkout that has a `release.yml`, then compared with the candidate in #171. #171 changes no verdict except fixing pm-review, so these two are pre-existing and separate from #170.\n\n## Expected\n\n- The right-hand side of `=~` inside `[[ … ]]` is a regular expression operand. Its `(`, `)`, `?` and trailing `$` are not substitutions, subshells or expansions in command position.\n- An array assignment `name=( … )` holds words, not a command. Quoted elements containing `(`/`)` stay inside their quotes.\n- The refusal has to keep failing closed when a `[[ … ]]` operand or an array element really hides `$(npm publish)` or a backtick publish. That needs adversarial tests in both directions, as #170 required.\n\nFound while verifying #171 for the 2026-10-15 fleet session."

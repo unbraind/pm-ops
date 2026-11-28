@@ -1,13 +1,16 @@
 id: ops-github-db3225403a4b-329
 title: "Gated issue sync has failed for 30 days: the tracker's workflow policy refuses every import (repro_steps, expected_result, resolution)"
-description: "GH issue #329: https://github.com/unbraind/pm-ops/issues/329 · author @unbraind · created 2026-11-26T10:27:06Z · updated 2026-11-26T10:27:37Z"
+description: "GH issue #329: https://github.com/unbraind/pm-ops/issues/329 · author @unbraind · state reason completed · created 2026-11-26T10:27:06Z · updated 2026-11-26T21:19:20Z"
 type: Issue
-status: open
+status: closed
 priority: 2
 tags[2]: "gh:unbraind/pm-ops#329","github_author:unbraind"
 created_at: "2026-11-26T10:27:06Z"
-updated_at: "2026-11-26T20:46:12.828Z"
+updated_at: "2026-11-28T08:57:55.493Z"
+closed_at: "2026-11-26T21:19:20Z"
+completed_at: "2026-11-26T21:19:20Z"
 author: pm-github
+release: v2026.11.27
 comments[7]{created_at,author,text}:
   "2026-11-26T20:24:45.761Z",codex-agent,"Baseline origin/main 525b958, pm CLI 2026.11.24 and scheduled pm-github 2026.11.25. The gated dry run verified 28 issues (27 new, one matched). Apply exited 1: Workflow policy refused import: completeness-issue (require_fields), fleet-closed-resolution (require_fields). Missing: repro_steps, expected_result, resolution. The SDK recorded a refusal in workspace history and reported normal compensation. Testing the pinned policy operation selector against the import and direct lifecycle writes."
   "2026-11-26T20:29:09.783Z",codex-agent,"Selected operation-scoped enforcement. GitHub atomic finalization uses the SDK import operation; native creation, editing, closure, restore and normalization continue to enforce the two rules. Descriptive content and GitHub closing reasons do not substitute for the three pm evidence fields. The published fleet defaults stay intact. Scratch gated dry run planned 27 creates and one update; apply committed those 28 writes with zero privacy findings across 56 files; repeat wrote zero."
@@ -26,14 +29,15 @@ tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test --test-concurrency=2 test/lifecycle-policy.test.ts test/verify-lifecycle-policy.test.ts,project,codex-agent,"2026-11-26T20:29:08.654Z",local_mutation,fix/issue-sync-passes-tracker-policy
 docs[1]{path,scope}:
   docs/issue-sync-policy.md,project
-github_close_reason: ""
-github_closed_at: ""
+close_reason: "Closed on GitHub as completed on 2026-11-26T21:19:20Z; closing PR https://github.com/unbraind/pm-ops/pull/331 (\"Fix gated issue sync policy refusals (#329)\")"
+github_close_reason: "Closed on GitHub as completed on 2026-11-26T21:19:20Z; closing PR https://github.com/unbraind/pm-ops/pull/331 (\"Fix gated issue sync policy refusals (#329)\")"
+github_closed_at: "2026-11-26T21:19:20Z"
 github_created_at: "2026-11-26T10:27:06Z"
 github_link_only: false
 github_number: 329
-github_release: ""
-github_state: open
-github_state_reason: unspecified
-github_updated_at: "2026-11-26T10:27:37Z"
+github_release: v2026.11.27
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-11-26T21:19:20Z"
 github_url: "https://github.com/unbraind/pm-ops/issues/329"
-body: "## What happens\n\nThe scheduled \"Sync GitHub issues into pm\" run of this repository has failed on every one of the last 30 days. With the version mismatch between the pm CLI and pm-github out of the way (2026-11-26), the remaining cause is visible:\n\n> Atomic GitHub import transaction … failed … Underlying error: Workflow policy refused import: completeness-issue (require_fields), fleet-closed-resolution (require_fields). Missing: repro_steps, expected_result, resolution. Audit appended to tracker-relative history/_workspace.jsonl …\n\n([run of 2026-11-26](https://github.com/unbraind/pm-ops/actions/runs/45793905360))\n\nThis tracker's workflow policy requires `repro_steps` and `expected_result` on Issue items and `resolution` on closed ones. The importer creates and updates items from GitHub issues and cannot supply those fields, so the policy refuses the whole import. The failure raised no alert until now because the caller granted `issues: read` (fixed by the alert-permission change).\n\n## Expected\n\nDecide one of these and implement it with tests:\n\n1. The policy exempts importer-owned mutations (items with GitHub provenance are completed by people later), or\n2. the importer maps what it has (for example the issue body to `repro_steps`/`expected_result`, the GitHub closing reason and closing pull request to `resolution`) so that imported items satisfy the policy, or\n3. the policy applies to state transitions made by people and agents, not to mirrored state.\n\n## Acceptance\n\n- The gated import dry run and apply pass on main with the tracker's policy active: `pm github import unbraind/pm-ops --state all --atomic --gate --dry-run --with-comments`.\n- The policy still refuses an incomplete Issue item created by hand.\n- The scheduled sync is green, and its tracking issue (if one was opened) is closed by the recovery."
+body: "## What happens\n\nThe scheduled \"Sync GitHub issues into pm\" run of this repository has failed on every one of the last 30 days. With the version mismatch between the pm CLI and pm-github out of the way (2026-11-26), the remaining cause is visible:\n\n> Atomic GitHub import transaction … failed … Underlying error: Workflow policy refused import: completeness-issue (require_fields), fleet-closed-resolution (require_fields). Missing: repro_steps, expected_result, resolution. Audit appended to tracker-relative history/_workspace.jsonl …\n\n([run of 2026-11-26](https://github.com/unbraind/pm-ops/actions/runs/45793905360))\n\nThis tracker's workflow policy requires `repro_steps` and `expected_result` on Issue items and `resolution` on closed ones. The importer creates and updates items from GitHub issues and cannot supply those fields, so the policy refuses the whole import. The failure raised no alert until now because the caller granted `issues: read` (fixed by the alert-permission change).\n\n## Expected\n\nDecide one of these and implement it with tests:\n\n1. The policy exempts importer-owned mutations (items with GitHub provenance are completed by people later), or\n2. the importer maps what it has (for example the issue body to `repro_steps`/`expected_result`, the GitHub closing reason and closing pull request to `resolution`) so that imported items satisfy the policy, or\n3. the policy applies to state transitions made by people and agents, not to mirrored state.\n\n## Acceptance\n\n- The gated import dry run and apply pass on main with the tracker's policy active: `pm github import unbraind/pm-ops --state all --atomic --gate --dry-run --with-comments`.\n- The policy still refuses an incomplete Issue item created by hand.\n- The scheduled sync is green, and its tracking issue (if one was opened) is closed by the recovery.\n\n\n---\n\n### GitHub comments (1)\n\n> **@coderabbitai[bot]** (2026-11-26T10:27:37Z)\n>\n> <!-- coderabbit-ai-generated:v1 -->\n> \n> <!-- This is an auto-generated issue plan by CodeRabbit -->\n> \n> <details>\n> <summary>⚠️ Possible Duplicate Issue(s)</summary>\n> <dl>\n> <dd>\n> <br>\n> \n> - https://github.com/unbraind/pm-ops/issues/328\n> </dd>\n> </dl>\n> </details>\n> \n> ---\n> <details>\n> <summary>📝 Issue Planner</summary>\n> <dl>\n> <dd>\n> <br>\n> \n> <sub>Check the box below or use the `@coderabbitai plan` command to generate an implementation plan and prompts that you can use with your favorite coding assistant.</sub>\n> \n> - [ ] <!-- {\"checkboxId\":\"8d4f2b9c-3e1a-4f7c-a9b2-d5e8f1c4a7b9\"} --> Create Plan\n> </dd>\n> </dl>\n> </details>\n> \n> \n> ---\n> <details>\n> <summary> 🧪 Issue enrichment is currently in open beta.</summary>\n> <dl>\n> <dd>\n> <br>\n> \n> \n> You can configure auto-planning by selecting labels in the issue_enrichment configuration.\n> \n> To disable automatic issue enrichment, add the following to your `.coderabbit.yaml`:\n> ```yaml\n> issue_enrichment:\n>   auto_enrich:\n>     enabled: false\n> ```\n> </dd>\n> </dl>\n> </details>\n> \n> 💬 Have feedback or questions? Drop into our [discord](https://discord.gg/coderabbit)!"

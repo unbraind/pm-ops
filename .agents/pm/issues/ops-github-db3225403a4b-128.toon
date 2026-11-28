@@ -1,0 +1,25 @@
+id: ops-github-db3225403a4b-128
+title: Docstring and duplication gates silently skip .tsx sources (walker filters .ts; jscpd runs --format typescript only)
+description: "GH issue #128: https://github.com/unbraind/pm-ops/issues/128 · author @unbraind · state reason completed · created 2026-09-27T10:37:24Z · updated 2026-10-04T18:14:50Z"
+type: Issue
+status: closed
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#128","github_author:unbraind"
+created_at: "2026-09-27T10:37:24Z"
+updated_at: "2026-11-28T08:57:50.863Z"
+closed_at: "2026-10-04T18:14:50Z"
+completed_at: "2026-10-04T18:14:50Z"
+author: pm-github
+release: v2026.10.05
+close_reason: "Closed on GitHub as completed on 2026-10-04T18:14:50Z; closing PR https://github.com/unbraind/pm-ops/pull/144 (\"Cover .mts and .cts sources in the docstring and duplication gates\")"
+github_close_reason: "Closed on GitHub as completed on 2026-10-04T18:14:50Z; closing PR https://github.com/unbraind/pm-ops/pull/144 (\"Cover .mts and .cts sources in the docstring and duplication gates\")"
+github_closed_at: "2026-10-04T18:14:50Z"
+github_created_at: "2026-09-27T10:37:24Z"
+github_link_only: false
+github_number: 128
+github_release: v2026.10.05
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-10-04T18:14:50Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/128"
+body: "## Summary\n\nTwo pm-ops gates silently skip `.tsx` files, so a package whose UI is written in TSX passes both gates without its components ever being checked:\n\n1. **Docstring gate** — `analyzeDocstringCoverage` walks files with `name.endsWith(\".ts\") && !name.endsWith(\".d.ts\")` (`docstrings.ts`, `collectSourceFiles`), so `.tsx` never reaches `analyzeSource`.\n2. **Duplication gate** — `runDuplicationGate` invokes jscpd with `--format typescript` and reads `statistics.formats.typescript` only (`duplication.ts`), so `.tsx` files matched by the caller's globs are dropped from the scan.\n\nFound with pm-ops `2026.9.26` while wiring the gates into a TanStack Start site (30 of 66 sources are `.tsx`).\n\n## Evidence\n\n- Duplication: with globs covering `src/**/*.{ts,tsx}`, the gate reported `35 source(s), 0 clone pair(s)` for 65 files. Running jscpd directly with `--format typescript,tsx` over the same files found **19 clone pairs**, all in `.tsx` route files.\n- Docstring: `analyzeSource` itself handles TSX correctly. Calling it on each `.tsx` file directly found 23 undocumented exported declarations that the directory walker never visited.\n\n## Expected\n\n- `collectSourceFiles` includes `.tsx` (still excluding `.d.ts`).\n- The duplication gate passes `--format typescript,tsx` and sums every format's statistics.\n- Both gates fail closed when the number of files they analysed differs from the number of source files matched. jscpd skips files smaller than `--min-tokens`, so a one-token pass is a cheap way to prove every file was read. This is the same \"a gate that scans too little passes for the wrong reason\" class as the existing zero-files guard.\n\n## Workaround in use\n\nThe pm-cli.unbrained.dev site calls `analyzeSource` per file for both extensions, and runs jscpd with both formats plus a file-count reconciliation."

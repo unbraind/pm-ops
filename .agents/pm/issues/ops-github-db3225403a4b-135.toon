@@ -1,0 +1,25 @@
+id: ops-github-db3225403a4b-135
+title: "prepare-merge-driver probe: lstatSync only suppresses ENOENT, so an unreadable or looping ancestor node_modules crashes the prepare hook with a raw fs error"
+description: "GH issue #135: https://github.com/unbraind/pm-ops/issues/135 · author @unbraind · state reason completed · created 2026-10-02T18:53:02Z · updated 2026-10-04T08:26:46Z"
+type: Issue
+status: closed
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#135","github_author:unbraind"
+created_at: "2026-10-02T18:53:02Z"
+updated_at: "2026-11-28T08:57:51.031Z"
+closed_at: "2026-10-04T08:26:46Z"
+completed_at: "2026-10-04T08:26:46Z"
+author: pm-github
+release: v2026.10.04
+close_reason: "Closed on GitHub as completed on 2026-10-04T08:26:46Z; closing PR https://github.com/unbraind/pm-ops/pull/136 (\"fix: preserve launcher errors when package probes fail\")"
+github_close_reason: "Closed on GitHub as completed on 2026-10-04T08:26:46Z; closing PR https://github.com/unbraind/pm-ops/pull/136 (\"fix: preserve launcher errors when package probes fail\")"
+github_closed_at: "2026-10-04T08:26:46Z"
+github_created_at: "2026-10-02T18:53:02Z"
+github_link_only: false
+github_number: 135
+github_release: v2026.10.04
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-10-04T08:26:46Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/135"
+body: "## Defect report (found by cubic review of consumer PRs that copy the published template byte-for-byte)\n\nThe canonical launcher template `templates/prepare-merge-driver.ts` (as published in pm-ops 2026.9.28 and copied verbatim into fleet consumer packages such as pm-changelog, pm-beads, pm-rl and pm-slack-standup) probes for an existing-but-broken pm-ops installation with:\n\n```ts\nresolver.resolve.paths(\"pm-ops/package.json\")!.some(\n  (directory) => lstatSync(join(directory, \"pm-ops\"), { throwIfNoEntry: false }) !== undefined,\n)\n```\n\nTwo robustness gaps in the probe:\n\n1. `throwIfNoEntry: false` suppresses only `ENOENT`. `lstatSync` still throws on `EACCES`, `EPERM`, `ELOOP` or `ENOTDIR`. The callback runs inside the `catch (probe)` block, so such an exception escapes the catch and the prepare hook aborts with a raw fs stack trace instead of either the original resolution error (for a broken install) or the omit-dev skip notice (for a legitimately absent install). An unreadable ancestor `node_modules` therefore turns a clean fail-closed or skip outcome into an unhandled crash with no diagnostic context.\n\n2. `require.resolve.paths(\"pm-ops/package.json\")` also returns Node's global module directories (`~/.node_modules`, `~/.node_libraries`, `NODE_PATH` entries). A pm-ops present only in one of those directories makes the probe report the package as \"present\", so the hook rethrows the original resolution error and fails the install even though the project-local install is a legitimate `--omit=dev` checkout. Treating such a probe hit as present is fail-closed, but the global directories arguably should not count as evidence of a broken project-local install.\n\nSuggested direction: guard each probe call so any uncertainty is treated as \"present\" (fail closed) while rethrowing the original resolution error, and decide explicitly whether global resolution paths participate in the presence probe.\n\nRepro sketch (gap 1): in a child checkout whose ancestor `node_modules` directory is unreadable (`chmod 000`) or contains a symlink loop, run `npm ci`; the prepare hook crashes with the raw fs error rather than a pm-ops diagnostic.\n\nNote: consumers enforce byte-identity with the published template (e.g. pm-beads `test/prepare-merge-driver.test.ts`), so this must be fixed in the canonical template and re-published; consumer copies cannot diverge. Filed from the fleet PR landing session (pi-land-a) after cubic flagged the same finding on four consumer PRs."

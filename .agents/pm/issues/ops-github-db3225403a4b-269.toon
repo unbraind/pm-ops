@@ -1,0 +1,25 @@
+id: ops-github-db3225403a4b-269
+title: "Release preparation refuses every run when a review bot appends a summary after the candidate receipt in a bot PR body ('Malformed candidate receipt', pm-ops releases failing since 11-11)"
+description: "GH issue #269: https://github.com/unbraind/pm-ops/issues/269 · author @unbraind · state reason completed · created 2026-11-12T12:11:10Z · updated 2026-11-13T08:55:00Z"
+type: Issue
+status: closed
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#269","github_author:unbraind"
+created_at: "2026-11-12T12:11:10Z"
+updated_at: "2026-11-28T08:57:52.911Z"
+closed_at: "2026-11-13T08:55:00Z"
+completed_at: "2026-11-13T08:55:00Z"
+author: pm-github
+release: v2026.11.14
+close_reason: "Closed on GitHub as completed on 2026-11-13T08:55:00Z; closing PR https://github.com/unbraind/pm-ops/pull/271 (\"Report current release blockers and verify receipts against the publishing identity\")"
+github_close_reason: "Closed on GitHub as completed on 2026-11-13T08:55:00Z; closing PR https://github.com/unbraind/pm-ops/pull/271 (\"Report current release blockers and verify receipts against the publishing identity\")"
+github_closed_at: "2026-11-13T08:55:00Z"
+github_created_at: "2026-11-12T12:11:10Z"
+github_link_only: false
+github_number: 269
+github_release: v2026.11.14
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-11-13T08:55:00Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/269"
+body: "## What happened\n\nEvery pm-ops Daily Release since 2026-11-11 failed at **Reconcile durable release intent** with:\n\n```\nError: Malformed candidate receipt\n```\n\nLatest example: https://github.com/unbraind/pm-ops/actions/runs/43186100514. The release-rerun sweep skips it each hour because it is not a merge-wait timeout.\n\n## Cause\n\n`parseCandidateReceipt` in `scripts/release-continuation.ts` requires the bot PR body to end with the receipt's closing `\\n-->`:\n\n```ts\nif (parts.length !== 2 || !parts[1].endsWith(\"\\n-->\")) throw new Error(\"Malformed candidate receipt\");\n```\n\nOn release PR #265 (closed), two review bots appended text after the receipt: **Sourcery** (\"## Summary by Sourcery …\") and **cubic** (\"<!-- End of auto-generated description by cubic. -->\"). The receipt itself was intact. Text after it made the whole repository's release preparation refuse. A scan of all fleet repositories' bot PRs found only #265 affected today. Any repository where these bots edit a release PR description can hit the same failure.\n\n## Repaired for now\n\nI trimmed #265's body back to end at the receipt (the bots' text removed). With that body, `parseCandidateReceipt` returns artifact 13861624524 for version 2026.11.11.\n\n## Expected\n\n- **Bound the parse by the receipt's own terminator.** Read exactly from the marker to its first `\\n-->` and ignore text after it, as text before it is already ignored. Keep refusing two markers, a missing terminator and invalid JSON, so the record stays strict while edits outside it are harmless.\n- **Or keep the receipt out of reach.** Store it where review bots don't write, for example a bot-authored PR comment, a check-run output or a git ref, and read it from there.\n- **Tests that fail on revert:**\n  - must-allow: a receipt followed by a Sourcery or cubic summary;\n  - must-refuse: two markers, a truncated terminator, and a JSON body altered inside the block.\n\n\n---\n\n### GitHub comments (1)\n\n> **@coderabbitai[bot]** (2026-11-12T12:11:32Z)\n>\n> <!-- coderabbit-ai-generated:v1 -->\n> \n> <!-- This is an auto-generated issue plan by CodeRabbit -->\n> <details>\n> <summary>🔗 Related PRs</summary>\n> <dl>\n> <dd>\n> <br>\n> \n> unbraind/pm-ops#250 - Free release runners while protected PR checks run [closed]\n> </dd>\n> </dl>\n> </details>\n> \n> ---\n> <details>\n> <summary>📝 Issue Planner</summary>\n> <dl>\n> <dd>\n> <br>\n> \n> <sub>Check the box below or use the `@coderabbitai plan` command to generate an implementation plan and prompts that you can use with your favorite coding assistant.</sub>\n> \n> - [ ] <!-- {\"checkboxId\":\"8d4f2b9c-3e1a-4f7c-a9b2-d5e8f1c4a7b9\"} --> Create Plan\n> </dd>\n> </dl>\n> </details>\n> \n> \n> ---\n> <details>\n> <summary> 🧪 Issue enrichment is currently in open beta.</summary>\n> <dl>\n> <dd>\n> <br>\n> \n> \n> You can configure auto-planning by selecting labels in the issue_enrichment configuration.\n> \n> To disable automatic issue enrichment, add the following to your `.coderabbit.yaml`:\n> ```yaml\n> issue_enrichment:\n>   auto_enrich:\n>     enabled: false\n> ```\n> </dd>\n> </dl>\n> </details>\n> \n> 💬 Have feedback or questions? Drop into our [discord](https://discord.gg/coderabbit)!"

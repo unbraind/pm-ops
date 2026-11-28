@@ -1,0 +1,25 @@
+id: ops-github-db3225403a4b-195
+title: Diagnostic plan input can block indefinitely on a FIFO before resource budgets
+description: "GH issue #195: https://github.com/unbraind/pm-ops/issues/195 · author @unbraind · state reason completed · created 2026-10-23T17:43:10Z · updated 2026-10-24T10:29:19Z"
+type: Issue
+status: closed
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#195","github_author:unbraind"
+created_at: "2026-10-23T17:43:10Z"
+updated_at: "2026-11-28T08:57:52.014Z"
+closed_at: "2026-10-24T10:29:19Z"
+completed_at: "2026-10-24T10:29:19Z"
+author: pm-github
+release: v2026.10.25
+close_reason: "Closed on GitHub as completed on 2026-10-24T10:29:19Z; closing PR https://github.com/unbraind/pm-ops/pull/196 (\"Bound package inputs and verify complete canonical release manifests\")"
+github_close_reason: "Closed on GitHub as completed on 2026-10-24T10:29:19Z; closing PR https://github.com/unbraind/pm-ops/pull/196 (\"Bound package inputs and verify complete canonical release manifests\")"
+github_closed_at: "2026-10-24T10:29:19Z"
+github_created_at: "2026-10-23T17:43:10Z"
+github_link_only: false
+github_number: 195
+github_release: v2026.10.25
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-10-24T10:29:19Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/195"
+body: "Reproduced input-boundary hang on the current PR head `0d2de720fc38b285e2e63463487b077e2d601256`: a named-pipe plan blocks before the diagnostic budgets or typed refusal can run.\n\n**Evidence and reproduction**\n- Tested with Node v24.19.0 on Linux, in an isolated synthetic directory, using the exact added `diagnostic-plans.ts` bytes verified against its Git blob SHA. No tracker, credentials, provider calls, or production state were used.\n- Create a FIFO with no writer: `mkfifo synthetic-plan.fifo`.\n- Import `readDiagnosticPlan` from that exact module and call `await readDiagnosticPlan(\"synthetic-plan.fifo\")` in a separate Node process.\n- The call produced no result/refusal and remained blocked until an external 2-second subprocess timeout terminated it (2.007 s observed). This is an SDK-module reproduction, not an installed CLI or whole-release certification.\n\n**Static cause and CLI impact**\n[`readDiagnosticPlan`](https://github.com/unbraind/pm-ops/blob/0d2de720fc38b285e2e63463487b077e2d601256/diagnostic-plans.ts) calls `open(path, \"r\")` without nonblocking flags or a regular-file check. Opening a FIFO without a writer waits before the subsequent 16 KiB buffer limit matters. [The CLI adapter](https://github.com/unbraind/pm-ops/blob/0d2de720fc38b285e2e63463487b077e2d601256/index.ts) awaits that reader before calling `executeDiagnosticPlan`, so its shared time budget cannot bound this input stage. CLI impact is established statically, not via a live command run.\n\n**Expected / source goal**\nThe [feature record](https://github.com/unbraind/pm-ops/blob/0d2de720fc38b285e2e63463487b077e2d601256/.agents/pm/features/ops-diagnostic-plans.toon) calls for explicit resource budgets and typed refusals/remedies; the reader documents a bounded review artifact. An unsupported non-regular input should promptly return the existing sanitized `invalid_plan` refusal rather than leave an agent indefinitely waiting. No probe should launch and no tracker should change.\n\n**Acceptance / regression**\nAdd a bounded subprocess regression using a FIFO with no writer, and reject non-regular inputs before any blocking read. Preserve valid regular JSON plans, malformed/oversized-file refusals, the 16 KiB ceiling, and scope/selection validation. Keep a deadline on the regression itself so a future regression cannot hang CI. This finding does not claim that the probe-dispatch budget enforcement itself failed.\n\nFollow-up owner after PR194 merged unchanged. Original independently reproduced evidence: https://github.com/unbraind/pm-ops/pull/194#issuecomment-6370990685 . All194 all-status issue/PR records and canonical feature were checked before that comment; refreshed all-status recent records after merge show no separate open owner. Creating this bug so the regression remains actionable rather than only in a closed PR."

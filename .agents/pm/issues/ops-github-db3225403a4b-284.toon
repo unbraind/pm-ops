@@ -1,0 +1,25 @@
+id: ops-github-db3225403a4b-284
+title: Parallel Deep jobs fail while replacing the global npm CLI
+description: "GH issue #284: https://github.com/unbraind/pm-ops/issues/284 · author @unbraind · state reason completed · created 2026-11-16T00:00:16Z · updated 2026-11-17T22:56:47Z"
+type: Issue
+status: closed
+priority: 2
+tags[2]: "gh:unbraind/pm-ops#284","github_author:unbraind"
+created_at: "2026-11-16T00:00:16Z"
+updated_at: "2026-11-28T08:57:53.668Z"
+closed_at: "2026-11-17T22:56:47Z"
+completed_at: "2026-11-17T22:56:47Z"
+author: pm-github
+release: v2026.11.18
+close_reason: "Closed on GitHub as completed on 2026-11-17T22:56:47Z; closing PR https://github.com/unbraind/pm-ops/pull/289 (\"ci: isolate pinned npm from the shared toolcache\")"
+github_close_reason: "Closed on GitHub as completed on 2026-11-17T22:56:47Z; closing PR https://github.com/unbraind/pm-ops/pull/289 (\"ci: isolate pinned npm from the shared toolcache\")"
+github_closed_at: "2026-11-17T22:56:47Z"
+github_created_at: "2026-11-16T00:00:16Z"
+github_link_only: false
+github_number: 284
+github_release: v2026.11.18
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-11-17T22:56:47Z"
+github_url: "https://github.com/unbraind/pm-ops/issues/284"
+body: "## Observed on current main\n\nAt `0615405e35a3f42e82888e5f050afc642f2562d8` after [#283](https://github.com/unbraind/pm-ops/pull/283), two of four [Deep jobs](https://github.com/unbraind/pm-ops/actions/runs/43773461602) failed before dependency installation or any release test:\n\n- [Node 22 / npm](https://github.com/unbraind/pm-ops/actions/runs/43773461602/job/132994308657): npm exited 217, `ENOTEMPTY` renaming the existing npm installation, while its Node 22 sibling was in the same setup step.\n- [Node 26 / Bun](https://github.com/unbraind/pm-ops/actions/runs/43773461602/job/132994308731): `npm: command not found`, exit 127 at the global install command, just after its Node 26 sibling began replacing npm. The other two legs passed.\n\nThe [workflow at this commit](https://github.com/unbraind/pm-ops/blob/0615405e35a3f42e82888e5f050afc642f2562d8/.github/workflows/ci-deep.yml#L20-L63) runs the four Node/launcher combinations in parallel. Each uses `npm install --global npm@11.21.0 --ignore-scripts --no-audit --no-fund` and checks the selected version before `npm ci`. Both failures occur during that step. The overlapping steps and symptoms are consistent with concurrent mutation of a common tool installation; filesystem topology and causation were not independently reproduced. This is a hosted CI setup defect, not a failing package behavior or publish result.\n\n## Expected result and regression coverage\n\n- Each job uses npm 11.21.0 throughout setup and the gates without replacing a shared global executable or mutating a sibling's toolchain. Keep the pin and exact-version assertion.\n- Exercise two overlapping launcher jobs per Node version in a disposable same-host or shared-cache fixture, from both cold and warm states. Assert both tools stay available and correctly pinned, both jobs reach clean dependency install, and the original four Deep gates still run.\n- Keep the hosted fallback, distinct gates, and existing protection/coverage unchanged. Show that all four exact-head Deep jobs pass on the fix; a serial run alone does not exercise the observed overlap.\n\nNo runner, shared installation, workflow, or provider was changed to gather this evidence."
